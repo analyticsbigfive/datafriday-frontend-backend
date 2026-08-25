@@ -55,7 +55,17 @@ Cible source : 4 204 tx, ventes 11:58 → 16:20 (heures Digifood strictes).
       attendu : au moins un sans heure de fin.
 - [ ] Renseigner les heures manquantes → re-agréger → chaque match retrouve ses ventes.
 
-## 10. Non-régression
+## 10. Perf Jean Bouin (BUG-143-01 backend + BUG-363-01 frontend)
+- [ ] 1ᵉʳ chargement Jean Bouin : bandeau « Chargement des évènements : x/77 » qui progresse,
+      panneau Events Performance rempli au fil de l'eau, **matchs récents d'abord**.
+- [ ] KPI globaux : squelette jusqu'au bout, puis valeurs définitives — jamais une somme qui bouge.
+- [ ] Recharger la page : requêtes `event-timeline` en < 1 s (cache Redis hit) ;
+      `redis-cli keys 'spaces:evtimeline:*'` peuplé.
+- [ ] Re-agréger un event → clé purgée → données fraîches au chargement suivant.
+- [ ] Module Live : re-poll 15 s intact (TTL 60 s sur event non passé).
+- [ ] Network : plus de preflight OPTIONS sur chaque requête API (Access-Control-Max-Age).
+
+## 11. Non-régression
 - [ ] `pnpm test:unit` (au minimum : analyseStore, spaceApiTimelineBatch, analyseFiltersState,
       analyseKpiSourceGating, shopPerformanceCompute — 81+ tests) : verts.
 - [ ] Backend : spec `digifood-csv-import.service.spec.ts` : verte.

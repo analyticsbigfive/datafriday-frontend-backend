@@ -107,6 +107,11 @@ async function bootstrap() {
     // If-Match : verrou optimiste des éléments Builder v2 (PATCH /builder-v2/elements/:id) —
     // sans lui le preflight échoue et le navigateur n'envoie jamais la requête.
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'If-Match'],
+    // Access-Control-Max-Age : sans lui le navigateur rejoue un preflight OPTIONS
+    // (~180-380 ms mesurés, Lighthouse 24/08) sur CHAQUE requête API — la page Analyse
+    // en émet des dizaines. 86400 s = plafond pratique des navigateurs (Chrome cape à 2 h,
+    // Firefox à 24 h) ; le préflight ne repart qu'à l'expiration ou si les en-têtes changent.
+    maxAge: 86400,
   });
 
   // Global prefix

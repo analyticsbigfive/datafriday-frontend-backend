@@ -360,11 +360,43 @@ export class EventsService {
     return data;
   }
 
+  /**
+   * BUG-145-01 (plan 25/08, étape 2.4) : garde de cohérence des dates. SFP-Montauban a pu
+   * être saisi avec eventDate 2025-09-20 et eventEndDate 2025-09-06 (fin AVANT le début) —
+   * fenêtre d'attribution invalide côté Analyse (0 € affiché) et agrégats posés sur un
+   * autre jour que la date visible. Aucun contrôle croisé n'existait (validation de format
+   * seule dans le DTO). Comparaison sur les valeurs EFFECTIVES : pour l'update partiel,
+   * l'appelant fusionne le payload avec la ligne existante avant d'appeler cette garde.
+   */
+  private assertEventDatesCoherent(effective: {
+    eventDate: Date;
+    eventStartDate: Date | null;
+    eventEndDate: Date | null;
+  }) {
+    const day = (d: Date) => d.toISOString().slice(0, 10);
+    const { eventDate, eventStartDate, eventEndDate } = effective;
+    if (eventEndDate && eventEndDate.getTime() < eventDate.getTime()) {
+      throw new BadRequestException(
+        `eventEndDate (${day(eventEndDate)}) cannot be earlier than eventDate (${day(eventDate)}).`,
+      );
+    }
+    if (eventStartDate && eventEndDate && eventEndDate.getTime() < eventStartDate.getTime()) {
+      throw new BadRequestException(
+        `eventEndDate (${day(eventEndDate)}) cannot be earlier than eventStartDate (${day(eventStartDate)}).`,
+      );
+    }
+  }
+
   async create(tenantId: string, dto: CreateEventDto) {
     this.logger.log(`Creating event "${dto.name}" for tenant ${tenantId}`);
     let created;
     try {
       const eventDate = new Date(dto.eventDate);
+      this.assertEventDatesCoherent({
+        eventDate,
+        eventStartDate: dto.eventStartDate !== undefined ? new Date(dto.eventStartDate) : null,
+        eventEndDate: dto.eventEndDate !== undefined ? new Date(dto.eventEndDate) : null,
+      });
       created = await this.prisma.event.create({
         data: {
           tenantId,
@@ -474,6 +506,24 @@ export class EventsService {
     // plutôt que de garder silencieusement une association qui ne correspond plus.
     const dateChanged =
       dto.eventDate !== undefined && new Date(dto.eventDate).getTime() !== existing.eventDate.getTime();
+
+    // Garde de cohérence sur les valeurs EFFECTIVES (payload partiel fusionné à
+    // l'existant) — voir assertEventDatesCoherent. `null` explicite = champ effacé.
+    // Seulement si le payload touche une date : une ligne DÉJÀ incohérente en base
+    // (Montauban avant son correctif SQL) doit rester renommable/éditable par ailleurs.
+    const touchesDates =
+      dto.eventDate !== undefined || dto.eventStartDate !== undefined || dto.eventEndDate !== undefined;
+    if (touchesDates) this.assertEventDatesCoherent({
+      eventDate: dto.eventDate !== undefined ? new Date(dto.eventDate) : existing.eventDate,
+      eventStartDate:
+        dto.eventStartDate !== undefined
+          ? (dto.eventStartDate === null ? null : new Date(dto.eventStartDate))
+          : existing.eventStartDate,
+      eventEndDate:
+        dto.eventEndDate !== undefined
+          ? (dto.eventEndDate === null ? null : new Date(dto.eventEndDate))
+          : existing.eventEndDate,
+    });
 
     let updated;
     try {

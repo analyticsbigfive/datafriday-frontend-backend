@@ -6,6 +6,8 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { SpacesService } from '../spaces/spaces.service';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { RedisService } from '../../core/redis/redis.service';
+import { unmappedCachePattern } from '../../shared/constants/event-batch-cache';
 import {
   CreateLocationSpaceMappingDto,
   CreateMerchantElementMappingDto,
@@ -30,7 +32,20 @@ export class MappingsService {
     private spacesService: SpacesService,
     private pricing: MenuItemPricingService,
     private spaceAccess: SpaceAccessService,
+    // BUG-144-01 : RedisService injecté directement (RedisModule est @Global), même
+    // pattern que AggregationService (BUG-143-01) — pour purger spaces:unmapped:* à
+    // chaque écriture de mapping, condition qui permet de cacher analyse-unmapped.
+    private redis: RedisService,
   ) {}
+
+  /** BUG-144-01 : un mapping écrit/supprimé change le volume « non mappé » de l'Analyse —
+   *  purge du cache par event (spaces:unmapped:{tenantId}:*). Fire-and-forget : une purge
+   *  qui échoue ne doit pas faire échouer l'écriture du mapping (TTL court en filet). */
+  private purgeUnmappedCache(tenantId: string) {
+    Promise.resolve(this.redis.deletePattern(unmappedCachePattern(tenantId))).catch((e) =>
+      this.logger.warn(`purgeUnmappedCache failed: ${e?.message}`),
+    );
+  }
 
   /** Lève 403 si `user` n'a pas accès à cet espace (cf. SpaceAccessService). */
   private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
@@ -275,6 +290,7 @@ export class MappingsService {
         spaceElementId: dto.spaceElementId,
       },
     });
+    this.purgeUnmappedCache(tenantId);
     return this.withLegacyLocationKey(mapping);
   }
 
@@ -322,6 +338,7 @@ export class MappingsService {
       }
     }
 
+    this.purgeUnmappedCache(tenantId);
     return {
       count: successes.length,
       total,
@@ -351,6 +368,7 @@ export class MappingsService {
       }
     }
 
+    this.purgeUnmappedCache(tenantId);
     return result;
   }
 
@@ -430,6 +448,7 @@ export class MappingsService {
         spaceElementId: dto.spaceElementId,
       },
     });
+    this.purgeUnmappedCache(tenantId);
     return this.withLegacyLocationKey(mapping);
   }
 
@@ -502,6 +521,7 @@ export class MappingsService {
       }
     }
 
+    this.purgeUnmappedCache(tenantId);
     return {
       count: successes.length,
       total,
@@ -529,6 +549,7 @@ export class MappingsService {
       }
     }
 
+    this.purgeUnmappedCache(tenantId);
     return result;
   }
 
@@ -783,6 +804,7 @@ export class MappingsService {
       );
     }
 
+    this.purgeUnmappedCache(tenantId);
     return {
       count: successes.length,
       total,
@@ -793,9 +815,11 @@ export class MappingsService {
   }
 
   async deleteProductMapping(tenantId: string, weezeventProductId: string) {
-    return this.prisma.productMapping.deleteMany({
+    const result = await this.prisma.productMapping.deleteMany({
       where: { tenantId, salesProductId: weezeventProductId },
     });
+    this.purgeUnmappedCache(tenantId);
+    return result;
   }
 
   // ─── Integration Progress ────────────────────────────────

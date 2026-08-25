@@ -152,3 +152,87 @@ volume vs Weezevent) sont donc les plus prioritaires — indique la priorité da
 3. Les deux `00_INDEX.md` à jour.
 4. Une synthèse finale : ce qui est confirmé dans le code, ce qui reste à vérifier en base ou en
    recette, et les questions à poser à Bertrand.
+
+---
+
+# Déjà fait — ne pas refaire
+
+> ⚠️ Ce lot était « en attente de commit » au moment de la réunion ; il est depuis **commité**
+> (`cf661ed` — « Refactor code structure for improved readability and maintainability », 31 fichiers,
+> +16848 / −59, arbre propre). Le message de commit est générique et ne dit rien de son contenu :
+> c'est cette section qui fait foi. Avant de toucher à l'un des points ci-dessous, **relis le code
+> réel** — tu peux avoir à le corriger ou à l'étendre, mais tu ne le réimplémentes pas de zéro.
+
+## En clair
+
+### Backend (1 fichier de code + docs)
+
+- **Import CSV Digifood — heures décalées de 2 h (BUG-140-01)** : les fichiers Digifood donnent
+  l'heure « au mur » du stade (heure de Paris), sans préciser le fuseau. Le serveur les enregistrait
+  comme si c'était de l'heure UTC, donc tout s'affichait 2 h trop tard. Désormais le backend
+  considère ces heures comme de l'heure de Paris et les convertit correctement en UTC avant de les
+  stocker — été/hiver gérés automatiquement, quel que soit le serveur qui fait l'import.
+- **Docs** : runbook du 24/08 mis à jour, 5 nouvelles fiches bugs (139 à 142 + checklist de recette),
+  requête pour les produits non mappés de La Beaujoire.
+
+### Frontend (page Analyse)
+
+1. **Carte TX/MIN — une seule formule (BUG-358-01)** : avant, le chiffre changeait selon qu'on avait
+   ouvert ou non le panneau Shop Performance (deux formules différentes). Décision du 24/08 :
+   toujours la même formule — la **somme des taux moyens par point de vente** — avec un sous-texte
+   qui le dit. Plus de « Cliquer », plus de saut de valeur.
+2. **Pas de valeur provisoire sur TX/MIN** : la carte reste en squelette tant que tous les paniers ne
+   sont pas chargés ; avant, elle pouvait afficher une somme partielle qui bougeait ensuite.
+3. **Changement d'espace — timeline fantôme (BUG-359-01)** : en changeant d'espace, le détail
+   timeline restait ouvert avec le match de l'ancien espace. Il se ferme maintenant, et rien ne se
+   déclenche tant que le store n'est pas aligné sur le nouvel espace.
+4. **Changement d'espace — KPIs à 0 € (BUG-360-01)** : les filtres (événements sélectionnés, etc.)
+   gardaient les identifiants de l'ancien espace → intersection vide → tout à zéro jusqu'à un
+   rechargement complet. Les filtres sont maintenant remis à zéro au changement d'espace.
+5. **Chargement plus rapide (BUG-361-01)** : les données étaient chargées paquet par paquet, un seul
+   à la fois (protection mémoire du backend après un crash « out of memory »). Maintenant : **2
+   paquets en parallèle** — la mémoire du backend reste protégée, mais la page charge nettement plus
+   vite.
+6. **Crash Chart.js (BUG-362-01)** : erreur « ownerDocument null » quand un graphique essayait de se
+   redessiner alors que sa page n'était plus affichée. Une garde ignore ces mises à jour inutiles.
+
+Plus **2 fichiers de tests unitaires** mis à jour pour couvrir ces changements.
+
+### Ce que ça change concrètement
+
+- Les heures des ventes importées par CSV Digifood seront justes (fini le +2 h) — **mais uniquement
+  pour les prochains imports** : les transactions déjà en base gardent leurs heures décalées tant
+  qu'on ne les réimporte pas ou qu'on ne les corrige pas.
+- La carte TX/MIN affiche toujours le même chiffre, avec sa formule expliquée.
+- Changer d'espace ne laisse plus de données de l'ancien espace à l'écran (timeline, KPIs à zéro).
+- La page Analyse charge plus vite, sans risque de refaire planter le backend.
+
+## Détail technique (pour t'orienter dans le code)
+
+| Sujet | Fichier | Ce qui a été fait |
+|---|---|---|
+| BUG-140-01 | `backend/src/features/digifood/services/digifood-csv-import.service.ts` | `parseCsvDate` : horodatage naïf = heure murale `CSV_NAIVE_TIMEZONE = 'Europe/Paris'`, converti en instant UTC via `utcOffsetMinutes` (2 passes, DST géré). Horodatage avec fuseau explicite (`Z` ou `±hh:mm`) → parsing direct. |
+| BUG-361-01 | `frontend/src/api/endpoints/space.api.js` | Paquets batch : séquentiel strict → concurrence bornée `_BATCH_CONCURRENCY = 2` (pool de workers). Mémoire backend bornée à 2 × 15 events, loin des 77 de l'OOM BUG-357-01. |
+| BUG-358-01 | `frontend/src/utils/shopPerformanceCompute.js`, `useMetricsCalculator.js`, `AnalyseView.vue`, `panels/FinancialMetricsGrid.vue` | Nouvelle `sumShopTransactionRates()` = Σ des taux moyens par PdV, appliquée en permanence (fin de l'override au clic). Parité avec `computeRatesFromTimeline` verrouillée par test. Garde `!= null` au lieu de `> 0` (0 = terminal). Sous-texte = la formule (clé i18n `anKpiTxRateScope`). |
+| BUG-350-01 | `frontend/src/composables/useTransactionBaskets.js` | `'ready'` publié seulement quand TOUS les events scopés ont été tentés ; `[]` sur event KO compte comme « tenté » (pas de squelette éternel). |
+| BUG-359-01 | `frontend/src/components/analyse/AnalyseView.vue` | Watcher `immediate` neutralisé tant que le store n'est pas aligné sur la route ; fermeture du détail timeline avant chargement du nouvel espace (keepAlive, `key = route.name`). |
+| BUG-360-01 | `frontend/src/store/modules/analyse.js` | `CLEAR_SPACE_KEYED_CACHES` purge aussi les filtres (`selectedEventIds`, shops, articles). |
+| BUG-362-01 | `frontend/src/lib/chartjs.js` | Patch `ChartJS.prototype.update` : no-op si le canvas est détaché du DOM. |
+| Tests | `frontend/tests/unit/analyseKpiSourceGating.spec.js`, `shopPerformanceCompute.spec.js` | Gating `ready` + parité Σ taux par PdV. **Non exécutés** — à faire tourner. |
+
+## Conséquences pour ta feuille de route
+
+- **Ne retouche pas** les points 1 à 6 ci-dessus, sauf si l'instruction d'un bug de la liste
+  principale montre qu'ils sont incomplets ou faux — dans ce cas, dis explicitement en quoi.
+- **Reste entièrement à faire** : `A1` (produits non mappés visibles), `A2` (produit sans prix → CA
+  faux), `A3` (retour consigne invisible), `A4` (négatifs Digifood en positif), `A5` (Analyse vide
+  après sync Weezevent), `A6` (transactions manquantes Le Mans), `B1`/`B2` (fenêtre multi-jours,
+  deux matchs le même jour), `C4` (Jean-Bouin).
+  Les fiches `139_01`, `141_01`, `142_01` existent mais **aucun correctif backend** ne les
+  accompagne : elles décrivent, elles ne corrigent pas.
+- **Point de vigilance métier** : tout le frontend Analyse est corrigé, l'**ingestion et la
+  valorisation backend ne le sont pas** — or ce sont `A2`, `A4` et `A6` qui produisent l'écart de CA
+  et de volume vs Weezevent, c'est-à-dire exactement le risque de demain matin. Priorise-les.
+- **Dette laissée par le correctif 140-01** : les transactions déjà en base restent décalées de 2 h.
+  Instruis le chemin de rattrapage (réimport ? migration de correction ?) et note-le dans la fiche —
+  ne l'exécute pas.

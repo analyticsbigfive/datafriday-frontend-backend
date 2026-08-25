@@ -270,9 +270,13 @@ export function aggregateTimeline(records, opts = {}) {
     // `minute` (HH:MM) reste la valeur d'affichage lue par tous les consommateurs.
     // Sans la date, deux ventes à 00h30 de deux jours différents fusionnaient.
     const rawMinute = r.minute ?? r.time ?? r.timestamp ?? r.createdAt
-    const minute = bucketMinute(rawMinute, bucketSize)
-    if (!minute) continue
-    const minuteLocal = bucketDatedMinute(r.minuteLocal ?? rawMinute, bucketSize)
+    // BUG-364-01 : lignes SUMMARY (montage sans grain minute) — aucune clé temporelle.
+    // Acceptées avec minute=null (un seul bucket par event × shop × produit) au lieu
+    // d'être jetées : l'ancien skip ne visait que les clés temporelles INVALIDES.
+    const hasTimeKey = rawMinute != null
+    const minute = hasTimeKey ? bucketMinute(rawMinute, bucketSize) : null
+    if (hasTimeKey && !minute) continue
+    const minuteLocal = hasTimeKey ? bucketDatedMinute(r.minuteLocal ?? rawMinute, bucketSize) : null
 
     const eventId = r.eventId || opts.eventId || null
     const configurationVersionId =
@@ -304,7 +308,7 @@ export function aggregateTimeline(records, opts = {}) {
         : null
 
     const key = [
-      minuteLocal || minute,
+      minuteLocal || minute || '',
       eventId || '',
       configurationVersionId || '',
       scenarioId || '',
@@ -359,7 +363,9 @@ export function aggregateTimeline(records, opts = {}) {
       byKey.set(key, agg)
     }
 
-    const rev = Number(r.totalRevenue ?? r.revenue) || 0
+    // BUG-364-01 : repli `revenueHt` — les lignes summary ne portent plus le doublon
+    // `revenue` (dégraissage, plan étape 5.3).
+    const rev = Number(r.totalRevenue ?? r.revenue ?? r.revenueHt) || 0
     const qty = Number(r.totalQuantity ?? r.quantity) || 0
     const tx = Number(r.transactionCount ?? r.transactions) || 0
     const directCost = Number(r.totalCost ?? r.cost)
@@ -385,13 +391,20 @@ export function aggregateTimeline(records, opts = {}) {
   }
 
   const out = []
+  // BUG-364-01 — `opts.lean` : sur le chemin ANALYSE (useAnalyseItemRecords, ~77 events
+  // résidents en mémoire), les clés propres à Predict/Stockup/Inventaire valent
+  // structurellement 0/null/undefined (les lignes brutes event-timeline ne portent
+  // aucune prédiction) mais gonflaient CHAQUE ligne de 9 propriétés mortes. On les
+  // omet : les consommateurs font tous `Number(x) || 0` / vérité / `typeof` —
+  // `undefined` y est équivalent. Les chemins Predict/Stockup (usePredictiveTimeline,
+  // EventPredictView) n'activent PAS `lean` et gardent la forme complète.
+  const lean = !!opts.lean
   for (const agg of byKey.values()) {
     out.push({
       minute: agg.minute,
       minuteLocal: agg.minuteLocal || null,
       eventId: agg.eventId,
-      configurationVersionId: agg.configurationVersionId,
-      scenarioId: agg.scenarioId,
+      ...(lean ? {} : { configurationVersionId: agg.configurationVersionId, scenarioId: agg.scenarioId }),
       shopId: agg.shopId,
       shopName: agg.shopName,
       shopType: agg.shopType,
@@ -422,13 +435,17 @@ export function aggregateTimeline(records, opts = {}) {
       panier: agg.transactionCount > 0
         ? agg.totalRevenue / agg.transactionCount
         : 0,
-      predictedRevenue: agg.predictedRevenue,
-      predictedQuantity: agg.predictedQuantity,
-      stockupQuantity: agg.stockupQuantity,
-      inventoryQuantity: agg.inventoryQuantity,
-      discardedQuantity: agg.discardedQuantity,
-      isPredictive: agg.isPredictive || undefined,
-      confidenceScore: agg._confCount > 0 ? agg._confSum / agg._confCount : null,
+      ...(lean
+        ? {}
+        : {
+            predictedRevenue: agg.predictedRevenue,
+            predictedQuantity: agg.predictedQuantity,
+            stockupQuantity: agg.stockupQuantity,
+            inventoryQuantity: agg.inventoryQuantity,
+            discardedQuantity: agg.discardedQuantity,
+            isPredictive: agg.isPredictive || undefined,
+            confidenceScore: agg._confCount > 0 ? agg._confSum / agg._confCount : null,
+          }),
     })
   }
   return out.sort((a, b) => {
@@ -548,7 +565,9 @@ export function computeWindowRatios(timelineData, range) {
       f = { rev: 0, qty: 0, tx: 0 }
       full.set(key, f)
     }
-    const rev = Number(r.totalRevenue ?? r.revenue) || 0
+    // BUG-364-01 : repli `revenueHt` — les lignes summary ne portent plus le doublon
+    // `revenue` (dégraissage, plan étape 5.3).
+    const rev = Number(r.totalRevenue ?? r.revenue ?? r.revenueHt) || 0
     const qty = Number(r.totalQuantity ?? r.quantity) || 0
     const tx = Number(r.transactionCount ?? r.transactions) || 0
     f.rev += rev

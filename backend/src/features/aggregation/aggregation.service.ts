@@ -3,6 +3,8 @@ import { Prisma } from '@prisma/client';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService, AggregationJobEnqueueData } from '../../core/queue/queue.service';
+import { RedisService } from '../../core/redis/redis.service';
+import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
 import { MappingsService } from '../mappings/mappings.service';
 import {
   parseEventSessions,
@@ -11,9 +13,18 @@ import {
 } from '../../shared/utils/event-window.util';
 import { DEFAULT_OFFSET_OPEN_MINUTES, DEFAULT_OFFSET_CLOSE_MINUTES } from '../staffing/staffing-calculator.service';
 
-/** Résultat de résolution de fenêtre pour un event (BUG-329-02/330-02, docs/bugs/). */
+/**
+ * Résultat de résolution de fenêtre pour un event (BUG-329-02/330-02, docs/bugs/).
+ * `container-range` (BUG-146-01, règle Bertrand 25/08) : l'event est lié au CONTENEUR de
+ * saison de son club (`Event.weezeventEventId` → « STADE FRANÇAIS 25-26 », « PARIS
+ * FOOTBALL CLUB »…) — attribution = tag du conteneur ET fenêtre portes→fin. Sans le tag,
+ * deux events le même jour au même stade (foot PFC l'après-midi, rugby SFP le soir) se
+ * partageaient les mêmes ventes par fenêtres qui se recouvrent : 80 343,07 € comptés
+ * deux fois sur Jean Bouin (mesuré en base, fiche 145-01).
+ */
 type EventWindow =
   | { mode: 'exact'; salesEventId: string }
+  | { mode: 'container-range'; salesEventId: string; start: Date; end: Date }
   | { mode: 'range'; start: Date; end: Date };
 
 // BUG-338-02 (docs/bugs/) : même seuil que resolveEventSalesScope (spaces.service.ts,
@@ -36,6 +47,9 @@ export class AggregationService {
     private prisma: PrismaService,
     private queueService: QueueService,
     private mappingsService: MappingsService,
+    // BUG-143-01 : RedisService injecté directement (RedisModule est @Global) plutôt que
+    // via SpacesService — une dépendance vers SpacesService créerait un cycle de modules.
+    private redis: RedisService,
   ) {}
 
   /**
@@ -234,6 +248,10 @@ export class AggregationService {
    *    BUG-331-02) ET que ce `SalesEvent` n'est PAS un conteneur de saison (BUG-338-02,
    *    `seasonContainerIds`) : rattachement EXACT via `WeezeventTransaction.eventId`, aucune
    *    ambiguïté possible même si les dates de deux events se recoupent (BUG-330-02).
+   * 1bis. (BUG-146-01, règle Bertrand 25/08) Si le lien pointe un CONTENEUR de saison — donc
+   *    identifie le CLUB, pas un match — ET que `doorsOpening` est renseigné : rattachement
+   *    `container-range` = tag du conteneur ET fenêtre portes→fin. Les jours à double affiche
+   *    (deux clubs le même jour), chaque match ne capte plus que les ventes de son club.
    * 2. Sinon, si `sessions[0].doorsOpening` est renseigné : fenêtre = heure d'ouverture réelle
    *    ± buffer (mêmes constantes que le Staffing, `staffing-calculator.service.ts`), au lieu du
    *    jour calendaire entier (BUG-329-02).
@@ -314,9 +332,13 @@ export class AggregationService {
     seasonContainerIds: Set<string>,
   ): Promise<EventWindow> {
     // BUG-338-02 : un lien exact vers un conteneur de saison n'identifie PAS un match précis
-    // (100% des transactions de la saison partagent ce même eventId) — le traiter comme non lié,
-    // pour retomber sur le repli par date ci-dessous (qui, lui, sait répartir par jour réel).
-    if (event.weezeventEventId && !seasonContainerIds.has(event.weezeventEventId)) {
+    // (100% des transactions de la saison partagent ce même eventId) — mais depuis
+    // BUG-146-01 (règle Bertrand 25/08) il identifie le CLUB : combiné à la fenêtre
+    // portes→fin ci-dessous, il devient le mode `container-range` (tag ET fenêtre), qui
+    // empêche les ventes de l'autre club d'entrer dans la fenêtre les jours à double
+    // affiche. Seul un lien vers un match précis reste un rattachement exact sans fenêtre.
+    const isContainerLink = !!event.weezeventEventId && seasonContainerIds.has(event.weezeventEventId);
+    if (event.weezeventEventId && !isContainerLink) {
       return { mode: 'exact', salesEventId: event.weezeventEventId };
     }
 
@@ -329,12 +351,18 @@ export class AggregationService {
       const doorsClose =
         combineDayAndLocalTime(endDay, event.eventEndTime ?? sessions[sessions.length - 1]?.showTime, spaceTimezone) ??
         new Date(doorsOpen.getTime() + DEFAULT_EVENT_DURATION_HOURS * 3_600_000);
-      return {
-        mode: 'range',
-        start: new Date(doorsOpen.getTime() + DEFAULT_OFFSET_OPEN_MINUTES * 60_000),
-        end: new Date(doorsClose.getTime() + DEFAULT_OFFSET_CLOSE_MINUTES * 60_000),
-      };
+      const start = new Date(doorsOpen.getTime() + DEFAULT_OFFSET_OPEN_MINUTES * 60_000);
+      const end = new Date(doorsClose.getTime() + DEFAULT_OFFSET_CLOSE_MINUTES * 60_000);
+      // Marges ±2 h conservées (constantes staffing) — la slide Bertrand dit portes→fin
+      // sec ; à confirmer avec lui (fiche 146-01 §Décisions), conservées pour ne pas
+      // exclure l'avant-match déjà agrégé aujourd'hui.
+      return isContainerLink
+        ? { mode: 'container-range', salesEventId: event.weezeventEventId as string, start, end }
+        : { mode: 'range', start, end };
     }
+    // Conteneur lié mais pas d'heure de portes : on retombe sur les replis par date
+    // ci-dessous SANS le tag — comportement d'avant BUG-146-01, inchangé (le backfill
+    // Jean Bouin n'est utile que parce que ses 77 events ont tous doorsOpening).
 
     // Ni lien exact, ni doorsOpening : scan large (jour de début − 1 à jour de fin + 2) sur les
     // transactions NON liées (ou liées à un conteneur de saison, BUG-338-02), puis resserrement
@@ -442,7 +470,11 @@ export class AggregationService {
           const matchClause =
             window.mode === 'exact'
               ? Prisma.sql`t."eventId" = ${window.salesEventId}`
-              : Prisma.sql`${eventLinkClause} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`;
+              : window.mode === 'container-range'
+                // BUG-146-01 : tag du conteneur du club ET fenêtre portes→fin — une vente
+                // de l'AUTRE club dans la même fenêtre (jour à double affiche) est exclue.
+                ? Prisma.sql`t."eventId" = ${window.salesEventId} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`
+                : Prisma.sql`${eventLinkClause} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`;
 
           // Efface les anciennes lignes de cet event avant re-agrégation — scopé par
           // integrationId quand il est fourni (BUG-317-02) : sinon, retraiter l'intégration B
@@ -683,6 +715,13 @@ export class AggregationService {
         data: { status: 'completed', completedAt: new Date(), transactionsProcessed: processedCount },
       });
       await job.updateProgress(100);
+
+      // BUG-143-01 : les endpoints batch Analyse cachent leurs réponses par event (TTL 6 h
+      // pour un event passé) — sans cette purge, une re-agrégation servirait des données
+      // périmées jusqu'à expiration. Mêmes motifs que SpacesService.invalidateSpaceCache.
+      for (const pattern of eventBatchCachePatterns(tenantId, spaceId)) {
+        await this.redis.deletePattern(pattern);
+      }
 
       // Auto-sync attendees for each successfully processed event.
       // Finds the matching WeezeventEvent(s) by date and queues an attendees sync

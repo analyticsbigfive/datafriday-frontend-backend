@@ -25,6 +25,14 @@ export function useMetricsCalculator({
   // `overrideTransactionRate` (Lot 4.1) qui ne s'activait qu'à l'ouverture du
   // panneau Shop Performance et faisait sauter la carte au clic.
   perShopTransactionRate,
+  // BUG-146-01 (décision Bertrand 25/08) — CA/transactions de la bande KPI lus depuis
+  // le ROLLUP `Event.revenue`/`Event.transactionCount` (la même donnée qu'Events
+  // Library et que la carte d'accueil) quand le périmètre affiché est « des events
+  // entiers » : cohérence des trois pages par construction, au centime. Ref<{revenue,
+  // transactions, eventsWithRevenueCount}|null> — `null` = pas applicable (mode
+  // predict, filtre PdV/article/horaire actif qui découpe l'intérieur des events,
+  // ou rollup absent) → formules record-level ci-dessous, comme avant.
+  eventRollupTotals = null,
   // BUG-354-01 — SOURCE des transactions. Les records item-level sont au grain
   // (minute × PdV × ARTICLE) : leur `transactionCount` compte les tickets distincts
   // DE CET ARTICLE, donc un panier à 3 articles différents y pèse 3. Les sommer
@@ -42,6 +50,7 @@ export function useMetricsCalculator({
   const _ops = () => unref(operatingMinutes) || 0
   const _selectedEventIds = () => unref(selectedEventIds) || []
   const _perShop = () => unref(perShopTransactionRate)
+  const _rollup = () => unref(eventRollupTotals)
 
   // Lot 3.1 — Mode «single event» : un seul event sélectionné dans les filtres.
   // Quand actif : pas de moyenne par événement (les « Moy./Évén. » retombent sur
@@ -81,6 +90,16 @@ export function useMetricsCalculator({
       for (const b of txRecords) transactions += b.transactionCount || 0
     }
 
+    // BUG-146-01 — rollup `Event.revenue` prioritaire quand fourni (périmètre = events
+    // entiers) : CA et transactions identiques à Events Library / carte d'accueil par
+    // construction. Le coût (et donc la marge) reste calculé sur les records item-level,
+    // seule source portant le grain article.
+    const rollup = _rollup()
+    if (rollup) {
+      revenue = rollup.revenue
+      transactions = rollup.transactions
+    }
+
     for (const e of events) {
       // Spectateurs : scanned (réel) → attendees → sold. Même définition que le
       // dialog ByEvent (filteredEventAggregates) pour que Per cap / Transfo /
@@ -88,7 +107,9 @@ export function useMetricsCalculator({
       ticketsScanned += e.ticketsScanned ?? e.attendees ?? e.ticketsSold ?? 0
     }
 
-    const eventsWithRevenueCount = eventIdsWithRevenue.size || events.length || 0
+    const eventsWithRevenueCount = rollup
+      ? (rollup.eventsWithRevenueCount || events.length || 0)
+      : (eventIdsWithRevenue.size || events.length || 0)
     const validEventsCount = events.length || eventsWithRevenueCount || 1
 
     // BUG-350-01 — `null` (affiché « — ») et non 0/100 quand aucun coût ne peut

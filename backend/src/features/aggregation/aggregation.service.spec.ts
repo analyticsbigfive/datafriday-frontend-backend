@@ -4,6 +4,7 @@ import { AggregationService } from './aggregation.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { MappingsService } from '../mappings/mappings.service';
+import { RedisService } from '../../core/redis/redis.service';
 import { combineDayAndLocalTime } from '../../shared/utils/event-window.util';
 
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
@@ -106,6 +107,8 @@ describe('AggregationService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: QueueService, useValue: mockQueueService },
         { provide: MappingsService, useValue: mockMappingsService },
+        // BUG-143-01 : purge des caches Redis event-timeline/baskets en fin de job.
+        { provide: RedisService, useValue: { deletePattern: jest.fn(), get: jest.fn(), set: jest.fn() } },
       ],
     }).compile();
 
@@ -585,8 +588,10 @@ describe('AggregationService', () => {
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         expect(sqlArg.values).toContain(SALES_EVENT_ID);
         expect(sqlArg.text ?? sqlArg.sql).toEqual(expect.stringContaining('t."eventId" ='));
-        // Le repli MIN/MAX ne doit jamais être interrogé quand le lien exact existe.
-        expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+        // Le repli MIN/MAX ne doit jamais être interrogé quand le lien exact existe —
+        // le SEUL $queryRaw attendu est la détection des conteneurs de saison
+        // (BUG-338-02, une fois par run).
+        expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
       });
 
       it('BUG-329-02 : Event non lié avec sessions[0].doorsOpening → fenêtre = heure réelle ± offset (pas la journée entière)', async () => {
@@ -613,7 +618,9 @@ describe('AggregationService', () => {
           baseEvent.eventDate.getUTCFullYear(), baseEvent.eventDate.getUTCMonth(), baseEvent.eventDate.getUTCDate(),
         ));
         expect(dates.every((d: Date) => d.getTime() !== midnightOfEventDate.getTime())).toBe(true);
-        expect(mockPrisma.$queryRaw).not.toHaveBeenCalled();
+        // Idem : seul $queryRaw attendu = détection des conteneurs (BUG-338-02),
+        // pas le repli MIN/MAX (la fenêtre vient de doorsOpening).
+        expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
       });
 
       it('BUG-329-02 : Event non lié sans doorsOpening, transactions non liées trouvées → fenêtre dérivée MIN/MAX ± buffer', async () => {
@@ -644,6 +651,97 @@ describe('AggregationService', () => {
         const dates = (sqlArg.values ?? []).filter((v: any) => v instanceof Date);
         // Comportement historique : borne basse = eventDate telle quelle (repli, pas de recalage).
         expect(dates.some((d: Date) => d.getTime() === baseEvent.eventDate.getTime())).toBe(true);
+      });
+
+      it('BUG-146-01 : Event lié à un CONTENEUR de saison + doorsOpening → tag conteneur ET fenêtre portes→fin (container-range)', async () => {
+        const CONTAINER = 'container-sfp';
+        const baseEvent = makeEvent(EVENT_1);
+        mockPrisma.event.findMany.mockResolvedValue([{
+          ...baseEvent,
+          weezeventEventId: CONTAINER,
+          eventEndTime: '23:00',
+          sessions: JSON.stringify([{ doorsOpening: '19:00', showTime: '21:00' }]),
+        }]);
+        // Détection conteneur (BUG-338-02) : span observé ~300 jours → conteneur.
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+          { eventId: CONTAINER, minDate: new Date('2025-01-01T00:00:00Z'), maxDate: new Date('2025-10-28T00:00:00Z') },
+        ]);
+
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        // Le tag du conteneur ET les bornes de fenêtre — les deux, pas l'un ou l'autre.
+        expect(sqlArg.values).toContain(CONTAINER);
+        expect(text).toEqual(expect.stringContaining('t."eventId" ='));
+        expect(text).toEqual(expect.stringContaining('t."transactionDate" >='));
+        // Fenêtre ancrée sur les portes (même fonction que l'implémentation) : 19:00 − 2 h.
+        const doorsOpen = combineDayAndLocalTime(baseEvent.eventDate, '19:00', 'Europe/Paris')!;
+        const expectedStart = new Date(doorsOpen.getTime() - 120 * 60_000);
+        const dates = (sqlArg.values ?? []).filter((v: any) => v instanceof Date);
+        expect(dates.some((d: Date) => d.getTime() === expectedStart.getTime())).toBe(true);
+      });
+
+      it("BUG-146-01 : double affiche (deux events, deux conteneurs, fenêtres qui se recouvrent) → chaque event ne cible QUE son conteneur", async () => {
+        const CONTAINER_PFC = 'container-pfc';
+        const CONTAINER_SFP = 'container-sfp';
+        const sameDay = makeEvent(EVENT_1).eventDate;
+        mockPrisma.event.findMany.mockResolvedValue([
+          {
+            ...makeEvent(EVENT_1),
+            eventDate: sameDay,
+            weezeventEventId: CONTAINER_PFC,
+            eventEndTime: '21:00',
+            sessions: JSON.stringify([{ doorsOpening: '16:00', showTime: '17:00' }]),
+          },
+          {
+            ...makeEvent(EVENT_2),
+            eventDate: sameDay,
+            weezeventEventId: CONTAINER_SFP,
+            eventEndTime: '23:30',
+            sessions: JSON.stringify([{ doorsOpening: '11:00', showTime: '13:00' }]),
+          },
+        ]);
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+          { eventId: CONTAINER_PFC, minDate: new Date('2025-01-01T00:00:00Z'), maxDate: new Date('2025-10-28T00:00:00Z') },
+          { eventId: CONTAINER_SFP, minDate: new Date('2025-01-01T00:00:00Z'), maxDate: new Date('2025-10-28T00:00:00Z') },
+        ]);
+
+        const job = makeBullJob({ eventIds: [EVENT_1, EVENT_2] });
+        await service.executeProcessEvents(job);
+
+        // 2 events × 3 $executeRaw : le 1er bloc de chaque event porte SON conteneur
+        // et jamais celui de l'autre — les fenêtres se recouvrent, le tag départage.
+        const firstEventSql = mockPrisma.$executeRaw.mock.calls[0][0];
+        const secondEventSql = mockPrisma.$executeRaw.mock.calls[3][0];
+        expect(firstEventSql.values).toContain(CONTAINER_PFC);
+        expect(firstEventSql.values).not.toContain(CONTAINER_SFP);
+        expect(secondEventSql.values).toContain(CONTAINER_SFP);
+        expect(secondEventSql.values).not.toContain(CONTAINER_PFC);
+      });
+
+      it('BUG-146-01 : Event lié à un conteneur SANS doorsOpening → repli fenêtre seule (comportement pré-146 inchangé)', async () => {
+        const CONTAINER = 'container-sfp';
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...makeEvent(EVENT_1), weezeventEventId: CONTAINER },
+        ]);
+        mockPrisma.$queryRaw
+          .mockResolvedValueOnce([
+            { eventId: CONTAINER, minDate: new Date('2025-01-01T00:00:00Z'), maxDate: new Date('2025-10-28T00:00:00Z') },
+          ])
+          // Repli MIN/MAX (scan large) : aucune transaction trouvée → jour calendaire.
+          .mockResolvedValue([{ minDate: null, maxDate: null }]);
+
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        // Fenêtre de repli : les tx liées au conteneur restent éligibles (eventLinkClause),
+        // mais PAS de `t."eventId" = <conteneur>` strict (pas de container-range sans portes).
+        expect(text).toEqual(expect.stringContaining('t."transactionDate" >='));
+        expect(text).toEqual(expect.stringContaining('t."eventId" IS NULL'));
       });
 
       it('BUG-328-02 : la fenêtre de repli (mode range) exclut toujours les transactions déjà liées à un event (t.eventId IS NULL)', async () => {

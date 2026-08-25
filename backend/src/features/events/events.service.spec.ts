@@ -71,6 +71,9 @@ describe('EventsService', () => {
     salesEvent: {
       findFirst: jest.fn(),
     },
+    spaceRevenueMinuteAgg: {
+      deleteMany: jest.fn(),
+    },
     $transaction: jest.fn((ops) => Promise.all(ops)),
     $queryRaw: jest.fn(),
   };
@@ -125,6 +128,32 @@ describe('EventsService', () => {
       expect(mockPrisma.event.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ eventTypeId: 'global-type-1' }) }),
       );
+    });
+
+    it('BUG-145-01: rejects eventEndDate earlier than eventDate (Montauban case)', async () => {
+      const dto = { name: 'SFP-Montauban', eventDate: '2025-09-20', eventEndDate: '2025-09-06' };
+
+      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.event.create).not.toHaveBeenCalled();
+    });
+
+    it('BUG-145-01: rejects eventEndDate earlier than eventStartDate', async () => {
+      const dto = {
+        name: 'New Event',
+        eventDate: '2025-09-06',
+        eventStartDate: '2025-09-07',
+        eventEndDate: '2025-09-06',
+      };
+
+      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.event.create).not.toHaveBeenCalled();
+    });
+
+    it('BUG-145-01: accepts an end date after the start (multi-day, fin après minuit)', async () => {
+      const dto = { name: 'PFC - RC Lens', eventDate: '2026-02-14', eventEndDate: '2026-02-15' };
+      mockPrisma.event.create.mockResolvedValue({ ...mockEvent, ...dto });
+
+      await expect(service.create('tenant-1', dto as any)).resolves.toBeDefined();
     });
 
     it('rejects an eventTypeId belonging to another tenant', async () => {
@@ -244,6 +273,28 @@ describe('EventsService', () => {
       await expect(
         service.update('invalid', 'tenant-1', { name: 'Updated' } as any),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    it('BUG-145-01: rejects a partial update whose eventEndDate lands before the EXISTING eventDate', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue({ ...mockEvent, eventDate: new Date('2025-09-20') });
+
+      await expect(
+        service.update('evt-1', 'tenant-1', { eventEndDate: '2025-09-06' } as any),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.event.update).not.toHaveBeenCalled();
+    });
+
+    it('BUG-145-01: still allows renaming an event whose stored dates are already incoherent', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue({
+        ...mockEvent,
+        eventDate: new Date('2025-09-20'),
+        eventEndDate: new Date('2025-09-06'),
+      });
+      mockPrisma.event.update.mockResolvedValue({ ...mockEvent, name: 'Renamed' });
+
+      await expect(
+        service.update('evt-1', 'tenant-1', { name: 'Renamed' } as any),
+      ).resolves.toBeDefined();
     });
 
     it('BUG-021: does NOT reset weezeventEventId when eventDate is unchanged', async () => {
