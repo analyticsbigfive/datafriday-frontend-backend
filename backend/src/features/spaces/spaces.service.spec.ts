@@ -1345,8 +1345,9 @@ describe('SpacesService', () => {
       await service.getEventTimelineBatch(spaceId, ['ev-pfc', 'ev-sfp'], tenantId);
 
       const w = windowsFromLastQuery();
-      // PFC : minuit du 14/02 → 15/02 03:00 Paris (02:00Z), plus 16/02 (jour entier +1).
-      expect(w['ev-pfc'].start.toISOString()).toBe('2026-02-14T00:00:00.000Z');
+      // PFC : minuit LOCAL du 14/02 (23:00Z la veille, fiche 147-01 — aligné sur l'agrégation)
+      // → 15/02 03:00 Paris (02:00Z), plus 16/02 (jour entier +1).
+      expect(w['ev-pfc'].start.toISOString()).toBe('2026-02-13T23:00:00.000Z');
       expect(w['ev-pfc'].end.toISOString()).toBe('2026-02-15T02:00:00.000Z');
       // SFP : démarre à la fin de PFC (02:00Z), pas à minuit ; finit 16/02 04:00 Paris (03:00Z).
       expect(w['ev-sfp'].start.toISOString()).toBe('2026-02-15T02:00:00.000Z');
@@ -1373,8 +1374,9 @@ describe('SpacesService', () => {
       await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId);
 
       const w = windowsFromLastQuery();
-      expect(w['ev-1'].start.toISOString()).toBe('2026-03-01T00:00:00.000Z');
-      expect(w['ev-1'].end.toISOString()).toBe('2026-03-02T00:00:00.000Z');
+      // Journée calendaire pleine, bornée en minuits LOCAUX (Europe/Paris, UTC+1 en mars → 23:00Z).
+      expect(w['ev-1'].start.toISOString()).toBe('2026-02-28T23:00:00.000Z');
+      expect(w['ev-1'].end.toISOString()).toBe('2026-03-01T23:00:00.000Z');
     });
 
     it('deux events le même jour : le second démarre à la fin du premier, le premier garde minuit', async () => {
@@ -1398,10 +1400,31 @@ describe('SpacesService', () => {
 
       const w = windowsFromLastQuery();
       // Le voisin du soir finit APRÈS l'event de l'après-midi → ne doit pas vider sa fenêtre.
-      expect(w['ev-apresmidi'].start.toISOString()).toBe('2026-02-14T00:00:00.000Z');
+      expect(w['ev-apresmidi'].start.toISOString()).toBe('2026-02-13T23:00:00.000Z');
       expect(w['ev-apresmidi'].end.toISOString()).toBe('2026-02-14T17:00:00.000Z');
       expect(w['ev-soir'].start.toISOString()).toBe('2026-02-14T17:00:00.000Z');
       expect(w['ev-soir'].end.toISOString()).toBe('2026-02-14T22:00:00.000Z');
+    });
+
+    it('fiche 147-01 : une heure d’ouverture des portes saisie ne change PAS la fenêtre (plus de « portes ±2h »)', async () => {
+      mockEvents([
+        {
+          id: 'ev-portes',
+          eventDate: new Date('2026-02-14T00:00:00.000Z'),
+          eventEndDate: new Date('2026-02-15T00:00:00.000Z'),
+          eventEndTime: '03:00',
+          sessions: JSON.stringify([{ doorsOpening: '19:00', showTime: '20:00' }]),
+        },
+      ]);
+
+      await service.getEventTimelineBatch(spaceId, ['ev-portes'], tenantId);
+
+      const w = windowsFromLastQuery();
+      // Minuit local → fin déclarée : les portes (19:00) et le show (20:00) n'interviennent pas
+      // — la bande « Transactions prises en compte » de la slide démarre à 00h00, les boîtes
+      // « Ouverture des portes » n'y sont que des repères (erreur de lecture de BUG-146-01).
+      expect(w['ev-portes'].start.toISOString()).toBe('2026-02-13T23:00:00.000Z');
+      expect(w['ev-portes'].end.toISOString()).toBe('2026-02-15T02:00:00.000Z');
     });
   });
 

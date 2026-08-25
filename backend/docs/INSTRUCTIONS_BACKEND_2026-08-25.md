@@ -68,16 +68,26 @@ Fichiers modifiés (branche du chantier) et ce qu'ils font maintenant :
 
 | Fichier | Avant → Après |
 |---|---|
-| `src/features/aggregation/aggregation.service.ts` | Un event lié à un conteneur de club retombait sur la fenêtre horaire seule → nouveau mode `container-range` : ne prend que les ventes TAGUÉES du conteneur du club ET dans la fenêtre portes→fin. Les autres modes (lien exact, CSV sans tag) sont inchangés. |
-| `src/features/spaces/spaces.service.ts` | La page Analyse comptait de minuit à l'heure de fin, sans vérifier le club → même fenêtre portes→fin (±2 h) que l'agrégation, même lecture de date (`eventStartDate` en priorité), et filtre par conteneur du club quand le lien existe. Les 3 endpoints batch (timeline, paniers, non-mappés) suivent. |
+| `src/features/aggregation/aggregation.service.ts` | Un event lié à un conteneur de club retombait sur la fenêtre horaire seule → nouveau mode `container-range` : ne prend que les ventes TAGUÉES du conteneur du club ET dans la fenêtre de transactions. **Amendé (147-01)** : la fenêtre est « minuit local → heure de fin déclarée » (repli journée pleine), avec frontière au voisin qui finit ce jour-là — plus « portes ±2 h ». Le mode lien exact est inchangé. |
+| `src/features/spaces/spaces.service.ts` | La page Analyse comptait de minuit à l'heure de fin, sans vérifier le club → même lecture de date que l'agrégation (`eventStartDate` en priorité) et filtre par conteneur du club quand le lien existe. **Amendé (147-01)** : la fenêtre est la MÊME que l'agrégation, via l'utilitaire partagé `resolveEventTransactionWindow` (minuit local → fin déclarée + frontière au voisin) — plus « portes ±2 h ». Les 3 endpoints batch (timeline, paniers, non-mappés) suivent. |
 | `src/features/events/events.service.ts` (+ dto) | Aucune validation de dates → une date de fin antérieure au début est refusée à la création et à la modification (plus jamais un Montauban). |
 | `src/features/spaces/spaces.controller.ts` + service | La timeline de montage servait le détail minute (~2 Mo par match) → nouveau paramètre `?granularity=summary` : totaux match × buvette × article (~100× plus léger, SQL plus rapide). Sans le paramètre, comportement inchangé (la courbe horaire l'utilise toujours). |
 | `src/features/mappings/mappings.service.ts` + `src/shared/constants/event-batch-cache.ts` + `src/shared/utils/semaphore.ts` (nouveau) | Protections serveur : file d'attente des requêtes lourdes (2 à la fois, au-delà 503 « réessayez »), cache du volume « non mappé » purgé à chaque écriture de mapping. |
 
 - **Comportement observable qui change** : les jours à deux matchs, chaque match ne compte
-  plus que les ventes de son club ; l'Analyse compte depuis l'ouverture des portes ; le CA
-  de la bande KPI de l'Analyse (sans filtre PdV/article/horaire) est lu depuis
-  `Event.revenue` — identique à Events Library et à l'accueil au centime.
+  plus que les ventes de son club ; l'Analyse ET l'agrégation comptent depuis MINUIT local
+  jusqu'à l'heure de fin déclarée (147-01 — les ventes avant-portes entrent, les ventes
+  entre l'heure de fin et minuit sortent : un CA visible peut baisser) ; le CA de la bande
+  KPI de l'Analyse (sans filtre PdV/article/horaire) est lu depuis `Event.revenue` —
+  identique à Events Library et à l'accueil au centime.
+- ⚠️ **Purge Redis au déploiement (147-01)** : les fenêtres du lecteur changent pour TOUS les
+  espaces, pas seulement Jean Bouin — les réponses `spaces:evtimeline:*` cachées (TTL long
+  pour les events passés) serviraient l'ancienne plage. Purger le motif `spaces:evtimeline:*`
+  après le déploiement (la ré-agrégation §5 ne couvre que Jean Bouin).
+- ⚠️ **Chiffres de recette §7 à re-mesurer (147-01)** : les valeurs ≈ 1 975 / 87 207 / 478 /
+  67 002 € avaient été établies sous la fenêtre « portes −2h → fin +2h » ; en « minuit → fin
+  sec », l'avant-portes entre et le +2h post-fin sort. L'invariant qui ne change pas : la
+  requête « zéro chevauchement » doit rendre 0 ligne.
 - Tests verts avant déploiement : `npx jest src/features/aggregation src/features/events`
   (les suites spaces ont un échec PRÉEXISTANT sans rapport, voir note en bas).
 

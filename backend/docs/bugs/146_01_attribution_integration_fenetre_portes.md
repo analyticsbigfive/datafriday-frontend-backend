@@ -1,8 +1,19 @@
 # BUG-146-01 — Règle d'attribution Bertrand (25/08) : data integration + fenêtre « portes → fin »
 
+> ⚠️ **Amendement 2026-08-25 (soir) — volet horaire invalidé, voir [147-01](147_01_attribution_fenetre_minuit_fin_slide.md).**
+> La lecture « portes → fin » de la slide était erronée : les boîtes « Ouverture des portes
+> 19h00 » y sont des repères, la bande « Transactions prises en compte » démarre à **00h00** et la
+> bande du match suivant démarre à **l'heure de fin du précédent**. La fenêtre implémentée ici
+> (« portes −2h → fin +2h » côté Analyse) est remplacée par « minuit local → fin déclarée +
+> frontière au voisin », partagée lecteur/writer (`resolveEventTransactionWindow`). Le volet
+> **tag conteneur** (vérification du club, mode `container-range`, backfill lien club) est
+> **confirmé et conservé** — seuls les paragraphes horaires ci-dessous sont périmés.
+
 - **Statut** : corrigé côté code (2026-08-25) — non testé ; en attente des SQL (backfill lien club,
   dates Montauban) appliqués par la personne backend + ré-agrégation (marche à suivre :
-  `INSTRUCTIONS_BACKEND_2026-08-25.md`). Règle validée le 25/08 (mail Bertrand + slide).
+  `INSTRUCTIONS_BACKEND_2026-08-25.md`). Règle validée le 25/08 (mail Bertrand + slide),
+  **option A affinée re-validée explicitement par Bertrand le 25/08** (sur le comparatif
+  A/B de la maquette). Volet horaire ré-amendé le soir même par 147-01 (relecture de la slide).
 - **Modules** : aggregation (attribution), spaces (fenêtres Analyse), frontend Analyse (source KPI)
 - **Fiches liées** : 145-01 (le constat chiffré qui a motivé la question), 142-01 (premier
   signalement du symptôme), frontend 364-01 · Question Bertrand consignée dans
@@ -63,9 +74,10 @@ FRANÇAIS 25-26 » → intégration SFP ; « PARIS FOOTBALL CLUB » → intégra
 
 ## Décisions / questions résiduelles (non bloquantes)
 
-- **Marges −2 h/+2 h** : la slide dit portes→fin sec ; le code actuel ajoute les marges du
+- **Marges −2 h/+2 h** : ~~la slide dit portes→fin sec ; le code actuel ajoute les marges du
   staffing (`DEFAULT_OFFSET_OPEN/CLOSE_MINUTES`). Conservées en l'état pour ne pas exclure
-  l'avant-match — à confirmer avec Bertrand.
+  l'avant-match — à confirmer avec Bertrand.~~ **Tranchée par 147-01** : la slide re-lue montre
+  minuit→fin ; les marges disparaissent de l'attribution (elles restent au staffing seul).
 - Les ventes d'un club un jour SANS match de ce club (ex. rugby vendu un jour de match de
   foot seul) restent non rattachées — c'est voulu, elles alimentent l'indicateur.
 
