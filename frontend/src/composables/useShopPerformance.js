@@ -21,7 +21,7 @@
  *   et peak restent plein évènement (décisions produit, cf.
  *   utils/shopPerformanceCompute.js et docs/bugs/287_01_*.md).
  */
-import { ref, shallowRef, computed } from 'vue'
+import { ref, shallowRef, computed, unref } from 'vue'
 import { getSpaceEventTimelineBatch, getSpaceTransactionBasketsBatch } from '@/api/endpoints/space.api'
 import { hasActiveRange } from '@/utils/timelineBucketing'
 import {
@@ -30,7 +30,23 @@ import {
   computeRatesFromTimeline,
 } from '@/utils/shopPerformanceCompute'
 
-export function useShopPerformance({ shopGranularData, spaceId, timeRange = null }) {
+/**
+ * BUG-364-01 — mode « sources partagées » : quand l'appelant possède DÉJÀ la timeline et
+ * les paniers (AnalyseView via useAnalyseItemRecords/useTransactionBaskets), les passer en
+ * `sharedTimelineRecords`/`sharedBasketRecords` (+ `sharedReady`) supprime le re-fetch ET
+ * le re-stockage : ce composable était le 5ᵉ point de rétention mémoire de la page
+ * (~164 Mo re-téléchargés puis re-gardés en double). Sans ces params, l'ancien mode
+ * autonome (fetch batch idempotent par sélection) reste intact pour les autres appelants.
+ */
+export function useShopPerformance({
+  shopGranularData,
+  spaceId,
+  timeRange = null,
+  sharedTimelineRecords = null,
+  sharedBasketRecords = null,
+  sharedReady = null,
+}) {
+  const usingShared = !!(sharedTimelineRecords && sharedBasketRecords)
   const loading = ref(false)
   const enriched = ref(false)
   // Timeline brute du dernier fetch + snapshot des events correspondants.
@@ -44,13 +60,21 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
 
   // Dérivation pure : se rejoue quand la plage horaire, les records shop-level
   // ou la timeline changent. `lastKey` ne gate plus que le fetch.
+  // BUG-364-01 — sources effectives : refs partagées (aucune copie) ou stockage local
+  // du mode autonome. `ready` = sources terminales (partagé : l'appelant le dit ;
+  // autonome : le fetch a abouti).
+  const _timeline = () => (usingShared ? unref(sharedTimelineRecords) || [] : timelineData.value)
+  const _baskets = () => (usingShared ? unref(sharedBasketRecords) || [] : basketData.value)
+  const _ready = () => (usingShared ? !!unref(sharedReady) : enriched.value)
+
   const shops = computed(() => {
     const events = timelineEvents.value
     if (!events.length) return []
     const range = typeof timeRange === 'object' && timeRange !== null && 'value' in timeRange
       ? timeRange.value
       : timeRange
-    const windowed = hasActiveRange(range) && enriched.value
+    const ready = _ready()
+    const windowed = hasActiveRange(range) && ready
     // Fenêtre active : les agrégats de base (CA/transactions/quantité) viennent
     // de la timeline fenêtrée — shopGranularData n'a pas de colonne minute.
     // BUG-350-01 — plus de repli sur les agrégats de base tant que la timeline
@@ -59,23 +83,17 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
     // panneau, puis les remplaçait : c'était la même valeur provisoire que celle
     // retirée de la bande KPI, au même moment, avec un écart du même ordre.
     // Vide + `loading` du composable → le panneau montre son état de chargement.
-    if (!enriched.value) return []
+    if (!ready) return []
     const base = windowed
-      ? aggregateShopsFromTimeline(timelineData.value, events, range)
+      ? aggregateShopsFromTimeline(_timeline(), events, range)
       : aggregateBaseShops(shopGranularData.value || [], events)
     // BUG-354-01 — CA/quantités depuis la timeline, TRANSACTIONS et txn/min depuis les
     // paniers : `computeRatesFromTimeline` pose lui-même `totalTransactions` à partir de
     // la source qu'on lui donne, en réutilisant sa résolution d'alias shopName/shopId.
-    return computeRatesFromTimeline(base, events, basketData.value, {
+    return computeRatesFromTimeline(base, events, _baskets(), {
       timeRange: windowed ? range : null,
     })
   })
-
-  // Somme des transactionRate de tous les shops — utilisée par le KPI
-  // "Transaction Rate" du header / FinancialMetricsGrid quand le panel est ouvert.
-  const totalTransactionRate = computed(() =>
-    shops.value.reduce((s, sh) => s + (sh.transactionRate || 0), 0),
-  )
 
   function reset() {
     timelineData.value = []
@@ -125,6 +143,12 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
       reset()
       return
     }
+    // BUG-364-01 — mode partagé : rien à télécharger, on mémorise juste la sélection
+    // d'events ; les données vivent dans les composables sources et `shops` est réactif.
+    if (usingShared) {
+      timelineEvents.value = events
+      return
+    }
     const key = events.map((e) => e.id).sort().join(',')
     if (key === lastKey && enriched.value) {
       // Déjà enrichi pour cette sélection
@@ -154,9 +178,12 @@ export function useShopPerformance({ shopGranularData, spaceId, timeRange = null
 
   return {
     shops,
-    loading,
-    enriched,
-    totalTransactionRate,
+    // Mode partagé : l'état de chargement est celui des sources (l'appelant sait quand
+    // elles sont terminales) — pas celui d'un fetch local qui n'existe plus.
+    loading: usingShared
+      ? computed(() => timelineEvents.value.length > 0 && !_ready())
+      : loading,
+    enriched: usingShared ? computed(() => _ready()) : enriched,
     enrich,
     reset,
   }

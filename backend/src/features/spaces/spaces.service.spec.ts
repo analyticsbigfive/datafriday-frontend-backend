@@ -1235,6 +1235,52 @@ describe('SpacesService', () => {
         revenue: 12.5,
       });
     });
+
+    // BUG-364-01 (étape 5) : granularity=summary — grain event × shop × produit, SANS minute.
+    it('summary : le SQL n’a ni minuteLocal ni GROUP BY minute au niveau affichage', async () => {
+      await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId, { granularity: 'summary' }).catch(() => {});
+
+      const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
+      // La dédup inter-writers reste PAR minute (CTE interne)…
+      expect(sql).toContain('dedup AS (');
+      expect(sql).toContain('mem."minute"');
+      // …mais le niveau affichage n’expose plus la minute.
+      expect(sql).not.toContain('tz."minuteLocal"');
+      expect(sql).not.toContain('AS "minuteLocal"');
+      expect(sql).toContain('SUM(dd."revenueHt")');
+    });
+
+    it('summary : lignes sans minute ni doublon revenue, cache Redis sous une clé distincte (:sum)', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValue([
+        {
+          eventId: 'ev-1',
+          shopId: 'el-1',
+          shopName: 'Bar Nord',
+          shopType: 'beverages',
+          shopArea: null,
+          weezeventProductId: 'wp-1',
+          menuItemId: 'mi-1',
+          menuItemName: 'Bière blonde 50cl',
+          menuItemType: 'Beverage',
+          menuItemCategory: 'Bières',
+          quantity: 3,
+          transactionCount: 2,
+          revenueHt: '12.50',
+        },
+      ]);
+
+      const res = await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId, { granularity: 'summary' });
+
+      expect(res['ev-1']).toHaveLength(1);
+      expect(res['ev-1'][0]).toMatchObject({ shopId: 'el-1', menuItemId: 'mi-1', revenueHt: 12.5 });
+      expect(res['ev-1'][0]).not.toHaveProperty('minute');
+      expect(res['ev-1'][0]).not.toHaveProperty('minuteLocal');
+      expect(res['ev-1'][0]).not.toHaveProperty('revenue');
+      // Clé de cache suffixée ':sum' — jamais mélangée avec le grain minute,
+      // mais couverte par le motif de purge spaces:evtimeline:{t}:{s}:*.
+      const writtenKeys = ((service as any).redis.set as jest.Mock).mock.calls.map((c: any[]) => c[0]);
+      expect(writtenKeys).toContain(`spaces:evtimeline:${tenantId}:${spaceId}:ev-1:sum`);
+    });
   });
 
   // BUG-339-02 : la fenêtre de vente d'un event doit se terminer à son heure de fin réelle

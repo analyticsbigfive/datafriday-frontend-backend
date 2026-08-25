@@ -77,22 +77,45 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
     loading.value = true
 
     const spaceId = route.params.spaceId
-    const ids = missing.map((e) => e.id)
+    // BUG-363-01 : récents d'abord — les paquets partent dans cet ordre, donc les
+    // matchs qu'on regarde (les derniers) atterrissent dans les premiers paquets.
+    const ids = [...missing]
+      .sort((a, b) => new Date(b.date || b.eventDate || 0) - new Date(a.date || a.eventDate || 0))
+      .map((e) => e.id)
+    // BUG-363-01 : patch du cache PAR EVENT dès que son paquet HTTP répond (callback
+    // `onEvent`), au lieu d'un patch unique à la fin du lot — le panneau Events
+    // Performance se remplit au fil de l'eau. Les KPI agrégés, eux, restent en
+    // squelette jusqu'à complétude (`sourceState` ne publie 'ready' que quand tous
+    // les events scopés sont tentés — zéro valeur provisoire, BUG-350-01).
+    const processed = new Set()
+    const applyEvent = (id, data) => {
+      if (controller.signal.aborted || processed.has(id)) return
+      processed.add(id)
+      const raw = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
+      // Nouvelle référence pour déclencher la réactivité du computed.
+      cache.value = {
+        ...cache.value,
+        [id]: freezeRows(preprocessTimelineRecords(raw, {
+          menuItemCostMap: store.state.analyse.menuItemCostMap || {},
+          // BUG-364-01 : forme allégée — omet les clés Predict/Stockup, mortes sur ce chemin.
+          lean: true,
+        })),
+      }
+    }
     try {
       // Un seul appel batch pour tous les events manquants (le backend résout
       // shopIds/ownership/scope d'intégration une fois pour le space, pas par event).
-      const byEventId = await getSpaceEventTimelineBatch(spaceId, ids)
+      // BUG-364-01 : grain SUMMARY (event × shop × produit, sans minute) — le montage ne
+      // consomme que des totaux ; la courbe horaire (useAnalyseTimeline) garde son fetch
+      // minute séparé. Quand le curseur horaire est actif, AnalyseView bascule ses
+      // sources sur les lignes minute de la courbe ouverte.
+      const byEventId = await getSpaceEventTimelineBatch(spaceId, ids, { onEvent: applyEvent, granularity: 'summary' })
       if (controller.signal.aborted) return
-      const patch = {}
+      // Ceinture : events servis depuis le cache session de l'API (pas de paquet
+      // HTTP, donc pas d'onEvent) — on les applique depuis le résultat final.
       for (const id of ids) {
-        const data = byEventId.get(id) || []
-        const raw = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
-        patch[id] = freezeRows(preprocessTimelineRecords(raw, {
-          menuItemCostMap: store.state.analyse.menuItemCostMap || {},
-        }))
+        if (!processed.has(id)) applyEvent(id, byEventId.get(id) || [])
       }
-      // Nouvelle référence pour déclencher la réactivité du computed.
-      cache.value = { ...cache.value, ...patch }
     } catch (err) {
       if (controller.signal.aborted) return
       console.warn(`[useAnalyseItemRecords] event-timeline batch KO (${err?.message})`)
@@ -102,9 +125,12 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
         _warnedBatchKo = true
         fetchError.value = err?.message || 'event-timeline batch failed'
       }
-      // marque tout comme tenté → pas de refetch en boucle
+      // marque les events NON livrés comme tentés → pas de refetch en boucle
+      // (ceux déjà appliqués par onEvent gardent leurs vraies lignes)
       const patch = {}
-      for (const id of ids) patch[id] = []
+      for (const id of ids) {
+        if (!processed.has(id)) patch[id] = []
+      }
       cache.value = { ...cache.value, ...patch }
     } finally {
       if (!controller.signal.aborted) loading.value = false
@@ -134,7 +160,7 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
     const spaceId = route.params.spaceId
     const ids = list.map((e) => e.id)
     try {
-      const byEventId = await getSpaceEventTimelineBatch(spaceId, ids, { bypassCache: true })
+      const byEventId = await getSpaceEventTimelineBatch(spaceId, ids, { bypassCache: true, granularity: 'summary' })
       if (controller.signal.aborted) return
       const patch = {}
       for (const id of ids) {
@@ -142,6 +168,8 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
         const raw = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
         patch[id] = freezeRows(preprocessTimelineRecords(raw, {
           menuItemCostMap: store.state.analyse.menuItemCostMap || {},
+          // BUG-364-01 : forme allégée — omet les clés Predict/Stockup, mortes sur ce chemin.
+          lean: true,
         }))
       }
       cache.value = { ...cache.value, ...patch }
@@ -160,13 +188,33 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
   // des libellés bruts Weezevent → on les RÉCONCILIE (MÊME util que le getter
   // shop-level) : cascade catalogue DataFriday → champs backend → produit Weezevent
   // (nature/subnature) → sentinelle UNATTACHED_*_KEY.
+  // BUG-364-01 (régression du chargement progressif 363-01) : chaque paquet reçu
+  // réassigne `cache.value`, donc ce computed rejoue — et `reconcileRecord` allouait
+  // un objet neuf pour TOUTES les lignes déjà accumulées, à chaque paquet (≈3,5×n
+  // allocations au lieu de n sur Jean Bouin). Mémoïsation par event : les lignes
+  // réconciliées sont mises en cache par référence du tableau gelé (WeakMap — suit
+  // l'éviction du cache source sans fuite), invalidée en bloc quand le contexte de
+  // réconciliation change (mappings/catalogue), seul cas où un re-map complet est dû.
+  let _reconciledCtx = null
+  let _reconciledByRows = new WeakMap()
   const itemRecords = computed(() => {
+    const ctx = reconciliationCtx.value
+    if (ctx !== _reconciledCtx) {
+      _reconciledCtx = ctx
+      _reconciledByRows = new WeakMap()
+    }
     const out = []
     for (const e of filteredEvents.value || []) {
       const recs = cache.value[e?.id]
-      if (recs && recs.length) out.push(...recs)
+      if (!recs || !recs.length) continue
+      let rows = _reconciledByRows.get(recs)
+      if (!rows) {
+        rows = recs.map((r) => reconcileRecord(r, ctx))
+        _reconciledByRows.set(recs, rows)
+      }
+      out.push(...rows)
     }
-    return out.map((r) => reconcileRecord(r, reconciliationCtx.value))
+    return out
   })
 
   // Events réellement fetchés (cap inclus, batch KO = [] compté « tenté ») —
@@ -189,14 +237,32 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
   // Surtout PAS un booléen `loading || !length` : `length === 0` est aussi un
   // état TERMINAL, et le confondre avec « en cours » fige l'écran sur un
   // skeleton infini — pire que la valeur provisoire qu'on retire.
+  // BUG-363-01 : depuis le chargement progressif, le cache se remplit event par
+  // event — `itemRecords` devient non-vide dès le PREMIER paquet, alors que le reste
+  // est encore en vol. L'ancien ordre (`if (itemRecords.length) return 'ready'`)
+  // publierait alors des KPI calculés sur une somme PARTIELLE destinée à bouger —
+  // la valeur provisoire interdite par BUG-350-01. 'ready' n'est donc publié que
+  // lorsque TOUS les events scopés sont tentés (même contrat que les paniers,
+  // décision JLH 2026-08-24). `[]` posé sur échec compte comme « tenté » → pas de
+  // squelette éternel sur batch KO.
   const sourceState = computed(() => {
     const scoped = (filteredEvents.value || []).slice(0, maxEvents).filter((e) => e?.id)
     if (!scoped.length) return 'empty'
-    if (itemRecords.value.length) return 'ready'
-    if (loading.value) return 'loading'
-    // Tous tentés (le catch met [] en cache) et rien n'est remonté → terminal.
     const attempted = loadedEventIds.value
-    return scoped.every((e) => attempted.has(e.id)) ? 'empty' : 'loading'
+    if (!scoped.every((e) => attempted.has(e.id))) return 'loading'
+    return itemRecords.value.length ? 'ready' : 'empty'
+  })
+
+  // BUG-363-01 — progression du chargement par event (« Chargement des events :
+  // x/N » dans AnalyseView). `loaded` compte les events du périmètre déjà tentés,
+  // paquet par paquet — c'est l'indicateur qui remplace l'écran figé de Jean Bouin.
+  const loadProgress = computed(() => {
+    const scoped = (filteredEvents.value || []).slice(0, maxEvents).filter((e) => e?.id)
+    const attempted = loadedEventIds.value
+    return {
+      loaded: scoped.reduce((n, e) => n + (attempted.has(e.id) ? 1 : 0), 0),
+      total: scoped.length,
+    }
   })
 
   /** BUG-285 : purge (changement d'espace in-page — les eventIds de l'ancien espace
@@ -214,5 +280,6 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS }
     clearCache,
     truncatedEventCount,
     sourceState,
+    loadProgress,
   }
 }
