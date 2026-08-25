@@ -272,6 +272,29 @@ export class AggregationService {
       rows.filter((r) => new Date(r.maxDate).getTime() - new Date(r.minDate).getTime() > spanMs).map((r) => r.eventId),
     );
 
+    // BUG-361-02 (Le Mans FC) : le span OBSERVÉ ci-dessus ne détecte rien tant que l'intégration
+    // vient d'être branchée — "LE MANS FC - SAISON 26/27" n'a que quelques heures de transactions
+    // synchronisées le jour du fix, alors que son span DÉCLARÉ (startDate/endDate, alimentés par
+    // live_start/live_end côté Weezevent — la fenêtre live réelle du calendrier saison, pas la
+    // période de vente des billets) couvre déjà 9,5 mois, cohérent avec un vrai calendrier de
+    // saison. Contrairement au cas narrow-artefact documenté en BUG-338-02 (13h déclarées pour
+    // 10 mois observés — l'inverse de la situation ici), un span déclaré large n'est pas fiable
+    // pour EXCLURE un conteneur, mais un span déclaré large EST un signal suffisant pour en
+    // INCLURE un — les deux signaux se combinent en OU, jamais un seul ne peut faire perdre le
+    // statut de conteneur détecté par l'autre.
+    const declaredSpanEvents = await this.prisma.salesEvent.findMany({
+      where: {
+        tenantId,
+        ...(integrationId ? { integrationId } : {}),
+        startDate: { not: null },
+        endDate: { not: null },
+      },
+      select: { id: true, startDate: true, endDate: true },
+    });
+    declaredSpanEvents
+      .filter((e) => e.endDate!.getTime() - e.startDate!.getTime() > spanMs)
+      .forEach((e) => containerIds.add(e.id));
+
     // Un SalesEvent Digifood (metadata.provider === 'digifood', digifood-ingestion.service.ts:239
     // upsertSiteAsEvent, §5.4 PLAN_INTEGRATION_DIGIFOOD.md) projette le SITE entier — jamais un
     // match précis — quel que soit le nombre de dates déjà synchronisées. Contrairement au
@@ -907,7 +930,7 @@ export class AggregationService {
    * conserve l'ancien comportement tenant-wide en repli.
    */
   async getStep4Context(tenantId: string, spaceId: string, integrationId?: string) {
-    const [timeline, weezeventEvents, hasMappings] = await Promise.all([
+    const [timeline, weezeventEvents, hasMappings, seasonContainerIds] = await Promise.all([
       this.getEventsTimelineStatus(tenantId, spaceId, integrationId),
       integrationId
         ? this.prisma.salesEvent.findMany({
@@ -918,11 +941,21 @@ export class AggregationService {
       integrationId
         ? this.mappingsService.hasShopMappingForIntegration(tenantId, integrationId)
         : this.prisma.locationShopMapping.count({ where: { tenantId } }).then((count) => count > 0),
+      integrationId ? this.resolveSeasonContainerEventIds(tenantId, integrationId) : Promise.resolve(new Set<string>()),
     ]);
+
+    // BUG-358/338-02 : un WeezeventEvent "conteneur" (saison Weezevent groupée sous un seul id,
+    // ou site Digifood) ne désigne jamais un match précis — le signaler pour que le front n'en
+    // fasse pas un candidat "Créer et lier tout" (créerait un faux Event DataFriday de plusieurs
+    // mois, cf. docs/bugs/361_02).
+    const weezeventEventsWithFlag = weezeventEvents.map((we) => ({
+      ...we,
+      isSeasonContainer: seasonContainerIds.has(we.id),
+    }));
 
     return {
       ...timeline,
-      weezeventEvents,
+      weezeventEvents: weezeventEventsWithFlag,
       hasMappings,
     };
   }

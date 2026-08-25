@@ -60,8 +60,15 @@
         </div>
       </div>
 
-      <!-- ── Loading ── -->
-      <div v-if="loading" class="spt-skeletons">
+      <!-- ── Loading ──
+           Skeleton uniquement au tout premier chargement (aucune donnée encore affichée).
+           loadTimeline() est rappelé après chaque action (Relancer, Tout agréger, Créer et lier
+           tout...) — sans cette garde, toute la zone (liste, banners, progression inline d'un
+           event en cours) disparaissait et réapparaissait à chaque refresh, y compris pendant le
+           polling d'un job en cours, cachant la progression que l'utilisateur était en train de
+           suivre. events.value n'est de toute façon remplacé qu'à la fin de loadTimeline (jamais
+           vidé en cours de route), donc les données affichées restent valides pendant un refresh. -->
+      <div v-if="loading && !events.length" class="spt-skeletons">
         <div v-for="i in 5" :key="i" class="spt-skeleton-row"></div>
       </div>
 
@@ -737,7 +744,10 @@ export default {
       return this.bulkAggregateRunning || this.unprocessedEvents.some(e => this.stalledEventIds.includes(e.id))
     },
     unmappedCount() {
-      return (this.weezeventEvents || []).filter(e => !this.weezEventMappings[e.id]).length
+      // BUG-361-02 : un conteneur de saison/site (isSeasonContainer, posé par getStep4Context)
+      // ne désigne jamais un match précis — ne pas le compter comme "à mapper", il ne le sera
+      // jamais individuellement.
+      return (this.weezeventEvents || []).filter(e => !e.isSeasonContainer && !this.weezEventMappings[e.id]).length
     },
     patchableEventsCount() {
       if (!this.spaceId) return 0
@@ -1316,7 +1326,11 @@ export default {
         .filter(dfId => dfId && !currentSpaceIds.has(String(dfId)))
 
       // Phase 1 : events Weezevent non liés à un event DF
-      const toCreate = (this.weezeventEvents || []).filter(e => !this.weezEventMappings[e.id])
+      // BUG-361-02 : exclut les conteneurs de saison/site (isSeasonContainer, posé par
+      // getStep4Context) — un conteneur ne désigne jamais un match précis ; le créer produirait
+      // un faux Event DataFriday de plusieurs mois (vérifié en base : 7 events "Saison XX/YY"
+      // déjà créés par erreur avant ce fix, certains avec du CA agrégé dessus).
+      const toCreate = (this.weezeventEvents || []).filter(e => !e.isSeasonContainer && !this.weezEventMappings[e.id])
 
       if (!toPatch.length && !toCreate.length) return
 
@@ -1352,6 +1366,11 @@ export default {
           this.bulkCreateEventsPhase = 'done'
           this.bulkCreateEventsMessage = `${patchedCount} ${this.t('intgTimelineBulkEventsAttached')}`
           await this.loadTimeline(this.spaceId, this.location.id)
+          // BUG-109/361-02 : "Créer et lier tout" ne déclenchait jusqu'ici jamais l'agrégation —
+          // bouton "Tout agréger" séparé, facile à oublier, symptôme observé "Analyse vide dès
+          // que je fais une data integration". Fire-and-forget : handleAggregateAll gère son
+          // propre état/snackbar, ne bloque pas la fermeture de ce dialog.
+          if (patchedCount > 0) this.handleAggregateAll()
           return
         }
 
@@ -1424,6 +1443,9 @@ export default {
           this.bulkCreateEventsMessage = `${patchSummary}${createdCount} ${this.t('intgTimelineBulkCreatedLinked')}${skipSummary}`
         }
         await this.loadTimeline(this.spaceId, this.location.id)
+        // BUG-109/361-02 : voir commentaire jumeau ci-dessus (branche "patch seul") — même
+        // déclenchement automatique ici, après création.
+        if (patchedCount > 0 || createdCount > 0) this.handleAggregateAll()
       } catch (err) {
         console.error('[bulkCreateEvents] fatal error:', err)
         this.bulkCreateEventsPhase = 'error'

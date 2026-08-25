@@ -596,6 +596,28 @@ describe('AggregationService', () => {
         expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
       });
 
+      it('BUG-361-02 (Le Mans FC) : SalesEvent au span DÉCLARÉ large (startDate/endDate) mais span OBSERVÉ nul (intégration tout juste synchronisée) → détecté conteneur quand même, repli range plutôt que exact', async () => {
+        // Span observé (via $queryRaw, resolveSeasonContainerEventIds) : rien — cold start.
+        mockPrisma.$queryRaw.mockResolvedValue([]);
+        // Span déclaré : ~9,5 mois, cohérent avec un vrai calendrier de saison (LE MANS FC -
+        // SAISON 26/27 réel : 2026-08-15 → 2027-06-02). Premier appel salesEvent.findMany
+        // (déclaré) ; le second (digifood) retombe sur le mock par défaut ([] posé en beforeEach).
+        mockPrisma.salesEvent.findMany.mockResolvedValueOnce([
+          { id: SALES_EVENT_ID, startDate: new Date('2026-08-15T04:00:00Z'), endDate: new Date('2027-06-02T01:00:00Z') },
+        ]);
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...makeEvent(EVENT_1), weezeventEventId: SALES_EVENT_ID },
+        ]);
+
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        // Mode range, PAS exact : la clause SQL ne doit plus être une égalité stricte sur eventId.
+        expect(sqlArg.text ?? sqlArg.sql).toEqual(expect.stringContaining('t."eventId" IS NULL OR'));
+        expect(sqlArg.values).toContain(SALES_EVENT_ID);
+      });
+
       it('règle métier 2026-08-25 : Event non lié, 1 seul jour → fenêtre = journée calendaire locale complète (00h00 → minuit suivant, pas ancrée sur une heure d\'ouverture)', async () => {
         const baseEvent = makeEvent(EVENT_1);
         mockPrisma.event.findMany.mockResolvedValue([baseEvent]);

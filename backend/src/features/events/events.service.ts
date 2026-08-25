@@ -547,6 +547,13 @@ export class EventsService {
    * WeezeventEvent existe le même jour calendaire — cas laissés de côté par
    * l'auto-link (EventWeezeventLinkService) faute d'appariement 1:1 univoque.
    * Retourne les candidats WeezeventEvent pour chaque event, à choisir manuellement.
+   *
+   * BUG-361-02 : un conteneur de saison Weezevent (span déclaré > MAX_EVENT_SPAN_DAYS, même seuil
+   * que resolveSeasonContainerEventIds, aggregation.service.ts) ou un site Digifood
+   * (metadata.provider === 'digifood') n'est jamais un candidat de résolution manuelle valide —
+   * il ne désigne aucun match précis, quel que soit le jour calendaire de son startDate. Exclu ici
+   * pour ne pas proposer "PARIS FOOTBALL CLUB SAISON 26-27" comme s'il s'agissait d'un match du
+   * jour (vérifié en base : cas réel avant ce fix).
    */
   async listAmbiguousWeezeventMatches(tenantId: string) {
     return this.prisma.$queryRaw<
@@ -567,6 +574,8 @@ export class EventsService {
           WHERE we."tenantId" = e."tenantId"
             AND we."startDate" IS NOT NULL
             AND DATE(we."startDate") = DATE(e."eventDate")
+            AND (we."endDate" IS NULL OR we."endDate" - we."startDate" <= INTERVAL '2 days')
+            AND (we.metadata->>'provider') IS DISTINCT FROM 'digifood'
         ) AS candidates
       FROM "Event" e
       WHERE e."tenantId" = ${tenantId}
@@ -576,6 +585,8 @@ export class EventsService {
           WHERE we."tenantId" = e."tenantId"
             AND we."startDate" IS NOT NULL
             AND DATE(we."startDate") = DATE(e."eventDate")
+            AND (we."endDate" IS NULL OR we."endDate" - we."startDate" <= INTERVAL '2 days')
+            AND (we.metadata->>'provider') IS DISTINCT FROM 'digifood'
         )
       ORDER BY e."eventDate" DESC
     `;
