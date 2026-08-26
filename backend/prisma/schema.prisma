@@ -3280,9 +3280,14 @@ model StockLevel {
   marketPrice MarketPrice? @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, elementId, itemKey], name: "uniq_stock_level")
+  // ADR-0006 (chantier 377, étape 5) : deuxième contrainte, basée sur l'identité stable — les
+  // deux coexistent tant qu'itemKey reste la clé effective de la double-écriture. Postgres ne
+  // considère jamais deux NULL comme égaux dans un index unique standard : les lignes orphelines
+  // (itemRefId null) ne collisionnent jamais entre elles, seule une VRAIE identité dupliquée
+  // (même élément, même article) est bloquée.
+  @@unique([tenantId, elementId, itemRefId], name: "uniq_stock_level_by_ref")
   @@index([tenantId, spaceId])
   @@index([marketPriceId])
-  @@index([itemRefId])
 }
 
 // Archive des écarts attendu vs compté figée par un Inventory Reset.

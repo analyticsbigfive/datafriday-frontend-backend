@@ -226,21 +226,29 @@ export class LogisticsService {
     // itemKey — null si non résolue (n'écrase jamais une valeur déjà posée par un appel précédent).
     itemIdentity: { itemKind: string; itemRefId: string } | null = null,
   ) {
-    // ADR-0006 (chantier 377, étape 5) : repli par itemRefId AVANT de conclure à une création —
-    // sans lui, un mouvement posté avec le nom COURANT d'un article renommé depuis le dernier
-    // mouvement ne trouverait jamais la ligne existante (encore sous l'ancien nom) et créerait
-    // une ligne StockLevel fantôme à partir de 0, orphelinant le vrai stock. La ligne trouvée
-    // par id voit aussi son itemKey réaligné sur le nom courant (auto-guérison, symétrique de
-    // la canonicalisation déjà faite côté lecture dans getLevelsAndConsumption).
-    const existing =
-      (await tx.stockLevel.findUnique({
+    // ADR-0006 (chantier 377, étape 5) : identité d'abord, nom en repli SEULEMENT s'il n'entre
+    // pas en conflit avec une identité déjà posée — deux ordres de recherche différents selon
+    // qu'on connaît ou non l'identité de l'article courant :
+    //  1. itemIdentity connue → cherche par itemRefId (précis, insensible à un renommage) ; si
+    //     absent, cherche par itemKey MAIS n'adopte la ligne trouvée que si elle est encore
+    //     "libre" (itemRefId null, jamais rattachée — cas legacy à guérir) ou déjà rattachée à
+    //     CETTE identité. Une ligne déjà rattachée à une AUTRE identité est un vrai homonyme
+    //     (même nom, article différent) : on ne la touche jamais, une nouvelle ligne est créée.
+    //  2. itemIdentity inconnue (résolution échouée) → seul repli possible, comportement
+    //     historique inchangé.
+    let existing = itemIdentity
+      ? await tx.stockLevel.findFirst({
+          where: { tenantId, elementId: element.id, itemRefId: itemIdentity.itemRefId },
+        })
+      : null;
+    if (!existing) {
+      const byName = await tx.stockLevel.findUnique({
         where: { uniq_stock_level: { tenantId, elementId: element.id, itemKey } },
-      })) ??
-      (itemIdentity
-        ? await tx.stockLevel.findFirst({
-            where: { tenantId, elementId: element.id, itemRefId: itemIdentity.itemRefId },
-          })
-        : null);
+      });
+      if (byName && (!itemIdentity || !byName.itemRefId || byName.itemRefId === itemIdentity.itemRefId)) {
+        existing = byName;
+      }
+    }
     const upp = unitsPerPack ?? existing?.unitsPerPack ?? null;
     const rawPacked = (existing?.packedUnits ?? 0) + packedDelta;
     const rawLoose = (existing?.looseUnits ?? 0) + looseDelta;
@@ -2385,15 +2393,22 @@ export class LogisticsService {
           where: { tenantId, spaceId, elementId: { in: [...new Set(recoLines.map((l) => l.elementId))] } },
           select: { id: true, elementId: true, itemKey: true, itemRefId: true },
         });
-        const existingByKey = new Map(existingRows.map((l) => [`${l.elementId}::${l.itemKey}`, l.id]));
+        const existingByKey = new Map(existingRows.map((l) => [`${l.elementId}::${l.itemKey}`, l]));
         const existingByRefId = new Map(
-          existingRows.filter((l) => l.itemRefId).map((l) => [`${l.elementId}::${l.itemRefId}`, l.id]),
+          existingRows.filter((l) => l.itemRefId).map((l) => [`${l.elementId}::${l.itemRefId}`, l]),
         );
+        // Même garde qu'applyLevelDelta : identité d'abord (précise), nom en repli SEULEMENT si
+        // la ligne trouvée par nom n'est pas déjà rattachée à une AUTRE identité (vrai homonyme —
+        // même nom, article différent) — sinon deux homonymes fusionneraient dans une seule ligne.
         const resolveExistingId = (line: (typeof recoLines)[number]) => {
+          const identity = identityFor(line.itemKey);
+          if (identity) {
+            const byRef = existingByRefId.get(`${line.elementId}::${identity.itemRefId}`);
+            if (byRef) return byRef.id;
+          }
           const byKey = existingByKey.get(`${line.elementId}::${line.itemKey}`);
-          if (byKey) return byKey;
-          const refId = identityFor(line.itemKey)?.itemRefId;
-          return refId ? existingByRefId.get(`${line.elementId}::${refId}`) : undefined;
+          if (byKey && (!identity || !byKey.itemRefId || byKey.itemRefId === identity.itemRefId)) return byKey.id;
+          return undefined;
         };
         const toCreate = recoLines.filter((l) => !resolveExistingId(l));
         if (toCreate.length) {

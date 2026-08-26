@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { StockMovementReason } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { LogisticsService } from '../logistics/logistics.service';
+import { StockItemKind } from '../logistics/dto/logistics.dto';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
@@ -460,8 +461,11 @@ export class InventoryService {
    * cas de collision d'id. Un id résolu dans NI l'un NI l'autre reste orphelin —
    * même limitation connue que `itemNameById` plus haut (Q39/Q45).
    */
-  private async resolveItemKeysByIds(itemIds: string[], tenantId: string): Promise<Map<string, string>> {
-    const m = new Map<string, string>();
+  private async resolveItemKeysByIds(
+    itemIds: string[],
+    tenantId: string,
+  ): Promise<Map<string, { name: string; kind: StockItemKind }>> {
+    const m = new Map<string, { name: string; kind: StockItemKind }>();
     if (!itemIds.length) return m;
     // MarketPrice/MenuItem couvrent le cas nominal (`marketPriceId || sourceId || id`
     // résolu côté front, cf. inventoryUtils.js). Ingredient/Packaging/MenuComponent
@@ -470,6 +474,9 @@ export class InventoryService {
     // itemRefsForMenuItem) : sans ce repli, l'item était orphelin et silencieusement
     // exclu du push Logistic (cf. Bun - Burger, session 2026-08-26 — comptage résolu
     // sous l'id Ingredient, jamais son MarketPrice pourtant lié en base).
+    // ADR-0006 (chantier 377) : le `kind` renvoyé ici EST déjà `itemRefId`'s table
+    // d'origine — transmis tel quel à `logistics.reset()` pour lui éviter de
+    // re-résoudre par nom ce qu'on sait déjà avec certitude.
     const [marketPrices, menuItems, ingredients, packagings, components] = await Promise.all([
       this.prisma.marketPrice.findMany({ where: { tenantId, id: { in: itemIds } }, select: { id: true, itemName: true } }),
       this.prisma.menuItem.findMany({ where: { tenantId, id: { in: itemIds } }, select: { id: true, name: true } }),
@@ -477,11 +484,11 @@ export class InventoryService {
       this.prisma.packaging.findMany({ where: { tenantId, id: { in: itemIds } }, select: { id: true, name: true } }),
       this.prisma.menuComponent.findMany({ where: { tenantId, id: { in: itemIds } }, select: { id: true, name: true } }),
     ]);
-    for (const mp of marketPrices) if (mp.itemName) m.set(mp.id, mp.itemName);
-    for (const mi of menuItems) if (mi.name) m.set(mi.id, mi.name);
-    for (const ing of ingredients) if (!m.has(ing.id) && ing.name) m.set(ing.id, ing.name);
-    for (const pkg of packagings) if (!m.has(pkg.id) && pkg.name) m.set(pkg.id, pkg.name);
-    for (const comp of components) if (!m.has(comp.id) && comp.name) m.set(comp.id, comp.name);
+    for (const mp of marketPrices) if (mp.itemName) m.set(mp.id, { name: mp.itemName, kind: 'marketPrice' });
+    for (const mi of menuItems) if (mi.name) m.set(mi.id, { name: mi.name, kind: 'menuItem' });
+    for (const ing of ingredients) if (!m.has(ing.id) && ing.name) m.set(ing.id, { name: ing.name, kind: 'ingredient' });
+    for (const pkg of packagings) if (!m.has(pkg.id) && pkg.name) m.set(pkg.id, { name: pkg.name, kind: 'packaging' });
+    for (const comp of components) if (!m.has(comp.id) && comp.name) m.set(comp.id, { name: comp.name, kind: 'menuComponent' });
     return m;
   }
 
@@ -521,14 +528,23 @@ export class InventoryService {
     for (const byItem of Object.values(countedBlob)) for (const itemId of Object.keys(byItem ?? {})) itemIds.add(itemId);
     const itemKeyById = await this.resolveItemKeysByIds([...itemIds], tenantId);
 
-    const lines: Array<{ elementId: string; itemKey: string; countedPacked: number; countedLoose: number }> = [];
+    const lines: Array<{
+      elementId: string;
+      itemKey: string;
+      itemKind: StockItemKind;
+      itemRefId: string;
+      countedPacked: number;
+      countedLoose: number;
+    }> = [];
     for (const [shopId, byItem] of Object.entries(countedBlob)) {
       for (const [itemId, count] of Object.entries(byItem ?? {})) {
-        const itemKey = itemKeyById.get(itemId);
-        if (!itemKey) continue; // orphelin : id absent des deux catalogues, non adressable côté Logistic
+        const resolved = itemKeyById.get(itemId);
+        if (!resolved) continue; // orphelin : id absent des deux catalogues, non adressable côté Logistic
         lines.push({
           elementId: shopId,
-          itemKey,
+          itemKey: resolved.name,
+          itemKind: resolved.kind,
+          itemRefId: itemId,
           countedPacked: Number((count as any)?.packedUnits) || 0,
           countedLoose: Number((count as any)?.looseUnits) || 0,
         });
@@ -1120,16 +1136,25 @@ export class InventoryService {
     if (!itemIds.size) return { ok: false, reason: 'no-counts' };
 
     const itemKeyById = await this.resolveItemKeysByIds([...itemIds], tenantId);
-    const lines: Array<{ elementId: string; itemKey: string; countedPacked: number; countedLoose: number }> = [];
+    const lines: Array<{
+      elementId: string;
+      itemKey: string;
+      itemKind: StockItemKind;
+      itemRefId: string;
+      countedPacked: number;
+      countedLoose: number;
+    }> = [];
     for (const [elementId, byItem] of Object.entries(countedBlob)) {
       for (const [itemId, count] of Object.entries(byItem ?? {})) {
-        const itemKey = itemKeyById.get(itemId);
+        const resolved = itemKeyById.get(itemId);
         // Orphelin des deux catalogues : non adressable côté Logistic (même
         // limitation que autoInitLiveStockFromPreEventInventory).
-        if (!itemKey) continue;
+        if (!resolved) continue;
         lines.push({
           elementId,
-          itemKey,
+          itemKey: resolved.name,
+          itemKind: resolved.kind,
+          itemRefId: itemId,
           countedPacked: Number((count as any)?.packedUnits) || 0,
           countedLoose: Number((count as any)?.looseUnits) || 0,
         });
