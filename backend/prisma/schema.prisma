@@ -1191,6 +1191,8 @@ model MarketPrice {
   industrial          Industrial?          @relation(fields: [industrialId], references: [id], onDelete: SetNull)
   ingredients         Ingredient[]
   packagings          Packaging[]
+  stockLevels         StockLevel[]
+  stockMovements      StockMovement[]
 
   @@index([tenantId])
   @@index([supplierId])
@@ -3240,10 +3242,13 @@ model StockMovement {
   createdBy             String?
   createdAt             DateTime             @default(now())
 
+  marketPrice MarketPrice? @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
+
   @@index([tenantId, elementId, createdAt])
   @@index([tenantId, spaceId, createdAt])
   @@index([tenantId, spaceId, eventId])
   @@index([tenantId, counterpartyElementId, status])
+  @@index([marketPriceId])
 }
 
 // État courant matérialisé du stock attendu par élément × item (packed/loose).
@@ -3262,8 +3267,11 @@ model StockLevel {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  marketPrice MarketPrice? @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
+
   @@unique([tenantId, elementId, itemKey], name: "uniq_stock_level")
   @@index([tenantId, spaceId])
+  @@index([marketPriceId])
 }
 
 // Archive des écarts attendu vs compté figée par un Inventory Reset.

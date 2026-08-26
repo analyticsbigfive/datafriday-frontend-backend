@@ -394,9 +394,9 @@ const actions = {
   },
 
   /** Market prices candidats pour le popup +/− d'une denrée (scopé, pas le catalogue complet). */
-  async loadMarketPricesForItem(_ctx, { spaceId, itemKey }) {
+  async loadMarketPricesForItem(_ctx, { spaceId, itemKey, currentMarketPriceId }) {
     try {
-      return await getMarketPricesForItem(spaceId, itemKey)
+      return await getMarketPricesForItem(spaceId, itemKey, currentMarketPriceId)
     } catch (e) {
       console.error('[logistics] 💰❌ loadMarketPricesForItem ÉCHEC —', e?.response?.status, e?.message)
       return []

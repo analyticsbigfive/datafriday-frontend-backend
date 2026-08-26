@@ -56,12 +56,19 @@ export class LogisticsController {
   })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   @ApiQuery({ name: 'itemKey', required: true, description: 'Nom de la denrée (référentiel Logistic)' })
+  @ApiQuery({
+    name: 'currentMarketPriceId',
+    required: false,
+    description:
+      'Market price déjà lié à cette ligne de stock — renvoyé même si son itemName a divergé du référentiel depuis.',
+  })
   async getMarketPrices(
     @Param('spaceId') spaceId: string,
     @Query('itemKey') itemKey: string,
     @CurrentUser() user: any,
+    @Query('currentMarketPriceId') currentMarketPriceId?: string,
   ) {
-    return this.service.getMarketPricesForItem(spaceId, user.tenantId, itemKey);
+    return this.service.getMarketPricesForItem(spaceId, user.tenantId, itemKey, currentMarketPriceId);
   }
 
   @Post('movements')

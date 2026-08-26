@@ -1144,6 +1144,7 @@ export default {
         this.movementMarketPrices = await this.store.dispatch('logistics/loadMarketPricesForItem', {
           spaceId: this.currentSpaceId,
           itemKey: item.name,
+          currentMarketPriceId: item.marketPriceId,
         })
       } finally {
         this.movementMarketPricesLoading = false
