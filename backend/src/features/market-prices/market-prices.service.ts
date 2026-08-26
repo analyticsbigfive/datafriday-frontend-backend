@@ -602,16 +602,20 @@ export class MarketPricesService {
   }
 
   /**
-   * Resynchronise costPerRecipeUnit/costPerPurchaseUnit sur l'Ingredient/Packaging déjà
-   * lié à ce MarketPrice. Sans ça, ces champs restent figés à leur valeur de création
+   * Resynchronise name/costPerRecipeUnit/costPerPurchaseUnit sur l'Ingredient/Packaging
+   * déjà lié à ce MarketPrice. Sans ça, ces champs restent figés à leur valeur de création
    * (cf. ensureIngredientForMarketPrice) alors que menu-items/menu-components/space-menus
-   * les lisent comme source de vérité du coût recette — modifier le prix d'un fournisseur
-   * ne se répercutait donc jamais sur les menu items qui l'utilisent. Appelé sur CHAQUE
-   * update de MarketPrice (pas seulement un changement de prix) pour rester infaillible
-   * même si d'autres champs dérivés du coût sont ajoutés plus tard.
+   * les lisent comme source de vérité (coût recette, mais aussi le nom affiché côté
+   * Logistic — cf. itemRefsForMenuItem dans logistics.service.ts) — modifier un market
+   * price existant ne se répercutait donc jamais sur les menu items/le stock qui
+   * l'utilisent. Appelé sur CHAQUE update de MarketPrice (pas seulement un changement de
+   * prix/nom) pour rester infaillible même si d'autres champs dérivés sont ajoutés plus
+   * tard, même motif que storage-types.service.ts (BUG-84) — sauf qu'ici le lien est une
+   * vraie FK (marketPriceId), pas un match par ancien nom en texte libre.
    */
   private async resyncLinkedRecipeCosts(marketPrice: any, tenantId: string) {
     const costs = {
+      name: marketPrice.itemName,
       ...this.computeRecipeCosts(marketPrice),
       recipeUnit: marketPrice.recipeUnit || marketPrice.unit || undefined,
       purchaseUnit: marketPrice.unit || undefined,

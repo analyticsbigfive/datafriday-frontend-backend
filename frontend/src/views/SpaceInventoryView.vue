@@ -206,6 +206,17 @@
             <v-icon size="20">mdi-dots-vertical</v-icon>
           </v-btn>
           <v-btn
+            v-if="selectedEventId"
+            variant="outlined"
+            :loading="pushingToLogistic"
+            :disabled="pushingToLogistic"
+            class="si-band-btn"
+            @click="onUpdateLogistic"
+          >
+            <v-icon size="16" class="mr-1">mdi-warehouse</v-icon>
+            {{ t('invUpdateLogistic') }}
+          </v-btn>
+          <v-btn
             :loading="saving || recoCreating"
             :disabled="saving || recoCreating"
             class="si-band-btn si-band-btn--save"
@@ -722,6 +733,12 @@
         <v-btn variant="text" @click="errorSnackbar = false">{{ t('close') || 'Fermer' }}</v-btn>
       </template>
     </v-snackbar>
+    <v-snackbar v-model="successSnackbar" color="success" :timeout="4000" location="bottom">
+      {{ successText }}
+      <template #actions>
+        <v-btn variant="text" @click="successSnackbar = false">{{ t('close') || 'Fermer' }}</v-btn>
+      </template>
+    </v-snackbar>
   </v-app>
 </template>
 
@@ -764,6 +781,7 @@ import {
   getPostEventBaseline,
   createPreEventReconciliation,
   getEventSalesConsumption,
+  pushInventoryCountToLogistic,
 } from '@/api/endpoints/inventory.api'
 import { buildPreEventExpected, expectedKey, flattenExpectedUnits } from '@/utils/preEventExpected'
 import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
@@ -949,6 +967,9 @@ export default {
       printDate: '',
       errorSnackbar: false,
       errorText: '',
+      successSnackbar: false,
+      successText: '',
+      pushingToLogistic: false,
       mock: { shopsWithInventory: [], storagesWithInventory: [], merchWithInventory: [] },
       COUNTING_TABS,
       TOP_TABS,
@@ -2050,6 +2071,40 @@ export default {
       // accessible par le dropdown Tools). Voir docs/modules/10_POST_EVENT_INVENTORY.md §7-8.
       if (this.isPreMode) await this.createPreReconciliationAfterSave()
       else await this.createReconciliationAfterSave()
+    },
+    /** Bouton "Update Logistic" : pousse manuellement le comptage courant vers le
+     *  registre Logistic (écrase les StockLevel avec les quantités comptées),
+     *  sans créer de document de réconciliation — même mécanisme que le recalage
+     *  automatique déclenché par "Create Reconciliation" (pushCountToLogistic),
+     *  mais explicite et confirmable. */
+    async onUpdateLogistic() {
+      if (!this.selectedEventId) return
+      const ok = await confirmDialog({
+        title: this.t('invUpdateLogisticConfirmTitle'),
+        message: this.t('invUpdateLogisticConfirmMsg'),
+        confirmText: this.t('invUpdateLogisticConfirmBtn'),
+        cancelText: this.t('cancel') || 'Cancel',
+        confirmColor: 'deep-orange',
+        icon: 'mdi-alert-outline',
+        iconColor: 'warning',
+      })
+      if (!ok) return
+      const spaceId = this.route.params.spaceId
+      this.pushingToLogistic = true
+      try {
+        await pushInventoryCountToLogistic(
+          spaceId,
+          this.selectedEventId,
+          this.isPreMode ? 'pre-event' : 'post-event',
+        )
+        this.successText = this.t('invUpdateLogisticSuccess')
+        this.successSnackbar = true
+      } catch (e) {
+        this.errorText = e?.userMessage || e?.response?.data?.message || this.t('invUpdateLogisticError')
+        this.errorSnackbar = true
+      } finally {
+        this.pushingToLogistic = false
+      }
     },
     /** Mode PRE : le backend construit les lignes (attendu vs compté) — le client,
      *  potentiellement sans la permission « attendus », ne les a jamais eues. */

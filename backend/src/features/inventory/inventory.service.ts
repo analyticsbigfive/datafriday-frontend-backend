@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { StockMovementReason } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { LogisticsService } from '../logistics/logistics.service';
@@ -1142,6 +1142,42 @@ export class InventoryService {
       );
       return { ok: false, reason: 'reset-failed' };
     }
+  }
+
+  /**
+   * Déclenchement manuel du recalage Logistic (bouton "Update Logistic" des
+   * écrans Pre/Post-event Inventory) — même chemin que le recalage automatique
+   * de `createPostEventReconciliation`/`createPreEventReconciliation`
+   * (`pushCountToLogistic` ci-dessus), mais sans créer de document de
+   * réconciliation : permet de re-pousser un comptage mis à jour entre deux
+   * réconciliations. Contrairement au recalage automatique, un échec ici est
+   * remonté à l'appelant (l'utilisateur a explicitement demandé cette action).
+   */
+  async pushCurrentCountToLogistic(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+    phase: 'pre-event' | 'post-event',
+    userId?: string,
+  ) {
+    await this.assertSpace(spaceId, tenantId);
+    const event = await this.prisma.event.findFirst({
+      where: { id: eventId, spaceId, tenantId },
+      select: { id: true, name: true },
+    });
+    if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
+
+    const merged = await this.getBySpaceAndEvent(spaceId, event.id, tenantId, phase);
+    const countedBlob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
+    const result = await this.pushCountToLogistic(spaceId, tenantId, phase, event, countedBlob, userId);
+    if (!result.ok) {
+      throw new BadRequestException(
+        result.reason === 'no-counts' || result.reason === 'no-addressable-lines'
+          ? 'Aucun item compté à pousser vers Logistic'
+          : 'Échec de la mise à jour du registre Logistic',
+      );
+    }
+    return result;
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────
