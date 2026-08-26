@@ -217,6 +217,9 @@ export class LogisticsService {
     unitsPerPack: number | null,
     marketPriceId: string | null,
     strict = false,
+    // ADR-0006 (chantier 377) : identité stable résolue par l'appelant, écrite en double avec
+    // itemKey — null si non résolue (n'écrase jamais une valeur déjà posée par un appel précédent).
+    itemIdentity: { itemKind: string; itemRefId: string } | null = null,
   ) {
     const existing = await tx.stockLevel.findUnique({
       where: { uniq_stock_level: { tenantId, elementId: element.id, itemKey } },
@@ -245,6 +248,8 @@ export class LogisticsService {
           looseUnits: next.loose,
           unitsPerPack: upp,
           marketPriceId: marketPriceId ?? existing.marketPriceId,
+          itemKind: itemIdentity?.itemKind ?? existing.itemKind,
+          itemRefId: itemIdentity?.itemRefId ?? existing.itemRefId,
         },
       });
     }
@@ -258,6 +263,8 @@ export class LogisticsService {
         looseUnits: next.loose,
         unitsPerPack: upp,
         marketPriceId,
+        itemKind: itemIdentity?.itemKind ?? null,
+        itemRefId: itemIdentity?.itemRefId ?? null,
       },
     });
   }
@@ -298,6 +305,71 @@ export class LogisticsService {
       orderBy: { createdAt: 'asc' },
     });
     return mi?.inventoryNumberOfUnits ?? null;
+  }
+
+  /**
+   * ADR-0006 (chantier 377) — résout (itemKind, itemRefId) pour un lot de `itemKey` en une seule
+   * passe batchée (1 requête par table candidate, pas 1 par nom) : double-écriture progressive
+   * en remplacement d'`itemKey`, sans jamais bloquer l'écriture existante si la résolution échoue.
+   * Priorité miroir de `itemRefsForMenuItem`/`resolveUnitsPerPackForItemKey`
+   * (marketPrice > ingredient > packaging > menuComponent > menuItem).
+   * Match EXACT (pas insensible à la casse) volontairement : `itemKey` provient historiquement du
+   * nom copié verbatim au moment de la construction du référentiel — les cas non résolus dégradent
+   * proprement (itemKind/itemRefId restent null, itemKey continue de fonctionner comme aujourd'hui).
+   * Ne PAS dupliquer ici la comparaison insensible à la casse déjà présente ailleurs
+   * (resolveUnitsPerPackForItemKey, getMarketPricesForItem) — le chantier prévoit de la consolider,
+   * pas de l'étendre une 4e fois.
+   */
+  private async resolveItemIdentitiesForKeys(
+    itemKeys: string[],
+    tenantId: string,
+  ): Promise<Map<string, { itemKind: string; itemRefId: string }>> {
+    const names = [...new Set(itemKeys.map((k) => String(k ?? '').trim()).filter(Boolean))];
+    const result = new Map<string, { itemKind: string; itemRefId: string }>();
+    if (!names.length) return result;
+
+    const [marketPrices, ingredients, packagings, components, menuItems] = await Promise.all([
+      this.prisma.marketPrice.findMany({
+        where: { tenantId, deletedAt: null, itemName: { in: names } },
+        select: { id: true, itemName: true },
+      }),
+      this.prisma.ingredient.findMany({
+        where: { tenantId, deletedAt: null, name: { in: names } },
+        select: { id: true, name: true },
+      }),
+      this.prisma.packaging.findMany({
+        where: { tenantId, deletedAt: null, name: { in: names } },
+        select: { id: true, name: true },
+      }),
+      this.prisma.menuComponent.findMany({
+        where: { tenantId, deletedAt: null, name: { in: names } },
+        select: { id: true, name: true },
+      }),
+      this.prisma.menuItem.findMany({
+        where: { tenantId, deletedAt: null, name: { in: names } },
+        select: { id: true, name: true },
+      }),
+    ]);
+    const setIfAbsent = <T extends { id: string }>(rows: T[], kind: string, nameOf: (r: T) => string) => {
+      for (const r of rows) {
+        const key = nameOf(r).trim();
+        if (key && !result.has(key)) result.set(key, { itemKind: kind, itemRefId: r.id });
+      }
+    };
+    setIfAbsent(marketPrices, 'marketPrice', (r) => r.itemName);
+    setIfAbsent(ingredients, 'ingredient', (r) => r.name);
+    setIfAbsent(packagings, 'packaging', (r) => r.name);
+    setIfAbsent(components, 'menuComponent', (r) => r.name);
+    setIfAbsent(menuItems, 'menuItem', (r) => r.name);
+    return result;
+  }
+
+  private async resolveItemIdentityForKey(
+    itemKey: string,
+    tenantId: string,
+  ): Promise<{ itemKind: string; itemRefId: string } | null> {
+    const map = await this.resolveItemIdentitiesForKeys([itemKey], tenantId);
+    return map.get(String(itemKey ?? '').trim()) ?? null;
   }
 
   // ─── POST /logistics/movements ───────────────────────────────────────────────
@@ -395,10 +467,15 @@ export class LogisticsService {
     const packedDelta = sign * dto.packed;
     const looseDelta = sign * dto.loose;
     const transferGroupId = counterparty ? randomUUID() : null;
+    // ADR-0006 (chantier 377) : résolu hors transaction (lecture seule), double-écriture avec
+    // itemKey — n'affecte aucun comportement existant si la résolution échoue (reste null).
+    const itemIdentity = await this.resolveItemIdentityForKey(dto.itemKey, tenantId);
     const base = {
       tenantId,
       spaceId: dto.spaceId,
       itemKey: dto.itemKey,
+      itemKind: itemIdentity?.itemKind ?? null,
+      itemRefId: itemIdentity?.itemRefId ?? null,
       menuItemId: dto.menuItemId ?? null,
       marketPriceId: dto.marketPriceId ?? null,
       reason: dto.reason as StockMovementReason,
@@ -425,6 +502,7 @@ export class LogisticsService {
       });
       const level = await this.applyLevelDelta(
         tx, tenantId, element, dto.itemKey, packedDelta, looseDelta, unitsPerPack, dto.marketPriceId ?? null, true,
+        itemIdentity,
       );
       return { movement, level, counterpartyLevel: null as any };
     });
@@ -479,6 +557,12 @@ export class LogisticsService {
     const missingLoose = round2(declaredLoose - confirmedLoose);
     const hasLoss = missingPacked > 0 || missingLoose > 0;
 
+    // ADR-0006 (chantier 377) : le mouvement source porte déjà (itemKind, itemRefId) s'il a été
+    // créé après le déploiement de la double-écriture — repli null sinon (mouvement historique),
+    // jamais de résolution supplémentaire ici (identité déjà tranchée à l'émission du transfert).
+    const itemIdentity =
+      source.itemKind && source.itemRefId ? { itemKind: source.itemKind, itemRefId: source.itemRefId } : null;
+
     return this.prisma.$transaction(async (tx) => {
       await tx.stockMovement.create({
         data: {
@@ -486,6 +570,8 @@ export class LogisticsService {
           spaceId: source.spaceId,
           elementId: counterparty.id,
           itemKey: source.itemKey,
+          itemKind: itemIdentity?.itemKind ?? null,
+          itemRefId: itemIdentity?.itemRefId ?? null,
           menuItemId: source.menuItemId,
           marketPriceId: source.marketPriceId,
           packedDelta: confirmedPacked,
@@ -499,6 +585,7 @@ export class LogisticsService {
       });
       const counterpartyLevel = await this.applyLevelDelta(
         tx, tenantId, counterparty, source.itemKey, confirmedPacked, confirmedLoose, unitsPerPack, source.marketPriceId, true,
+        itemIdentity,
       );
       await tx.stockMovement.update({
         where: { id: source.id },
@@ -512,6 +599,8 @@ export class LogisticsService {
             tenantId,
             spaceId: source.spaceId,
             itemKey: source.itemKey,
+            itemKind: itemIdentity?.itemKind ?? null,
+            itemRefId: itemIdentity?.itemRefId ?? null,
             sourceElementId: source.elementId,
             destinationElementId: counterparty.id,
             unitsPerPack,
@@ -2115,6 +2204,15 @@ export class LogisticsService {
       };
     });
 
+    // ADR-0006 (chantier 377) : résolution en lot (1 requête par table candidate, pas par ligne)
+    // hors transaction — double-écriture, dégrade proprement (itemKind/itemRefId null) si un nom
+    // ne résout pas, sans jamais bloquer le reset.
+    const identities = await this.resolveItemIdentitiesForKeys(
+      [...recoLines.map((l) => l.itemKey), ...carryLines.map((l) => l.itemKey)],
+      tenantId,
+    );
+    const identityFor = (itemKey: string) => identities.get(String(itemKey ?? '').trim()) ?? null;
+
     return this.prisma.$transaction(
       async (tx) => {
         const reco = await tx.stockReconciliation.create({
@@ -2136,6 +2234,8 @@ export class LogisticsService {
               spaceId,
               elementId: line.elementId,
               itemKey: line.itemKey,
+              itemKind: identityFor(line.itemKey)?.itemKind ?? null,
+              itemRefId: identityFor(line.itemKey)?.itemRefId ?? null,
               packedDelta: line.deltaPacked,
               looseDelta: line.deltaLoose,
               reason: StockMovementReason.INVENTORY_RESET,
@@ -2149,6 +2249,8 @@ export class LogisticsService {
               spaceId,
               elementId: line.elementId,
               itemKey: line.itemKey,
+              itemKind: identityFor(line.itemKey)?.itemKind ?? null,
+              itemRefId: identityFor(line.itemKey)?.itemRefId ?? null,
               packedDelta: line.deltaPacked,
               looseDelta: line.deltaLoose,
               reason: StockMovementReason.SALE,
@@ -2165,12 +2267,15 @@ export class LogisticsService {
         if (carryLines.length) {
           await tx.$executeRaw(Prisma.sql`
             UPDATE "StockLevel" AS sl
-            SET "packedUnits" = v.packed, "looseUnits" = v.loose, "updatedAt" = NOW()
+            SET "packedUnits" = v.packed, "looseUnits" = v.loose,
+                "itemKind" = COALESCE(v.kind, sl."itemKind"), "itemRefId" = COALESCE(v.refId, sl."itemRefId"),
+                "updatedAt" = NOW()
             FROM (VALUES ${Prisma.join(
-              carryLines.map((l) =>
-                Prisma.sql`(${l.levelId}, ${Math.trunc(l.newPacked)}::int, ${l.newLoose}::float8)`,
-              ),
-            )}) AS v(id, packed, loose)
+              carryLines.map((l) => {
+                const id = identityFor(l.itemKey);
+                return Prisma.sql`(${l.levelId}, ${Math.trunc(l.newPacked)}::int, ${l.newLoose}::float8, ${id?.itemKind ?? null}::text, ${id?.itemRefId ?? null}::text)`;
+              }),
+            )}) AS v(id, packed, loose, kind, refId)
             WHERE sl.id = v.id AND sl."tenantId" = ${tenantId}
           `);
         }
@@ -2192,6 +2297,8 @@ export class LogisticsService {
               spaceId,
               elementId: l.elementId,
               itemKey: l.itemKey,
+              itemKind: identityFor(l.itemKey)?.itemKind ?? null,
+              itemRefId: identityFor(l.itemKey)?.itemRefId ?? null,
               packedUnits: l.countedPacked,
               looseUnits: l.countedLoose,
               unitsPerPack: l.unitsPerPack,
@@ -2209,12 +2316,15 @@ export class LogisticsService {
             SET "packedUnits" = v.packed,
                 "looseUnits" = v.loose,
                 "unitsPerPack" = COALESCE(v.upp, sl."unitsPerPack"),
+                "itemKind" = COALESCE(v.kind, sl."itemKind"),
+                "itemRefId" = COALESCE(v.refId, sl."itemRefId"),
                 "updatedAt" = NOW()
             FROM (VALUES ${Prisma.join(
-              toUpdate.map(({ id, l }) =>
-                Prisma.sql`(${id}, ${Math.trunc(l.countedPacked)}::int, ${l.countedLoose}::float8, ${l.unitsPerPack ?? null}::float8)`,
-              ),
-            )}) AS v(id, packed, loose, upp)
+              toUpdate.map(({ id, l }) => {
+                const identity = identityFor(l.itemKey);
+                return Prisma.sql`(${id}, ${Math.trunc(l.countedPacked)}::int, ${l.countedLoose}::float8, ${l.unitsPerPack ?? null}::float8, ${identity?.itemKind ?? null}::text, ${identity?.itemRefId ?? null}::text)`;
+              }),
+            )}) AS v(id, packed, loose, upp, kind, refId)
             WHERE sl.id = v.id AND sl."tenantId" = ${tenantId}
           `);
         }

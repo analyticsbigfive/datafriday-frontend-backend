@@ -3226,6 +3226,12 @@ model StockMovement {
   spaceId               String
   elementId             String // PDV ou storage (SpaceElement)
   itemKey               String // même référence que l'inventaire dérivé (nom)
+  // Identité stable en remplacement progressif d'itemKey (ADR-0006) — polymorphe car un article
+  // est la vérité de l'une de 5 tables différentes (MarketPrice/Ingredient/Packaging/MenuItem/
+  // MenuComponent), sans FK Prisma unique possible. Nullable : double-écriture en cours, itemKey
+  // reste la clé effective tant que la bascule des lectures n'est pas faite (chantier 377).
+  itemKind              String? // 'marketPrice' | 'ingredient' | 'packaging' | 'menuItem' | 'menuComponent'
+  itemRefId             String?
   menuItemId            String?
   marketPriceId         String?
   packedDelta           Int                  @default(0)
@@ -3246,6 +3252,7 @@ model StockMovement {
 
   @@index([tenantId, elementId, createdAt])
   @@index([tenantId, spaceId, createdAt])
+  @@index([itemRefId])
   @@index([tenantId, spaceId, eventId])
   @@index([tenantId, counterpartyElementId, status])
   @@index([marketPriceId])
@@ -3260,6 +3267,9 @@ model StockLevel {
   spaceId       String
   elementId     String
   itemKey       String
+  // Identité stable en remplacement progressif d'itemKey (ADR-0006) — voir StockMovement.
+  itemKind      String? // 'marketPrice' | 'ingredient' | 'packaging' | 'menuItem' | 'menuComponent'
+  itemRefId     String?
   packedUnits   Int      @default(0)
   looseUnits    Float    @default(0)
   unitsPerPack  Float? // MarketPrice.numberOfUnits du dernier ajout (casse de pack)
@@ -3272,6 +3282,7 @@ model StockLevel {
   @@unique([tenantId, elementId, itemKey], name: "uniq_stock_level")
   @@index([tenantId, spaceId])
   @@index([marketPriceId])
+  @@index([itemRefId])
 }
 
 // Archive des écarts attendu vs compté figée par un Inventory Reset.
@@ -3315,6 +3326,9 @@ model StockTransferLoss {
   tenantId             String
   spaceId              String
   itemKey              String
+  // Identité stable en remplacement progressif d'itemKey (ADR-0006) — voir StockMovement.
+  itemKind             String? // 'marketPrice' | 'ingredient' | 'packaging' | 'menuItem' | 'menuComponent'
+  itemRefId            String?
   sourceElementId      String
   destinationElementId String
   unitsPerPack         Float?
@@ -3332,6 +3346,7 @@ model StockTransferLoss {
 
   @@index([tenantId, spaceId, createdAt])
   @@index([tenantId, spaceId, archivedAt])
+  @@index([itemRefId])
 }
 
 // ==================== KV STORE ====================

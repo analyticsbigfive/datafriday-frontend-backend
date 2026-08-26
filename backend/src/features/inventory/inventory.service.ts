@@ -463,12 +463,25 @@ export class InventoryService {
   private async resolveItemKeysByIds(itemIds: string[], tenantId: string): Promise<Map<string, string>> {
     const m = new Map<string, string>();
     if (!itemIds.length) return m;
-    const [marketPrices, menuItems] = await Promise.all([
+    // MarketPrice/MenuItem couvrent le cas nominal (`marketPriceId || sourceId || id`
+    // résolu côté front, cf. inventoryUtils.js). Ingredient/Packaging/MenuComponent
+    // couvrent le repli `sourceId`/`id` — atteint quand le référentiel /stock n'a pas
+    // pu attacher de MarketPrice à l'ingrédient (mp introuvable dans
+    // itemRefsForMenuItem) : sans ce repli, l'item était orphelin et silencieusement
+    // exclu du push Logistic (cf. Bun - Burger, session 2026-08-26 — comptage résolu
+    // sous l'id Ingredient, jamais son MarketPrice pourtant lié en base).
+    const [marketPrices, menuItems, ingredients, packagings, components] = await Promise.all([
       this.prisma.marketPrice.findMany({ where: { tenantId, id: { in: itemIds } }, select: { id: true, itemName: true } }),
       this.prisma.menuItem.findMany({ where: { tenantId, id: { in: itemIds } }, select: { id: true, name: true } }),
+      this.prisma.ingredient.findMany({ where: { tenantId, id: { in: itemIds } }, select: { id: true, name: true } }),
+      this.prisma.packaging.findMany({ where: { tenantId, id: { in: itemIds } }, select: { id: true, name: true } }),
+      this.prisma.menuComponent.findMany({ where: { tenantId, id: { in: itemIds } }, select: { id: true, name: true } }),
     ]);
     for (const mp of marketPrices) if (mp.itemName) m.set(mp.id, mp.itemName);
     for (const mi of menuItems) if (mi.name) m.set(mi.id, mi.name);
+    for (const ing of ingredients) if (!m.has(ing.id) && ing.name) m.set(ing.id, ing.name);
+    for (const pkg of packagings) if (!m.has(pkg.id) && pkg.name) m.set(pkg.id, pkg.name);
+    for (const comp of components) if (!m.has(comp.id) && comp.name) m.set(comp.id, comp.name);
     return m;
   }
 
