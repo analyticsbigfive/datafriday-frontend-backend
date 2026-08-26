@@ -88,7 +88,9 @@ export async function getElementHistory(elementId, { limit, cursor } = {}) {
  * les écarts dans une réconciliation. Permission front.fb.logisticReconcile.
  * POST /logistics/:spaceId/reset
  * @param {object} payload { eventId?, eventName?, lines: [{elementId, itemKey,
- *   countedPacked, countedLoose, unitsPerPack?}] }
+ *   countedPacked, countedLoose, unitsPerPack?, itemKind?, itemRefId?}] } — itemKind/itemRefId
+ *   (ADR-0006, chantier 377) : identité stable déjà résolue par le référentiel, préférée par le
+ *   backend à la résolution par nom quand fournie.
  */
 export async function resetLogisticsInventory(spaceId, payload) {
   return api.post(`/logistics/${spaceId}/reset`, payload)

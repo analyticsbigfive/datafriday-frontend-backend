@@ -148,6 +148,7 @@ export default {
   color: #6b7280;
   line-height: 1.5;
   margin: 0;
+  white-space: pre-line;
 }
 
 /* ── Actions ── */
