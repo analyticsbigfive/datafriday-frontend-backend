@@ -5,6 +5,7 @@ import {
   aggregateTimelinePerMinute,
   computeWindowRatios,
   windowPredictedRecords,
+  preprocessTimelineRecords,
 } from '@/utils/predictiveTimelinePreprocess'
 
 describe('predictiveTimelinePreprocess', () => {
@@ -88,6 +89,51 @@ describe('predictiveTimelinePreprocess', () => {
       expect(r.rev).toBeCloseTo(2 / 3)
       expect(r.qty).toBeCloseTo(2 / 3)
       expect(r.tx).toBeCloseTo(2 / 3)
+    })
+
+    it('respecte une fenêtre DATÉE franchissant minuit (records avec minuteLocal)', () => {
+      // Coup d'envoi 21:00 le 07/09, fenêtre 21:00 → 01:00 J+1 : la part
+      // après-minuit doit rester DANS la fenêtre. Régression : l'évaluation sur
+      // l'heure murale seule (00:30 < 21:00) la vidait.
+      const data = [
+        { minute: '21:00', minuteLocal: '2026-09-07T21:00', shopId: 's1', menuItemId: 'm1', totalRevenue: 100, totalQuantity: 10, transactionCount: 5 },
+        { minute: '00:30', minuteLocal: '2026-09-08T00:30', shopId: 's1', menuItemId: 'm1', totalRevenue: 100, totalQuantity: 10, transactionCount: 5 },
+        { minute: '02:00', minuteLocal: '2026-09-08T02:00', shopId: 's1', menuItemId: 'm1', totalRevenue: 100, totalQuantity: 10, transactionCount: 5 },
+      ]
+      const { ratios } = computeWindowRatios(data, {
+        start: '2026-09-07T21:00',
+        end: '2026-09-08T01:00',
+      })
+      const r = ratios.get('s1::m1')
+      // 21:00 et 00:30 dans la fenêtre, 02:00 dehors → 2/3
+      expect(r.rev).toBeCloseTo(2 / 3)
+      expect(r.qty).toBeCloseTo(2 / 3)
+      expect(r.tx).toBeCloseTo(2 / 3)
+    })
+  })
+
+  describe('preprocessTimelineRecords — minute datée (prédiction)', () => {
+    it('préserve minuteLocal et trie l’après-minuit en fin de courbe', () => {
+      const out = preprocessTimelineRecords([
+        { minute: '00:30', minuteLocal: '2026-09-08T00:30', shopId: 's1', menuItemId: 'm1', totalRevenue: 10, totalQuantity: 1, transactionCount: 1 },
+        { minute: '21:00', minuteLocal: '2026-09-07T21:00', shopId: 's1', menuItemId: 'm1', totalRevenue: 100, totalQuantity: 10, transactionCount: 5 },
+      ])
+      expect(out).toHaveLength(2)
+      expect(out[0].minuteLocal).toBe('2026-09-07T21:00')
+      expect(out[1].minuteLocal).toBe('2026-09-08T00:30')
+      expect(out[0].minute).toBe('21:00')
+      expect(out[1].minute).toBe('00:30')
+    })
+
+    it('garde deux ventes à la même heure murale sur des jours différents dans des buckets distincts', () => {
+      const out = preprocessTimelineRecords([
+        { minute: '23:30', minuteLocal: '2026-09-07T23:30', shopId: 's1', menuItemId: 'm1', totalRevenue: 100, totalQuantity: 10, transactionCount: 5 },
+        { minute: '23:30', minuteLocal: '2026-09-08T23:30', shopId: 's1', menuItemId: 'm1', totalRevenue: 50, totalQuantity: 5, transactionCount: 2 },
+      ])
+      expect(out).toHaveLength(2)
+      expect(out.map((p) => p.minuteLocal)).toEqual(['2026-09-07T23:30', '2026-09-08T23:30'])
+      // Σ préservée, pas de fusion silencieuse
+      expect(out[0].totalRevenue + out[1].totalRevenue).toBe(150)
     })
   })
 

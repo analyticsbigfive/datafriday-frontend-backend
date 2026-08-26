@@ -142,6 +142,18 @@ describe('AggregationService', () => {
       expect(result.events[1].aggregationStatus).toBe('pending'); // pas de job pour event-2
     });
 
+    it("BUG-367-02 : un job 'completed' en historique ne suffit plus à afficher 'Agrégé' si les data points ont été purgés depuis (Démapper, BUG-366-02)", async () => {
+      // Job dit "completed" pour EVENT_1, mais plus aucune ligne SpaceRevenueMinuteAgg pour lui —
+      // contradiction "Agrégé" + "—" data points constatée réelle après un Démapper.
+      mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([]);
+
+      const result = await service.getEventsTimelineStatus(TENANT, SPACE);
+
+      const event1 = result.events.find((e: any) => e.id === EVENT_1);
+      expect(event1.dataPoints).toBe(0);
+      expect(event1.aggregationStatus).toBe('pending');
+    });
+
     it('retourne dataPoints depuis spaceRevenueMinuteAgg (batch — pas de N+1)', async () => {
       const result = await service.getEventsTimelineStatus(TENANT, SPACE);
 
@@ -578,6 +590,54 @@ describe('AggregationService', () => {
       });
     });
 
+    it("BUG-374-02 : le traitement d'un event pose bien 3 paliers intermédiaires (1/4, 2/4, 3/4) puis les remet à 0 une fois l'event fini", async () => {
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1)]);
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      const metadataUpdates = mockPrisma.aggregationJobLog.update.mock.calls
+        .map((c: any) => c[0]?.data?.metadata)
+        .filter((m: any) => m && typeof m.currentEventStep === 'number');
+      const steps = metadataUpdates.map((m: any) => m.currentEventStep);
+      // Les 3 paliers intermédiaires dans l'ordre, puis 0 (fin de l'event, avant le prochain).
+      expect(steps).toEqual([1, 2, 3, 0]);
+      expect(metadataUpdates.every((m: any) => m.currentEventTotalSteps === 4)).toBe(true);
+    });
+
+    it("BUG-375-02 : un event en échec individuel dans un lot n'empêche pas le job de finir completed, mais résume l'échec dans error/metadata.errorCount", async () => {
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1), makeEvent(EVENT_2)]);
+      // EVENT_1 réussit, EVENT_2 échoue sur son event.update final (dernière étape du try par event).
+      mockPrisma.event.update
+        .mockResolvedValueOnce({})
+        .mockRejectedValueOnce(new Error('boom'));
+
+      const job = makeBullJob({ eventIds: [EVENT_1, EVENT_2] });
+      await service.executeProcessEvents(job);
+
+      const completionCall = mockPrisma.aggregationJobLog.update.mock.calls.find(
+        (c: any) => c[0]?.data?.status === 'completed',
+      );
+      expect(completionCall).toBeTruthy();
+      expect(completionCall[0].data.error).toContain('boom');
+      expect(completionCall[0].data.metadata).toEqual(
+        expect.objectContaining({ errorCount: 1, eventIds: [EVENT_1, EVENT_2] }),
+      );
+    });
+
+    it("BUG-375-02 : aucun event en échec → error redevient null (pas de résidu d'un run précédent)", async () => {
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1)]);
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      const completionCall = mockPrisma.aggregationJobLog.update.mock.calls.find(
+        (c: any) => c[0]?.data?.status === 'completed',
+      );
+      expect(completionCall[0].data.error).toBeNull();
+      expect(completionCall[0].data.metadata).toEqual(expect.objectContaining({ errorCount: 0 }));
+    });
+
     // ─── BUG-328/329/330-02 : résolution de fenêtre (resolveEventWindow) ─────
     describe('résolution de fenêtre transaction → event', () => {
       const SALES_EVENT_ID = 'sales-event-1';
@@ -628,6 +688,109 @@ describe('AggregationService', () => {
         expect(dates.some((d: Date) => d.getTime() === expectedStart.getTime())).toBe(true);
         // Idem : seul $queryRaw attendu = détection des conteneurs (BUG-338-02).
         expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
+      });
+
+      it('BUG-368-02 : Event.integrationId posé, pas de weezeventEventId → mode integration-range, matche t."integrationId" directement, jamais t."eventId"', async () => {
+        const baseEvent = makeEvent(EVENT_1);
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...baseEvent, integrationId: 'integration-pfc' },
+        ]);
+
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        expect(text).toEqual(expect.stringContaining('t."integrationId" ='));
+        expect(text).not.toEqual(expect.stringContaining('t."eventId" ='));
+        expect(sqlArg.values).toContain('integration-pfc');
+        // Robuste par construction : aucun appel à resolveSeasonContainerEventIds nécessaire
+        // pour CET event (le $queryRaw du run global reste le seul, pour d'éventuels autres
+        // events du même batch — ici il n'y en a qu'un, sans lien conteneur à détecter).
+      });
+
+      it('BUG-368-02 : un lien EXACT vers un match précis reste prioritaire même si Event.integrationId est aussi posé', async () => {
+        const baseEvent = makeEvent(EVENT_1);
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...baseEvent, weezeventEventId: SALES_EVENT_ID, integrationId: 'integration-pfc' },
+        ]);
+
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        expect(text).toEqual(expect.stringContaining('t."eventId" ='));
+        expect(sqlArg.values).toContain(SALES_EVENT_ID);
+      });
+
+      it('BUG-370-02 : mode integration-range ignore l\'integrationId du JOB (wizard ouvert) quand il diffère de celui de l\'event — sinon la requête devient insatisfiable (0 résultat)', async () => {
+        const baseEvent = makeEvent(EVENT_1);
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...baseEvent, integrationId: 'integration-pfc' },
+        ]);
+
+        // Job lancé depuis le wizard d'une AUTRE intégration (ex. SFP) que celle de l'event
+        // (PFC) — cas réel : liste "Couvertes" mixte, "Relancer" cliqué sur une ligne de
+        // l'autre club depuis le mauvais wizard.
+        const job = makeBullJob({ integrationId: 'integration-sfp' });
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        // Un seul filtre "t.integrationId =" dans la requête : celui de l'event (window),
+        // jamais celui du job — avant le fix, "AND t.\"integrationId\" = 'integration-sfp'"
+        // s'ajoutait en plus, rendant la requête insatisfiable (une transaction ne peut pas
+        // avoir 2 integrationId à la fois).
+        expect(text.match(/t\."integrationId" =/g)?.length).toBe(1);
+        expect(sqlArg.values).toContain('integration-pfc');
+        expect(sqlArg.values).not.toContain('integration-sfp');
+      });
+
+      it("BUG-372-02 : resolveSeasonContainerEventIds n'est plus scopée par l'integrationId du JOB — un conteneur de l'intégration de l'EVENT (différente de celle du job) est quand même détecté, mode integration-range (pas exact) avec le bon integrationId", async () => {
+        const CONTAINER_SFP = 'container-sfp-only';
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...makeEvent(EVENT_1), weezeventEventId: CONTAINER_SFP, integrationId: 'integration-sfp' },
+        ]);
+        // Le conteneur n'appartient qu'à SFP — avant le fix, resolveSeasonContainerEventIds
+        // était appelée avec l'integrationId du JOB (ici PFC) et une requête $queryRaw scopée
+        // dessus n'aurait jamais vu ce conteneur SFP, faisant basculer l'event à tort en mode
+        // `exact` (t."eventId" = CONTAINER_SFP AND t."integrationId" = PFC — insatisfiable).
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+          { eventId: CONTAINER_SFP, minDate: new Date('2025-09-01T00:00:00Z'), maxDate: new Date('2026-07-01T00:00:00Z') },
+        ]);
+
+        // Job lancé depuis le wizard PFC alors que l'event traité est SFP.
+        const job = makeBullJob({ integrationId: 'integration-pfc' });
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        expect(text).toEqual(expect.stringContaining('t."integrationId" ='));
+        expect(text).not.toEqual(expect.stringContaining('t."eventId" ='));
+        expect(sqlArg.values).toContain('integration-sfp');
+        expect(sqlArg.values).not.toContain('integration-pfc');
+        expect(sqlArg.values).not.toContain(CONTAINER_SFP);
+      });
+
+      it("BUG-376-02 : en mode integration-range, la purge (deleteMany) n'est PAS scopée par integrationId du tout — un résidu tagué sur une AUTRE intégration pour ce même weezeventEventId est forcément un artefact de l'ancien pipeline, jamais légitime", async () => {
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...makeEvent(EVENT_1), integrationId: 'integration-sfp' },
+        ]);
+
+        const job = makeBullJob({ integrationId: 'integration-pfc' });
+        await service.executeProcessEvents(job);
+
+        // Ni l'integrationId du job (PFC) ni celui de l'event (SFP) : purge totale sur ce
+        // weezeventEventId, pour nettoyer aussi un résidu historique tagué PFC (ou autre) par
+        // l'ancien pipeline avant que cet event ait son propre integrationId (BUG-376-02, cas
+        // réel PFC-Dijon : 869 lignes SFP historiques + 116 lignes PFC fraîches coexistaient).
+        expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
+          where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
+        });
+        expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
+          where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
+        });
       });
 
       it('règle métier 2026-08-25 : Event non lié, 1 seul jour → fenêtre = journée calendaire locale complète (00h00 → minuit suivant, pas ancrée sur une heure d\'ouverture)', async () => {
@@ -952,6 +1115,54 @@ describe('AggregationService', () => {
     it('lance NotFoundException si jobId inconnu', async () => {
       mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(null);
       await expect(service.getJobProgress(TENANT, 'bad-id')).rejects.toThrow(NotFoundException);
+    });
+
+    it("BUG-375-02 : expose errorCount depuis metadata — un job completed avec des échecs individuels n'est pas un simple succès", async () => {
+      const job = makeJob('completed', [EVENT_1, EVENT_2]);
+      job.metadata = { eventIds: [EVENT_1, EVENT_2], errorCount: 1 };
+      job.error = `${EVENT_2}: boom`;
+      mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(job);
+      mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(40);
+
+      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+
+      expect(result.status).toBe('completed');
+      expect(result.errorCount).toBe(1);
+      expect(result.error).toContain('boom');
+    });
+
+    it('BUG-375-02 : errorCount vaut 0 par défaut quand metadata ne le porte pas (jobs déjà en base avant ce fix)', async () => {
+      mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(makeJob('completed'));
+      mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
+
+      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+
+      expect(result.errorCount).toBe(0);
+    });
+
+    it("BUG-374-02 : un event unique (total=1) au milieu de son traitement (currentEventStep=2/4) affiche 50%, pas 0%", async () => {
+      const job = makeJob('running', [EVENT_1]);
+      job.transactionsProcessed = 0; // aucun event ENTIER fini
+      job.metadata = { eventIds: [EVENT_1], currentEventStep: 2, currentEventTotalSteps: 4 };
+      mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(job);
+      mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
+
+      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+
+      expect(result.percentage).toBe(50); // (0 + 2/4) / 1 = 50%
+      expect(result.phase).toContain('2/4');
+    });
+
+    it('BUG-374-02 : currentEventStep absent (job pas encore mis à jour) → comportement identique à avant le fix', async () => {
+      const job = makeJob('running', [EVENT_1]);
+      job.transactionsProcessed = 0;
+      mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(job);
+      mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
+
+      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+
+      expect(result.percentage).toBe(0);
+      expect(result.phase).toBe('Initializing...');
     });
   });
 
