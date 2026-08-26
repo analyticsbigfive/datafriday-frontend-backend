@@ -590,6 +590,54 @@ describe('AggregationService', () => {
       });
     });
 
+    it("BUG-374-02 : le traitement d'un event pose bien 3 paliers intermédiaires (1/4, 2/4, 3/4) puis les remet à 0 une fois l'event fini", async () => {
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1)]);
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      const metadataUpdates = mockPrisma.aggregationJobLog.update.mock.calls
+        .map((c: any) => c[0]?.data?.metadata)
+        .filter((m: any) => m && typeof m.currentEventStep === 'number');
+      const steps = metadataUpdates.map((m: any) => m.currentEventStep);
+      // Les 3 paliers intermédiaires dans l'ordre, puis 0 (fin de l'event, avant le prochain).
+      expect(steps).toEqual([1, 2, 3, 0]);
+      expect(metadataUpdates.every((m: any) => m.currentEventTotalSteps === 4)).toBe(true);
+    });
+
+    it("BUG-375-02 : un event en échec individuel dans un lot n'empêche pas le job de finir completed, mais résume l'échec dans error/metadata.errorCount", async () => {
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1), makeEvent(EVENT_2)]);
+      // EVENT_1 réussit, EVENT_2 échoue sur son event.update final (dernière étape du try par event).
+      mockPrisma.event.update
+        .mockResolvedValueOnce({})
+        .mockRejectedValueOnce(new Error('boom'));
+
+      const job = makeBullJob({ eventIds: [EVENT_1, EVENT_2] });
+      await service.executeProcessEvents(job);
+
+      const completionCall = mockPrisma.aggregationJobLog.update.mock.calls.find(
+        (c: any) => c[0]?.data?.status === 'completed',
+      );
+      expect(completionCall).toBeTruthy();
+      expect(completionCall[0].data.error).toContain('boom');
+      expect(completionCall[0].data.metadata).toEqual(
+        expect.objectContaining({ errorCount: 1, eventIds: [EVENT_1, EVENT_2] }),
+      );
+    });
+
+    it("BUG-375-02 : aucun event en échec → error redevient null (pas de résidu d'un run précédent)", async () => {
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1)]);
+
+      const job = makeBullJob();
+      await service.executeProcessEvents(job);
+
+      const completionCall = mockPrisma.aggregationJobLog.update.mock.calls.find(
+        (c: any) => c[0]?.data?.status === 'completed',
+      );
+      expect(completionCall[0].data.error).toBeNull();
+      expect(completionCall[0].data.metadata).toEqual(expect.objectContaining({ errorCount: 0 }));
+    });
+
     // ─── BUG-328/329/330-02 : résolution de fenêtre (resolveEventWindow) ─────
     describe('résolution de fenêtre transaction → event', () => {
       const SALES_EVENT_ID = 'sales-event-1';
@@ -725,7 +773,7 @@ describe('AggregationService', () => {
         expect(sqlArg.values).not.toContain(CONTAINER_SFP);
       });
 
-      it("BUG-372-02 : la purge (deleteMany) avant réagrégation est scopée par l'integrationId de l'EVENT en mode integration-range, jamais celui du JOB", async () => {
+      it("BUG-376-02 : en mode integration-range, la purge (deleteMany) n'est PAS scopée par integrationId du tout — un résidu tagué sur une AUTRE intégration pour ce même weezeventEventId est forcément un artefact de l'ancien pipeline, jamais légitime", async () => {
         mockPrisma.event.findMany.mockResolvedValue([
           { ...makeEvent(EVENT_1), integrationId: 'integration-sfp' },
         ]);
@@ -733,11 +781,15 @@ describe('AggregationService', () => {
         const job = makeBullJob({ integrationId: 'integration-pfc' });
         await service.executeProcessEvents(job);
 
+        // Ni l'integrationId du job (PFC) ni celui de l'event (SFP) : purge totale sur ce
+        // weezeventEventId, pour nettoyer aussi un résidu historique tagué PFC (ou autre) par
+        // l'ancien pipeline avant que cet event ait son propre integrationId (BUG-376-02, cas
+        // réel PFC-Dijon : 869 lignes SFP historiques + 116 lignes PFC fraîches coexistaient).
         expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
-          where: expect.objectContaining({ integrationId: 'integration-sfp' }),
+          where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
         });
         expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
-          where: expect.objectContaining({ integrationId: 'integration-sfp' }),
+          where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
         });
       });
 
@@ -1063,6 +1115,54 @@ describe('AggregationService', () => {
     it('lance NotFoundException si jobId inconnu', async () => {
       mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(null);
       await expect(service.getJobProgress(TENANT, 'bad-id')).rejects.toThrow(NotFoundException);
+    });
+
+    it("BUG-375-02 : expose errorCount depuis metadata — un job completed avec des échecs individuels n'est pas un simple succès", async () => {
+      const job = makeJob('completed', [EVENT_1, EVENT_2]);
+      job.metadata = { eventIds: [EVENT_1, EVENT_2], errorCount: 1 };
+      job.error = `${EVENT_2}: boom`;
+      mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(job);
+      mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(40);
+
+      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+
+      expect(result.status).toBe('completed');
+      expect(result.errorCount).toBe(1);
+      expect(result.error).toContain('boom');
+    });
+
+    it('BUG-375-02 : errorCount vaut 0 par défaut quand metadata ne le porte pas (jobs déjà en base avant ce fix)', async () => {
+      mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(makeJob('completed'));
+      mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
+
+      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+
+      expect(result.errorCount).toBe(0);
+    });
+
+    it("BUG-374-02 : un event unique (total=1) au milieu de son traitement (currentEventStep=2/4) affiche 50%, pas 0%", async () => {
+      const job = makeJob('running', [EVENT_1]);
+      job.transactionsProcessed = 0; // aucun event ENTIER fini
+      job.metadata = { eventIds: [EVENT_1], currentEventStep: 2, currentEventTotalSteps: 4 };
+      mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(job);
+      mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
+
+      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+
+      expect(result.percentage).toBe(50); // (0 + 2/4) / 1 = 50%
+      expect(result.phase).toContain('2/4');
+    });
+
+    it('BUG-374-02 : currentEventStep absent (job pas encore mis à jour) → comportement identique à avant le fix', async () => {
+      const job = makeJob('running', [EVENT_1]);
+      job.transactionsProcessed = 0;
+      mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(job);
+      mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
+
+      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+
+      expect(result.percentage).toBe(0);
+      expect(result.phase).toBe('Initializing...');
     });
   });
 

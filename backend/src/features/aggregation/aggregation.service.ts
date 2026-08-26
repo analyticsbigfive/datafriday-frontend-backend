@@ -471,6 +471,23 @@ export class AggregationService {
         }
       }
 
+      // BUG-374-02 (2026-08-26) : `transactionsProcessed`/`job.updateProgress` n'avançaient
+      // qu'une fois PAR EVENT ENTIER — pour un clic "Agréger" sur un seul event volumineux
+      // (ex. SFP-Cardiff, 27 s de traitement réel pour 6327 transactions), le front restait
+      // bloqué sur "Initialisation..." 0% pendant toute la durée, sans aucun mouvement visible.
+      // Paliers intermédiaires DANS le traitement d'un event, sans toucher au sens de
+      // `transactionsProcessed` (compte d'events ENTIÈREMENT traités, lu ailleurs — pas
+      // question d'en changer l'échelle) : `metadata.currentEventStep` porte la progression
+      // fine, lue par `getJobProgress` en plus du compte d'events.
+      const EVENT_SUB_STEPS = 4;
+      const updateEventSubProgress = (step: number) =>
+        this.prisma.aggregationJobLog.update({
+          where: { id: jobLogId },
+          data: {
+            metadata: { eventIds: events.map((e) => e.id), currentEventStep: step, currentEventTotalSteps: EVENT_SUB_STEPS },
+          },
+        });
+
       for (const event of events) {
         try {
           const eventDate = new Date(event.eventDate);
@@ -504,13 +521,18 @@ export class AggregationService {
           // partagé (un Event DataFriday est partagé au niveau de l'espace, pas de l'intégration).
           // BUG-372-02 (2026-08-25) : même défaut que resolveSeasonContainerEventIds/matchClause
           // — en mode `integration-range`, c'est `window.integrationId` (celui de L'EVENT,
-          // autoritaire) qu'il faut utiliser pour scoper la purge, jamais celui du JOB. Sinon,
-          // "Relancer" cliqué sur un event PFC depuis le wizard SFP purgeait les vieilles lignes
-          // taguées SFP (le job) au lieu des vieilles lignes PFC (l'event réel), laissant des
-          // buckets minute périmés du PFC d'avant traîner à côté des nouvelles lignes insérées.
+          // autoritaire) qu'il faut utiliser pour scoper la purge, jamais celui du JOB.
+          // BUG-376-02 (2026-08-26) : en mode `integration-range`, ne PAS scoper la purge du
+          // tout — un event avec `Event.integrationId` posé appartient désormais EXCLUSIVEMENT
+          // à cette intégration (BUG-368-02) ; toute ligne taguée avec une AUTRE intégration
+          // pour ce MÊME weezeventEventId est forcément un résidu de l'ancien pipeline (avant
+          // que cet event ait son propre `integrationId`), jamais une contribution légitime à
+          // "partager". Scoper par `window.integrationId` (comme avant ce fix) préservait ce
+          // résidu indéfiniment : re-tagger PFC-Dijon avec son intégration ne purgeait que les
+          // vieilles lignes déjà PFC, laissant 869 lignes historiques taguées SFP à côté des
+          // nouvelles PFC — 985 points affichés = 869 (garbage) + 116 (vrai), jamais nettoyé.
           const deleteWhere: any = { tenantId, spaceId, weezeventEventId: event.id };
-          const deleteIntegrationId = window.mode === 'integration-range' ? window.integrationId : integrationId;
-          if (deleteIntegrationId) deleteWhere.integrationId = deleteIntegrationId;
+          if (window.mode !== 'integration-range' && integrationId) deleteWhere.integrationId = integrationId;
           await this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere });
           await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere });
 
@@ -601,6 +623,7 @@ export class AggregationService {
               "itemsCount" = EXCLUDED."itemsCount",
               "updatedAt" = NOW()
           `);
+          await updateEventSubProgress(1);
 
           // SpaceProductRevenueDailyAgg — même approche DB-level
           // Twin de BUG-015 : ce bloc ne divisait pas non plus par (1 + vat/100), écrivant du TTC
@@ -635,6 +658,7 @@ export class AggregationService {
               "quantity" = EXCLUDED."quantity",
               "updatedAt" = NOW()
           `);
+          await updateEventSubProgress(2);
 
           // SpaceRevenueMinuteItemAgg — sert getEventTimelineBatch (grain event × minute ×
           // shop × article). Même FROM/JOIN que le bloc SpaceRevenueMinuteAgg ci-dessus
@@ -700,6 +724,7 @@ export class AggregationService {
               "itemsCount" = EXCLUDED."itemsCount",
               "updatedAt" = NOW()
           `);
+          await updateEventSubProgress(3);
 
           // BUG-033 (corrigé) : Event.revenue/transactionCount n'étaient jamais écrits par le
           // pipeline — SpaceRevenueMinuteAgg était alimenté ci-dessus mais le rollup n'était jamais
@@ -746,18 +771,50 @@ export class AggregationService {
           results.push({ eventId: event.id, eventName: event.name, status: 'error', error: err.message });
         }
 
-        // Mise à jour progression DB + BullMQ après chaque event traité
+        // Mise à jour progression DB + BullMQ après chaque event traité — currentEventStep
+        // remis à 0 : sinon il resterait au palier du DERNIER `updateEventSubProgress` de CET
+        // event pendant que `processedCount` a déjà avancé, faisant surcompter la fraction
+        // (BUG-374-02) tant que l'event suivant n'a pas atteint son propre 1er palier.
         await this.prisma.aggregationJobLog.update({
           where: { id: jobLogId },
-          data: { transactionsProcessed: processedCount },
+          data: {
+            transactionsProcessed: processedCount,
+            metadata: { eventIds: events.map((e) => e.id), currentEventStep: 0, currentEventTotalSteps: EVENT_SUB_STEPS },
+          },
         });
         await job.updateProgress(Math.min(Math.round((processedCount / events.length) * 100), 99));
       }
 
+      // BUG-375-02 (2026-08-26) : un event en échec individuel (catch ci-dessus) n'empêchait
+      // jamais le job de finir "completed" — correct (les autres events du lot doivent quand
+      // même s'agréger), mais l'échec restait invisible : `error` n'était renseigné que si le
+      // job ENTIER rejetait. Sur un lot de 77 events, un seul en erreur passait inaperçu. On
+      // résume les échecs individuels dans `error` sans changer `status` — `getJobProgress` les
+      // expose via `errorCount`/`error` pour que le front distingue "tout agrégé" de "agrégé
+      // avec des trous".
+      const failedResults = results.filter((r) => r.status === 'error');
       await this.prisma.aggregationJobLog.update({
         where: { id: jobLogId },
-        data: { status: 'completed', completedAt: new Date(), transactionsProcessed: processedCount },
+        data: {
+          status: 'completed',
+          completedAt: new Date(),
+          transactionsProcessed: processedCount,
+          error: failedResults.length
+            ? failedResults.map((r) => `${r.eventName || r.eventId}: ${r.error}`).join(' | ')
+            : null,
+          // errorCount à côté de eventIds (reconstruit depuis `events`, identique à la valeur
+          // écrite à la création du job) — getJobProgress le lit pour distinguer un lot
+          // "entièrement réussi" d'un lot "réussi avec des trous".
+          metadata: { eventIds: events.map((e) => e.id), errorCount: failedResults.length },
+        },
       });
+      if (failedResults.length) {
+        this.logger.warn(
+          `Aggregation job ${jobLogId}: ${failedResults.length}/${events.length} event(s) failed — ${failedResults
+            .map((r) => `${r.eventId} (${r.error})`)
+            .join(', ')}`,
+        );
+      }
       await job.updateProgress(100);
 
       // BUG-143-01 : les endpoints batch Analyse cachent leurs réponses par event (TTL 6 h
@@ -927,11 +984,18 @@ export class AggregationService {
     const eventIds: string[] = (job.metadata as any)?.eventIds || [];
     const total = eventIds.length || 1;
     const current = job.transactionsProcessed || 0;
+    // BUG-374-02 : fraction de progression À L'INTÉRIEUR de l'event en cours (paliers posés par
+    // `updateEventSubProgress` dans executeProcessEvents) — sans ça, un event volumineux seul
+    // dans le lot (`total = 1`) restait bloqué à 0% pendant tout son traitement puis sautait à
+    // 100% d'un coup.
+    const currentEventStep: number = (job.metadata as any)?.currentEventStep || 0;
+    const currentEventTotalSteps: number = (job.metadata as any)?.currentEventTotalSteps || 1;
+    const subProgress = job.status === 'running' ? currentEventStep / currentEventTotalSteps : 0;
 
     const percentage =
       job.status === 'completed' ? 100
       : job.status === 'failed' || job.status === 'skipped' ? 0
-      : Math.min(Math.round((current / total) * 100), 99);
+      : Math.min(Math.round(((current + subProgress) / total) * 100), 99);
 
     const elapsedMs = Date.now() - new Date(job.startedAt).getTime();
     const rowsPerSecond = elapsedMs > 0 && current > 0 ? Math.round((current / elapsedMs) * 1000) : 0;
@@ -944,6 +1008,7 @@ export class AggregationService {
       job.status === 'completed' ? 'Done'
       : job.status === 'failed' ? 'Failed'
       : job.status === 'skipped' ? 'Skipped'
+      : currentEventStep > 0 ? `Processing transactions... (${currentEventStep}/${currentEventTotalSteps})`
       : current === 0 ? 'Initializing...'
       : current >= total ? 'Finalizing...'
       : 'Processing transactions...';
@@ -970,6 +1035,9 @@ export class AggregationService {
       aggregatedPoints,
       estimatedTimeRemaining,
       error: job.error || null,
+      // BUG-375-02 : distinct de `status`/`error` — un job `completed` avec `errorCount > 0`
+      // a agrégé les autres events du lot mais en a raté un ou plusieurs individuellement.
+      errorCount: (job.metadata as any)?.errorCount || 0,
       completedAt: job.completedAt,
     };
   }
