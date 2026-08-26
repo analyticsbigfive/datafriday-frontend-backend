@@ -79,6 +79,7 @@ export interface EventDayFields {
   eventStartDate?: Date | string | null;
   eventEndDate?: Date | string | null;
   eventEndTime?: string | null;
+  integrationId?: string | null;
 }
 
 const startDayOf = (e: EventDayFields): Date => new Date((e.eventStartDate ?? e.eventDate) as any);
@@ -126,6 +127,18 @@ export function resolveEventTransactionWindow(
   const end = declaredEndOf(event, timeZone) ?? startOfNextLocalDay(endDayOf(event), timeZone);
   for (const neighbor of neighbors) {
     if (event.id && neighbor.id === event.id) continue;
+    // BUG-371-02 (2026-08-25) : quand les deux events ont chacun leur PROPRE `integrationId`
+    // (BUG-368-02) et qu'ils diffèrent, leurs transactions sont DÉJÀ totalement séparées par
+    // `t.integrationId` — aucun découpage temporel n'est nécessaire entre elles, quelle que soit
+    // la fenêtre. Sans ce garde, deux clubs différents jouant le MÊME jour au même stade (ex.
+    // SFP-Cardiff fin 23h30 / PFC-Le Havre fin 23h00, Jean Bouin 06/12) tronquaient à tort le
+    // début de celui qui finit le plus tard à l'heure de fin de l'autre (fenêtre réduite à
+    // 22h00→22h30, quasi aucune transaction dedans alors que les ventes couraient depuis le
+    // matin) — alors qu'aucun risque de double comptage n'existe entre deux intégrations
+    // distinctes. Ce garde ne s'applique PAS quand l'un des deux (ou les deux) n'a pas
+    // d'`integrationId` connu : la règle de partage temporel reste nécessaire pour les données
+    // non disambiguïsées par intégration (CSV Digifood partagé, mode `range` legacy — BUG-339-02).
+    if (event.integrationId && neighbor.integrationId && event.integrationId !== neighbor.integrationId) continue;
     if (endDayOf(neighbor).getTime() !== startDay.getTime()) continue;
     const neighborEnd = declaredEndOf(neighbor, timeZone);
     if (!neighborEnd) continue; // pas de fin déclarée → pas d'exclusion

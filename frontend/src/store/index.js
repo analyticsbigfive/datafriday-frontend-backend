@@ -32,6 +32,7 @@ import menuItems from './modules/menuItems'
 import packaging from './modules/packaging'
 import spaceConfigurations from './modules/spaceConfigurations'
 import spaceShops from './modules/spaceShops'
+import spaceIntegrations from './modules/spaceIntegrations'
 import shopMenuItems from './modules/shopMenuItems'
 import shopMenuAvailability from './modules/shopMenuAvailability'
 import historyAliases from './modules/historyAliases'
@@ -84,6 +85,7 @@ export default createStore({
     packaging,
     spaceConfigurations,
     spaceShops,
+    spaceIntegrations,
     shopMenuItems,
     shopMenuAvailability,
     historyAliases,

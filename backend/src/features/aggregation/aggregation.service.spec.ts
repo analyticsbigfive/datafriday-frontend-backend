@@ -142,6 +142,18 @@ describe('AggregationService', () => {
       expect(result.events[1].aggregationStatus).toBe('pending'); // pas de job pour event-2
     });
 
+    it("BUG-367-02 : un job 'completed' en historique ne suffit plus à afficher 'Agrégé' si les data points ont été purgés depuis (Démapper, BUG-366-02)", async () => {
+      // Job dit "completed" pour EVENT_1, mais plus aucune ligne SpaceRevenueMinuteAgg pour lui —
+      // contradiction "Agrégé" + "—" data points constatée réelle après un Démapper.
+      mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([]);
+
+      const result = await service.getEventsTimelineStatus(TENANT, SPACE);
+
+      const event1 = result.events.find((e: any) => e.id === EVENT_1);
+      expect(event1.dataPoints).toBe(0);
+      expect(event1.aggregationStatus).toBe('pending');
+    });
+
     it('retourne dataPoints depuis spaceRevenueMinuteAgg (batch — pas de N+1)', async () => {
       const result = await service.getEventsTimelineStatus(TENANT, SPACE);
 
@@ -628,6 +640,105 @@ describe('AggregationService', () => {
         expect(dates.some((d: Date) => d.getTime() === expectedStart.getTime())).toBe(true);
         // Idem : seul $queryRaw attendu = détection des conteneurs (BUG-338-02).
         expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(1);
+      });
+
+      it('BUG-368-02 : Event.integrationId posé, pas de weezeventEventId → mode integration-range, matche t."integrationId" directement, jamais t."eventId"', async () => {
+        const baseEvent = makeEvent(EVENT_1);
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...baseEvent, integrationId: 'integration-pfc' },
+        ]);
+
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        expect(text).toEqual(expect.stringContaining('t."integrationId" ='));
+        expect(text).not.toEqual(expect.stringContaining('t."eventId" ='));
+        expect(sqlArg.values).toContain('integration-pfc');
+        // Robuste par construction : aucun appel à resolveSeasonContainerEventIds nécessaire
+        // pour CET event (le $queryRaw du run global reste le seul, pour d'éventuels autres
+        // events du même batch — ici il n'y en a qu'un, sans lien conteneur à détecter).
+      });
+
+      it('BUG-368-02 : un lien EXACT vers un match précis reste prioritaire même si Event.integrationId est aussi posé', async () => {
+        const baseEvent = makeEvent(EVENT_1);
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...baseEvent, weezeventEventId: SALES_EVENT_ID, integrationId: 'integration-pfc' },
+        ]);
+
+        const job = makeBullJob();
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        expect(text).toEqual(expect.stringContaining('t."eventId" ='));
+        expect(sqlArg.values).toContain(SALES_EVENT_ID);
+      });
+
+      it('BUG-370-02 : mode integration-range ignore l\'integrationId du JOB (wizard ouvert) quand il diffère de celui de l\'event — sinon la requête devient insatisfiable (0 résultat)', async () => {
+        const baseEvent = makeEvent(EVENT_1);
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...baseEvent, integrationId: 'integration-pfc' },
+        ]);
+
+        // Job lancé depuis le wizard d'une AUTRE intégration (ex. SFP) que celle de l'event
+        // (PFC) — cas réel : liste "Couvertes" mixte, "Relancer" cliqué sur une ligne de
+        // l'autre club depuis le mauvais wizard.
+        const job = makeBullJob({ integrationId: 'integration-sfp' });
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        // Un seul filtre "t.integrationId =" dans la requête : celui de l'event (window),
+        // jamais celui du job — avant le fix, "AND t.\"integrationId\" = 'integration-sfp'"
+        // s'ajoutait en plus, rendant la requête insatisfiable (une transaction ne peut pas
+        // avoir 2 integrationId à la fois).
+        expect(text.match(/t\."integrationId" =/g)?.length).toBe(1);
+        expect(sqlArg.values).toContain('integration-pfc');
+        expect(sqlArg.values).not.toContain('integration-sfp');
+      });
+
+      it("BUG-372-02 : resolveSeasonContainerEventIds n'est plus scopée par l'integrationId du JOB — un conteneur de l'intégration de l'EVENT (différente de celle du job) est quand même détecté, mode integration-range (pas exact) avec le bon integrationId", async () => {
+        const CONTAINER_SFP = 'container-sfp-only';
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...makeEvent(EVENT_1), weezeventEventId: CONTAINER_SFP, integrationId: 'integration-sfp' },
+        ]);
+        // Le conteneur n'appartient qu'à SFP — avant le fix, resolveSeasonContainerEventIds
+        // était appelée avec l'integrationId du JOB (ici PFC) et une requête $queryRaw scopée
+        // dessus n'aurait jamais vu ce conteneur SFP, faisant basculer l'event à tort en mode
+        // `exact` (t."eventId" = CONTAINER_SFP AND t."integrationId" = PFC — insatisfiable).
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+          { eventId: CONTAINER_SFP, minDate: new Date('2025-09-01T00:00:00Z'), maxDate: new Date('2026-07-01T00:00:00Z') },
+        ]);
+
+        // Job lancé depuis le wizard PFC alors que l'event traité est SFP.
+        const job = makeBullJob({ integrationId: 'integration-pfc' });
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        expect(text).toEqual(expect.stringContaining('t."integrationId" ='));
+        expect(text).not.toEqual(expect.stringContaining('t."eventId" ='));
+        expect(sqlArg.values).toContain('integration-sfp');
+        expect(sqlArg.values).not.toContain('integration-pfc');
+        expect(sqlArg.values).not.toContain(CONTAINER_SFP);
+      });
+
+      it("BUG-372-02 : la purge (deleteMany) avant réagrégation est scopée par l'integrationId de l'EVENT en mode integration-range, jamais celui du JOB", async () => {
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...makeEvent(EVENT_1), integrationId: 'integration-sfp' },
+        ]);
+
+        const job = makeBullJob({ integrationId: 'integration-pfc' });
+        await service.executeProcessEvents(job);
+
+        expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
+          where: expect.objectContaining({ integrationId: 'integration-sfp' }),
+        });
+        expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
+          where: expect.objectContaining({ integrationId: 'integration-sfp' }),
+        });
       });
 
       it('règle métier 2026-08-25 : Event non lié, 1 seul jour → fenêtre = journée calendaire locale complète (00h00 → minuit suivant, pas ancrée sur une heure d\'ouverture)', async () => {
