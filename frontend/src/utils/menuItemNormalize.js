@@ -55,6 +55,15 @@ export function normalizeComponent(c) {
     ...c,
     id: pick(c.id, c.componentId, c.ingredientId, c.packagingId),
     sourceId: pick(c.sourceId, c.ingredientId, c.componentId, c.packagingId, c.id),
+    // Sans ce champ, `componentIngredientId` (inventoryUtils.js) retombe sur
+    // `sourceId` = l'id de l'Ingredient/Packaging plutôt que celui du MarketPrice
+    // lié — silencieusement inadressable côté Logistic ensuite (id absent de
+    // resolveItemKeysByIds), alors que la relation existe et est valide en base.
+    marketPriceId: pick(
+      c.marketPriceId,
+      c.ingredient?.marketPriceId, c.ingredient?.marketPrice?.id,
+      c.packaging?.marketPriceId, c.packaging?.marketPrice?.id,
+    ),
     name: pick(
       c.name, c.itemName, c.ingredientName, c.componentName,
       c.ingredient?.name, c.ingredient?.itemName,

@@ -1560,6 +1560,28 @@ export default {
       const { totalItems, countedItems } = this.inventoryStats
       return totalItems > 0 && countedItems >= totalItems
     },
+    /** Articles (par nom) qui resteront inchangés dans Logistic si on pousse maintenant —
+     *  "Update Logistic" ne touche jamais un PDV/article non compté (décision Bertrand,
+     *  2026-08-26 : ne jamais écraser un stock non vérifié par un 0). Affiché dans la
+     *  confirmation du bouton pour que l'utilisateur sache AVANT de confirmer ce qui ne
+     *  bougera pas. */
+    uncountedItemsSummary() {
+      const entries = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
+      const byName = new Map()
+      for (const entry of entries) {
+        if (!entry?.element) continue
+        for (const item of this.elementItems(entry)) {
+          const stat = byName.get(item.name) || { counted: 0, total: 0 }
+          stat.total += 1
+          if (this.isItemCounted(entry.element.id, item.id)) stat.counted += 1
+          byName.set(item.name, stat)
+        }
+      }
+      return [...byName.entries()]
+        .filter(([, s]) => s.counted < s.total)
+        .map(([name, s]) => ({ name, counted: s.counted, total: s.total }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+    },
     overviewMetrics() {
       return [
         {
@@ -2079,9 +2101,19 @@ export default {
      *  mais explicite et confirmable. */
     async onUpdateLogistic() {
       if (!this.selectedEventId) return
+      const uncounted = this.uncountedItemsSummary
+      let message = this.t('invUpdateLogisticConfirmMsg')
+      if (uncounted.length) {
+        const maxShown = 15
+        const lines = uncounted.slice(0, maxShown).map((u) => `• ${u.name} (${u.counted}/${u.total})`)
+        if (uncounted.length > maxShown) {
+          lines.push(this.t('invUpdateLogisticConfirmMore').replace('{n}', uncounted.length - maxShown))
+        }
+        message = `${message}\n\n${this.t('invUpdateLogisticConfirmUncountedIntro')}\n${lines.join('\n')}`
+      }
       const ok = await confirmDialog({
         title: this.t('invUpdateLogisticConfirmTitle'),
-        message: this.t('invUpdateLogisticConfirmMsg'),
+        message,
         confirmText: this.t('invUpdateLogisticConfirmBtn'),
         cancelText: this.t('cancel') || 'Cancel',
         confirmColor: 'deep-orange',
