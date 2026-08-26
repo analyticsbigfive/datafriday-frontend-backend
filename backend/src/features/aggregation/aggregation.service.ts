@@ -13,15 +13,21 @@ import {
 
 /**
  * Résultat de résolution de fenêtre pour un event (BUG-329-02/330-02, docs/bugs/).
- * `container-range` (BUG-146-01, règle Bertrand 25/08) : l'event est lié au CONTENEUR de
- * saison de son club (`Event.weezeventEventId` → « STADE FRANÇAIS 25-26 », « PARIS
- * FOOTBALL CLUB »…) — attribution = tag du conteneur ET fenêtre portes→fin. Sans le tag,
- * deux events le même jour au même stade (foot PFC l'après-midi, rugby SFP le soir) se
- * partageaient les mêmes ventes par fenêtres qui se recouvrent : 80 343,07 € comptés
- * deux fois sur Jean Bouin (mesuré en base, fiche 145-01).
+ * `integration-range` (BUG-368-02, 2026-08-25) : mode PRIORITAIRE — l'Event porte
+ * explicitement `integrationId`, posé à la création (bulkCreateEvents). Attribution = la
+ * bonne intégration ET la fenêtre calendaire, sans jamais regarder `t.eventId` : élimine
+ * toute détection de "conteneur de saison" pour les events qui l'utilisent.
+ * `container-range` (BUG-146-01, règle Bertrand 25/08, LEGACY — cohabite avec integration-range
+ * pour les tenants pas encore migrés) : l'event est lié au CONTENEUR de saison de son club
+ * (`Event.weezeventEventId` → « STADE FRANÇAIS 25-26 », « PARIS FOOTBALL CLUB »…) —
+ * attribution = tag du conteneur ET fenêtre portes→fin. Sans le tag, deux events le même
+ * jour au même stade (foot PFC l'après-midi, rugby SFP le soir) se partageaient les mêmes
+ * ventes par fenêtres qui se recouvrent : 80 343,07 € comptés deux fois sur Jean Bouin
+ * (mesuré en base, fiche 145-01).
  */
 type EventWindow =
   | { mode: 'exact'; salesEventId: string }
+  | { mode: 'integration-range'; integrationId: string; start: Date; end: Date }
   | { mode: 'container-range'; salesEventId: string; start: Date; end: Date }
   | { mode: 'range'; start: Date; end: Date };
 
@@ -97,12 +103,18 @@ export class AggregationService {
 
     const eventsWithStatus = events.map((event) => {
       const job = latestJobByEvent.get(event.id);
+      const dataPoints = dataPointsByEvent.get(event.id) ?? 0;
+      // BUG-367-02 : un job "completed" en historique ne veut plus rien dire une fois les
+      // données réelles purgées (Démapper, BUG-366-02) — affichait "Agrégé" à côté de "—" data
+      // points, contradiction visuelle constatée par l'utilisateur. Le statut suit désormais
+      // aussi l'état ACTUEL des données, pas seulement le dernier job en historique.
+      const aggregationStatus = job?.status === 'completed' && dataPoints === 0 ? 'pending' : (job?.status || 'pending');
       return {
         ...event,
-        aggregationStatus: job?.status || 'pending',
+        aggregationStatus,
         lastProcessedAt: job?.completedAt || null,
         transactionsProcessed: job?.transactionsProcessed || 0,
-        dataPoints: dataPointsByEvent.get(event.id) ?? 0,
+        dataPoints,
       };
     });
 
@@ -130,7 +142,14 @@ export class AggregationService {
           WHERE t."tenantId" = ${tenantId}
             ${integrationFilter}
             AND DATE(t."transactionDate") NOT IN (
-              SELECT DATE(e."eventDate") FROM "Event" e WHERE e."tenantId" = ${tenantId} AND e."spaceId" = ${spaceId}
+              -- BUG-368-02 : un Event qui déclare explicitement SON intégration ne peut plus
+              -- "couvrir" par coïncidence de date les transactions d'une AUTRE intégration du
+              -- même space (ex. SFP-Montauban ne couvre plus les transactions PFC du 06/09
+              -- s'il n'existe aucun event PFC ce jour-là) — les events legacy sans
+              -- integrationId gardent l'ancien comportement (coïncidence de date seule).
+              SELECT DATE(e."eventDate") FROM "Event" e
+              WHERE e."tenantId" = ${tenantId} AND e."spaceId" = ${spaceId}
+                AND (e."integrationId" IS NULL OR e."integrationId" = ${integrationId})
             )
           GROUP BY DATE(t."transactionDate")
           ORDER BY DATE(t."transactionDate") DESC
@@ -277,16 +296,21 @@ export class AggregationService {
    * spaces.service.ts, fix du 2026-08-04) qui reste fiable pour les tenants où un Event "saison" a
    * été créé avec un span réaliste.
    */
-  private async resolveSeasonContainerEventIds(
-    tenantId: string,
-    integrationId: string | undefined,
-  ): Promise<Set<string>> {
-    const integrationClause = integrationId ? Prisma.sql`AND t."integrationId" = ${integrationId}` : Prisma.sql``;
+  private async resolveSeasonContainerEventIds(tenantId: string): Promise<Set<string>> {
+    // BUG-372-02 (2026-08-25) : anciennement scopé par l'intégration du JOB (le wizard qui a
+    // lancé "Relancer"/"Tout agréger") — au même titre que BUG-370-02, ce scoping n'a plus de
+    // sens dès que le job traite un event dont l'intégration diffère de celle du wizard (liste
+    // "Couvertes" mixte PFC/SFP). "Ce weezeventEventId est-il un conteneur de saison ?" est une
+    // propriété INTRINSÈQUE de ces transactions, indépendante de qui lance le job — scoper par
+    // l'intégration du job pouvait manquer le conteneur d'une AUTRE intégration, faisant
+    // basculer l'event à tort en mode `exact` (résolveEventWindow) avec l'`integrationId` du
+    // job comme filtre — combinaison impossible à satisfaire (aucune transaction ne peut avoir
+    // `t.eventId` du conteneur SFP ET `t.integrationId` du job PFC), agrégation "réussie" mais
+    // 0 ligne écrite. Constaté en base : SFP-Cardiff/PFC-Le Havre, Jean Bouin, 2026-08-25.
     const rows = await this.prisma.$queryRaw<Array<{ eventId: string; minDate: Date; maxDate: Date }>>(Prisma.sql`
       SELECT t."eventId", MIN(t."transactionDate") AS "minDate", MAX(t."transactionDate") AS "maxDate"
       FROM "WeezeventTransaction" t
       WHERE t."tenantId" = ${tenantId}
-        ${integrationClause}
         AND t."eventId" IS NOT NULL
         AND t."deletedAt" IS NULL
       GROUP BY t."eventId"
@@ -309,7 +333,6 @@ export class AggregationService {
     const declaredSpanEvents = await this.prisma.salesEvent.findMany({
       where: {
         tenantId,
-        ...(integrationId ? { integrationId } : {}),
         startDate: { not: null },
         endDate: { not: null },
       },
@@ -329,7 +352,6 @@ export class AggregationService {
     const digifoodEvents = await this.prisma.salesEvent.findMany({
       where: {
         tenantId,
-        ...(integrationId ? { integrationId } : {}),
         metadata: { path: ['provider'], equals: 'digifood' },
       },
       select: { id: true },
@@ -347,6 +369,7 @@ export class AggregationService {
       eventEndDate: Date | null;
       eventEndTime: string | null;
       weezeventEventId: string | null;
+      integrationId: string | null;
     },
     spaceTimezone: string,
     seasonContainerIds: Set<string>,
@@ -356,8 +379,10 @@ export class AggregationService {
     // (100% des transactions de la saison partagent ce même eventId) — mais depuis
     // BUG-146-01 (règle Bertrand 25/08) il identifie le CLUB : combiné à la fenêtre
     // ci-dessous, il devient le mode `container-range` (tag ET fenêtre), qui empêche les
-    // ventes de l'autre club d'entrer dans la fenêtre les jours à double affiche. Seul un
-    // lien vers un match précis reste un rattachement exact sans fenêtre.
+    // ventes de l'autre club d'entrer dans la fenêtre les jours à double affiche.
+    // BUG-368-02 : un lien vers un match PRÉCIS (pas un conteneur) reste le rattachement le
+    // plus fiable possible (zéro ambiguïté par construction) — prioritaire même si
+    // `integrationId` est aussi posé sur cet Event.
     const isContainerLink = !!event.weezeventEventId && seasonContainerIds.has(event.weezeventEventId);
     if (event.weezeventEventId && !isContainerLink) {
       return { mode: 'exact', salesEventId: event.weezeventEventId };
@@ -371,9 +396,17 @@ export class AggregationService {
     // `resolveEventSalesScope` (spaces.service.ts) via event-window.util.
     const { start, end } = resolveEventTransactionWindow(event, spaceTimezone, allSpaceEvents);
 
-    // BUG-146-01 : un lien conteneur devient `container-range` (tag du club ET fenêtre) —
-    // le tag sépare les clubs les jours à double affiche, la fenêtre démarrant à minuit
-    // évite de retronquer les ventes avant-match (BUG-360-02).
+    // BUG-368-02 : `integrationId` explicite prioritaire sur le tag conteneur legacy — plus
+    // besoin de deviner via resolveSeasonContainerEventIds (span observé/déclaré, cold-start),
+    // ni de dépendre d'un backfill manuel par tenant (BUG-146-01).
+    if (event.integrationId) {
+      return { mode: 'integration-range', integrationId: event.integrationId, start, end };
+    }
+
+    // BUG-146-01 (LEGACY, cohabite avec integration-range) : un lien conteneur devient
+    // `container-range` (tag du club ET fenêtre) — le tag sépare les clubs les jours à double
+    // affiche, la fenêtre démarrant à minuit évite de retronquer les ventes avant-match
+    // (BUG-360-02).
     return isContainerLink
       ? { mode: 'container-range', salesEventId: event.weezeventEventId as string, start, end }
       : { mode: 'range', start, end };
@@ -411,7 +444,7 @@ export class AggregationService {
 
     // BUG-338-02 : calculé UNE fois pour tout le run (pas par event) — un conteneur de saison est
     // le même pour tous les matchs de cette intégration.
-    const seasonContainerIds = await this.resolveSeasonContainerEventIds(tenantId, integrationId);
+    const seasonContainerIds = await this.resolveSeasonContainerEventIds(tenantId);
 
     // Fiche 147-01 : la frontière de fenêtre (fin déclarée d'un voisin qui se termine le jour de
     // début) a besoin de TOUS les events de l'espace, pas seulement du batch — en re-agrégation
@@ -419,7 +452,7 @@ export class AggregationService {
     const allSpaceEvents: EventDayFields[] = eventIds?.length
       ? await this.prisma.event.findMany({
           where: { tenantId, spaceId },
-          select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true },
+          select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true, integrationId: true },
         })
       : events;
 
@@ -453,25 +486,50 @@ export class AggregationService {
           const matchClause =
             window.mode === 'exact'
               ? Prisma.sql`t."eventId" = ${window.salesEventId}`
-              : window.mode === 'container-range'
-                // BUG-146-01 : tag du conteneur du club ET fenêtre portes→fin — une vente
-                // de l'AUTRE club dans la même fenêtre (jour à double affiche) est exclue.
-                ? Prisma.sql`t."eventId" = ${window.salesEventId} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`
-                : Prisma.sql`${eventLinkClause} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`;
+              : window.mode === 'integration-range'
+                // BUG-368-02 : la bonne intégration ET la fenêtre calendaire — jamais
+                // `t.eventId`. Robuste par construction : pas de dépendance à la détection
+                // de conteneur de saison, fonctionne même sans historique de transactions.
+                ? Prisma.sql`t."integrationId" = ${window.integrationId} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`
+                : window.mode === 'container-range'
+                  // BUG-146-01 (LEGACY) : tag du conteneur du club ET fenêtre portes→fin —
+                  // une vente de l'AUTRE club dans la même fenêtre (jour à double affiche)
+                  // est exclue.
+                  ? Prisma.sql`t."eventId" = ${window.salesEventId} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`
+                  : Prisma.sql`${eventLinkClause} AND t."transactionDate" >= ${window.start} AND t."transactionDate" < ${window.end}`;
 
           // Efface les anciennes lignes de cet event avant re-agrégation — scopé par
           // integrationId quand il est fourni (BUG-317-02) : sinon, retraiter l'intégration B
           // effaçait aussi la contribution déjà écrite par l'intégration A pour ce même event
           // partagé (un Event DataFriday est partagé au niveau de l'espace, pas de l'intégration).
+          // BUG-372-02 (2026-08-25) : même défaut que resolveSeasonContainerEventIds/matchClause
+          // — en mode `integration-range`, c'est `window.integrationId` (celui de L'EVENT,
+          // autoritaire) qu'il faut utiliser pour scoper la purge, jamais celui du JOB. Sinon,
+          // "Relancer" cliqué sur un event PFC depuis le wizard SFP purgeait les vieilles lignes
+          // taguées SFP (le job) au lieu des vieilles lignes PFC (l'event réel), laissant des
+          // buckets minute périmés du PFC d'avant traîner à côté des nouvelles lignes insérées.
           const deleteWhere: any = { tenantId, spaceId, weezeventEventId: event.id };
-          if (integrationId) deleteWhere.integrationId = integrationId;
+          const deleteIntegrationId = window.mode === 'integration-range' ? window.integrationId : integrationId;
+          if (deleteIntegrationId) deleteWhere.integrationId = deleteIntegrationId;
           await this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere });
           await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere });
 
           // Filtres dynamiques (SQL fragments composables)
-          const integrationClause = integrationId
-            ? Prisma.sql`AND t."integrationId" = ${integrationId}`
-            : Prisma.sql``;
+          // BUG-370-02 (2026-08-25) : `integrationId` ici est celui du JOB (le wizard qui a lancé
+          // "Relancer"/"Tout agréger", cf. StepProcessTimeline `this.location.id`) — un concept
+          // hérité d'avant `Event.integrationId`, quand il fallait bien dire au backend quelle
+          // intégration scoper faute de le savoir par event. En mode `integration-range`, le
+          // window PORTE DÉJÀ la seule intégration qui compte (celle de CET event, autoritaire) —
+          // ANDer en plus le filtre du job devient FAUX dès que le wizard ouvert diffère du club
+          // de l'event traité (ex. "Relancer" cliqué sur une ligne PFC visible depuis le wizard
+          // SFP, la liste "Couvertes" mélangeant les deux) : les deux conditions s'excluent,
+          // donnant 0 résultat au lieu des vraies transactions de l'event. Constaté en base sur
+          // Jean Bouin (SFP-Cardiff/PFC-Le Havre) : agrégations tantôt correctes tantôt vides
+          // selon le wizard ouvert au moment du clic.
+          const integrationClause =
+            integrationId && window.mode !== 'integration-range'
+              ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+              : Prisma.sql``;
 
           // Agrégation DB-level : JOIN + GROUP BY + INSERT en une seule requête
           // Aucune donnée chargée en mémoire Node.js — élimination du findMany + JS loop
@@ -680,6 +738,9 @@ export class AggregationService {
           results.push({
             eventId: event.id, eventName: event.name, date: event.eventDate,
             dataPoints, status: 'success',
+            // BUG-372-02 : intégration RÉELLE de cet event (jamais celle du job) — utilisée
+            // ci-dessous par le sync auto des présences, qui a le même défaut historique.
+            integrationId: window.mode === 'integration-range' ? window.integrationId : integrationId,
           });
         } catch (err) {
           results.push({ eventId: event.id, eventName: event.name, status: 'error', error: err.message });
@@ -709,38 +770,40 @@ export class AggregationService {
       // Auto-sync attendees for each successfully processed event.
       // Finds the matching WeezeventEvent(s) by date and queues an attendees sync
       // job so that ticketsScanned / perCapita metrics are up to date automatically.
-      if (integrationId) {
-        for (const r of results) {
-          if (r.status !== 'success') continue;
-          try {
-            const eventDate = new Date(r.date);
-            const nextDay = new Date(eventDate);
-            nextDay.setDate(nextDay.getDate() + 1);
-            const weezeventEvents = await this.prisma.salesEvent.findMany({
-              where: {
-                tenantId,
-                integrationId,
-                startDate: { gte: eventDate, lt: nextDay },
-              },
-              select: { id: true, externalId: true },
-            });
-            for (const we of weezeventEvents) {
-              // BUG : `we.id` est le cuid interne DataFriday du SalesEvent, pas l'id
-              // Weezevent réel — l'API attendees (`/events/:eventId/attendees`) attend
-              // `externalId`. Avec `we.id`, cette synchro 404 systématiquement, pour
-              // n'importe quel event, réel ou simulé (BUG-XXX, cf. docs/bugs/).
-              await this.queueService.queueWeezeventSyncType(
-                tenantId,
-                'attendees',
-                { eventId: we.externalId },
-                integrationId,
-              );
-              this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.externalId} (event ${r.eventId})`);
-            }
-          } catch (e) {
-            // Non-blocking — attendees sync failure must not fail the aggregation job
-            this.logger.warn(`Auto-attendees sync skipped for event ${r.eventId}: ${e.message}`);
+      // BUG-372-02 : `r.integrationId` (celle de CET event, posée ci-dessus) plutôt que celle du
+      // job — sinon, cherchait le WeezeventEvent par date dans la MAUVAISE intégration dès que
+      // le wizard ouvert diffère du club de l'event, synchronisant les présences du mauvais club
+      // (ou aucune) au lieu de celles de l'event réellement traité.
+      for (const r of results) {
+        if (r.status !== 'success' || !r.integrationId) continue;
+        try {
+          const eventDate = new Date(r.date);
+          const nextDay = new Date(eventDate);
+          nextDay.setDate(nextDay.getDate() + 1);
+          const weezeventEvents = await this.prisma.salesEvent.findMany({
+            where: {
+              tenantId,
+              integrationId: r.integrationId,
+              startDate: { gte: eventDate, lt: nextDay },
+            },
+            select: { id: true, externalId: true },
+          });
+          for (const we of weezeventEvents) {
+            // BUG : `we.id` est le cuid interne DataFriday du SalesEvent, pas l'id
+            // Weezevent réel — l'API attendees (`/events/:eventId/attendees`) attend
+            // `externalId`. Avec `we.id`, cette synchro 404 systématiquement, pour
+            // n'importe quel event, réel ou simulé (BUG-XXX, cf. docs/bugs/).
+            await this.queueService.queueWeezeventSyncType(
+              tenantId,
+              'attendees',
+              { eventId: we.externalId },
+              r.integrationId,
+            );
+            this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.externalId} (event ${r.eventId})`);
           }
+        } catch (e) {
+          // Non-blocking — attendees sync failure must not fail the aggregation job
+          this.logger.warn(`Auto-attendees sync skipped for event ${r.eventId}: ${e.message}`);
         }
       }
     } catch (err) {
@@ -979,7 +1042,7 @@ export class AggregationService {
       integrationId
         ? this.mappingsService.hasShopMappingForIntegration(tenantId, integrationId)
         : this.prisma.locationShopMapping.count({ where: { tenantId } }).then((count) => count > 0),
-      integrationId ? this.resolveSeasonContainerEventIds(tenantId, integrationId) : Promise.resolve(new Set<string>()),
+      this.resolveSeasonContainerEventIds(tenantId),
     ]);
 
     // BUG-358/338-02 : un WeezeventEvent "conteneur" (saison Weezevent groupée sous un seul id,

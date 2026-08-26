@@ -1,6 +1,33 @@
 import { ref } from 'vue'
 import { getStep4Context, processEvents, getWeezeventEvents } from '@/api/endpoints/aggregation.api'
-import store from '@/store'
+import { getEvents } from '@/api/endpoints/event.api'
+
+// BUG-373-02 (2026-08-25) : le step 4 du wizard n'a besoin que des events DE CET ESPACE — avant
+// ce fix, `loadTimeline` passait par le cache Vuex `events/fetchEvents`, pensé pour la page
+// globale "Events" (TOUT le tenant, paginé en boucle côté store), puis filtrait côté client sur
+// spaceId. Sur un tenant à plusieurs centaines d'events, ça déclenchait 3-4 requêtes /events
+// inutiles à chaque ouverture du wizard. `GET /events` accepte déjà `spaceId` côté backend —
+// on l'utilise directement, sans passer par le cache tenant-wide.
+async function fetchSpaceEvents(spaceId) {
+  const limit = 200
+  let page = 1
+  let list = []
+  while (true) {
+    const result = await getEvents({ spaceId, page, limit })
+    const pageRows = Array.isArray(result)
+      ? result
+      : Array.isArray(result?.data)
+        ? result.data
+        : Array.isArray(result?.data?.data)
+          ? result.data.data
+          : []
+    list = list.concat(pageRows)
+    const total = result?.meta?.total ?? result?.data?.meta?.total
+    if (!total || pageRows.length < limit || list.length >= total) break
+    page += 1
+  }
+  return list
+}
 
 export function useTimelineProcessing() {
   const events = ref([])
@@ -17,11 +44,12 @@ export function useTimelineProcessing() {
     error.value = null
     try {
       // #10 — un seul appel bundle (timeline + weezeventEvents + hasMappings)
-      const [contextResult] = await Promise.allSettled([
+      // BUG-373-02 : events CRUD chargés scopés à CET espace (fetchSpaceEvents), plus via le
+      // cache Vuex tenant-wide — en parallèle du contexte, les deux étant indépendants.
+      const [contextResult, eventsResult] = await Promise.allSettled([
         getStep4Context(spaceId, integrationId),
+        fetchSpaceEvents(spaceId),
       ])
-      // Charger les events CRUD (avec cache TTL) — indépendant de spaceId
-      await store.dispatch('events/fetchEvents').catch(() => {})
 
       // Construire la map timeline par eventId pour enrichissement du statut
       const timelineMap = new Map()
@@ -53,11 +81,8 @@ export function useTimelineProcessing() {
         error.value = contextResult.reason?.message
       }
 
-      // Récupérer les events CRUD filtrés par spaceId (events créés par l'utilisateur)
-      const allCrudEvents = store.getters['events/events'] || []
-      const spaceEvents = allCrudEvents.filter(
-        e => e.spaceId != null && String(e.spaceId) === String(spaceId)
-      )
+      // Events CRUD de cet espace (déjà scopés par fetchSpaceEvents, plus de filtre client requis)
+      const spaceEvents = eventsResult.status === 'fulfilled' ? eventsResult.value : []
 
       // Fusionner : chaque event CRUD enrichi du statut de la timeline
       const merged = spaceEvents.map(e => {

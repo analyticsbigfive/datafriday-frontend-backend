@@ -251,8 +251,12 @@
                       {{ formatDate(item.startDate || item.eventDate || item.date) }}
                       <span v-if="item.endDate && item.endDate !== (item.startDate || item.eventDate || item.date)"> — {{ formatDate(item.endDate) }}</span>
                     </span>
-                    <div v-if="item.name || item.eventName" class="spt-row__event-name">
-                      {{ item.name || item.eventName }}
+                    <div v-if="item.name || item.eventName" class="spt-row__event-name-wrap">
+                      <span class="spt-row__event-name">{{ item.name || item.eventName }}</span>
+                      <span
+                        v-if="item._raw?.integration?.name"
+                        class="spt-chip spt-chip--gray spt-row__integration-badge"
+                      >{{ item._raw.integration.name }}</span>
                     </div>
                   </div>
                 </div>
@@ -315,6 +319,7 @@
                       }}
                     </button>
                     <button
+                      v-if="item._raw?.weezeventEventId"
                       class="spt-act-btn spt-act-btn--amber"
                       :disabled="unmappingEventId === item.id || (bulkAggregateLocked && item.aggregationStatus !== 'completed')"
                       :title="(bulkAggregateLocked && item.aggregationStatus !== 'completed') ? t('intgTimelineAggregateAllTooltip') : t('intgTimelineUnmapTooltip')"
@@ -323,6 +328,15 @@
                       <v-progress-circular v-if="unmappingEventId === item.id" indeterminate size="11" width="2" color="currentColor" />
                       <v-icon v-else size="12">mdi-link-off</v-icon>
                       {{ t('intgTimelineBtnUnmap') }}
+                    </button>
+                    <button
+                      v-if="item._raw?.integration?.name && spaceIntegrationsList.length > 1"
+                      class="spt-act-btn spt-act-btn--gray"
+                      :title="t('intgTimelineChangeIntgTooltip')"
+                      @click="openChangeIntegrationDialog(item)"
+                    >
+                      <v-icon size="12">mdi-swap-horizontal</v-icon>
+                      {{ t('intgTimelineBtnChangeIntg') }}
                     </button>
                   </div>
 
@@ -523,7 +537,7 @@
       v-model="mapToEventDialog"
       :item="mapToEventItem"
       :formatted-date="mapToEventItem ? formatDate(mapToEventItem.date || mapToEventItem.start) : ''"
-      :events="registeredEvents"
+      :events="mappableEvents"
       :loading="mappingEventLoading"
       @confirm="confirmMapToEvent"
     />
@@ -534,6 +548,16 @@
       :space-id="spaceId"
       :prefill="createEventPrefill"
       @created="handleEventCreated"
+    />
+
+    <!-- ── Dialog: changer l'intégration d'un event couvert (BUG-369-02) ── -->
+    <ChangeEventIntegrationDialog
+      v-model="changeIntegrationDialog"
+      :event-name="changeIntegrationItem ? (changeIntegrationItem.name || changeIntegrationItem.eventName) : ''"
+      :current-integration-id="changeIntegrationItem?._raw?.integrationId || null"
+      :integrations="spaceIntegrationsList"
+      :loading="changingIntegrationEventId === changeIntegrationItem?.id"
+      @confirm="confirmChangeIntegration"
     />
 
     <!-- ── Snackbar feedback ── -->
@@ -569,6 +593,7 @@ import { updateWeezeventEventMetadata, syncWeezeventEventAttendees, getWeezevent
 import EventTimelineProgressIndicator from '@/components/EventTimelineProgressIndicator.vue'
 import MapEventToExistingDialog from './dialogs/MapEventToExistingDialog.vue'
 import CreateEventDialog from './dialogs/CreateEventDialog.vue'
+import ChangeEventIntegrationDialog from './dialogs/ChangeEventIntegrationDialog.vue'
 import EventBreakdownDrawer from './dialogs/EventBreakdownDrawer.vue'
 
 // Poll cadence for a single event's aggregation job (handleProcessSingle)
@@ -594,6 +619,7 @@ export default {
     EventTimelineProgressIndicator,
     MapEventToExistingDialog,
     CreateEventDialog,
+    ChangeEventIntegrationDialog,
     EventBreakdownDrawer,
   },
   props: {
@@ -667,6 +693,11 @@ export default {
       // Mapping WeezeventEvent → DataFriday Event { weezEventId: dfEventId }
       weezEventMappings: {},
       unmappingEventId: null,
+      // §changement d'intégration (BUG-369-02)
+      changeIntegrationDialog: false,
+      changeIntegrationItem: null,
+      changingIntegrationEventId: null,
+      spaceIntegrationsList: [],
       // §breakdown
       expandedEventId: null,
       breakdownDrawer: false,
@@ -690,6 +721,17 @@ export default {
     // §3 — tous les events enregistrés (les futurs sont signalés en info mais restent listés)
     registeredEvents() {
       return this.events || []
+    },
+    // BUG-368-02 (2026-08-25) : candidats du dialog "Mapper à un événement existant" — un event
+    // déjà tagué sur une AUTRE intégration (ex. SFP) ne doit jamais être proposé depuis le wizard
+    // d'une intégration différente (PFC) : même règle que le relink automatique de
+    // bulkCreateEvents (event non tagué, ou déjà tagué sur l'intégration courante).
+    // registeredEvents reste inchangé (table "Couvertes", toujours mixte, à but informatif).
+    mappableEvents() {
+      return this.registeredEvents.filter(e => {
+        const raw = e._raw || {}
+        return !raw.integrationId || raw.integrationId === this.location.id
+      })
     },
     futureEventsCount() {
       const now = new Date()
@@ -820,6 +862,7 @@ export default {
       // Réhydrate weezEventMappings (liens dfEventId persistés) au chargement,
       // symétriquement à loadTimeline, pour que "Créer et lier tout" ne recrée pas de doublons.
       this.loadWeezeventEvents()
+      this.loadSpaceIntegrations()
     }
   },
   unmounted() {
@@ -835,6 +878,7 @@ export default {
         this.uncoveredPage = 1
         this.loadTimeline(val, this.location.id)
         this.loadWeezeventEvents()
+        this.loadSpaceIntegrations()
       }
     },
     activeTab() {
@@ -1162,16 +1206,17 @@ export default {
     },
     // handleCreateEventFromWeez() (ouverture du dialog de création depuis l'onglet
     // "Événements Weezevent" mort) supprimée — aucun point d'appel dans le template.
-    // Démappe l'event du space courant (spaceId → null) au lieu de le supprimer :
-    // l'event reste en base (Événements, revenus, taxonomie…), disparaît juste de
-    // cette intégration — sa date repasse en « Non couverte ». Voir events.service.ts
-    // (resolveEventSpaceFields) côté backend.
+    // Démappe le LIEN vers la donnée Weezevent/Digifood (weezeventEventId → null), PAS l'event
+    // du space (2026-08-25, corrige un défaut de conception signalé par l'utilisateur : l'event
+    // est un event DE l'espace, retirer spaceId le faisait disparaître de la liste de ce space,
+    // rendant tout re-mapping ultérieur impossible faute de pouvoir le retrouver). L'event reste
+    // visible ici, juste "non lié" — ses agrégats périmés sont purgés côté backend
+    // (events.service.ts, resolveWeezeventLink).
     async handleUnmapEvent(event) {
       const label = event.name || event.eventName || event.id
-      if (!confirm(`${this.t('intgTimelineUnmapConfirmPrefix')} « ${label} » ${this.t('intgTimelineUnmapConfirmSuffix')}`)) return
       this.unmappingEventId = event.id
       try {
-        const updated = await updateEvent(event.id, { spaceId: null })
+        const updated = await resolveWeezeventLink(event.id, null)
         this.$store.dispatch('events/updateEvent', updated?.data ?? updated)
         await this.loadTimeline(this.spaceId, this.location.id)
         this.feedbackSnackbarText = `${this.t('intgTimelineEvent')} « ${label} » ${this.t('intgTimelineUnmappedSuffix')}`
@@ -1343,6 +1388,7 @@ export default {
         // ── Phase 1 : créer les events DF et les lier au Weezevent ──
         this.bulkCreateEventsPhase = 'creating'
         let createdCount = 0
+        let relinkedCount = 0
         let skippedCount = 0
 
         for (let i = 0; i < toCreate.length; i += BULK_CREATE_BATCH_SIZE) {
@@ -1366,30 +1412,61 @@ export default {
                 console.warn('[bulkCreateEvents] champs disponibles sur le weezEvent sans date:', JSON.stringify(weezEvent))
                 return { __skipped: true }
               }
-              const res = await createEvent({
-                name: weezEvent.name || `${this.t('intgTimelineEventFallbackName')} ${weezEvent.id}`,
-                eventDate: startDate,
-                eventStartDate: startDate,
-                eventEndDate: endDate,
-                spaceId: this.spaceId,
+              // BUG-366-02 : un event de CET espace, non lié (démappé, ou jamais lié), pour la
+              // MÊME date que ce weezEvent → le relier au lieu d'en créer un second. Sans cette
+              // vérification, "Démapper" puis "Créer et lier tout" créait un doublon (un nouvel
+              // Event fraîchement lié, l'ancien démappé restant orphelin à côté).
+              // BUG-368-02 : exige aussi que l'event n'appartienne à AUCUNE intégration, ou
+              // déjà à celle-ci — sans ça, un event SFP démappé pourrait se faire voler par un
+              // weezEvent PFC de la même date (deux clubs, même jour, cf. Stade Jean Bouin).
+              const existingUnlinked = (this.events || []).find(e => {
+                const raw = e._raw || {}
+                return !raw.weezeventEventId
+                  && (!raw.integrationId || raw.integrationId === this.location.id)
+                  && toDate(raw.eventStartDate ?? raw.eventDate ?? e.startDate) === startDate
               })
-              const newEvent = res?.data || res
-              if (!newEvent?.id) throw new Error('No id returned')
-              await this.$store.dispatch('events/addEvent', newEvent)
+              let targetEvent
+              if (existingUnlinked) {
+                targetEvent = existingUnlinked._raw
+                // BUG-368-02 : un event legacy (jamais tagué) qu'on relie ici passe aussi sur
+                // le mécanisme robuste, plutôt que de rester coincé sur le mode conteneur legacy.
+                if (!targetEvent.integrationId) {
+                  const updated = await updateEvent(targetEvent.id, { integrationId: this.location.id })
+                  targetEvent = { ...targetEvent, ...(updated?.data ?? updated) }
+                }
+              } else {
+                const res = await createEvent({
+                  name: weezEvent.name || `${this.t('intgTimelineEventFallbackName')} ${weezEvent.id}`,
+                  eventDate: startDate,
+                  eventStartDate: startDate,
+                  eventEndDate: endDate,
+                  spaceId: this.spaceId,
+                  // BUG-368-02 : source de vérité explicite pour l'agrégation (mode
+                  // integration-range, prioritaire) — remplace la déduction implicite via
+                  // weezeventEventId → conteneur de saison (BUG-146-01, legacy).
+                  integrationId: this.location.id,
+                })
+                targetEvent = res?.data || res
+                if (!targetEvent?.id) throw new Error('No id returned')
+                await this.$store.dispatch('events/addEvent', targetEvent)
+              }
               // BUG-331-02 : pose le VRAI lien typé (Event.weezeventEventId), lu par
               // executeProcessEvents pour le rattachement exact des transactions (BUG-330-02) —
-              // dfEventId ci-dessous n'est qu'un champ hérité, jamais relu par l'API.
-              await resolveWeezeventLink(newEvent.id, weezEvent.id)
-              await updateWeezeventEventMetadata(this.spaceId, weezEvent.id, { dfEventId: newEvent.id })
+              // dfEventId ci-dessous n'est qu'un miroir pour réhydrater weezEventMappings côté
+              // front (loadWeezeventEvents), synchronisé aussi côté backend depuis le 2026-08-25
+              // (resolveWeezeventLink) pour tout appelant, pas seulement celui-ci.
+              await resolveWeezeventLink(targetEvent.id, weezEvent.id)
+              await updateWeezeventEventMetadata(this.spaceId, weezEvent.id, { dfEventId: targetEvent.id })
               const updated = { ...this.weezEventMappings }
-              updated[weezEvent.id] = newEvent.id
+              updated[weezEvent.id] = targetEvent.id
               this.weezEventMappings = updated
-              return newEvent
+              return { ...targetEvent, __relinked: !!existingUnlinked }
             })
           )
           for (const result of results) {
             if (result.status === 'fulfilled') {
               if (result.value?.__skipped) skippedCount++
+              else if (result.value?.__relinked) relinkedCount++
               else createdCount++
             } else {
               console.warn('[bulkCreateEvents] create error:', result.reason)
@@ -1400,18 +1477,19 @@ export default {
         }
 
         const patchSummary = patchedCount > 0 ? `${patchedCount} ${this.t('intgTimelineBulkEventsAttached')} ` : ''
+        const relinkSummary = relinkedCount > 0 ? ` ${relinkedCount} ${this.t('intgTimelineBulkEventsRelinked')}` : ''
         const skipSummary = skippedCount > 0 ? ` ${skippedCount} ${this.t('intgTimelineBulkSkippedNoDate')}` : ''
         if (this.bulkCreateEventsErrors > 0) {
           this.bulkCreateEventsPhase = 'error'
-          this.bulkCreateEventsMessage = `${patchSummary}${createdCount} ${this.t('intgTimelineBulkCreatedOn')} ${toCreate.length - skippedCount}. ${this.bulkCreateEventsErrors} ${this.t('intgTimelineBulkFailedShort')}${skipSummary}`
+          this.bulkCreateEventsMessage = `${patchSummary}${createdCount} ${this.t('intgTimelineBulkCreatedOn')} ${toCreate.length - skippedCount}. ${this.bulkCreateEventsErrors} ${this.t('intgTimelineBulkFailedShort')}${skipSummary}${relinkSummary}`
         } else {
           this.bulkCreateEventsPhase = 'done'
-          this.bulkCreateEventsMessage = `${patchSummary}${createdCount} ${this.t('intgTimelineBulkCreatedLinked')}${skipSummary}`
+          this.bulkCreateEventsMessage = `${patchSummary}${createdCount} ${this.t('intgTimelineBulkCreatedLinked')}${relinkSummary}${skipSummary}`
         }
         await this.loadTimeline(this.spaceId, this.location.id)
         // BUG-109/361-02 : voir commentaire jumeau ci-dessus (branche "patch seul") — même
         // déclenchement automatique ici, après création.
-        if (patchedCount > 0 || createdCount > 0) this.handleAggregateAll()
+        if (patchedCount > 0 || createdCount > 0 || relinkedCount > 0) this.handleAggregateAll()
       } catch (err) {
         console.error('[bulkCreateEvents] fatal error:', err)
         this.bulkCreateEventsPhase = 'error'
@@ -1457,6 +1535,39 @@ export default {
         this.weezEventMappings = newMappings
       } catch (err) {
         console.error('[StepProcessTimeline] Failed to load weezevent events:', err)
+      }
+    },
+    // Liste des intégrations du space (BUG-369-02) — mise en cache côté store (15 min TTL,
+    // spaceIntegrations.js), peuple le sélecteur de ChangeEventIntegrationDialog.
+    async loadSpaceIntegrations() {
+      try {
+        this.spaceIntegrationsList = await this.$store.dispatch('spaceIntegrations/fetchForSpace', { spaceId: this.spaceId })
+      } catch (err) {
+        console.error('[StepProcessTimeline] Failed to load space integrations:', err)
+      }
+    },
+    openChangeIntegrationDialog(item) {
+      this.changeIntegrationItem = item
+      this.changeIntegrationDialog = true
+    },
+    async confirmChangeIntegration(newIntegrationId) {
+      const item = this.changeIntegrationItem
+      if (!item || !newIntegrationId) return
+      this.changingIntegrationEventId = item.id
+      try {
+        const updated = await updateEvent(item.id, { integrationId: newIntegrationId })
+        this.$store.dispatch('events/updateEvent', updated?.data ?? updated)
+        this.changeIntegrationDialog = false
+        await this.loadTimeline(this.spaceId, this.location.id)
+        this.feedbackSnackbarText = this.t('intgTimelineIntgChanged')
+        this.feedbackSnackbarColor = 'success'
+        this.feedbackSnackbar = true
+      } catch (err) {
+        this.feedbackSnackbarText = err?.response?.data?.message || err.message
+        this.feedbackSnackbarColor = 'error'
+        this.feedbackSnackbar = true
+      } finally {
+        this.changingIntegrationEventId = null
       }
     },
     // loadAmbiguousMatches/handleResolveWeezeventLink (banner + ResolveWeezeventLinkDialog,
@@ -1695,10 +1806,14 @@ export default {
 .spt--dark .spt-row__date-text { color: #f3f4f6; }
 
 .spt-row__event-info { display: flex; align-items: flex-start; gap: 8px; min-width: 0; }
-.spt-row__event-name {
-  font-size: 11.5px; color: #6b7280; margin-top: 2px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+.spt-row__event-name-wrap {
+  display: flex; align-items: center; gap: 6px; min-width: 0; margin-top: 2px;
 }
+.spt-row__event-name {
+  font-size: 11.5px; color: #6b7280;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.spt-row__integration-badge { flex-shrink: 0; }
 .spt--dark .spt-row__event-name { color: #9ca3af; }
 
 .spt-row__transactions { display: flex; align-items: center; }

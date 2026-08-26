@@ -1,4 +1,4 @@
-import { alignPastMinute, relativeDatedKey } from '@/composables/usePredictiveTimeline';
+import { alignPastMinute, relativeDatedKey, datedKeyForEvent } from '@/composables/usePredictiveTimeline';
 import { calculateSimilarity } from '@/utils/predictiveAnalytics';
 
 const min = (h, m) => h * 60 + m;
@@ -40,6 +40,44 @@ describe('ordre chronologique au-delà de minuit (relativeDatedKey)', () => {
   it('une vente d’avant-match reste au jour précédent', () => {
     // Coup d'envoi 00:30, vente 1 h avant → 23:30 la veille
     expect(relativeDatedKey(min(0, 30) - 60)).toBe('1999-12-31T23:30');
+  });
+});
+
+// Clé datée ancrée sur la VRAIE date de l'event prédit : les inputs de plage
+// du chart affichent la date telle quelle (« 07/09 21:00 » comme sur Analyse).
+describe('clé datée ancrée sur l’event prédit (datedKeyForEvent)', () => {
+  it('ancre sur la date réelle de l’event (ISO)', () => {
+    expect(datedKeyForEvent('2026-09-07', min(21, 0))).toBe('2026-09-07T21:00');
+  });
+
+  it('franchissement de minuit → J+1 réel', () => {
+    // 21:00 + 5h = 02:00 le lendemain
+    expect(datedKeyForEvent('2026-09-07', min(21, 0) + min(5, 0))).toBe('2026-09-08T02:00');
+  });
+
+  it('accepte le format DD/MM/YYYY', () => {
+    expect(datedKeyForEvent('07/09/2026', min(21, 0))).toBe('2026-09-07T21:00');
+  });
+
+  it('rollover fin de mois', () => {
+    expect(datedKeyForEvent('2026-08-31', min(23, 30) + min(2, 0))).toBe('2026-09-01T01:30');
+  });
+
+  it('vente d’avant-match → J−1 réel', () => {
+    // Coup d'envoi 00:30, vente 1 h avant → 23:30 la veille
+    expect(datedKeyForEvent('2026-09-07', min(0, 30) - 60)).toBe('2026-09-06T23:30');
+  });
+
+  it('date imparsable → repli sur relativeDatedKey (base synthétique)', () => {
+    const abs = min(21, 0) + min(5, 0);
+    expect(datedKeyForEvent(null, abs)).toBe(relativeDatedKey(abs));
+    expect(datedKeyForEvent('n/a', abs)).toBe(relativeDatedKey(abs));
+  });
+
+  it('les clés datées restent triables lexicographiquement', () => {
+    const soiree = datedKeyForEvent('2026-09-07', min(23, 30));
+    const apresMinuit = datedKeyForEvent('2026-09-07', min(25, 0));
+    expect([apresMinuit, soiree].sort()).toEqual([soiree, apresMinuit]);
   });
 });
 

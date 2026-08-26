@@ -8,6 +8,11 @@ export class CreateEventDto {
   // nullable : démapper un event d'un space (étape 4 Data Integration) sans le supprimer
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() spaceId?: string | null;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() configurationId?: string | null;
+  // BUG-368-02 : intégration/data-source explicite de cet event — posé par bulkCreateEvents
+  // (StepProcessTimeline.vue) à la création, permet à l'agrégation de matcher directement par
+  // intégration + fenêtre calendaire sans jamais regarder t.eventId (remplace la déduction
+  // implicite via weezeventEventId → conteneur de saison, BUG-146-01, legacy).
+  @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() integrationId?: string | null;
   @ApiPropertyOptional() @IsOptional() @IsString() eventTypeId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() eventCategoryId?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() eventSubcategoryId?: string;

@@ -795,6 +795,23 @@ export class SpacesController {
   }
 
   /**
+   * BUG-369-02 : liste des intégrations rattachées à un espace (ex. PFC + SFP sur un même
+   * espace partagé) — sert à peupler le sélecteur "Changer l'intégration" du wizard, en cache
+   * côté front (peu de churn : ne change qu'à l'ajout d'une nouvelle intégration).
+   */
+  @Get(':id/integrations')
+  @ApiOperation({ summary: 'Liste des intégrations rattachées à un espace' })
+  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
+  @ApiResponse({ status: 200, description: 'Liste des intégrations (id, name, provider)' })
+  @ApiResponse({ status: 404, description: 'Espace non trouvé' })
+  async getSpaceIntegrations(
+    @Param('id') id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.spacesService.getSpaceIntegrations(id, user.tenantId);
+  }
+
+  /**
    * List WeezeventEvents for a space, including enrichment metadata
    */
   @Get(':id/weezevent-events')

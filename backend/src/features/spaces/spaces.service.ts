@@ -1241,7 +1241,7 @@ export class SpacesService {
     spaceId: string,
     uniqueIds: string[],
     tenantId: string,
-  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql; spaceTimezone: string; shopIds: string[]; windows: { id: string; windowStart: Date; windowEnd: Date; tagId: string | null }[] } | null> {
+  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql; spaceTimezone: string; shopIds: string[]; windows: { id: string; windowStart: Date; windowEnd: Date; tagId: string | null; eventIntegrationId: string | null }[] } | null> {
     // All independent queries run in parallel: ownership check, event dates (tried
     // against both DataFriday Event and WeezeventEvent so the frontend can pass
     // either a DataFriday UUID or a WeezeventEvent CUID), integration scope,
@@ -1267,7 +1267,7 @@ export class SpacesService {
           const [allSpaceEvents, locationMapping, spaceRow] = await Promise.all([
             this.prisma.event.findMany({
               where: { tenantId, spaceId },
-              select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true, weezeventEventId: true },
+              select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true, weezeventEventId: true, integrationId: true },
             }),
             this.prisma.locationSpaceMapping.findMany({
               where: { tenantId, spaceId },
@@ -1329,7 +1329,7 @@ export class SpacesService {
     // la fenêtre de PFC absorbait le CA de SFP-Toulouse, 48k€ → 184k€, BUG-339-02).
     // MÊME logique que l'agrégation (resolveEventTransactionWindow, event-window.util) : la
     // divergence lecteur/writer était la cause des trois CA différents de la fiche 145-01.
-    const windows: { id: string; windowStart: Date; windowEnd: Date; tagId: string | null }[] = [];
+    const windows: { id: string; windowStart: Date; windowEnd: Date; tagId: string | null; eventIntegrationId: string | null }[] = [];
     for (const id of uniqueIds) {
       const df = dfMap.get(id);
       const wz = wzMap.get(id);
@@ -1363,7 +1363,9 @@ export class SpacesService {
       // BUG-146-01 : tag du conteneur de club (ou d'un match précis) — devient ev."tagId".
       // Null (event non lié, ou id WeezeventEvent passé directement) → les requêtes
       // retombent sur la fenêtre seule, comportement d'avant.
-      windows.push({ id, windowStart, windowEnd, tagId: df?.weezeventEventId ?? null });
+      // BUG-368-02 : eventIntegrationId — mode prioritaire, robuste, ne dépend pas d'un
+      // conteneur de saison ; coexiste avec tagId (legacy) pour les events pas encore migrés.
+      windows.push({ id, windowStart, windowEnd, tagId: df?.weezeventEventId ?? null, eventIntegrationId: df?.integrationId ?? null });
     }
     if (!windows.length) return null;
 
@@ -1391,7 +1393,7 @@ export class SpacesService {
       : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
 
     const valuesSql = Prisma.join(
-      windows.map(w => Prisma.sql`(${w.id}::text, ${w.windowStart}::timestamp, ${w.windowEnd}::timestamp, ${w.tagId}::text)`),
+      windows.map(w => Prisma.sql`(${w.id}::text, ${w.windowStart}::timestamp, ${w.windowEnd}::timestamp, ${w.tagId}::text, ${w.eventIntegrationId}::text)`),
       ', ',
     );
 
@@ -1475,7 +1477,7 @@ export class SpacesService {
     // (les consommateurs lisent `revenueHt`, repli ajouté dans timelineBucketing.js).
     if (summary) {
       const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
-        WITH ev("eventId", "windowStart", "windowEnd", "tagId") AS (VALUES ${valuesSql}),
+        WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql}),
         dedup AS (
           SELECT
             ev."eventId"                 AS "eventId",
@@ -1600,7 +1602,7 @@ export class SpacesService {
     // BUG-144-01 : section SQL sous sémaphore (2 en vol, file 32, 60 s -> 503) — les
     // hits cache plus haut ne font pas la queue.
     const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
-      WITH ev("eventId", "windowStart", "windowEnd", "tagId") AS (VALUES ${valuesSql}),
+      WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql}),
       dedup AS (
         SELECT
           ev."eventId"                 AS "eventId",
@@ -1775,7 +1777,7 @@ export class SpacesService {
     // évite le double comptage au dénominateur.
     // BUG-144-01 : même sémaphore que getEventTimelineBatch.
     const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
-      WITH ev("eventId", "windowStart", "windowEnd", "tagId") AS (VALUES ${valuesSql}),
+      WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql}),
       tx AS (
         SELECT
           t.id                                                            AS "txId",
@@ -1803,10 +1805,13 @@ export class SpacesService {
         INNER JOIN "WeezeventTransaction" t
           ON t."transactionDate" >= ev."windowStart"
          AND t."transactionDate" <  ev."windowEnd"
-         -- BUG-146-01 : tag du conteneur du club quand l'event y est lié — les jours à
-         -- double affiche, la fenêtre seule mélangeait les caisses des deux clubs.
-         -- tagId NULL (event non lié, source CSV sans tag) → fenêtre seule, comme avant.
+         -- BUG-146-01 (legacy) : tag du conteneur du club quand l'event y est lié — les jours
+         -- à double affiche, la fenêtre seule mélangeait les caisses des deux clubs. tagId
+         -- NULL (event non lié, source CSV sans tag) → fenêtre seule, comme avant.
          AND (ev."tagId" IS NULL OR t."eventId" = ev."tagId")
+         -- BUG-368-02 : eventIntegrationId explicite, prioritaire et robuste — même rôle que
+         -- tagId ci-dessus mais sans dépendre d'un conteneur de saison Weezevent.
+         AND (ev."eventIntegrationId" IS NULL OR t."integrationId" = ev."eventIntegrationId")
          AND t."tenantId" = ${tenantId}
          ${integrationClause}
          AND t.status = 'V'
@@ -1932,7 +1937,7 @@ export class SpacesService {
 
     // BUG-144-01 : même sémaphore que les deux autres endpoints batch.
     const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
-      WITH ev("eventId", "windowStart", "windowEnd", "tagId") AS (VALUES ${valuesSql})
+      WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql})
       SELECT
         ev."eventId"                                                        AS "eventId",
         COUNT(ti."id")::int                                                 AS "unmappedLines",
@@ -1944,8 +1949,10 @@ export class SpacesService {
       INNER JOIN "WeezeventTransaction" t
         ON t."transactionDate" >= ev."windowStart"
        AND t."transactionDate" <  ev."windowEnd"
-       -- BUG-146-01 : même clause tag conteneur que event-timeline/transaction-baskets.
+       -- BUG-146-01 (legacy) / BUG-368-02 : mêmes clauses tag conteneur + integrationId que
+       -- event-timeline/transaction-baskets.
        AND (ev."tagId" IS NULL OR t."eventId" = ev."tagId")
+       AND (ev."eventIntegrationId" IS NULL OR t."integrationId" = ev."eventIntegrationId")
        AND t."tenantId" = ${tenantId}
        ${integrationClause}
        AND t.status = 'V'
@@ -2171,6 +2178,32 @@ export class SpacesService {
       openingAct:      (e.metadata as any)?.openingAct      ?? null,
       sponsor:         (e.metadata as any)?.sponsor         ?? null,
     }));
+  }
+
+  /**
+   * BUG-369-02 (2026-08-25) : liste des intégrations rattachées à un espace — remplace le
+   * dérivé côté front (`spaceIntegrations`, à partir des events déjà chargés, retiré le même
+   * jour) qui ne révélait une intégration qu'une fois qu'un event lui était déjà tagué. Même
+   * pattern que `getWeezeventEventsForSpace` : `locationSpaceMapping` peut avoir PLUSIEURS
+   * lignes pour un même espace (BUG-136-01), pas de relation Prisma directe vers `Integration`
+   * (`salesLocationId` est un `String` simple) — résolution en 2 requêtes.
+   */
+  async getSpaceIntegrations(spaceId: string, tenantId: string) {
+    await this.findOne(spaceId, tenantId);
+
+    const mappings = await this.prisma.locationSpaceMapping.findMany({
+      where: { tenantId, spaceId },
+      select: { salesLocationId: true },
+    });
+    const integrationIds = [...new Set(mappings.map((m) => m.salesLocationId).filter(Boolean))];
+    if (!integrationIds.length) return [];
+
+    const integrations = await this.prisma.integration.findMany({
+      where: { id: { in: integrationIds }, tenantId },
+      select: { id: true, name: true, provider: true },
+      orderBy: { name: 'asc' },
+    });
+    return integrations;
   }
 
   /**
