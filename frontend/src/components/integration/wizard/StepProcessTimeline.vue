@@ -330,7 +330,7 @@
                       {{ t('intgTimelineBtnUnmap') }}
                     </button>
                     <button
-                      v-if="item._raw?.integration?.name"
+                      v-if="item._raw?.integration?.name && spaceIntegrationsList.length > 1"
                       class="spt-act-btn spt-act-btn--gray"
                       :title="t('intgTimelineChangeIntgTooltip')"
                       @click="openChangeIntegrationDialog(item)"

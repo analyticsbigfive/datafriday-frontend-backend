@@ -296,16 +296,21 @@ export class AggregationService {
    * spaces.service.ts, fix du 2026-08-04) qui reste fiable pour les tenants où un Event "saison" a
    * été créé avec un span réaliste.
    */
-  private async resolveSeasonContainerEventIds(
-    tenantId: string,
-    integrationId: string | undefined,
-  ): Promise<Set<string>> {
-    const integrationClause = integrationId ? Prisma.sql`AND t."integrationId" = ${integrationId}` : Prisma.sql``;
+  private async resolveSeasonContainerEventIds(tenantId: string): Promise<Set<string>> {
+    // BUG-372-02 (2026-08-25) : anciennement scopé par l'intégration du JOB (le wizard qui a
+    // lancé "Relancer"/"Tout agréger") — au même titre que BUG-370-02, ce scoping n'a plus de
+    // sens dès que le job traite un event dont l'intégration diffère de celle du wizard (liste
+    // "Couvertes" mixte PFC/SFP). "Ce weezeventEventId est-il un conteneur de saison ?" est une
+    // propriété INTRINSÈQUE de ces transactions, indépendante de qui lance le job — scoper par
+    // l'intégration du job pouvait manquer le conteneur d'une AUTRE intégration, faisant
+    // basculer l'event à tort en mode `exact` (résolveEventWindow) avec l'`integrationId` du
+    // job comme filtre — combinaison impossible à satisfaire (aucune transaction ne peut avoir
+    // `t.eventId` du conteneur SFP ET `t.integrationId` du job PFC), agrégation "réussie" mais
+    // 0 ligne écrite. Constaté en base : SFP-Cardiff/PFC-Le Havre, Jean Bouin, 2026-08-25.
     const rows = await this.prisma.$queryRaw<Array<{ eventId: string; minDate: Date; maxDate: Date }>>(Prisma.sql`
       SELECT t."eventId", MIN(t."transactionDate") AS "minDate", MAX(t."transactionDate") AS "maxDate"
       FROM "WeezeventTransaction" t
       WHERE t."tenantId" = ${tenantId}
-        ${integrationClause}
         AND t."eventId" IS NOT NULL
         AND t."deletedAt" IS NULL
       GROUP BY t."eventId"
@@ -328,7 +333,6 @@ export class AggregationService {
     const declaredSpanEvents = await this.prisma.salesEvent.findMany({
       where: {
         tenantId,
-        ...(integrationId ? { integrationId } : {}),
         startDate: { not: null },
         endDate: { not: null },
       },
@@ -348,7 +352,6 @@ export class AggregationService {
     const digifoodEvents = await this.prisma.salesEvent.findMany({
       where: {
         tenantId,
-        ...(integrationId ? { integrationId } : {}),
         metadata: { path: ['provider'], equals: 'digifood' },
       },
       select: { id: true },
@@ -441,7 +444,7 @@ export class AggregationService {
 
     // BUG-338-02 : calculé UNE fois pour tout le run (pas par event) — un conteneur de saison est
     // le même pour tous les matchs de cette intégration.
-    const seasonContainerIds = await this.resolveSeasonContainerEventIds(tenantId, integrationId);
+    const seasonContainerIds = await this.resolveSeasonContainerEventIds(tenantId);
 
     // Fiche 147-01 : la frontière de fenêtre (fin déclarée d'un voisin qui se termine le jour de
     // début) a besoin de TOUS les events de l'espace, pas seulement du batch — en re-agrégation
@@ -499,8 +502,15 @@ export class AggregationService {
           // integrationId quand il est fourni (BUG-317-02) : sinon, retraiter l'intégration B
           // effaçait aussi la contribution déjà écrite par l'intégration A pour ce même event
           // partagé (un Event DataFriday est partagé au niveau de l'espace, pas de l'intégration).
+          // BUG-372-02 (2026-08-25) : même défaut que resolveSeasonContainerEventIds/matchClause
+          // — en mode `integration-range`, c'est `window.integrationId` (celui de L'EVENT,
+          // autoritaire) qu'il faut utiliser pour scoper la purge, jamais celui du JOB. Sinon,
+          // "Relancer" cliqué sur un event PFC depuis le wizard SFP purgeait les vieilles lignes
+          // taguées SFP (le job) au lieu des vieilles lignes PFC (l'event réel), laissant des
+          // buckets minute périmés du PFC d'avant traîner à côté des nouvelles lignes insérées.
           const deleteWhere: any = { tenantId, spaceId, weezeventEventId: event.id };
-          if (integrationId) deleteWhere.integrationId = integrationId;
+          const deleteIntegrationId = window.mode === 'integration-range' ? window.integrationId : integrationId;
+          if (deleteIntegrationId) deleteWhere.integrationId = deleteIntegrationId;
           await this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere });
           await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere });
 
@@ -728,6 +738,9 @@ export class AggregationService {
           results.push({
             eventId: event.id, eventName: event.name, date: event.eventDate,
             dataPoints, status: 'success',
+            // BUG-372-02 : intégration RÉELLE de cet event (jamais celle du job) — utilisée
+            // ci-dessous par le sync auto des présences, qui a le même défaut historique.
+            integrationId: window.mode === 'integration-range' ? window.integrationId : integrationId,
           });
         } catch (err) {
           results.push({ eventId: event.id, eventName: event.name, status: 'error', error: err.message });
@@ -757,38 +770,40 @@ export class AggregationService {
       // Auto-sync attendees for each successfully processed event.
       // Finds the matching WeezeventEvent(s) by date and queues an attendees sync
       // job so that ticketsScanned / perCapita metrics are up to date automatically.
-      if (integrationId) {
-        for (const r of results) {
-          if (r.status !== 'success') continue;
-          try {
-            const eventDate = new Date(r.date);
-            const nextDay = new Date(eventDate);
-            nextDay.setDate(nextDay.getDate() + 1);
-            const weezeventEvents = await this.prisma.salesEvent.findMany({
-              where: {
-                tenantId,
-                integrationId,
-                startDate: { gte: eventDate, lt: nextDay },
-              },
-              select: { id: true, externalId: true },
-            });
-            for (const we of weezeventEvents) {
-              // BUG : `we.id` est le cuid interne DataFriday du SalesEvent, pas l'id
-              // Weezevent réel — l'API attendees (`/events/:eventId/attendees`) attend
-              // `externalId`. Avec `we.id`, cette synchro 404 systématiquement, pour
-              // n'importe quel event, réel ou simulé (BUG-XXX, cf. docs/bugs/).
-              await this.queueService.queueWeezeventSyncType(
-                tenantId,
-                'attendees',
-                { eventId: we.externalId },
-                integrationId,
-              );
-              this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.externalId} (event ${r.eventId})`);
-            }
-          } catch (e) {
-            // Non-blocking — attendees sync failure must not fail the aggregation job
-            this.logger.warn(`Auto-attendees sync skipped for event ${r.eventId}: ${e.message}`);
+      // BUG-372-02 : `r.integrationId` (celle de CET event, posée ci-dessus) plutôt que celle du
+      // job — sinon, cherchait le WeezeventEvent par date dans la MAUVAISE intégration dès que
+      // le wizard ouvert diffère du club de l'event, synchronisant les présences du mauvais club
+      // (ou aucune) au lieu de celles de l'event réellement traité.
+      for (const r of results) {
+        if (r.status !== 'success' || !r.integrationId) continue;
+        try {
+          const eventDate = new Date(r.date);
+          const nextDay = new Date(eventDate);
+          nextDay.setDate(nextDay.getDate() + 1);
+          const weezeventEvents = await this.prisma.salesEvent.findMany({
+            where: {
+              tenantId,
+              integrationId: r.integrationId,
+              startDate: { gte: eventDate, lt: nextDay },
+            },
+            select: { id: true, externalId: true },
+          });
+          for (const we of weezeventEvents) {
+            // BUG : `we.id` est le cuid interne DataFriday du SalesEvent, pas l'id
+            // Weezevent réel — l'API attendees (`/events/:eventId/attendees`) attend
+            // `externalId`. Avec `we.id`, cette synchro 404 systématiquement, pour
+            // n'importe quel event, réel ou simulé (BUG-XXX, cf. docs/bugs/).
+            await this.queueService.queueWeezeventSyncType(
+              tenantId,
+              'attendees',
+              { eventId: we.externalId },
+              r.integrationId,
+            );
+            this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.externalId} (event ${r.eventId})`);
           }
+        } catch (e) {
+          // Non-blocking — attendees sync failure must not fail the aggregation job
+          this.logger.warn(`Auto-attendees sync skipped for event ${r.eventId}: ${e.message}`);
         }
       }
     } catch (err) {
@@ -1027,7 +1042,7 @@ export class AggregationService {
       integrationId
         ? this.mappingsService.hasShopMappingForIntegration(tenantId, integrationId)
         : this.prisma.locationShopMapping.count({ where: { tenantId } }).then((count) => count > 0),
-      integrationId ? this.resolveSeasonContainerEventIds(tenantId, integrationId) : Promise.resolve(new Set<string>()),
+      this.resolveSeasonContainerEventIds(tenantId),
     ]);
 
     // BUG-358/338-02 : un WeezeventEvent "conteneur" (saison Weezevent groupée sous un seul id,

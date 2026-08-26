@@ -699,6 +699,48 @@ describe('AggregationService', () => {
         expect(sqlArg.values).not.toContain('integration-sfp');
       });
 
+      it("BUG-372-02 : resolveSeasonContainerEventIds n'est plus scopée par l'integrationId du JOB — un conteneur de l'intégration de l'EVENT (différente de celle du job) est quand même détecté, mode integration-range (pas exact) avec le bon integrationId", async () => {
+        const CONTAINER_SFP = 'container-sfp-only';
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...makeEvent(EVENT_1), weezeventEventId: CONTAINER_SFP, integrationId: 'integration-sfp' },
+        ]);
+        // Le conteneur n'appartient qu'à SFP — avant le fix, resolveSeasonContainerEventIds
+        // était appelée avec l'integrationId du JOB (ici PFC) et une requête $queryRaw scopée
+        // dessus n'aurait jamais vu ce conteneur SFP, faisant basculer l'event à tort en mode
+        // `exact` (t."eventId" = CONTAINER_SFP AND t."integrationId" = PFC — insatisfiable).
+        mockPrisma.$queryRaw.mockResolvedValueOnce([
+          { eventId: CONTAINER_SFP, minDate: new Date('2025-09-01T00:00:00Z'), maxDate: new Date('2026-07-01T00:00:00Z') },
+        ]);
+
+        // Job lancé depuis le wizard PFC alors que l'event traité est SFP.
+        const job = makeBullJob({ integrationId: 'integration-pfc' });
+        await service.executeProcessEvents(job);
+
+        const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
+        const text = sqlArg.text ?? sqlArg.sql;
+        expect(text).toEqual(expect.stringContaining('t."integrationId" ='));
+        expect(text).not.toEqual(expect.stringContaining('t."eventId" ='));
+        expect(sqlArg.values).toContain('integration-sfp');
+        expect(sqlArg.values).not.toContain('integration-pfc');
+        expect(sqlArg.values).not.toContain(CONTAINER_SFP);
+      });
+
+      it("BUG-372-02 : la purge (deleteMany) avant réagrégation est scopée par l'integrationId de l'EVENT en mode integration-range, jamais celui du JOB", async () => {
+        mockPrisma.event.findMany.mockResolvedValue([
+          { ...makeEvent(EVENT_1), integrationId: 'integration-sfp' },
+        ]);
+
+        const job = makeBullJob({ integrationId: 'integration-pfc' });
+        await service.executeProcessEvents(job);
+
+        expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
+          where: expect.objectContaining({ integrationId: 'integration-sfp' }),
+        });
+        expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
+          where: expect.objectContaining({ integrationId: 'integration-sfp' }),
+        });
+      });
+
       it('règle métier 2026-08-25 : Event non lié, 1 seul jour → fenêtre = journée calendaire locale complète (00h00 → minuit suivant, pas ancrée sur une heure d\'ouverture)', async () => {
         const baseEvent = makeEvent(EVENT_1);
         mockPrisma.event.findMany.mockResolvedValue([baseEvent]);
