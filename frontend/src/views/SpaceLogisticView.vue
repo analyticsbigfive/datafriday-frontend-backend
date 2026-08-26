@@ -1160,6 +1160,10 @@ export default {
           spaceId,
           elementId: this.movementElement.id,
           itemKey: this.movementItem.name,
+          // ADR-0006 (chantier 377) : identité stable déjà résolue par le référentiel /stock —
+          // préférée par le backend à la résolution par nom quand présente.
+          itemKind: this.movementItem.refKind ?? undefined,
+          itemRefId: this.movementItem.refKind ? this.movementItem.id : undefined,
           ...payload,
         })
         this.movementDialog = false
@@ -1248,6 +1252,10 @@ export default {
         const line = {
           elementId,
           itemKey: item.name,
+          // ADR-0006 (chantier 377) : identité stable déjà résolue par le référentiel — absente
+          // pour les niveaux orphelins synthétisés ci-dessous (item quitté du référentiel).
+          itemKind: item.refKind ?? undefined,
+          itemRefId: item.refKind ? item.id : undefined,
           countedPacked: counted?.packedUnits ?? 0,
           countedLoose: counted?.looseUnits ?? 0,
         }

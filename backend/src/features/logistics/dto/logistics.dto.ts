@@ -28,8 +28,8 @@ export const MANUAL_MOVEMENT_REASONS = [
 export type ManualMovementReason = (typeof MANUAL_MOVEMENT_REASONS)[number];
 
 /** ADR-0006 (chantier 377) — identité stable en remplacement progressif d'itemKey (nom). */
-export const ITEM_KINDS = ['marketPrice', 'ingredient', 'packaging', 'menuComponent', 'menuItem'] as const;
-export type ItemKind = (typeof ITEM_KINDS)[number];
+export const STOCK_ITEM_KINDS = ['marketPrice', 'ingredient', 'packaging', 'menuComponent', 'menuItem'] as const;
+export type StockItemKind = (typeof STOCK_ITEM_KINDS)[number];
 
 export class CreateMovementDto {
   @ApiProperty({ description: "ID de l'espace (scoping)" })
@@ -96,14 +96,14 @@ export class CreateMovementDto {
   menuItemId?: string;
 
   @ApiPropertyOptional({
-    enum: ITEM_KINDS,
+    enum: STOCK_ITEM_KINDS,
     description:
       "ADR-0006 (chantier 377) : type d'entité résolue côté front pour cet article. Optionnel — " +
       "préféré à la résolution serveur par nom quand fourni avec itemRefId, ignoré sinon.",
   })
   @IsOptional()
-  @IsIn(ITEM_KINDS as unknown as string[])
-  itemKind?: ItemKind;
+  @IsIn(STOCK_ITEM_KINDS as unknown as string[])
+  itemKind?: StockItemKind;
 
   @ApiPropertyOptional({
     description: "ADR-0006 (chantier 377) : id stable de l'article résolu côté front — voir itemKind.",
@@ -160,10 +160,10 @@ export class ResetLineDto {
   @Type(() => Number)
   unitsPerPack?: number;
 
-  @ApiPropertyOptional({ enum: ITEM_KINDS, description: 'ADR-0006 (chantier 377) — voir CreateMovementDto.itemKind.' })
+  @ApiPropertyOptional({ enum: STOCK_ITEM_KINDS, description: 'ADR-0006 (chantier 377) — voir CreateMovementDto.itemKind.' })
   @IsOptional()
-  @IsIn(ITEM_KINDS as unknown as string[])
-  itemKind?: ItemKind;
+  @IsIn(STOCK_ITEM_KINDS as unknown as string[])
+  itemKind?: StockItemKind;
 
   @ApiPropertyOptional({ description: 'ADR-0006 (chantier 377) — voir CreateMovementDto.itemRefId.' })
   @IsOptional()

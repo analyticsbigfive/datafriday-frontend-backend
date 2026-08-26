@@ -8,7 +8,7 @@ import { QueueService } from '../../core/queue/queue.service';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
-import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto } from './dto/logistics.dto';
+import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto, StockItemKind } from './dto/logistics.dto';
 import { StartSimulationRunDto } from './dto/simulation-run.dto';
 
 export interface SimulationTickJobData {
@@ -39,6 +39,10 @@ type ItemRef = {
   key: string;
   id: string;
   kind: ItemKind;
+  // ADR-0006 (chantier 377) : table d'origine de `id` — distinct de `kind` (rôle recette), qui ne
+  // dit pas si un 'ingredient' est en réalité un MarketPrice (mp résolu) ou un Ingredient brut
+  // (mp absent). null seulement si `id` n'a pas pu être résolu à une table connue.
+  refKind: StockItemKind | null;
   unit: string | null;
   marketPriceId: string | null;
   unitsPerPack: number | null;
@@ -50,6 +54,7 @@ type ElementItem = {
   name: string;
   id: string;
   kind: ItemKind;
+  refKind: StockItemKind | null;
   unit: string | null;
   marketPriceId: string | null;
   unitsPerPack: number | null;
@@ -1024,7 +1029,7 @@ export class LogisticsService {
       const pkg = line.packaging;
       const name = pkg?.name?.trim();
       if (!name) continue;
-      refs.push({ key: name, id: pkg.id, kind: 'packaging', unit: pkg.recipeUnit ?? null, marketPriceId: null, unitsPerPack: null, packagingType: null, picture: null });
+      refs.push({ key: name, id: pkg.id, kind: 'packaging', refKind: 'packaging', unit: pkg.recipeUnit ?? null, marketPriceId: null, unitsPerPack: null, packagingType: null, picture: null });
     }
 
     const isCombo = this.normYesNo(item.comboItem) === 'Yes';
@@ -1039,7 +1044,7 @@ export class LogisticsService {
       const selfName = item.name?.trim();
       if (selfName) {
         refs.push({
-          key: selfName, id: item.id, kind: 'product', unit: item.inventoryUnit ?? null, marketPriceId: null,
+          key: selfName, id: item.id, kind: 'product', refKind: 'menuItem', unit: item.inventoryUnit ?? null, marketPriceId: null,
           unitsPerPack: item.inventoryNumberOfUnits ?? null, packagingType: item.inventoryPackagingType ?? null, picture: item.picture ?? null,
         });
       }
@@ -1057,7 +1062,7 @@ export class LogisticsService {
       if (!name) continue;
       const mp = ing.marketPrice ?? ctx.mpByName.get(name.toLowerCase());
       refs.push({
-        key: name, id: mp?.id ?? ing.id, kind: 'ingredient', unit: ing.recipeUnit ?? null,
+        key: name, id: mp?.id ?? ing.id, kind: 'ingredient', refKind: mp ? 'marketPrice' : 'ingredient', unit: ing.recipeUnit ?? null,
         marketPriceId: mp?.id ?? null, unitsPerPack: mp?.packedUnits ?? null, packagingType: mp?.inventoryPackaging ?? null, picture: null,
       });
       leafCount++;
@@ -1080,7 +1085,7 @@ export class LogisticsService {
       const selfName = item.name?.trim();
       if (selfName) {
         refs.push({
-          key: selfName, id: item.id, kind: 'product', unit: item.inventoryUnit ?? null, marketPriceId: null,
+          key: selfName, id: item.id, kind: 'product', refKind: 'menuItem', unit: item.inventoryUnit ?? null, marketPriceId: null,
           unitsPerPack: item.inventoryNumberOfUnits ?? null, packagingType: item.inventoryPackagingType ?? null, picture: item.picture ?? null,
         });
       }
@@ -1108,7 +1113,7 @@ export class LogisticsService {
     const cached = ctx.componentRefsCache.get(cacheKey);
     if (cached) return cached;
     const leaf: ItemRef[] = [{
-      key: name, id: comp.id, kind: 'component', unit: comp.unit ?? null, marketPriceId: null,
+      key: name, id: comp.id, kind: 'component', refKind: 'menuComponent', unit: comp.unit ?? null, marketPriceId: null,
       unitsPerPack: comp.packedUnits ?? null, packagingType: comp.inventoryPackaging ?? null, picture: null,
     }];
     ctx.componentRefsCache.set(cacheKey, leaf);
@@ -1128,7 +1133,7 @@ export class LogisticsService {
       for (const ref of this.itemRefsForMenuItem(full, ctx)) {
         let entry = map.get(ref.key);
         if (!entry) {
-          entry = { name: ref.key, id: ref.id, kind: ref.kind, unit: ref.unit, marketPriceId: ref.marketPriceId, unitsPerPack: ref.unitsPerPack, packagingType: ref.packagingType, picture: ref.picture, usedIn: [] };
+          entry = { name: ref.key, id: ref.id, kind: ref.kind, refKind: ref.refKind, unit: ref.unit, marketPriceId: ref.marketPriceId, unitsPerPack: ref.unitsPerPack, packagingType: ref.packagingType, picture: ref.picture, usedIn: [] };
           map.set(ref.key, entry);
         }
         if (!entry.usedIn.some((u) => u.id === mi.id)) {
@@ -1663,6 +1668,10 @@ export class LogisticsService {
         name: level.itemKey,
         id: level.itemKey,
         kind: 'product',
+        // Un niveau atteint ce chemin uniquement si canonicalizeLevelItemKeys (getLevelsAndConsumption)
+        // n'a pas pu le rattacher à un item courant du référentiel — vrai orphelin (article
+        // supprimé du catalogue), pas juste renommé.
+        refKind: null,
         unit: null,
         marketPriceId: level.marketPriceId ?? null,
         unitsPerPack: level.unitsPerPack ?? null,
