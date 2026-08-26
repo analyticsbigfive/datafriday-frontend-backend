@@ -23,12 +23,16 @@ export async function getLogisticsStock(spaceId, configId, eventId) {
 
 /**
  * Market prices candidats pour le dropdown du popup +/− d'une denrée — évite de
- * charger le catalogue complet côté front.
- * GET /logistics/:spaceId/market-prices?itemKey=
+ * charger le catalogue complet côté front. `currentMarketPriceId` : le market price
+ * déjà lié à cette ligne de stock, renvoyé même si son nom a divergé depuis (évite
+ * qu'un renommage côté Market Price "perde" la sélection en cours, cf. BUG-049).
+ * GET /logistics/:spaceId/market-prices?itemKey=&currentMarketPriceId=
  */
-export async function getMarketPricesForItem(spaceId, itemKey) {
+export async function getMarketPricesForItem(spaceId, itemKey, currentMarketPriceId) {
   if (!itemKey) return []
-  return api.get(`/logistics/${spaceId}/market-prices`, { params: { itemKey } })
+  const params = { itemKey }
+  if (currentMarketPriceId) params.currentMarketPriceId = currentMarketPriceId
+  return api.get(`/logistics/${spaceId}/market-prices`, { params })
 }
 
 /**

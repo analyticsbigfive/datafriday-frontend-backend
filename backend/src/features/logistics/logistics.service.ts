@@ -356,12 +356,21 @@ export class LogisticsService {
       // mouvement — même résolution nom↔MarketPrice que resolveUnitsPerPackForItemKey
       // (itemName insensible à la casse/espaces), sinon un appel API direct pourrait
       // écraser unitsPerPack avec un pack size sans rapport avec l'itemKey (BUG-032).
-      const itemKeyName = String(dto.itemKey ?? '').trim().toLowerCase();
-      const mpItemName = String(mp.itemName ?? '').trim().toLowerCase();
-      if (!mpItemName || mpItemName !== itemKeyName) {
-        throw new BadRequestException(
-          `Market price ${dto.marketPriceId} ne correspond pas à l'item ${dto.itemKey}`,
-        );
+      // Sauté quand ce marketPriceId est déjà celui enregistré sur le StockLevel visé :
+      // le lien a été validé par nom lors de son établissement, et ne doit pas se
+      // rompre si MarketPrice.itemName est renommé depuis (cf. suivi autocomplete).
+      const existingLevel = await this.prisma.stockLevel.findUnique({
+        where: { uniq_stock_level: { tenantId, elementId: element.id, itemKey: dto.itemKey } },
+        select: { marketPriceId: true },
+      });
+      if (existingLevel?.marketPriceId !== dto.marketPriceId) {
+        const itemKeyName = String(dto.itemKey ?? '').trim().toLowerCase();
+        const mpItemName = String(mp.itemName ?? '').trim().toLowerCase();
+        if (!mpItemName || mpItemName !== itemKeyName) {
+          throw new BadRequestException(
+            `Market price ${dto.marketPriceId} ne correspond pas à l'item ${dto.itemKey}`,
+          );
+        }
       }
       unitsPerPack = mp.packedUnits ?? null;
     } else {
@@ -1277,25 +1286,37 @@ export class LogisticsService {
   }
 
   /** Market prices candidats pour le dropdown du popup +/− (itemKey donné, sans le catalogue complet). */
-  async getMarketPricesForItem(spaceId: string, tenantId: string, itemKey: string) {
+  async getMarketPricesForItem(spaceId: string, tenantId: string, itemKey: string, currentMarketPriceId?: string) {
     await this.assertSpace(spaceId, tenantId);
     const name = String(itemKey ?? '').trim();
     if (!name) return [];
+    const select = {
+      id: true,
+      itemName: true,
+      supplier: true,
+      supplierItem: true,
+      supplierRel: { select: { name: true } },
+    };
     const rows = await this.prisma.marketPrice.findMany({
       where: {
         tenantId,
         deletedAt: null,
         OR: [{ itemName: { equals: name, mode: 'insensitive' } }, { itemName: { contains: name, mode: 'insensitive' } }],
       },
-      select: {
-        id: true,
-        itemName: true,
-        supplier: true,
-        supplierItem: true,
-        supplierRel: { select: { name: true } },
-      },
+      select,
       take: 20,
     });
+    // Le market price déjà lié à cette ligne de stock est toujours renvoyé, même si
+    // MarketPrice.itemName a divergé du référentiel (Ingredient.name) depuis — sinon
+    // la sélection en cours "disparaît" côté front dès que quelqu'un renomme le
+    // market price (id encore valide, mais plus aucun match par nom).
+    if (currentMarketPriceId && !rows.some((r) => r.id === currentMarketPriceId)) {
+      const current = await this.prisma.marketPrice.findFirst({
+        where: { id: currentMarketPriceId, tenantId, deletedAt: null },
+        select,
+      });
+      if (current) rows.push(current);
+    }
     // Correspondance exacte d'abord (dropdown pré-trié comme avant, cf. LogisticMovementDialog).
     rows.sort((a, b) => {
       const aExact = a.itemName.trim().toLowerCase() === name.toLowerCase() ? 0 : 1;
