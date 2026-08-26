@@ -1139,10 +1139,14 @@ export class LogisticsService {
       const full = byId.get(mi.id);
       if (!full) continue;
       for (const ref of this.itemRefsForMenuItem(full, ctx)) {
-        let entry = map.get(ref.key);
+        // ADR-0006 (chantier 377, étape 5) : clé par id, pas par nom — deux articles homonymes
+        // (même nom, catalogue différent) restent deux entrées distinctes au lieu de fusionner
+        // silencieusement (BUG connu, cf. audit du chantier). `ref.id` existe toujours (id réel
+        // de la table d'origine, cf. `refKind`).
+        let entry = map.get(ref.id);
         if (!entry) {
           entry = { name: ref.key, id: ref.id, kind: ref.kind, refKind: ref.refKind, unit: ref.unit, marketPriceId: ref.marketPriceId, unitsPerPack: ref.unitsPerPack, packagingType: ref.packagingType, picture: ref.picture, usedIn: [] };
-          map.set(ref.key, entry);
+          map.set(ref.id, entry);
         }
         if (!entry.usedIn.some((u) => u.id === mi.id)) {
           entry.usedIn.push({ id: mi.id, name: mi.name });
