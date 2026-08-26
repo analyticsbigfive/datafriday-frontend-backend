@@ -963,8 +963,11 @@ export default {
         // this.currentEventProgress.status, pas seulement du booléen reachedTerminal).
         if (reachedTerminal) {
           const terminalStatus = this.currentEventProgress?.status
-          if (terminalStatus === 'failed') {
-            this.feedbackSnackbarText = this.t('intgTimelineAggFailed')
+          // BUG-375-02 : un event unique peut échouer individuellement (catch par event côté
+          // backend) sans que le JOB lui-même passe à 'failed' — sans ce check, "Agréger"
+          // affichait "Agrégation terminée" même quand l'event traité avait raté.
+          if (terminalStatus === 'failed' || this.currentEventProgress?.errorCount > 0) {
+            this.feedbackSnackbarText = this.currentEventProgress?.error || this.t('intgTimelineAggFailed')
             this.feedbackSnackbarColor = 'error'
           } else if (terminalStatus === 'skipped') {
             this.feedbackSnackbarText = this.t('intgTimelineAggSkipped')
@@ -1077,8 +1080,16 @@ export default {
 
         if (reachedTerminal) {
           const terminalStatus = this.bulkAggregateProgress?.status
+          const errorCount = this.bulkAggregateProgress?.errorCount || 0
+          // BUG-375-02 : un lot peut finir 'completed' avec un ou plusieurs events en échec
+          // individuel (catch par event côté backend) — sans ce check, "Tout agréger" affichait
+          // un message de succès générique même quand des events avaient été silencieusement
+          // sautés.
           if (terminalStatus === 'failed') {
             this.feedbackSnackbarText = this.t('intgTimelineAggFailed')
+            this.feedbackSnackbarColor = 'error'
+          } else if (errorCount > 0) {
+            this.feedbackSnackbarText = `${this.t('intgTimelineBulkPartialFailure')} (${errorCount})`
             this.feedbackSnackbarColor = 'error'
           } else {
             this.feedbackSnackbarText = this.t('intgTimelineBulkAggDone')
