@@ -7,11 +7,18 @@ décision de fond. Cette fiche porte le diagnostic complet et le plan d'exécuti
 
 - [x] Étape 0 — audit complet du périmètre (cette session)
 - [x] ADR-0006 rédigée et acceptée
-- [ ] Étape 1 — schéma additif (`itemKind`/`itemRefId` nullables sur `StockLevel`/`StockMovement`/`StockTransferLoss`)
-- [ ] Étape 2 — double-écriture backend
-- [ ] Étape 3 — backfill historique
-- [ ] Étape 4 — bascule progressive des lectures
-- [ ] Étape 5 (plus tard, hors scope immédiat) — contrainte unique + DTO publics
+- [x] Étape 1 — schéma additif (`itemKind`/`itemRefId` nullables sur `StockLevel`/`StockMovement`/`StockTransferLoss`), migration `20260826154241_add_stock_item_identity_columns` appliquée
+- [x] Étape 2 — double-écriture backend (`applyLevelDelta`, `createMovement`, `confirmTransfer`, `reset`), vérifiée sur données réelles (339/339 résolus lors d'un push Inventaire→Logistic)
+- [x] Étape 3 — backfill historique (`backend/prisma/backfill-stock-item-identity.ts`, `npm run stock-identity:backfill`) — 1116/1162 lignes résolues (96%) sur 24 tenants, 46 orphelines (article renommé/supprimé depuis le mouvement, `itemKey` continue de fonctionner comme filet)
+- [x] Étape 4 — bascule des lectures (portion sûre livrée) :
+  - [x] `getLevelsAndConsumption` (partagée par `getStock` + `getExpectedStockIndex`) : canonicalise `itemKey` à la volée via `itemRefId` quand l'entité a été renommée depuis (jamais en base) — vérifié sans effet aujourd'hui (0/316 désynchro), s'active au prochain renommage
+  - Reclassé sous étape 5 (pas indépendamment corrigeable) : `explodeSalesToConsumption` et `aggregateItems` fusionnent par homonyme parce que l'ÉCRITURE (`StockLevel.uniq_stock_level`) reste sur `itemKey` texte — les corriger côté lecture seule aurait affiché 2 entrées catalogue pointant vers 1 seul chiffre de stock partagé, plus trompeur que le bug d'origine.
+- [~] Étape 5 — bascule d'écriture, en cours :
+  - [x] `applyLevelDelta` (mouvement unitaire) + `reset()` (bulk) : repli par `itemRefId` avant de conclure à une création — sans ça, un mouvement/reset posté avec le nom COURANT d'un article renommé depuis le dernier écrit créait une ligne `StockLevel` fantôme à partir de 0 au lieu de mettre à jour la vraie. La ligne trouvée par id voit aussi son `itemKey` réaligné (auto-guérison du stockage, symétrique de la lecture). Vérifié : 0/316 désynchro inchangé (changement de code, aucune donnée touchée).
+  - [x] DTO publics (`CreateMovementDto`/`ResetLineDto`) : champs optionnels `itemKind`/`itemRefId` ajoutés (`ITEM_KINDS`), préférés à la résolution serveur par nom quand fournis — chemin inerte tant qu'aucun front ne les envoie, purement additif
+  - [ ] Contrainte unique basée sur l'id (en plus/à la place de `uniq_stock_level` texte)
+  - [ ] Frontend Logistic envoie `itemKind`/`itemRefId` (store `logistics.js`, `SpaceLogisticView.vue`)
+  - [ ] `explodeSalesToConsumption`/`aggregateItems` une fois l'écriture basculée
 
 ## Contexte : pourquoi ce chantier
 

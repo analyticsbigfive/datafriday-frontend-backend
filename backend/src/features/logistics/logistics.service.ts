@@ -221,9 +221,21 @@ export class LogisticsService {
     // itemKey — null si non résolue (n'écrase jamais une valeur déjà posée par un appel précédent).
     itemIdentity: { itemKind: string; itemRefId: string } | null = null,
   ) {
-    const existing = await tx.stockLevel.findUnique({
-      where: { uniq_stock_level: { tenantId, elementId: element.id, itemKey } },
-    });
+    // ADR-0006 (chantier 377, étape 5) : repli par itemRefId AVANT de conclure à une création —
+    // sans lui, un mouvement posté avec le nom COURANT d'un article renommé depuis le dernier
+    // mouvement ne trouverait jamais la ligne existante (encore sous l'ancien nom) et créerait
+    // une ligne StockLevel fantôme à partir de 0, orphelinant le vrai stock. La ligne trouvée
+    // par id voit aussi son itemKey réaligné sur le nom courant (auto-guérison, symétrique de
+    // la canonicalisation déjà faite côté lecture dans getLevelsAndConsumption).
+    const existing =
+      (await tx.stockLevel.findUnique({
+        where: { uniq_stock_level: { tenantId, elementId: element.id, itemKey } },
+      })) ??
+      (itemIdentity
+        ? await tx.stockLevel.findFirst({
+            where: { tenantId, elementId: element.id, itemRefId: itemIdentity.itemRefId },
+          })
+        : null);
     const upp = unitsPerPack ?? existing?.unitsPerPack ?? null;
     const rawPacked = (existing?.packedUnits ?? 0) + packedDelta;
     const rawLoose = (existing?.looseUnits ?? 0) + looseDelta;
@@ -250,6 +262,9 @@ export class LogisticsService {
           marketPriceId: marketPriceId ?? existing.marketPriceId,
           itemKind: itemIdentity?.itemKind ?? existing.itemKind,
           itemRefId: itemIdentity?.itemRefId ?? existing.itemRefId,
+          // Réaligne toujours sur le nom COURANT envoyé par l'appelant — no-op si la ligne a été
+          // trouvée par itemKey (déjà égal), auto-guérison si trouvée par itemRefId (renommage).
+          itemKey,
         },
       });
     }
@@ -467,9 +482,14 @@ export class LogisticsService {
     const packedDelta = sign * dto.packed;
     const looseDelta = sign * dto.loose;
     const transferGroupId = counterparty ? randomUUID() : null;
-    // ADR-0006 (chantier 377) : résolu hors transaction (lecture seule), double-écriture avec
-    // itemKey — n'affecte aucun comportement existant si la résolution échoue (reste null).
-    const itemIdentity = await this.resolveItemIdentityForKey(dto.itemKey, tenantId);
+    // ADR-0006 (chantier 377) : le front peut déjà fournir l'identité résolue (dto.itemKind +
+    // dto.itemRefId) — préférée à la résolution serveur par nom quand présente. Aucun front
+    // actuel ne l'envoie encore, donc ce chemin est inerte tant que le front n'a pas basculé ;
+    // résolution serveur inchangée en repli, hors transaction (lecture seule).
+    const itemIdentity =
+      dto.itemKind && dto.itemRefId
+        ? { itemKind: dto.itemKind, itemRefId: dto.itemRefId }
+        : await this.resolveItemIdentityForKey(dto.itemKey, tenantId);
     const base = {
       tenantId,
       spaceId: dto.spaceId,
@@ -1469,7 +1489,61 @@ export class LogisticsService {
     const currentIds = new Set(elementIds);
     const levels = allLevels.filter((l) => currentIds.has(l.elementId));
 
+    // ADR-0006 (chantier 377, étape 4) : auto-guérison d'un renommage catalogue. `itemKey`
+    // reste la clé de lecture (getStock/getExpectedStockIndex la comparent par nom), mais si
+    // `itemRefId` est posé (double-écriture/backfill) et que l'entité référencée porte
+    // aujourd'hui un nom différent, on réécrit `itemKey` à la volée sur la réponse (jamais en
+    // base) — le rapprochement par nom redevient juste, sans attendre un nouveau mouvement.
+    // `consumption` (vente explosée par nom, pas d'itemRefId à ce stade) reste hors périmètre :
+    // portée notée dans le chantier 377, pas traitée ici.
+    await this.canonicalizeLevelItemKeys(levels, tenantId);
+
     return { levels, consumption, anchorAt, lastRecoId: lastReco?.id ?? null };
+  }
+
+  private async canonicalizeLevelItemKeys(levels: Array<{ itemKey: string; itemKind: string | null; itemRefId: string | null }>, tenantId: string) {
+    const idsByKind = new Map<string, Set<string>>();
+    for (const level of levels) {
+      if (!level.itemKind || !level.itemRefId) continue;
+      if (!idsByKind.has(level.itemKind)) idsByKind.set(level.itemKind, new Set());
+      idsByKind.get(level.itemKind)!.add(level.itemRefId);
+    }
+    if (!idsByKind.size) return;
+
+    const nameById = new Map<string, string>();
+    const marketPriceIds = [...(idsByKind.get('marketPrice') ?? [])];
+    const ingredientIds = [...(idsByKind.get('ingredient') ?? [])];
+    const packagingIds = [...(idsByKind.get('packaging') ?? [])];
+    const menuComponentIds = [...(idsByKind.get('menuComponent') ?? [])];
+    const menuItemIds = [...(idsByKind.get('menuItem') ?? [])];
+    const [marketPrices, ingredients, packagings, components, menuItems] = await Promise.all([
+      marketPriceIds.length
+        ? this.prisma.marketPrice.findMany({ where: { tenantId, deletedAt: null, id: { in: marketPriceIds } }, select: { id: true, itemName: true } })
+        : [],
+      ingredientIds.length
+        ? this.prisma.ingredient.findMany({ where: { tenantId, deletedAt: null, id: { in: ingredientIds } }, select: { id: true, name: true } })
+        : [],
+      packagingIds.length
+        ? this.prisma.packaging.findMany({ where: { tenantId, deletedAt: null, id: { in: packagingIds } }, select: { id: true, name: true } })
+        : [],
+      menuComponentIds.length
+        ? this.prisma.menuComponent.findMany({ where: { tenantId, deletedAt: null, id: { in: menuComponentIds } }, select: { id: true, name: true } })
+        : [],
+      menuItemIds.length
+        ? this.prisma.menuItem.findMany({ where: { tenantId, deletedAt: null, id: { in: menuItemIds } }, select: { id: true, name: true } })
+        : [],
+    ]);
+    for (const mp of marketPrices) nameById.set(mp.id, mp.itemName);
+    for (const ing of ingredients) nameById.set(ing.id, ing.name);
+    for (const pkg of packagings) nameById.set(pkg.id, pkg.name);
+    for (const comp of components) nameById.set(comp.id, comp.name);
+    for (const mi of menuItems) nameById.set(mi.id, mi.name);
+
+    for (const level of levels) {
+      if (!level.itemRefId) continue;
+      const currentName = nameById.get(level.itemRefId);
+      if (currentName && currentName !== level.itemKey) level.itemKey = currentName;
+    }
   }
 
   /**
@@ -2211,7 +2285,20 @@ export class LogisticsService {
       [...recoLines.map((l) => l.itemKey), ...carryLines.map((l) => l.itemKey)],
       tenantId,
     );
-    const identityFor = (itemKey: string) => identities.get(String(itemKey ?? '').trim()) ?? null;
+    // Le front peut déjà fournir l'identité par ligne (dto.lines[].itemKind/itemRefId) —
+    // préférée à la résolution serveur par nom quand présente. Aucun front actuel ne l'envoie
+    // encore (chemin inerte tant que le front n'a pas basculé). `carryLines` (dérivées côté
+    // serveur, jamais du DTO) n'ont jamais d'identité client — repli serveur systématique.
+    const clientIdentityByKey = new Map<string, { itemKind: string; itemRefId: string }>();
+    for (const line of dto.lines) {
+      if (line.itemKind && line.itemRefId) {
+        clientIdentityByKey.set(String(line.itemKey ?? '').trim(), { itemKind: line.itemKind, itemRefId: line.itemRefId });
+      }
+    }
+    const identityFor = (itemKey: string) => {
+      const key = String(itemKey ?? '').trim();
+      return clientIdentityByKey.get(key) ?? identities.get(key) ?? null;
+    };
 
     return this.prisma.$transaction(
       async (tx) => {
@@ -2281,15 +2368,25 @@ export class LogisticsService {
         }
 
         // Remplace les niveaux par les valeurs comptées (SET, pas d'incrément)
-        const existing = new Map(
-          (
-            await tx.stockLevel.findMany({
-              where: { tenantId, spaceId, elementId: { in: [...new Set(recoLines.map((l) => l.elementId))] } },
-              select: { id: true, elementId: true, itemKey: true },
-            })
-          ).map((l) => [`${l.elementId}::${l.itemKey}`, l.id]),
+        // ADR-0006 (chantier 377, étape 5) : double lookup nom + itemRefId, même motif que
+        // applyLevelDelta — sans le repli par id, une ligne comptée avec le nom COURANT d'un
+        // article renommé depuis le dernier reset ne trouverait jamais la ligne existante
+        // (encore sous l'ancien nom) et créerait une ligne StockLevel fantôme à partir de 0.
+        const existingRows = await tx.stockLevel.findMany({
+          where: { tenantId, spaceId, elementId: { in: [...new Set(recoLines.map((l) => l.elementId))] } },
+          select: { id: true, elementId: true, itemKey: true, itemRefId: true },
+        });
+        const existingByKey = new Map(existingRows.map((l) => [`${l.elementId}::${l.itemKey}`, l.id]));
+        const existingByRefId = new Map(
+          existingRows.filter((l) => l.itemRefId).map((l) => [`${l.elementId}::${l.itemRefId}`, l.id]),
         );
-        const toCreate = recoLines.filter((l) => !existing.has(`${l.elementId}::${l.itemKey}`));
+        const resolveExistingId = (line: (typeof recoLines)[number]) => {
+          const byKey = existingByKey.get(`${line.elementId}::${line.itemKey}`);
+          if (byKey) return byKey;
+          const refId = identityFor(line.itemKey)?.itemRefId;
+          return refId ? existingByRefId.get(`${line.elementId}::${refId}`) : undefined;
+        };
+        const toCreate = recoLines.filter((l) => !resolveExistingId(l));
         if (toCreate.length) {
           await tx.stockLevel.createMany({
             data: toCreate.map((l) => ({
@@ -2308,7 +2405,7 @@ export class LogisticsService {
         // Bulk UPDATE (une requête) — même optimisation que carryLines ci-dessus.
         // COALESCE préserve la sémantique « ne toucher unitsPerPack que si fourni ».
         const toUpdate = recoLines
-          .map((l) => ({ id: existing.get(`${l.elementId}::${l.itemKey}`), l }))
+          .map((l) => ({ id: resolveExistingId(l), l }))
           .filter((x): x is { id: string; l: (typeof recoLines)[number] } => !!x.id);
         if (toUpdate.length) {
           await tx.$executeRaw(Prisma.sql`
@@ -2318,13 +2415,16 @@ export class LogisticsService {
                 "unitsPerPack" = COALESCE(v.upp, sl."unitsPerPack"),
                 "itemKind" = COALESCE(v.kind, sl."itemKind"),
                 "itemRefId" = COALESCE(v.refId, sl."itemRefId"),
+                -- Réaligne toujours sur le nom COURANT (no-op si trouvée par nom, auto-guérison
+                -- si trouvée par itemRefId après un renommage) — même motif qu'applyLevelDelta.
+                "itemKey" = v.key,
                 "updatedAt" = NOW()
             FROM (VALUES ${Prisma.join(
               toUpdate.map(({ id, l }) => {
                 const identity = identityFor(l.itemKey);
-                return Prisma.sql`(${id}, ${Math.trunc(l.countedPacked)}::int, ${l.countedLoose}::float8, ${l.unitsPerPack ?? null}::float8, ${identity?.itemKind ?? null}::text, ${identity?.itemRefId ?? null}::text)`;
+                return Prisma.sql`(${id}, ${Math.trunc(l.countedPacked)}::int, ${l.countedLoose}::float8, ${l.unitsPerPack ?? null}::float8, ${identity?.itemKind ?? null}::text, ${identity?.itemRefId ?? null}::text, ${l.itemKey}::text)`;
               }),
-            )}) AS v(id, packed, loose, upp, kind, refId)
+            )}) AS v(id, packed, loose, upp, kind, refId, key)
             WHERE sl.id = v.id AND sl."tenantId" = ${tenantId}
           `);
         }
