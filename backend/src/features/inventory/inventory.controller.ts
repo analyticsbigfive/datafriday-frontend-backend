@@ -20,6 +20,7 @@ import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
 import { CreatePreEventReconciliationDto } from './dto/create-pre-event-reconciliation.dto';
+import { PushToLogisticDto } from './dto/push-to-logistic.dto';
 
 @ApiTags('Inventory')
 @ApiBearerAuth('supabase-jwt')
@@ -218,6 +219,23 @@ export class InventoryController {
   ) {
     this.logger.log(`POST /inventory/${spaceId}/reconciliations eventId=${dto.eventId}`);
     return this.inventoryService.createPostEventReconciliation(spaceId, dto, user.tenantId, user.id);
+  }
+
+  @Post(':spaceId/push-to-logistic')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Bouton \"Update Logistic\" — pousse manuellement le comptage courant (Pre ou Post-event) vers le registre Logistic (StockLevel), sans créer de document de réconciliation.",
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiResponse({ status: 200, description: 'Registre Logistic mis à jour' })
+  async pushToLogistic(
+    @Param('spaceId') spaceId: string,
+    @Body() dto: PushToLogisticDto,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`POST /inventory/${spaceId}/push-to-logistic eventId=${dto.eventId} phase=${dto.phase}`);
+    return this.inventoryService.pushCurrentCountToLogistic(spaceId, dto.eventId, user.tenantId, dto.phase, user.id);
   }
 
   @Get(':spaceId/:eventId')
