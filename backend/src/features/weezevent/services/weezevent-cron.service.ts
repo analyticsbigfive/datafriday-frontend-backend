@@ -65,6 +65,20 @@ export class WeezeventCronService implements OnModuleInit {
                 continue;
             }
 
+            // SyncTrackerService ne suit que ses propres jobs (cron) : un job manuel chunké
+            // (POST /weezevent/sync/start) tourne dans WeezeventSyncJob, une table séparée que
+            // ce tracker ignore. Sans cette garde, le cron pouvait lancer une sync incrémentale
+            // en même temps qu'une bissection manuelle sur la même intégration — écritures
+            // concurrentes sur les mêmes tables WeezeventTransaction*/SalesPriceAgg.
+            const manualJobRunning = await this.prisma.weezeventSyncJob.findFirst({
+                where: { integrationId: integration.id, status: 'COLLECTING' },
+                select: { id: true },
+            });
+            if (manualJobRunning) {
+                this.logger.warn(`Skipping tenant ${tenant.id}/integration ${integration.id} - manual sync job ${manualJobRunning.id} already running`);
+                continue;
+            }
+
             const jobId = this.syncTracker.startSync(tenant.id, 'transactions', integration.id);
             try {
                 // Use incremental sync - only fetches NEW transactions

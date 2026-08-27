@@ -1473,12 +1473,47 @@ export class WeezeventController {
             throw new BadRequestException(`Un job de sync est déjà en cours (jobId: ${running.id}).`);
         }
 
+        // Symétrique de la garde ajoutée dans WeezeventCronService.syncRecentTransactions :
+        // le cron (10 min, incrémental) ne passe pas par WeezeventSyncJob — sans cette
+        // vérification, un job manuel chunké pourrait démarrer pendant que le cron écrit déjà
+        // sur la même intégration.
+        if (this.syncTracker.isRunning(tenantId, 'transactions', dto.integrationId)) {
+            throw new BadRequestException(`Une synchronisation automatique (cron) est déjà en cours pour cette intégration — réessayez dans quelques instants.`);
+        }
+
+        // fromDate/toDate optionnels : sans borne explicite, on reproduit la fenêtre par défaut
+        // du chemin incrémental legacy (weezevent-incremental-sync.service.ts) — overlap 5 min
+        // depuis le dernier sync connu, ou tout l'historique (epoch → maintenant) au premier sync.
+        let fromDate: Date;
+        let toDate: Date;
+        if (dto.fromDate && dto.toDate) {
+            fromDate = new Date(dto.fromDate);
+            toDate = new Date(dto.toDate);
+        } else {
+            const syncState = await this.prisma.weezeventSyncState.findUnique({
+                where: {
+                    tenantId_integrationId_syncType: {
+                        tenantId,
+                        integrationId: dto.integrationId,
+                        syncType: 'transactions',
+                    },
+                },
+                select: { lastSyncedAt: true },
+            });
+            fromDate = dto.fromDate
+                ? new Date(dto.fromDate)
+                : syncState?.lastSyncedAt
+                    ? new Date(syncState.lastSyncedAt.getTime() - 5 * 60 * 1000)
+                    : new Date(0);
+            toDate = dto.toDate ? new Date(dto.toDate) : new Date();
+        }
+
         const job = await this.prisma.weezeventSyncJob.create({
             data: {
                 tenantId,
                 integrationId: dto.integrationId,
-                fromDate: new Date(dto.fromDate),
-                toDate: new Date(dto.toDate),
+                fromDate,
+                toDate,
                 status: 'PENDING',
             },
         });
@@ -1491,7 +1526,7 @@ export class WeezeventController {
             this.logger.error(`[startSyncJob] InsertWorker crash for job ${job.id}: ${err.message}`),
         );
 
-        this.logger.log(`Job de sync démarré: jobId=${job.id} intégration=${dto.integrationId} ${dto.fromDate} → ${dto.toDate}`);
+        this.logger.log(`Job de sync démarré: jobId=${job.id} intégration=${dto.integrationId} ${fromDate.toISOString()} → ${toDate.toISOString()}`);
 
         return { jobId: job.id, status: 'PENDING' };
     }
