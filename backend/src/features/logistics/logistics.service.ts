@@ -356,26 +356,37 @@ export class LogisticsService {
     const result = new Map<string, { itemKind: string; itemRefId: string }>();
     if (!names.length) return result;
 
+    // BUG-133-02 (même classe) : plusieurs lignes peuvent partager un nom (aucune table n'a de
+    // contrainte unique sur son nom, cf. ADR-0006 §diagnostic) — tri déterministe pour ne plus
+    // dépendre d'un ordre Postgres arbitraire. Sans ça, deux appels successifs peuvent résoudre
+    // le même nom vers deux ids DIFFÉRENTS d'un appel à l'autre, ce que la garde anti-homonyme
+    // d'`applyLevelDelta`/`reset()` interprète alors À TORT comme un vrai homonyme (constaté en
+    // production le 2026-08-27 sur "Badiane", deux MarketPrice réels partageant ce nom).
     const [marketPrices, ingredients, packagings, components, menuItems] = await Promise.all([
       this.prisma.marketPrice.findMany({
         where: { tenantId, deletedAt: null, itemName: { in: names } },
         select: { id: true, itemName: true },
+        orderBy: { createdAt: 'asc' },
       }),
       this.prisma.ingredient.findMany({
         where: { tenantId, deletedAt: null, name: { in: names } },
         select: { id: true, name: true },
+        orderBy: { createdAt: 'asc' },
       }),
       this.prisma.packaging.findMany({
         where: { tenantId, deletedAt: null, name: { in: names } },
         select: { id: true, name: true },
+        orderBy: { createdAt: 'asc' },
       }),
       this.prisma.menuComponent.findMany({
         where: { tenantId, deletedAt: null, name: { in: names } },
         select: { id: true, name: true },
+        orderBy: { createdAt: 'asc' },
       }),
       this.prisma.menuItem.findMany({
         where: { tenantId, deletedAt: null, name: { in: names } },
         select: { id: true, name: true },
+        orderBy: { createdAt: 'asc' },
       }),
     ]);
     const setIfAbsent = <T extends { id: string }>(rows: T[], kind: string, nameOf: (r: T) => string) => {

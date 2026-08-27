@@ -2099,6 +2099,10 @@ export const translations = {
     // total) : état Logistic au chargement — décision JLH 2026-08-20, plus de
     // décomposition « comptage + mouvements − vendu ».
     invExpectedFromLogistic: 'Logistic stock when the screen loaded',
+    // Chip d'en-tête, quantité Logistic LIVE — état réel du stock, à comparer
+    // avec le compteur en cours de saisie (demande Bertrand 2026-08-27).
+    invLogisticStockHint: 'Expected',
+    invLogisticStockDetail: 'Current quantity in Logistic for this item on this shop/storage',
     invPredictNoDefaultVersion: 'No reference scenario — set a default version in Event Predict.',
     invExpectedForbidden: 'Expected quantities are not enabled for your role.',
     invExpectedNotDeployed: 'Expected quantities unavailable: server not up to date.',
@@ -6680,6 +6684,10 @@ export const translations = {
     // total) : état Logistic au chargement — décision JLH 2026-08-20, plus de
     // décomposition « comptage + mouvements − vendu ».
     invExpectedFromLogistic: "Stock Logistic au chargement de l'écran",
+    // Chip d'en-tête, quantité Logistic LIVE — état réel du stock, à comparer
+    // avec le compteur en cours de saisie (demande Bertrand 2026-08-27).
+    invLogisticStockHint: 'Attendu',
+    invLogisticStockDetail: 'Quantité actuelle dans Logistic pour cet article sur ce PDV/storage',
     invPredictNoDefaultVersion: 'Pas de scénario de référence — définissez une version par défaut dans Event Predict.',
     invExpectedForbidden: 'Quantités attendues non activées pour votre rôle.',
     invExpectedNotDeployed: 'Quantités attendues indisponibles : serveur non à jour.',
