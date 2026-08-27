@@ -156,10 +156,20 @@
               </div>
             </div>
           </div>
-          <span v-if="isItemCounted(shop.element.id, item.id)" class="si-count-badge">
-            <v-icon size="13" class="mr-1">mdi-check-circle</v-icon>
-            {{ t('invCountCounted') }}
+          <span
+            v-if="logisticStockUnits(item) != null"
+            class="si-count-logistic-chip"
+            :title="t('invLogisticStockDetail')"
+          >
+            {{ t('invLogisticStockHint') }} : {{ formatUnits(logisticStockUnits(item)) }}
           </span>
+          <v-icon
+            v-if="isItemCounted(shop.element.id, item.id)"
+            size="20"
+            color="#15803d"
+            class="si-count-check"
+            :title="t('invCountCounted')"
+          >mdi-check-circle</v-icon>
           <v-icon v-if="mobile" size="20" class="si-count-chevron">
             {{ isExpanded(item.id) ? 'mdi-chevron-up' : 'mdi-chevron-down' }}
           </v-icon>
@@ -196,17 +206,6 @@
                 <v-icon size="16">mdi-plus</v-icon>
               </button>
             </div>
-            <!-- Quantité ATTENDUE (pre : post-event précédent + mouvements
-                 Logistic ; post : pre-event + Logistic − ventes) — rendue
-                 UNIQUEMENT si le parent fournit expectedFor (permission
-                 front.fb.preInventoryExpected). -->
-            <div
-              v-if="expectedFor && expectedFor(shop.element.id, item.id, 'packed') != null"
-              class="si-expected-hint"
-              :title="expectedDetailFor ? expectedDetailFor(shop.element.id, item.id) : null"
-            >
-              {{ expectedPackedLabel(item, expectedFor(shop.element.id, item.id, 'packed')) }}
-            </div>
           </div>
           <div class="si-count-field">
             <label class="si-count-label">{{ t('invCountLooseUnits') }}</label>
@@ -226,40 +225,21 @@
                 <v-icon size="16">mdi-plus</v-icon>
               </button>
             </div>
-            <div
-              v-if="expectedFor && expectedFor(shop.element.id, item.id, 'loose') != null"
-              class="si-expected-hint"
-              :title="expectedDetailFor ? expectedDetailFor(shop.element.id, item.id) : null"
-            >
-              {{ expectedLooseLabel(item, expectedFor(shop.element.id, item.id, 'loose')) }}
-            </div>
           </div>
           <div class="si-count-total">
             {{ t('invCountTotal') }} :
             <strong>{{ formatUnits(totalForItem(shop.element.id, item)) }}</strong>
             {{ item.unit || t('invCountUnitFallback') }}
-            <!-- ATTENDU total de l'article, dans son unité (BUG-352-01). En
-                 pre-event ce créneau n'affichait QUE le besoin prédit : l'attendu
-                 de stock n'était lisible nulle part au niveau de l'article, il
-                 fallait additionner les deux hints de tête. Les deux chips
-                 coexistent désormais, sous deux permissions distinctes. -->
-            <span
-              v-if="expectedStockUnits(item) != null"
-              class="si-expected-total"
-              :title="expectedStockDetailFor ? expectedStockDetailFor(shop.element.id, item.id) : null"
-            >
-              {{ t('invPostExpectedHint') }} : {{ formatUnits(expectedStockUnits(item)) }}
-              {{ item.unit || t('invCountUnitFallback') }}
-            </span>
-            <!-- Indice de référence en regard du total compté : besoin prédit
-                 (pre-event) ou stock qui doit rester (post-event). Négatif rendu
-                 tel quel et signalé — c'est le symptôme d'une source incohérente,
-                 pas une valeur à masquer. -->
+            <!-- Besoin prédit en regard du total compté (BUG-352-01 pour le
+                 créneau, unifié pre/post le 2026-08-27 — même grandeur que
+                 l'écran Logistic). Négatif rendu tel quel et signalé — c'est
+                 le symptôme d'une source incohérente, pas une valeur à
+                 masquer. La répartition Attendu (stock Logistic pack/vrac)
+                 reste visible juste au-dessus, sous chaque champ. -->
             <span
               v-if="expectedTotalUnits(item) != null"
               class="si-expected-total"
               :class="{ 'si-expected-total--negative': expectedTotalUnits(item) < 0 }"
-              :title="expectedTotalDetailFor ? expectedTotalDetailFor(shop.element.id, item.id) : null"
             >
               {{ t(expectedTotalLabelKey) }} : {{ formatUnits(expectedTotalUnits(item)) }}
             </span>
@@ -304,24 +284,15 @@ const props = defineProps({
   getCount: { type: Function, required: true },
   totalForItem: { type: Function, required: true },
   isItemCounted: { type: Function, required: true },
-  // Les deux modes : (shopId, itemId, 'packed'|'loose') → quantité attendue
-  // ou null. Absent/null → aucun hint sous les champs.
-  expectedFor: { type: Function, default: null },
-  // Détail du calcul de l'attendu (infobulle title sur les hints Packed/Loose) :
-  // (shopId, itemId) → « Post-event précédent 12 + livraisons 24 = 36 » ou null.
-  expectedDetailFor: { type: Function, default: null },
-  // Même détail pour le chip du TOTAL — prop séparée : en pre-event le chip
-  // affiche le besoin prédit (autre grandeur), le parent passe alors null.
-  expectedTotalDetailFor: { type: Function, default: null },
-  // Indice de référence en regard du TOTAL : (elementId, item) → unités ou null.
-  // Absent/null → rendu strictement inchangé.
+  // Besoin prédit en regard du TOTAL : (elementId, item) → unités ou null.
+  // Même grandeur pre/post depuis le 2026-08-27 (réarmement en priorité,
+  // sinon Event Predict — cf. Logistic). Absent/null → rendu inchangé.
   expectedTotalFor: { type: Function, default: null },
-  // Les deux modes n'affichent pas la même grandeur — le libellé vient du parent.
   expectedTotalLabelKey: { type: String, default: 'invPredictedNeedHint' },
-  // ATTENDU total de stock : (elementId, item) → unités ou null (BUG-352-01).
-  // Distinct d'`expectedTotalFor`, qui porte le besoin prédit en pre-event.
-  expectedStockFor: { type: Function, default: null },
-  expectedStockDetailFor: { type: Function, default: null },
+  // Quantité Logistic LIVE (chip d'en-tête, demande Bertrand 2026-08-27) :
+  // (elementId, item) → unités ou null. État réel actuel du stock, à
+  // comparer avec le compteur en cours de saisie — distinct du Besoin prédit.
+  logisticStockFor: { type: Function, default: null },
   // Transfert Logistic depuis le comptage — le parent monte le drawer et fait
   // l'appel API ; false (démo, module absent) = bouton masqué, rendu inchangé.
   canTransfer: { type: Boolean, default: false },
@@ -337,17 +308,17 @@ function toggleUsedIn(id) {
   usedInOpen[id] = !usedInOpen[id]
 }
 
-// Attendu total de STOCK d'un article, ou null si le parent n'en fournit pas.
-function expectedStockUnits(item) {
-  if (!props.expectedStockFor) return null
-  const v = props.expectedStockFor(props.shop.element.id, item)
-  return Number.isFinite(v) ? v : null
-}
-
-// Indice de référence d'un article, ou null si le parent n'en fournit pas.
+// Besoin prédit d'un article, ou null si le parent n'en fournit pas.
 function expectedTotalUnits(item) {
   if (!props.expectedTotalFor) return null
   const v = props.expectedTotalFor(props.shop.element.id, item)
+  return Number.isFinite(v) ? v : null
+}
+
+// Quantité Logistic live d'un article, ou null si le parent n'en fournit pas.
+function logisticStockUnits(item) {
+  if (!props.logisticStockFor) return null
+  const v = props.logisticStockFor(props.shop.element.id, item)
   return Number.isFinite(v) ? v : null
 }
 
@@ -377,26 +348,6 @@ function packedUnitsLabel(item) {
   const qty = Number(item?.inventoryQuantityPackaged) > 0 ? item.inventoryQuantityPackaged : null
   if (!name || !qty) return t('invCountPackedUnits')
   return `${t('invCountNumberOf')} ${pluralize(name)} ${t('invCountOf')} ${qty}${item?.unit || ''}`
-}
-
-// Libellé d'un attendu, DANS L'UNITÉ DU CHAMP qu'il légende (retour JLH
-// 2026-08-21). Avant : « Expected quantity : 2 » sous un champ « Number of
-// Cartons of 40 » — le 2 était un nombre de cartons, mais rien ne le disait, et
-// le même libellé légendait trois grandeurs différentes sur la même carte.
-// Repli sur la formulation d'origine quand le conditionnement est inconnu.
-function expectedPackedLabel(item, n) {
-  const name = item?.inventoryPackaging
-  const qty = Number(item?.inventoryQuantityPackaged) > 0 ? item.inventoryQuantityPackaged : null
-  if (!name || !qty) return `${t('invExpectedHint')} : ${formatUnits(n)}`
-  return t('invExpectedHintPacked')
-    .replace('{n}', formatUnits(n))
-    .replace('{packaging}', Number(n) > 1 ? pluralize(name) : String(name).trim())
-    .replace('{qty}', qty)
-}
-function expectedLooseLabel(item, n) {
-  const unit = item?.unit
-  if (!unit) return `${t('invExpectedHint')} : ${formatUnits(n)}`
-  return t('invExpectedHintLoose').replace('{n}', formatUnits(n)).replace('{unit}', unit)
 }
 
 // Accordéon mobile. État par défaut dérivé du statut : un article non compté est
@@ -678,16 +629,20 @@ function stepValue(shopId, itemId, field, delta) {
   list-style: disc;
   line-height: 1.6;
 }
-.si-count-badge {
+.si-count-check {
+  flex-shrink: 0;
+}
+.si-count-logistic-chip {
   display: inline-flex; align-items: center;
   padding: 3px 10px;
   border-radius: 100px;
-  background: #dcfce7;
-  color: #15803d;
+  background: #eef2ff;
+  color: #4338ca;
   font-size: 0.7rem;
   font-weight: 700;
   white-space: nowrap;
   flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 .si-count-inputs {
   display: grid;
@@ -744,13 +699,6 @@ function stepValue(shopId, itemId, field, delta) {
   padding: 8px 6px;
 }
 .si-count-input.form-control:focus { border: none; box-shadow: none !important; }
-.si-expected-hint {
-  font-size: 0.72rem;
-  color: #B45309;
-  font-weight: 600;
-  padding-left: 2px;
-  font-variant-numeric: tabular-nums;
-}
 .si-step-btn {
   cursor: pointer;
   color: var(--fb-faint, #9E9E9E);
@@ -780,23 +728,21 @@ function stepValue(shopId, itemId, field, delta) {
   font-variant-numeric: tabular-nums;
 }
 .si-expected-total--negative { color: #DC2626; }
-/* Retours maquette 17/08 : les 3 actions (Transfer / Reset / Mark counted)
-   tiennent sur UNE ligne — nowrap + boutons compactés (la carte fait ~308px
-   utiles en grille minmax(340px)). */
+/* Les 3 actions (Transfer / Reset / Mark counted) occupent toute la largeur
+   du bas de carte (retours 27/08 — auparavant compactées à droite). */
 .si-count-actions {
-  display: flex; gap: 6px;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: nowrap;
+  display: flex; gap: 8px;
+  align-items: stretch;
   padding-top: 10px;
   border-top: 1px solid var(--fb-border, #EEEEEE);
 }
 /* Boutons d'action de la carte (remplacent les v-btn) */
 .si-act {
-  display: inline-flex; align-items: center;
-  padding: 6px 10px;
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 1;
+  padding: 9px 8px;
   border-radius: 9px;
-  font-size: 0.75rem;
+  font-size: 0.78rem;
   font-weight: 600;
   line-height: 1.2;
   border: 1.5px solid transparent;
@@ -811,6 +757,7 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .si-act--ghost:hover { border-color: #cbd0d8; background: var(--fb-subtle, #F7F8FA); color: var(--fb-text, #111827); }
 .si-act--reset {
+  flex: 0.7;
   background: transparent;
   color: var(--fb-muted, #6B7280);
 }
