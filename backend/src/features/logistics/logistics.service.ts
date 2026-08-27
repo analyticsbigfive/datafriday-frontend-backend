@@ -1300,9 +1300,13 @@ export class LogisticsService {
     }
 
     for (const storage of storages) {
-      const selectedShopIds: string[] = Array.isArray((storage.attributes as any)?.selectedShops)
-        ? (storage.attributes as any).selectedShops.map(String)
-        : [];
+      const attrs = storage.attributes as any;
+      const rawSelectedShopIds = Array.isArray(attrs?.storageShopIds)
+        ? attrs.storageShopIds
+        : Array.isArray(attrs?.selectedShops)
+          ? attrs.selectedShops
+          : [];
+      const selectedShopIds: string[] = rawSelectedShopIds.map(String);
       const merged = new Map<string, ElementItem>();
       const storageConfigIds = new Set<string>();
       for (const shopId of selectedShopIds) {
