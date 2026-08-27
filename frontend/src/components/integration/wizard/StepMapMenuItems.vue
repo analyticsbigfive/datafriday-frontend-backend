@@ -896,12 +896,18 @@ export default {
   },
 
   computed: {
-    // Le filtrage « vendus seulement » est fait CÔTÉ BACKEND (onlySold) : this.products ne contient
-    // déjà que les produits pertinents. Le nombre masqué = total catalogue (meta.catalogTotal,
-    // BUG-337-02) − renvoyés.
+    // this.products porte toujours le catalogue complet (vendus + jamais vendus) : le filtre
+    // « vendus seulement » est appliqué ICI, côté client, pour que la case à cocher n'ait plus
+    // besoin de recharger le réseau (elle ne fait que re-filtrer ce qui est déjà en mémoire).
+    visibleProducts() {
+      if (!this.hideUnsold) return this.products
+      return this.products.filter(p => p.basePrice != null && Number(p.basePrice) > 0)
+    },
+    // Nombre masqué = total catalogue (meta.catalogTotal, BUG-337-02, couvre une éventuelle
+    // troncature) − produits vendus effectivement affichés.
     unsoldHiddenCount() {
       if (!this.hideUnsold) return 0
-      return Math.max((this.catalogTotal || 0) - this.products.length, 0)
+      return Math.max((this.catalogTotal || 0) - this.visibleProducts.length, 0)
     },
     totalProductCount() {
       return this.productRows.length
@@ -912,8 +918,13 @@ export default {
     unmappedCount() {
       return this.productRows.filter(r => !this.localMappings[r.id]).length
     },
+    // autoSuggestions est calculé sur tout le catalogue (y compris invendus masqués, cf.
+    // loadData) pour rester utilisable immédiatement si l'utilisateur décoche "cacher invendus"
+    // sans recharger — mais le compteur affiché ne doit porter que sur ce qui est visible, sinon
+    // la bannière annoncerait des suggestions pour des lignes absentes du tableau.
     autoSuggestionCount() {
-      return Object.keys(this.autoSuggestions).filter(id => !this.localMappings[id]).length
+      const visibleIds = new Set(this.visibleProducts.map(p => p.id))
+      return Object.keys(this.autoSuggestions).filter(id => visibleIds.has(id) && !this.localMappings[id]).length
     },
     patchableItemsCount() {
       if (!this.spaceId) return 0
@@ -927,8 +938,9 @@ export default {
         || Object.values(this.savingRows).some(s => s === 'saving')
     },
     suggestionList() {
+      const visibleIds = new Set(this.visibleProducts.map(p => p.id))
       return Object.entries(this.autoSuggestions)
-        .filter(([id]) => !this.localMappings[id])
+        .filter(([id]) => visibleIds.has(id) && !this.localMappings[id])
         .map(([productId, menuItemId]) => {
           const product = this.products.find(p => p.id === productId)
           const menuItem = this.menuItemsList.find(mi => mi.id === menuItemId)
@@ -953,7 +965,7 @@ export default {
       return this.menuItemsList.map(mi => ({ id: mi.id, label: mi.name }))
     },
     productRows() {
-      return this.products.map(p => {
+      return this.visibleProducts.map(p => {
         const match = this.findBestMatch(p)
         return {
           id: p.id,
@@ -1074,11 +1086,10 @@ export default {
     activeTab() {
       this.currentPage = 1
     },
-    // Le filtrage vendus/tous est fait côté backend → on recharge la liste au changement.
+    // Le filtrage vendus/tous est fait côté client (visibleProducts) : this.products porte déjà
+    // le catalogue complet, pas besoin de recharger le réseau pour une case à cocher.
     hideUnsold() {
       this.currentPage = 1
-      const id = this.location?.id
-      if (id) this.loadData(id)
     },
     // Clamp : si la liste rétrécit (ex. après mapping en masse), ne pas rester sur une page vide.
     totalPages(val) {
@@ -1126,8 +1137,14 @@ export default {
       this.loading = true
       this.error = null
       try {
+        // Toujours charger le catalogue complet (produits jamais vendus inclus) : le filtre
+        // "cacher invendus" est appliqué côté client (computed visibleProducts) pour que
+        // basculer la case à cocher n'ait plus besoin de recharger le réseau. Catalogues réels
+        // vérifiés (max 1418 produits) largement sous la troncature MAX_PAGES=4 (2000, cf.
+        // aggregation.api.js) — un tenant qui la dépasserait un jour reverrait le warning
+        // productsTruncated s'afficher, pas une perte silencieuse.
         const [productsRes, menuItemsRes, mappingsRes, statsRes] = await Promise.all([
-          getWeezeventProducts(null, integrationId, this.spaceId, this.hideUnsold),
+          getWeezeventProducts(null, integrationId, this.spaceId, false),
           getAllMenuItems(),
           getProductMappings(),
           getProductMappingStats(integrationId),
@@ -1429,8 +1446,9 @@ export default {
     async applyAutoSuggestions() {
       if (this.autoMappingRunning) return
 
+      const visibleIds = new Set(this.visibleProducts.map(p => p.id))
       const entries = Object.entries(this.autoSuggestions)
-        .filter(([productId, menuItemId]) => !this.localMappings[productId] && menuItemId)
+        .filter(([productId, menuItemId]) => visibleIds.has(productId) && !this.localMappings[productId] && menuItemId)
 
       if (!entries.length) {
         this.autoSuggestions = {}
@@ -1787,8 +1805,9 @@ export default {
         await syncWeezeventData('products', { integrationId })
       }
 
-      // Recharger la liste fraîche depuis la DB (spaceId → prix de l'espace + repli par nom)
-      const productsRes = await getWeezeventProducts(null, integrationId, this.spaceId, this.hideUnsold)
+      // Recharger la liste fraîche depuis la DB (spaceId → prix de l'espace + repli par nom).
+      // Catalogue complet, filtre "cacher invendus" appliqué côté client (cf. loadData).
+      const productsRes = await getWeezeventProducts(null, integrationId, this.spaceId, false)
       this.products = this.filterNonVariantProducts(productsRes?.data || productsRes || [])
       // BUG-337-02 : meta.catalogTotal = total catalogue non filtré (meta.total est le total filtré).
       this.catalogTotal = productsRes?.meta?.catalogTotal ?? this.products.length

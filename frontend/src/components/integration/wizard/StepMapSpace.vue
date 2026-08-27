@@ -600,7 +600,11 @@ export default {
       this.loading = true
       this.error = null
       try {
-        await this.$store.dispatch('spaces/fetchSpaces', { forceRefresh: true })
+        // Cache TTL déjà fonctionnel (spaces.js, 15 min) : plus de forceRefresh au montage,
+        // un aller-retour Précédent/Suivant réutilise le cache au lieu de retaper le réseau.
+        // La post-création d'espace (closePostCreate) force toujours le refresh, elle : les
+        // données SONT réellement obsolètes à ce moment-là.
+        await this.$store.dispatch('spaces/fetchSpaces')
       } catch (err) {
         console.error('[StepMapSpace] loadAll error:', err)
         this.error = err.message

@@ -83,41 +83,47 @@
               @configure-next="$emit('configure-next', $event)"
             />
 
-            <!-- Step content -->
+            <!-- Step content — KeepAlive : un aller-retour Précédent/Suivant ne redémonte pas
+                 l'étape (donc ne refait pas ses appels réseau de montage) tant que le wizard
+                 reste ouvert. Portée naturellement bornée à une session de wizard : le panneau
+                 entier est sous v-if="wizardOpen" côté parent, donc une fermeture démonte tout
+                 (vrai unmounted(), cache reparti à zéro à la prochaine ouverture). -->
             <template v-else-if="!stepError">
-              <StepMapSpace
-                v-if="currentStep === 1"
-                :location="location"
-                :initial-space-id="resolvedSpaceId"
-                :is-dark="isDark"
-                :footer-target="footerEl"
-                @completed="handleStepCompleted(1, $event)"
-              />
-              <StepMapShops
-                v-else-if="currentStep === 2"
-                :location="location"
-                :space-id="resolvedSpaceId"
-                :is-dark="isDark"
-                :footer-target="footerEl"
-                @completed="handleStepCompleted(2, $event)"
-                @request-csv-import="$emit('request-csv-import')"
-              />
-              <StepMapMenuItems
-                v-else-if="currentStep === 3"
-                :location="location"
-                :space-id="resolvedSpaceId"
-                :is-dark="isDark"
-                :footer-target="footerEl"
-                @completed="handleStepCompleted(3, $event)"
-              />
-              <StepProcessTimeline
-                v-else-if="currentStep === 4"
-                :location="location"
-                :space-id="resolvedSpaceId"
-                :is-dark="isDark"
-                :footer-target="footerEl"
-                @completed="handleStepCompleted(4, $event)"
-              />
+              <KeepAlive>
+                <StepMapSpace
+                  v-if="currentStep === 1"
+                  :location="location"
+                  :initial-space-id="resolvedSpaceId"
+                  :is-dark="isDark"
+                  :footer-target="footerEl"
+                  @completed="handleStepCompleted(1, $event)"
+                />
+                <StepMapShops
+                  v-else-if="currentStep === 2"
+                  :location="location"
+                  :space-id="resolvedSpaceId"
+                  :is-dark="isDark"
+                  :footer-target="footerEl"
+                  @completed="handleStepCompleted(2, $event)"
+                  @request-csv-import="$emit('request-csv-import')"
+                />
+                <StepMapMenuItems
+                  v-else-if="currentStep === 3"
+                  :location="location"
+                  :space-id="resolvedSpaceId"
+                  :is-dark="isDark"
+                  :footer-target="footerEl"
+                  @completed="handleStepCompleted(3, $event)"
+                />
+                <StepProcessTimeline
+                  v-else-if="currentStep === 4"
+                  :location="location"
+                  :space-id="resolvedSpaceId"
+                  :is-dark="isDark"
+                  :footer-target="footerEl"
+                  @completed="handleStepCompleted(4, $event)"
+                />
+              </KeepAlive>
             </template>
 
             <!-- Fallback : erreur non interceptée dans une étape enfant -->
