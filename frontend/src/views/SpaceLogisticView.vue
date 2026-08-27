@@ -356,6 +356,7 @@
                   :predicted-need-packs="predictedNeedPacksFor(drillElement.element.id, item)"
                   :used-in-label="usedInLabel(item)"
                   :status="itemStatus(drillElement.element.id, item)"
+                  :last-count="countedFor(drillElement.element.id, item)"
                   :pending-transfers="pendingTransfersFor(drillElement.element.id, item.name)"
                   :outgoing-pending-transfers="outgoingPendingTransfersFor(drillElement.element.id, item.name)"
                   @add="openMovement(drillElement.element, item, 'add')"
@@ -472,8 +473,8 @@ import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
 
 const TABS = [
   { value: 'shops', labelKey: 'logiTabShops', icon: 'mdi-store' },
-  { value: 'storage', labelKey: 'logiTabStorage', icon: 'mdi-warehouse' },
   { value: 'byItem', labelKey: 'logiTabByItem', icon: 'mdi-view-list' },
+  { value: 'storage', labelKey: 'logiTabStorage', icon: 'mdi-warehouse' },
 ]
 
 const ITEM_KIND_OPTIONS = [

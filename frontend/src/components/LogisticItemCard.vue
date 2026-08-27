@@ -64,6 +64,16 @@
           <template v-else>{{ formatUnits(predictedNeed) }}<span v-if="item?.unit" class="lg-field-unit">{{ item.unit }}</span></template>
         </div>
       </div>
+      <!-- Dernier comptage physique (Pre/Post event Inventory) — repère l'écart avec le
+           ledger Logistic ci-dessus sans changer d'écran. Seules les lignes réellement
+           comptées (isCounted) sont affichées, pas les valeurs reportées non confirmées. -->
+      <div v-if="lastCount?.isCounted" class="lg-field-row lg-field-row-lastcount">
+        <div class="lg-field-label">{{ t('logiLastCount') }}</div>
+        <div class="lg-field-value">
+          {{ lastCount.packedUnits }}<span class="lg-field-unit">{{ t('logiPackedShort') }}</span>
+          · {{ formatUnits(lastCount.looseUnits) }}<span v-if="item?.unit" class="lg-field-unit">{{ item.unit }}</span>
+        </div>
+      </div>
     </div>
 
     <!-- BUG-259-02 : transferts émis vers cet élément pour cette denrée, en attente
@@ -136,6 +146,10 @@ const props = defineProps({
   usedInLabel: { type: String, default: '' },
   /** 'bad' (rupture) | 'warn' (stock bas) | 'ok'. */
   status: { type: String, default: 'ok' },
+  /** Dernier comptage physique (Pre/Post event Inventory) pour cette denrée sur cet
+   *  élément — { packedUnits, looseUnits, isCounted } (voir `countedFor`), null si
+   *  jamais compté. Purement informatif, ne modifie pas le ledger Logistic. */
+  lastCount: { type: Object, default: null },
   /** Photo résolue par le parent (repli Market Price) ; prioritaire sur item.picture. */
   picture: { type: String, default: '' },
   /** BUG-259-02 : transferts entrants en attente pour cette denrée sur cet élément —
@@ -292,6 +306,11 @@ function pendingTransferQtyLabel(pt) {
 .lg-field-row-predicted { border-top: 1px dashed var(--fb-border, #e5e7eb); }
 .lg-field-row-predicted .lg-field-label,
 .lg-field-row-predicted .lg-field-value { color: #B45309; }
+/* Dernier comptage : informatif, détaché visuellement du ledger Logistic et du
+   besoin prédit — bleu neutre plutôt que le rouge (rupture) ou l'ambre (prévision). */
+.lg-field-row-lastcount { border-top: 1px dashed var(--fb-border, #e5e7eb); }
+.lg-field-row-lastcount .lg-field-label,
+.lg-field-row-lastcount .lg-field-value { color: #1d4ed8; }
 .lg-field-label {
   font-size: 0.68rem;
   color: var(--fb-muted, #6b7280);
