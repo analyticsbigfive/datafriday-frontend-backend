@@ -2281,12 +2281,23 @@ export default {
      *  (loose − vendu), casse de pack incluse). Distinct du Besoin prédit
      *  (une prévision) : ici, l'état RÉEL actuel du stock, pour comparaison
      *  directe avec le compteur en cours de saisie (demande Bertrand
-     *  2026-08-27). null = rien en Logistic pour cet article ici. */
+     *  2026-08-27).
+     *  0 (PAS null) tant que l'article est référencé dans le Logistic de cet
+     *  élément mais n'a encore reçu aucun mouvement — `expectedFor` renvoie
+     *  null dans ce cas précis (aucun StockLevel/consommation créé), ce qui
+     *  masquait le chip à tort sur un article pourtant bien listé côté
+     *  Logistic (constaté 2026-08-28 sur « Affligem », jamais mouvementé).
+     *  null = seulement si l'article n'est même pas dans le référentiel de
+     *  cet élément. */
     logisticStockFor(elementId, item) {
       const name = item?.name
       if (!name) return null
+      const key = String(name).trim().toLowerCase()
+      const el = (this.store.state.logistics?.elements || []).find((e) => e.id === elementId)
+      const referenced = el && (el.items || []).some((it) => String(it?.name ?? '').trim().toLowerCase() === key)
+      if (!referenced) return null
       const exp = this.store.getters['logistics/expectedFor'](elementId, name)
-      if (!exp) return null
+      if (!exp) return 0
       const upp = Number(exp.unitsPerPack) > 0 ? Number(exp.unitsPerPack) : 1
       return (Number(exp.packed) || 0) * upp + (Number(exp.loose) || 0)
     },
