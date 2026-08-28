@@ -27,8 +27,9 @@ export class LogisticTasksService {
   ) {}
 
   private async assertSpace(spaceId: string, tenantId: string) {
-    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true } });
+    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true, name: true } });
     if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
+    return space;
   }
 
   /** Résout le nom + type des SpaceElement référencés, pour enrichir les réponses. */
@@ -58,7 +59,7 @@ export class LogisticTasksService {
     if (!dto.tasks?.length) {
       throw new BadRequestException('Aucune tâche à créer');
     }
-    await this.assertSpace(spaceId, tenantId);
+    const space = await this.assertSpace(spaceId, tenantId);
 
     const created = await this.prisma.$transaction((tx) =>
       Promise.all(
@@ -89,6 +90,29 @@ export class LogisticTasksService {
         }),
       ),
     );
+
+    // Mockup "Déclenchement d'un restockage dans Logistique" (08/2026) : le logisticien
+    // assigné doit être notifié. Une notification PAR STAFF pour tout le lot (pas une par
+    // tâche, un transfert crée souvent plusieurs tâches d'un coup pour la même personne).
+    // Best-effort : une notification ratée ne doit jamais faire échouer la création des
+    // tâches, déjà commitées à ce stade.
+    try {
+      const byStaff = new Map<string, number>();
+      for (const task of created) byStaff.set(task.assignedToUserId, (byStaff.get(task.assignedToUserId) ?? 0) + 1);
+      await this.prisma.notification.createMany({
+        data: [...byStaff.entries()].map(([assignedToUserId, count]) => ({
+          tenantId,
+          userId: assignedToUserId,
+          type: 'logistic_task_assigned',
+          title: 'Nouvelle tâche de restockage',
+          message: count > 1 ? `${count} tâches à traiter pour ${space.name}` : `1 tâche à traiter pour ${space.name}`,
+          meta: { spaceId, taskIds: created.filter((t) => t.assignedToUserId === assignedToUserId).map((t) => t.id) },
+          link: `/spaces/${spaceId}/logistic`,
+        })),
+      });
+    } catch (e) {
+      this.logger.error(`Notification logistic_task_assigned échouée pour le lot ${spaceId} : ${(e as Error)?.message}`);
+    }
 
     this.logger.log(`POST /logistic-tasks/${spaceId}/batch → ${created.length} tâche(s) créée(s)`);
     return { tasks: created };

@@ -229,16 +229,7 @@ import { sortElementsByFloorAndQuantity } from '@/utils/logisticElementOptions'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
 import { groupTasksByStaff, groupTasksByRoute } from '@/utils/restockerTaskGrouping'
 import { getLogisticTasks } from '@/api/endpoints/logistic-tasks.api'
-
-// Même palette que .rsk-priority-btn--* (style, en bas de fichier), dupliquée ici pour
-// le point coloré des lignes de tâches, qui ne peut pas réutiliser une classe CSS pour
-// une couleur dynamique par tâche.
-const PRIORITY_COLORS = {
-  VERY_URGENT: '#7c3aed',
-  URGENT: '#ff3131',
-  TODO: '#fab219',
-  NOT_PRIORITY: '#fde68a',
-}
+import { PRIORITY_ORDER, PRIORITY_LABEL_KEYS, priorityColor } from '@/utils/logisticTaskPriority'
 
 /**
  * Drawer "Restocker" (Live inventory, mockups 08/2026) : crée une ou plusieurs
@@ -291,12 +282,7 @@ export default {
   },
   computed: {
     priorities() {
-      return [
-        { value: 'VERY_URGENT', title: this.t('restockPriorityVeryUrgent') },
-        { value: 'URGENT', title: this.t('restockPriorityUrgent') },
-        { value: 'TODO', title: this.t('restockPriorityTodo') },
-        { value: 'NOT_PRIORITY', title: this.t('restockPriorityNotPriority') },
-      ]
+      return PRIORITY_ORDER.map((value) => ({ value, title: this.t(PRIORITY_LABEL_KEYS[value]) }))
     },
     viewOptions() {
       return [
@@ -503,9 +489,7 @@ export default {
     taskQtyLabel(task) {
       return compactQtyLabel(task.packed, task.loose, { unit: task.unit, packagingType: task.packagingType }, task.unitsPerPack, this.t, this.locale, formatUnits)
     },
-    priorityColor(priority) {
-      return PRIORITY_COLORS[priority] || '#9ca3af'
-    },
+    priorityColor,
     isCollapsed(key) {
       return !!this.collapsedGroupKeys[key]
     },
