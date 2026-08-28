@@ -7,3 +7,9 @@
 
 # macOS
 .DS_Store
+
+# Artefacts de mesure locaux (HAR Chrome, rapports Lighthouse, logs Render copiés)
+# — jamais à committer, ils partiraient dans un `git add -A`.
+*.har
+frontend/lighthouse/
+frontend/logsRender.md

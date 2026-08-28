@@ -53,8 +53,10 @@ function finalizeShops(byShop) {
 
 /**
  * Agrégats par shop depuis les records granulaires shop-level (revenue,
- * transactions, quantité, eventCount). Le `transactionRate` n'est pas calculé
- * ici — il sera ajouté par `computeRatesFromTimeline`.
+ * quantité, eventCount). Le `transactionRate` n'est pas calculé ici — il sera
+ * ajouté par `computeRatesFromTimeline`, qui écrase aussi `totalTransactions`
+ * avec le compte de TICKETS issu des paniers (BUG-354-01) : la valeur posée ici
+ * somme le grain article et surcompte les paniers multi-articles.
  *
  * @param {Array} records  shopGranularData (shop-level, sans minute)
  * @param {Array} events   events filtrés (scope)
@@ -103,7 +105,7 @@ export function aggregateShopsFromTimeline(allTimelineData, events, timeRange) {
     if (!r || !eventIds.has(r.eventId)) continue
     // Même convention de clé que computeRatesFromTimeline (shopName prioritaire).
     const id = r.shopName || r.shopId || '—'
-    if (!isMinuteInRange(r.minute, timeRange)) continue
+    if (!isMinuteInRange(r.minuteLocal ?? r.minute, timeRange)) continue
     let s = byShop.get(id)
     if (!s) {
       s = makeShopEntry(id)
@@ -194,7 +196,7 @@ export function computeRatesFromTimeline(baseShops, events, allTimelineData, { t
     if (minutes > evStats.lastMinute) evStats.lastMinute = minutes
     evStats.perMinute.set(minutes, (evStats.perMinute.get(minutes) || 0) + txn)
 
-    if (windowed && isMinuteInRange(r.minute, timeRange)) {
+    if (windowed && isMinuteInRange(r.minuteLocal ?? r.minute, timeRange)) {
       evStats.windowTxns += txn
       if (evStats.windowFirst == null || minutes < evStats.windowFirst) evStats.windowFirst = minutes
       if (evStats.windowLast == null || minutes > evStats.windowLast) evStats.windowLast = minutes
@@ -266,6 +268,14 @@ export function computeRatesFromTimeline(baseShops, events, allTimelineData, { t
       ...shop,
       transactionRate,
       operatingMinutes: totalMinutes,
+      // BUG-354-01 — `totalTransactions` vient de la MÊME source que le taux : les
+      // records paniers (un ticket = une ligne). Les agrégats de base le calculaient
+      // en sommant le grain ARTICLE, où un ticket de 3 articles distincts pèse 3.
+      // Posé ici, et pas dans un post-traitement : c'est le seul endroit qui résout
+      // déjà l'alias shopName/shopId (`aliasToPrimary`) et applique la plage horaire.
+      // Un shop absent de cette source sort plus haut par `if (!shopMap) return shop`
+      // et garde sa valeur d'origine — jamais un 0 écrit par défaut.
+      totalTransactions: totalTxn,
       totalTransactionsFromTimeline: totalTxn,
       first60MinTransactionRate,
       first60MinTransactions: first60Txn,
@@ -273,4 +283,61 @@ export function computeRatesFromTimeline(baseShops, events, allTimelineData, { t
       peakWindow,
     }
   })
+}
+
+/**
+ * Somme des taux moyens (txn/min) par PdV, dérivée des seuls records paniers.
+ *
+ * Alimente la carte KPI « TX/MIN » en PERMANENCE (décision JLH 2026-08-24) : la
+ * carte affichait deux formules selon l'état du panneau Shop Performance
+ * (transactions/durées nominales vs Σ des rates) et sautait au clic. Une seule
+ * sémantique désormais : Σ_shops (Σ txn / Σ_events span actif), la même que
+ * `computeRatesFromTimeline` — parité verrouillée par test d'égalité.
+ *
+ * Pas de fenêtrage interne : les records passés sont déjà filtrés (plage horaire
+ * comprise) par le prédicat partagé de la page. Ne mute rien (records gelés).
+ *
+ * @param {Array} basketRecords  records {eventId, shopId|shopName, minute (HH:MM),
+ *   transactionCount}
+ * @returns {number} somme des rates ; 0 si aucun record exploitable
+ */
+export function sumShopTransactionRates(basketRecords) {
+  // shop → event → { txn, first, last } — même clé et mêmes skips que
+  // computeRatesFromTimeline (shopName prioritaire, minutes invalides et
+  // records sans transaction ignorés).
+  const stats = new Map()
+  for (const r of basketRecords || []) {
+    const key = r?.shopName || r?.shopId
+    if (!key || !r.eventId || !r.minute) continue
+    const minutes = parseHHMM(r.minute)
+    if (minutes == null) continue
+    const txn = Number(r.transactionCount ?? 0)
+    if (txn <= 0) continue
+
+    let shopMap = stats.get(key)
+    if (!shopMap) {
+      shopMap = new Map()
+      stats.set(key, shopMap)
+    }
+    let ev = shopMap.get(r.eventId)
+    if (!ev) {
+      ev = { txn: 0, first: minutes, last: minutes }
+      shopMap.set(r.eventId, ev)
+    }
+    ev.txn += txn
+    if (minutes < ev.first) ev.first = minutes
+    if (minutes > ev.last) ev.last = minutes
+  }
+
+  let sum = 0
+  for (const shopMap of stats.values()) {
+    let totalTxn = 0
+    let totalMinutes = 0
+    for (const ev of shopMap.values()) {
+      totalTxn += ev.txn
+      totalMinutes += Math.max(ev.last - ev.first + 1, 1)
+    }
+    if (totalMinutes > 0) sum += totalTxn / totalMinutes
+  }
+  return sum
 }

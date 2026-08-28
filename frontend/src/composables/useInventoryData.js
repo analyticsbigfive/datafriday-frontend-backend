@@ -205,8 +205,18 @@ export function useInventoryData(selectedConfigId) {
       for (const floor of floors) {
         for (const el of floor?.elements || []) {
           const withFloor = { ...el, floorName: floor?.name }
-          if (el?.type === 'storage') storages.push(withFloor)
-          else if (el?.type === 'merchshop') merch.push(withFloor)
+          if (el?.type === 'storage') {
+            // storageShopIds (builder v2, seule source écrite aujourd'hui) prime sur
+            // selectedShops (v1, nested ou top-level) conservé pour les anciennes configs.
+            withFloor.selectedShops = Array.isArray(el?.attributes?.storageShopIds)
+              ? el.attributes.storageShopIds
+              : Array.isArray(el?.attributes?.selectedShops)
+                ? el.attributes.selectedShops
+                : Array.isArray(el?.selectedShops)
+                  ? el.selectedShops
+                  : []
+            storages.push(withFloor)
+          } else if (el?.type === 'merchshop') merch.push(withFloor)
         }
       }
       const storageNameCounts = new Map()

@@ -3,6 +3,7 @@ import { parse } from 'csv-parse';
 import * as chardet from 'chardet';
 import * as iconv from 'iconv-lite';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { utcOffsetMinutes } from '../../../shared/utils/event-window.util';
 import { DigifoodIngestionService } from './digifood-ingestion.service';
 import {
     NormalizedItem,
@@ -92,10 +93,18 @@ export function parseAmount(raw: string): number {
     return Number.isFinite(n) ? n : NaN;
 }
 
+/** Fuseau d'interprétation des horodatages SANS fuseau des exports Digifood (heure murale
+ *  du lieu de vente). BUG-140-01 : `new Date("…T11:58")` les interprétait dans le fuseau du
+ *  PROCESS Node — sur Render (UTC), 11:58 heure de Paris était stocké comme 11:58 UTC, et la
+ *  conversion de lecture (`AT TIME ZONE Space.timezone`) réaffichait 13:58 : +2 h partout. */
+const CSV_NAIVE_TIMEZONE = 'Europe/Paris';
+
 /**
  * Date tolérante : ISO, `YYYY-MM-DD` (+ heure séparée), `JJ/MM/AAAA`, `JJ-MM-AAAA`
  * (exports français, JOUR en premier), et date+heure combinées dans la même
- * cellule (« 05-07-2026 16:45 »). Sans fuseau dans le fichier → heure locale.
+ * cellule (« 05-07-2026 16:45 »). Sans fuseau dans le fichier → heure MURALE
+ * `CSV_NAIVE_TIMEZONE`, convertie en vrai instant UTC indépendamment du fuseau du process
+ * (convention DB : `transactionDate` = UTC, cf. RUNBOOK 24/08).
  */
 function parseCsvDate(dateRaw: string, timeRaw: string): Date | null {
     if (!dateRaw) return null;
@@ -111,8 +120,28 @@ function parseCsvDate(dateRaw: string, timeRaw: string): Date | null {
     const dmy = datePart.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/);
     if (dmy) datePart = `${dmy[3]}-${dmy[2].padStart(2, '0')}-${dmy[1].padStart(2, '0')}`;
     const candidate = timePart && !/[T ]\d/.test(datePart) ? `${datePart}T${timePart}` : datePart;
-    const d = new Date(candidate);
-    return isNaN(d.getTime()) ? null : d;
+    // Fuseau explicite (Z ou ±hh[:]mm) → instant déjà absolu, parsing direct.
+    if (/(?:Z|[+-]\d{2}:?\d{2})$/.test(candidate)) {
+        const d = new Date(candidate);
+        return isNaN(d.getTime()) ? null : d;
+    }
+    // Horodatage NAÏF → heure murale CSV_NAIVE_TIMEZONE. Passe 1 : lu comme UTC ;
+    // passe 2 : corrigé du décalage réel du fuseau à cet instant (été/hiver gérés) —
+    // même mécanique que combineDayAndLocalTime (event-window.util).
+    const naive = candidate.match(
+        /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{1,2}):(\d{2})(?::(\d{2}))?)?$/,
+    );
+    if (!naive) {
+        const d = new Date(candidate);
+        return isNaN(d.getTime()) ? null : d;
+    }
+    const naiveUtc = Date.UTC(
+        Number(naive[1]), Number(naive[2]) - 1, Number(naive[3]),
+        Number(naive[4] ?? 0), Number(naive[5] ?? 0), Number(naive[6] ?? 0),
+    );
+    if (Number.isNaN(naiveUtc)) return null;
+    const offsetMin = utcOffsetMinutes(new Date(naiveUtc), CSV_NAIVE_TIMEZONE);
+    return new Date(naiveUtc - offsetMin * 60_000);
 }
 
 export interface CsvImportReport {
@@ -555,13 +584,25 @@ export class DigifoodCsvImportService {
         const first = entries[0].row;
         // Export réel : type peut être « Refund »/« Remboursement » — détection tolérante
         const isRefund = entries.some((e) => /refund|rembours/i.test(e.row.type));
-        const sign: 1 | -1 = isRefund ? -1 : 1;
 
         const items: NormalizedItem[] = entries.map(({ row }) => {
             const qtyAbs = Math.abs(parseAmount(row.quantity));
+            const hasPricePu = row.price_pu !== '' && Number.isFinite(parseAmount(row.price_pu));
+            const hasTotalTtc = row.total_ttc !== '' && Number.isFinite(parseAmount(row.total_ttc));
+            // Digifood signe déjà certaines lignes en négatif (déconsigne, avoirs) même quand
+            // `type` reste "pos" (ex. DECONSGINE A 1€ : total_ttc="-5.00 €", quantity="5",
+            // type="pos") — Math.abs() plus bas écrasait ce signe, comptant le remboursement de
+            // consigne comme une vente en plus au lieu de l'annuler. Le signe de la ligne suit
+            // maintenant le montant source (price_pu sinon total_ttc) en plus du flag `type` au
+            // niveau de l'order — qtyAbs/unitPrice repartent toujours de Math.abs, une seule
+            // négation appliquée ensuite, pas de risque de double signe.
+            const rowIsNegative = hasPricePu
+                ? parseAmount(row.price_pu) < 0
+                : hasTotalTtc && parseAmount(row.total_ttc) < 0;
+            const sign: 1 | -1 = isRefund || rowIsNegative ? -1 : 1;
             const qty = qtyAbs * sign;
             // price_pu = unitaire en CENTIMES ; sinon total_ttc = total de ligne en EUROS
-            const unitPrice = row.price_pu !== '' && Number.isFinite(parseAmount(row.price_pu))
+            const unitPrice = hasPricePu
                 ? Math.abs(parseAmount(row.price_pu)) / 100
                 : qtyAbs > 0
                     ? Math.abs(parseAmount(row.total_ttc)) / qtyAbs

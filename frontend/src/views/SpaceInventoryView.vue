@@ -206,6 +206,17 @@
             <v-icon size="20">mdi-dots-vertical</v-icon>
           </v-btn>
           <v-btn
+            v-if="selectedEventId"
+            variant="outlined"
+            :loading="pushingToLogistic"
+            :disabled="pushingToLogistic"
+            class="si-band-btn"
+            @click="onUpdateLogistic"
+          >
+            <v-icon size="16" class="mr-1">mdi-warehouse</v-icon>
+            {{ t('invUpdateLogistic') }}
+          </v-btn>
+          <v-btn
             :loading="saving || recoCreating"
             :disabled="saving || recoCreating"
             class="si-band-btn si-band-btn--save"
@@ -341,13 +352,9 @@
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
-          :expected-for="canSeeExpected ? expectedForField : null"
-          :expected-detail-for="canSeeExpected ? expectedDetailFor : null"
-          :expected-total-detail-for="canSeeExpected && !isPreMode ? expectedDetailFor : null"
-          :expected-total-for="canSeeExpected ? expectedTotalFor : null"
-          :expected-stock-for="canSeeExpected && isPreMode ? expectedStockFor : null"
-          :expected-stock-detail-for="canSeeExpected && isPreMode ? expectedDetailFor : null"
+          :expected-total-for="canSeePredicted ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
+          :logistic-stock-for="canSeeExpected ? logisticStockFor : null"
           :can-transfer="!demo"
           @close="countingShop = null"
           @change-shop="startCount"
@@ -637,13 +644,9 @@
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
-          :expected-for="canSeeExpected ? expectedForField : null"
-          :expected-detail-for="canSeeExpected ? expectedDetailFor : null"
-          :expected-total-detail-for="canSeeExpected && !isPreMode ? expectedDetailFor : null"
-          :expected-total-for="canSeeExpected ? expectedTotalFor : null"
-          :expected-stock-for="canSeeExpected && isPreMode ? expectedStockFor : null"
-          :expected-stock-detail-for="canSeeExpected && isPreMode ? expectedDetailFor : null"
+          :expected-total-for="canSeePredicted ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
+          :logistic-stock-for="canSeeExpected ? logisticStockFor : null"
           :can-transfer="!demo"
           @close="closeMobileCounting"
           @change-shop="startCount"
@@ -722,6 +725,12 @@
         <v-btn variant="text" @click="errorSnackbar = false">{{ t('close') || 'Fermer' }}</v-btn>
       </template>
     </v-snackbar>
+    <v-snackbar v-model="successSnackbar" color="success" :timeout="4000" location="bottom">
+      {{ successText }}
+      <template #actions>
+        <v-btn variant="text" @click="successSnackbar = false">{{ t('close') || 'Fermer' }}</v-btn>
+      </template>
+    </v-snackbar>
   </v-app>
 </template>
 
@@ -764,9 +773,11 @@ import {
   getPostEventBaseline,
   createPreEventReconciliation,
   getEventSalesConsumption,
+  pushInventoryCountToLogistic,
 } from '@/api/endpoints/inventory.api'
 import { buildPreEventExpected, expectedKey, flattenExpectedUnits } from '@/utils/preEventExpected'
-import { loadPredictedNeed, lookupPredictedNeed } from '@/composables/usePredictedNeed'
+import { loadPredictedNeed, lookupPredictedNeed, buildRestockNeedIndex } from '@/composables/usePredictedNeed'
+import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
 import { compareInventoryCards } from '@/utils/inventoryCardSort'
 import {
   reconciliationKey,
@@ -949,6 +960,9 @@ export default {
       printDate: '',
       errorSnackbar: false,
       errorText: '',
+      successSnackbar: false,
+      successText: '',
+      pushingToLogistic: false,
       mock: { shopsWithInventory: [], storagesWithInventory: [], merchWithInventory: [] },
       COUNTING_TABS,
       TOP_TABS,
@@ -1108,21 +1122,24 @@ export default {
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.preInventoryExpected') : false
     },
-    /** Chip « Besoin prédit » (pre-event) : permission DÉDIÉE, distincte des
-     *  attendus — réunion Bertrand 2026-08-19, réservé aux administrateurs et
-     *  directeurs de site (le Chef exécutif garde preInventoryExpected mais pas
-     *  celle-ci). Gating d'affichage : la donnée vient d'Event Predict, dont
+    /** Chip « Besoin prédit » (pre ET post-event depuis le 2026-08-27) :
+     *  permission DÉDIÉE, distincte des attendus — réunion Bertrand
+     *  2026-08-19, réservé aux administrateurs et directeurs de site (le Chef
+     *  exécutif garde preInventoryExpected mais pas celle-ci). Gating
+     *  d'affichage : la donnée vient d'Event Predict (ou du réarmement), dont
      *  l'endpoint reste gaté par front.fb.eventPredict. */
     canSeePredicted() {
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.preInventoryPredicted') : false
     },
-    /** Libellé de l'indice affiché à côté du Total : les deux modes ne montrent
-     *  PAS la même grandeur (besoin prédit avant match, attendu restant après) —
-     *  clés distinctes conservées ; le mot affiché en post devient « Attendu »
-     *  (réunion Bertrand 2026-08-19, ex-« Doit rester »). */
+    /** Libellé de l'indice affiché à côté du Total : « Besoin prédit », MÊME
+     *  mot pre ET post depuis le 2026-08-27 (avant cette date, le post
+     *  affichait « Attendu » sous ce même créneau — réunion Bertrand
+     *  2026-08-19, ex-« Doit rester » — remplacé par le besoin prédit unifié
+     *  avec Logistic ; l'« Attendu » stock reste visible via les hints
+     *  packed/loose, cf. `expectedForField`). */
     expectedTotalLabelKey() {
-      return this.isPreMode ? 'invPredictedNeedHint' : 'invPostExpectedHint'
+      return 'invPredictedNeedHint'
     },
     /**
      * Badge « Attendu » de section, mode PRE : total en unités par article
@@ -1539,6 +1556,28 @@ export default {
       const { totalItems, countedItems } = this.inventoryStats
       return totalItems > 0 && countedItems >= totalItems
     },
+    /** Articles (par nom) qui resteront inchangés dans Logistic si on pousse maintenant —
+     *  "Update Logistic" ne touche jamais un PDV/article non compté (décision Bertrand,
+     *  2026-08-26 : ne jamais écraser un stock non vérifié par un 0). Affiché dans la
+     *  confirmation du bouton pour que l'utilisateur sache AVANT de confirmer ce qui ne
+     *  bougera pas. */
+    uncountedItemsSummary() {
+      const entries = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
+      const byName = new Map()
+      for (const entry of entries) {
+        if (!entry?.element) continue
+        for (const item of this.elementItems(entry)) {
+          const stat = byName.get(item.name) || { counted: 0, total: 0 }
+          stat.total += 1
+          if (this.isItemCounted(entry.element.id, item.id)) stat.counted += 1
+          byName.set(item.name, stat)
+        }
+      }
+      return [...byName.entries()]
+        .filter(([, s]) => s.counted < s.total)
+        .map(([name, s]) => ({ name, counted: s.counted, total: s.total }))
+        .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
+    },
     overviewMetrics() {
       return [
         {
@@ -1794,6 +1833,14 @@ export default {
         // a la même dépendance (périmètre des PdV affichés).
         this.fetchPreExpected()
         this.fetchPredictedNeed()
+        // Stock Logistic LIVE (demande Bertrand 2026-08-27) : la même quantité que
+        // la carte Logistic elle-même affiche pour cet article/élément, pour
+        // comparer d'un coup d'œil avec ce qui est en cours de comptage ici.
+        this.store.dispatch('logistics/loadStock', {
+          spaceId,
+          configId: this.selectedConfigId,
+          eventId: this.selectedEventId,
+        })
 
         this.mock = buildSpaceInventoryMock()
         if (this.demo) {
@@ -2051,6 +2098,50 @@ export default {
       if (this.isPreMode) await this.createPreReconciliationAfterSave()
       else await this.createReconciliationAfterSave()
     },
+    /** Bouton "Update Logistic" : pousse manuellement le comptage courant vers le
+     *  registre Logistic (écrase les StockLevel avec les quantités comptées),
+     *  sans créer de document de réconciliation — même mécanisme que le recalage
+     *  automatique déclenché par "Create Reconciliation" (pushCountToLogistic),
+     *  mais explicite et confirmable. */
+    async onUpdateLogistic() {
+      if (!this.selectedEventId) return
+      const uncounted = this.uncountedItemsSummary
+      let message = this.t('invUpdateLogisticConfirmMsg')
+      if (uncounted.length) {
+        const maxShown = 15
+        const lines = uncounted.slice(0, maxShown).map((u) => `• ${u.name} (${u.counted}/${u.total})`)
+        if (uncounted.length > maxShown) {
+          lines.push(this.t('invUpdateLogisticConfirmMore').replace('{n}', uncounted.length - maxShown))
+        }
+        message = `${message}\n\n${this.t('invUpdateLogisticConfirmUncountedIntro')}\n${lines.join('\n')}`
+      }
+      const ok = await confirmDialog({
+        title: this.t('invUpdateLogisticConfirmTitle'),
+        message,
+        confirmText: this.t('invUpdateLogisticConfirmBtn'),
+        cancelText: this.t('cancel') || 'Cancel',
+        confirmColor: 'deep-orange',
+        icon: 'mdi-alert-outline',
+        iconColor: 'warning',
+      })
+      if (!ok) return
+      const spaceId = this.route.params.spaceId
+      this.pushingToLogistic = true
+      try {
+        await pushInventoryCountToLogistic(
+          spaceId,
+          this.selectedEventId,
+          this.isPreMode ? 'pre-event' : 'post-event',
+        )
+        this.successText = this.t('invUpdateLogisticSuccess')
+        this.successSnackbar = true
+      } catch (e) {
+        this.errorText = e?.userMessage || e?.response?.data?.message || this.t('invUpdateLogisticError')
+        this.errorSnackbar = true
+      } finally {
+        this.pushingToLogistic = false
+      }
+    },
     /** Mode PRE : le backend construit les lignes (attendu vs compté) — le client,
      *  potentiellement sans la permission « attendus », ne les a jamais eues. */
     async createPreReconciliationAfterSave() {
@@ -2185,24 +2276,38 @@ export default {
       const source = this.expectedSourceText
       return source ? `${calc}\n${source}` : calc
     },
-    /** ATTENDU total de stock d'un article (BUG-352-01). Rendu en pre-event, où
-     *  le créneau du total ne portait que le besoin prédit — une autre grandeur,
-     *  qu'on ne peut pas légender du même mot. En post-event, `expectedTotalFor`
-     *  joue déjà ce rôle : le parent ne passe donc cette prop qu'en pre. */
-    expectedStockFor(elementId, item) {
-      const itemId = item?.id
-      if (itemId == null) return null
-      const v = this.preExpectedUnits?.[expectedKey(elementId, itemId)]
-      return Number.isFinite(v) ? v : null
+    /** Quantité Logistic LIVE d'un article sur un élément — même chiffre que
+     *  la carte Logistic (`logistics/expectedFor` : packed×conditionnement +
+     *  (loose − vendu), casse de pack incluse). Distinct du Besoin prédit
+     *  (une prévision) : ici, l'état RÉEL actuel du stock, pour comparaison
+     *  directe avec le compteur en cours de saisie (demande Bertrand
+     *  2026-08-27).
+     *  0 (PAS null) tant que l'article est référencé dans le Logistic de cet
+     *  élément mais n'a encore reçu aucun mouvement — `expectedFor` renvoie
+     *  null dans ce cas précis (aucun StockLevel/consommation créé), ce qui
+     *  masquait le chip à tort sur un article pourtant bien listé côté
+     *  Logistic (constaté 2026-08-28 sur « Affligem », jamais mouvementé).
+     *  null = seulement si l'article n'est même pas dans le référentiel de
+     *  cet élément. */
+    logisticStockFor(elementId, item) {
+      const name = item?.name
+      if (!name) return null
+      const key = String(name).trim().toLowerCase()
+      const el = (this.store.state.logistics?.elements || []).find((e) => e.id === elementId)
+      const referenced = el && (el.items || []).some((it) => String(it?.name ?? '').trim().toLowerCase() === key)
+      if (!referenced) return null
+      const exp = this.store.getters['logistics/expectedFor'](elementId, name)
+      if (!exp) return 0
+      const upp = Number(exp.unitsPerPack) > 0 ? Number(exp.unitsPerPack) : 1
+      return (Number(exp.packed) || 0) * upp + (Number(exp.loose) || 0)
     },
-    /** Indice affiché à côté du TOTAL d'un article. Pre : besoin prédit Event
-     *  Predict. Post : stock qui doit rester. null = rien à afficher (« — »). */
+    /** Indice affiché à côté du TOTAL d'un article : Besoin prédit, MÊME
+     *  grandeur qu'à l'écran Logistic (réarmement en priorité, sinon Event
+     *  Predict) — pre ET post-event (demande Bertrand 2026-08-27). Alimenté
+     *  par `this.predictedNeed`, cf. `fetchPredictedNeed`. null = rien à
+     *  afficher (« — »). */
     expectedTotalFor(elementId, item) {
-      const itemId = item?.id
-      if (itemId == null) return null
-      if (this.isPreMode) return lookupPredictedNeed(this.predictedNeed, elementId, item)
-      const v = this.postExpectedUnits?.[expectedKey(elementId, itemId)]
-      return Number.isFinite(v) ? v : null
+      return lookupPredictedNeed(this.predictedNeed, elementId, item)
     },
     /** Besoin prédit remis à plat pour le document pre-event :
      *  { elementId: { itemId: unités } }. null s'il n'y a pas de scénario de
@@ -2221,14 +2326,36 @@ export default {
       }
       return Object.keys(out).length ? out : null
     },
-    /** Besoin prédit du match (pre-event uniquement) — version Event Predict par
-     *  défaut. Silencieux en cas d'échec : on ne bloque jamais un comptage.
-     *  Permission DÉDIÉE preInventoryPredicted (réunion Bertrand 2026-08-19) :
-     *  sans elle, ni fetch ni chip — l'index reste null. */
+    /** Besoin prédit du match, alimente le chip « Besoin prédit » du TOTAL
+     *  (`expectedTotalFor`) — pre ET post-event (demande Bertrand
+     *  2026-08-27). La répartition Attendu pack/vrac (`expectedForField`,
+     *  `preExpected`/`postExpectedFields`) reste une source indépendante,
+     *  non touchée. Même priorité que Logistic (`SpaceLogisticView.fetchPredictedNeed`) :
+     *  feuille de réarmement sauvegardée (RestockPlan.restockLines, décision
+     *  opérationnelle nettée du stock restant) d'abord, prévision brute Event
+     *  Predict en repli. Silencieux en cas d'échec : on ne bloque jamais un
+     *  comptage. Permission DÉDIÉE preInventoryPredicted (réunion Bertrand
+     *  2026-08-19) : sans elle, ni fetch ni chip — l'index reste null. */
     async fetchPredictedNeed() {
       this.predictedNeed = null
       this.predictedNeedMissing = false
-      if (!this.isPreMode || !this.canSeePredicted || !this.selectedEventId || isDemoMode()) return
+      if (!this.canSeePredicted || !this.selectedEventId || isDemoMode()) return
+
+      try {
+        const plans = await listRestockPlans(this.currentSpaceId)
+        const match = (plans || []).find((p) => (p.selectedEventIds || []).map(String).includes(String(this.selectedEventId)))
+        if (match) {
+          const full = await getRestockPlan(match.id)
+          const restockIndex = buildRestockNeedIndex(full?.restockLines)
+          if (restockIndex) {
+            this.predictedNeed = restockIndex
+            return
+          }
+        }
+      } catch (e) {
+        console.warn('[inventory] lookup feuille de réarmement échoué, repli Event Predict :', e?.message)
+      }
+
       const elements = (this.realShops || []).map((c) => ({
         id: c.element.id,
         name: c.element.name,

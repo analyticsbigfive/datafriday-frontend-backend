@@ -19,6 +19,7 @@
  */
 jest.mock('@/api/endpoints/space.api', () => ({
   getSpaceEventTimelineBatch: jest.fn(),
+  getSpaceTransactionBasketsBatch: jest.fn(),
 }))
 jest.mock('vue-router', () => ({ useRoute: () => ({ params: { spaceId: 'sp-1' } }) }))
 jest.mock('@/store', () => ({ state: { analyse: { menuItemCostMap: {} } } }))
@@ -32,7 +33,8 @@ jest.mock('@/utils/timelineBucketing', () => ({
 }))
 
 import { computed, ref, nextTick } from 'vue'
-import { getSpaceEventTimelineBatch } from '@/api/endpoints/space.api'
+import { getSpaceEventTimelineBatch, getSpaceTransactionBasketsBatch } from '@/api/endpoints/space.api'
+import { useTransactionBaskets } from '@/composables/useTransactionBaskets'
 import {
   useAnalyseItemRecords,
   ITEM_LEVEL_EVENT_CAP,
@@ -165,6 +167,81 @@ describe('BUG-350-01 — choix de source (analyseRevenueSource)', () => {
   })
 })
 
+// BUG-354-01 — la bande KPI a DEUX sources canoniques depuis que les transactions et
+// le panier moyen viennent des paniers. Publier le CA pendant que les transactions
+// valent encore la somme (surcomptée) du grain article, c'est exactement la valeur
+// provisoire que BUG-350-01 a retirée.
+describe('BUG-354-01 — la source paniers gate aussi la bande KPI', () => {
+  it("squelette tant que les paniers chargent, même si l'item-level est prêt", () => {
+    expect(
+      resolveKpiSourceState({ isPredict: false, itemLevelState: 'ready', transactionState: 'loading' }),
+    ).toBe('loading')
+  })
+
+  it("squelette tant que l'item-level charge, même si les paniers sont prêts", () => {
+    expect(
+      resolveKpiSourceState({ isPredict: false, itemLevelState: 'loading', transactionState: 'ready' }),
+    ).toBe('loading')
+  })
+
+  it("deux états TERMINAUX ne font pas une attente : 'empty' côté paniers reste affichable", () => {
+    expect(
+      resolveKpiSourceState({ isPredict: false, itemLevelState: 'ready', transactionState: 'empty' }),
+    ).toBe('ready')
+    expect(
+      resolveKpiSourceState({ isPredict: false, itemLevelState: 'empty', transactionState: 'empty' }),
+    ).toBe('empty')
+  })
+
+  it('Predict ignore les paniers : ses transactions viennent des scénarios', () => {
+    expect(
+      resolveKpiSourceState({ isPredict: true, itemLevelState: 'ready', transactionState: 'loading' }),
+    ).toBe('ready')
+  })
+
+  it('rétrocompatible : sans transactionState, comportement inchangé', () => {
+    expect(resolveKpiSourceState({ isPredict: false, itemLevelState: 'ready' })).toBe('ready')
+    expect(resolveKpiSourceState({ isPredict: false, itemLevelState: 'empty' })).toBe('empty')
+  })
+})
+
+// BUG-354-01 — le compteur de transactions bascule sur la source TICKET quand elle est
+// fournie. `null` (pas encore chargée) ≠ `[]` (chargée, aucun ticket) : seul le second
+// doit ramener 0.
+describe('BUG-354-01 — source des transactions dans useMetricsCalculator', () => {
+  // Trois lignes item-level du MÊME ticket : 3 articles distincts, donc 3 × 1.
+  const itemLevel = [
+    { revenue: 10, quantity: 1, transactionCount: 1, eventId: 'ev-0', menuItemId: 'mi1' },
+    { revenue: 6, quantity: 1, transactionCount: 1, eventId: 'ev-0', menuItemId: 'mi2' },
+    { revenue: 4, quantity: 1, transactionCount: 1, eventId: 'ev-0', menuItemId: 'mi3' },
+  ]
+  const build = (transactionRecords) =>
+    useMetricsCalculator({
+      filteredShopGranularData: computed(() => itemLevel),
+      chartFilteredEvents: computed(() => [{ id: 'ev-0', ticketsScanned: 100 }]),
+      menuItemCostMap: computed(() => ({})),
+      isTimelineFilterActive: computed(() => false),
+      operatingMinutes: computed(() => 90),
+      selectedEventIds: computed(() => []),
+      perShopTransactionRate: computed(() => null),
+      transactionRecords: computed(() => transactionRecords),
+    })
+
+  it('sans source ticket (null) : somme item-level — surcomptée, mais jamais affichée (squelette)', () => {
+    expect(build(null).totalTransactions.value).toBe(3)
+  })
+
+  it('avec la source ticket : UN ticket, et le panier moyen suit', () => {
+    const m = build([{ transactionCount: 1, eventId: 'ev-0' }])
+    expect(m.totalTransactions.value).toBe(1)
+    expect(m.avgPerTransaction.value).toBe(20)
+  })
+
+  it('source ticket chargée mais vide : 0, pas de repli sur le grain article', () => {
+    expect(build([]).totalTransactions.value).toBe(0)
+  })
+})
+
 describe('BUG-350-01 — marge non calculable', () => {
   const build = (records, costMap) =>
     useMetricsCalculator({
@@ -174,7 +251,7 @@ describe('BUG-350-01 — marge non calculable', () => {
       isTimelineFilterActive: computed(() => false),
       operatingMinutes: computed(() => 90),
       selectedEventIds: computed(() => []),
-      overrideTransactionRate: computed(() => null),
+      perShopTransactionRate: computed(() => null),
     })
 
   it('renvoie null (et non 100) sur des records shop-level sans menuItemId', () => {
@@ -206,5 +283,49 @@ describe('BUG-350-01 — marge non calculable', () => {
   it('renvoie null sur un CA nul (aucune marge définissable)', () => {
     const m = build([], { 'mi-1': 2 })
     expect(m.margin.value).toBeNull()
+  })
+})
+
+// Décision JLH 2026-08-24 (carte TX/MIN) — 'ready' ne doit être publié que quand
+// TOUS les events scopés ont été tentés : un cache partiel avec d'autres events en
+// vol publiait 'ready' dès le premier record, donc une Σ des taux PARTIELLE
+// destinée à bouger (valeur provisoire interdite, BUG-350-01).
+describe('useTransactionBaskets.sourceState — chargement complet requis', () => {
+  beforeEach(() => jest.clearAllMocks())
+
+  const rows = [{ shopName: 'Bar A', minute: '20:00', transactionCount: 2 }]
+
+  it("cache partiel + events supplémentaires en vol → 'loading', pas 'ready'", async () => {
+    getSpaceTransactionBasketsBatch.mockResolvedValueOnce(new Map([['ev-0', rows]]))
+    const events = ref([{ id: 'ev-0' }])
+    const { sourceState, basketRecords } = useTransactionBaskets(computed(() => events.value))
+    await flush()
+    expect(sourceState.value).toBe('ready')
+
+    // La sélection s'élargit : ev-1 part en batch et n'a pas répondu. Des records
+    // sont déjà en cache (ev-0) — l'ancien ordre publiait 'ready' ici.
+    getSpaceTransactionBasketsBatch.mockReturnValueOnce(new Promise(() => {}))
+    events.value = [{ id: 'ev-0' }, { id: 'ev-1' }]
+    await flush()
+    expect(basketRecords.value.length).toBeGreaterThan(0)
+    expect(sourceState.value).toBe('loading')
+  })
+
+  it("batch KO : events marqués tentés → 'empty' terminal, pas de squelette éternel", async () => {
+    getSpaceTransactionBasketsBatch.mockRejectedValueOnce(new Error('KO'))
+    const events = ref([{ id: 'ev-0' }])
+    const { sourceState } = useTransactionBaskets(computed(() => events.value))
+    await flush()
+    expect(sourceState.value).toBe('empty')
+  })
+
+  it("tous les events tentés et des records présents → 'ready'", async () => {
+    getSpaceTransactionBasketsBatch.mockResolvedValueOnce(
+      new Map([['ev-0', rows], ['ev-1', []]]),
+    )
+    const events = ref([{ id: 'ev-0' }, { id: 'ev-1' }])
+    const { sourceState } = useTransactionBaskets(computed(() => events.value))
+    await flush()
+    expect(sourceState.value).toBe('ready')
   })
 })

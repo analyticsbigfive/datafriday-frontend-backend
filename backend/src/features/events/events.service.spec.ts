@@ -70,6 +70,13 @@ describe('EventsService', () => {
     },
     salesEvent: {
       findFirst: jest.fn(),
+      update: jest.fn(),
+    },
+    spaceRevenueMinuteAgg: {
+      deleteMany: jest.fn(),
+    },
+    spaceRevenueMinuteItemAgg: {
+      deleteMany: jest.fn(),
     },
     $transaction: jest.fn((ops) => Promise.all(ops)),
     $queryRaw: jest.fn(),
@@ -125,6 +132,32 @@ describe('EventsService', () => {
       expect(mockPrisma.event.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ eventTypeId: 'global-type-1' }) }),
       );
+    });
+
+    it('BUG-145-01: rejects eventEndDate earlier than eventDate (Montauban case)', async () => {
+      const dto = { name: 'SFP-Montauban', eventDate: '2025-09-20', eventEndDate: '2025-09-06' };
+
+      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.event.create).not.toHaveBeenCalled();
+    });
+
+    it('BUG-145-01: rejects eventEndDate earlier than eventStartDate', async () => {
+      const dto = {
+        name: 'New Event',
+        eventDate: '2025-09-06',
+        eventStartDate: '2025-09-07',
+        eventEndDate: '2025-09-06',
+      };
+
+      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.event.create).not.toHaveBeenCalled();
+    });
+
+    it('BUG-145-01: accepts an end date after the start (multi-day, fin après minuit)', async () => {
+      const dto = { name: 'PFC - RC Lens', eventDate: '2026-02-14', eventEndDate: '2026-02-15' };
+      mockPrisma.event.create.mockResolvedValue({ ...mockEvent, ...dto });
+
+      await expect(service.create('tenant-1', dto as any)).resolves.toBeDefined();
     });
 
     it('rejects an eventTypeId belonging to another tenant', async () => {
@@ -246,6 +279,28 @@ describe('EventsService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
+    it('BUG-145-01: rejects a partial update whose eventEndDate lands before the EXISTING eventDate', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue({ ...mockEvent, eventDate: new Date('2025-09-20') });
+
+      await expect(
+        service.update('evt-1', 'tenant-1', { eventEndDate: '2025-09-06' } as any),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.event.update).not.toHaveBeenCalled();
+    });
+
+    it('BUG-145-01: still allows renaming an event whose stored dates are already incoherent', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue({
+        ...mockEvent,
+        eventDate: new Date('2025-09-20'),
+        eventEndDate: new Date('2025-09-06'),
+      });
+      mockPrisma.event.update.mockResolvedValue({ ...mockEvent, name: 'Renamed' });
+
+      await expect(
+        service.update('evt-1', 'tenant-1', { name: 'Renamed' } as any),
+      ).resolves.toBeDefined();
+    });
+
     it('BUG-021: does NOT reset weezeventEventId when eventDate is unchanged', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
       mockPrisma.event.update.mockResolvedValue(mockEvent);
@@ -337,24 +392,6 @@ describe('EventsService', () => {
     });
   });
 
-  describe('BUG-021: listAmbiguousWeezeventMatches', () => {
-    it('returns the raw query result', async () => {
-      const rows = [
-        {
-          eventId: 'evt-1',
-          eventName: 'Festival 2024',
-          eventDate: new Date('2024-08-01'),
-          candidates: [{ id: 'we-1', name: 'Festival', startDate: new Date('2024-08-01'), externalId: '123' }],
-        },
-      ];
-      mockPrisma.$queryRaw.mockResolvedValue(rows);
-
-      const result = await service.listAmbiguousWeezeventMatches('tenant-1');
-      expect(result).toEqual(rows);
-      expect(mockPrisma.$queryRaw).toHaveBeenCalled();
-    });
-  });
-
   describe('BUG-021: resolveWeezeventLink', () => {
     it('links to the given WeezeventEvent when it belongs to the tenant', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
@@ -393,6 +430,63 @@ describe('EventsService', () => {
       expect(mockPrisma.event.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { weezeventEventId: null } }),
       );
+    });
+
+    it('2026-08-25 : never touches spaceId ("Démapper" doit rester dans la liste du space) and purges stale aggregates on both tables', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      mockPrisma.event.update.mockResolvedValue({ ...mockEvent, weezeventEventId: null });
+      mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 3 });
+      mockPrisma.spaceRevenueMinuteItemAgg.deleteMany.mockResolvedValue({ count: 3 });
+
+      await service.resolveWeezeventLink('evt-1', 'tenant-1', null);
+
+      const updateCall = mockPrisma.event.update.mock.calls[0][0];
+      expect(updateCall.data).not.toHaveProperty('spaceId');
+      expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: 'tenant-1', spaceId: mockEvent.spaceId, weezeventEventId: 'evt-1' },
+      });
+      expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: 'tenant-1', spaceId: mockEvent.spaceId, weezeventEventId: 'evt-1' },
+      });
+    });
+
+    it('2026-08-25 : "Démapper" clears the dfEventId mirror on the OLD SalesEvent it owned — otherwise the WeezeventEvent stays invisible to "Créer et lier tout" forever', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue({ ...mockEvent, weezeventEventId: 'we-old' });
+      mockPrisma.event.update.mockResolvedValue({ ...mockEvent, weezeventEventId: null });
+      // Le miroir sur l'ANCIEN SalesEvent pointe encore vers cet Event.
+      mockPrisma.salesEvent.findFirst.mockResolvedValue({ id: 'we-old', metadata: { dfEventId: 'evt-1', doorsOpening: '19:00' } });
+
+      await service.resolveWeezeventLink('evt-1', 'tenant-1', null);
+
+      expect(mockPrisma.salesEvent.update).toHaveBeenCalledWith({
+        where: { id: 'we-old' },
+        data: { metadata: { dfEventId: null, doorsOpening: '19:00' } },
+      });
+    });
+
+    it('2026-08-25 : does not steal the mirror if it already points to a DIFFERENT event (someone else relinked it since)', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue({ ...mockEvent, weezeventEventId: 'we-old' });
+      mockPrisma.event.update.mockResolvedValue({ ...mockEvent, weezeventEventId: null });
+      mockPrisma.salesEvent.findFirst.mockResolvedValue({ id: 'we-old', metadata: { dfEventId: 'some-other-event' } });
+
+      await service.resolveWeezeventLink('evt-1', 'tenant-1', null);
+
+      expect(mockPrisma.salesEvent.update).not.toHaveBeenCalled();
+    });
+
+    it('2026-08-25 : sets the dfEventId mirror on the NEW SalesEvent when linking', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      mockPrisma.event.update.mockResolvedValue({ ...mockEvent, weezeventEventId: 'we-1' });
+      mockPrisma.salesEvent.findFirst
+        .mockResolvedValueOnce({ id: 'we-1' }) // vérification "target existe"
+        .mockResolvedValueOnce({ id: 'we-1', metadata: {} }); // setDfEventIdMirror
+
+      await service.resolveWeezeventLink('evt-1', 'tenant-1', 'we-1');
+
+      expect(mockPrisma.salesEvent.update).toHaveBeenCalledWith({
+        where: { id: 'we-1' },
+        data: { metadata: { dfEventId: 'evt-1' } },
+      });
     });
   });
 

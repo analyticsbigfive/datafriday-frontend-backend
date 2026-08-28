@@ -57,18 +57,10 @@ export async function deleteEvent(id) {
 }
 
 /**
- * Lister les events sans lien Weezevent univoque (BUG-021) : `weezeventEventId` null
- * alors qu'au moins un WeezeventEvent existe le même jour calendaire — l'auto-link
- * s'abstient dès qu'il y a plus d'un candidat de chaque côté, il faut alors choisir
- * manuellement.
- * @returns {Promise<Array<{eventId: string, eventName: string, eventDate: string, candidates: Array}>>}
- */
-export async function getAmbiguousWeezeventMatches() {
-  return api.get('/events/weezevent-ambiguous-matches')
-}
-
-/**
- * Résoudre manuellement le lien Weezevent d'un event (BUG-021).
+ * Résoudre manuellement le lien Weezevent d'un event (BUG-021) — utilisé par
+ * bulkCreateEvents (StepProcessTimeline.vue) pour poser le rattachement automatique après
+ * création. getAmbiguousWeezeventMatches (banner de résolution manuelle) supprimée le
+ * 2026-08-25, cf. BUG-361-02 : proposait des conteneurs de saison/site comme candidats.
  * @param {string} id
  * @param {string|null} weezeventEventId - null pour délier explicitement
  * @returns {Promise<Object>}

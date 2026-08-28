@@ -208,24 +208,6 @@
                     <v-icon size="15" class="mr-1">mdi-history</v-icon>
                     {{ t('logiHistoryBtn') }}
                   </v-btn>
-                  <v-btn icon variant="outlined" size="small" class="lg-hbtn" :loading="stockLoading" @click="refresh">
-                    <v-icon size="18">mdi-refresh</v-icon>
-                  </v-btn>
-                  <!-- QA : simuler une vente Weezevent — niveau liste, permission logisticReconcile.
-                       Désactivé en vue agrégée (question 57, tranchée : Ulrich 2026-08-19, option a) —
-                       ces actions ont besoin d'une config précise (prix/menu). -->
-                  <span v-if="!drillElement && canReconcile" :title="isAggregateView ? t('logiQaDisabledAggregate') : undefined">
-                    <v-btn
-                      variant="outlined"
-                      size="small"
-                      class="lg-simulate-btn"
-                      :disabled="isAggregateView"
-                      @click="openSimulate"
-                    >
-                      <v-icon size="16" class="mr-1">mdi-flask-outline</v-icon>
-                      {{ t('logiSimulateBtn') }}
-                    </v-btn>
-                  </span>
                   <!-- Reset inventory : niveau liste, permission logisticReconcile -->
                   <span v-if="!drillElement && canReconcile" :title="isAggregateView ? t('logiQaDisabledAggregate') : undefined">
                     <v-btn
@@ -374,6 +356,7 @@
                   :predicted-need-packs="predictedNeedPacksFor(drillElement.element.id, item)"
                   :used-in-label="usedInLabel(item)"
                   :status="itemStatus(drillElement.element.id, item)"
+                  :last-count="countedFor(drillElement.element.id, item)"
                   :pending-transfers="pendingTransfersFor(drillElement.element.id, item.name)"
                   :outgoing-pending-transfers="outgoingPendingTransfersFor(drillElement.element.id, item.name)"
                   @add="openMovement(drillElement.element, item, 'add')"
@@ -433,19 +416,6 @@
         <!-- Historique d'un PDV/storage -->
         <LogisticHistoryDrawer v-model="historyDrawer" :element="historyElement" />
 
-        <!-- QA : simuler une vente Weezevent -->
-        <LogisticSimulateSaleDialog
-          v-model="simulateDialog"
-          :shops="shopEntries"
-          :saving="simulateSaving"
-          :purging="simulatePurging"
-          :error="simulateError"
-          :result="simulateResult"
-          @submit="submitSimulateSale"
-          @purge="purgeSimulated"
-          @reset-result="simulateResult = null"
-        />
-
         <!-- Confirmation Inventory Reset -->
         <v-dialog v-model="resetDialog" max-width="440">
           <v-card class="lg-dialog">
@@ -491,7 +461,6 @@ import LogisticTransferConfirmDrawer from '@/components/LogisticTransferConfirmD
 import LogisticLossesDrawer from '@/components/LogisticLossesDrawer.vue'
 import LogisticHistoryDrawer from '@/components/LogisticHistoryDrawer.vue'
 import LogisticAggregateView from '@/components/LogisticAggregateView.vue'
-import LogisticSimulateSaleDialog from '@/components/LogisticSimulateSaleDialog.vue'
 import LogisticConfigSelect from '@/components/LogisticConfigSelect.vue'
 import LogisticByItemView from '@/components/LogisticByItemView.vue'
 import { getLatestInventory } from '@/api/endpoints/inventory.api'
@@ -504,8 +473,8 @@ import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
 
 const TABS = [
   { value: 'shops', labelKey: 'logiTabShops', icon: 'mdi-store' },
-  { value: 'storage', labelKey: 'logiTabStorage', icon: 'mdi-warehouse' },
   { value: 'byItem', labelKey: 'logiTabByItem', icon: 'mdi-view-list' },
+  { value: 'storage', labelKey: 'logiTabStorage', icon: 'mdi-warehouse' },
 ]
 
 const ITEM_KIND_OPTIONS = [
@@ -565,7 +534,6 @@ export default {
     Download,
     TrendingDown,
     WorkspacePanelToggle,
-    LogisticSimulateSaleDialog,
     LogisticConfigSelect,
     LogisticByItemView,
   },
@@ -621,12 +589,6 @@ export default {
       transferConfirmError: null,
       // BUG-259-02 : section "Pertes" (drawer liste complète)
       lossesDrawer: false,
-      // QA : simuler une vente Weezevent
-      simulateDialog: false,
-      simulateSaving: false,
-      simulatePurging: false,
-      simulateError: null,
-      simulateResult: null,
       // Reset
       resetDialog: false,
       // Dernier inventaire (valeurs grisées + source du reset)
@@ -1057,17 +1019,6 @@ export default {
       const mpId = item?.marketPriceId
       return (mpId && this.marketPriceImages[String(mpId)]) || null
     },
-    refresh() {
-      const spaceId = this.currentSpaceId
-      if (!spaceId) return
-      const configId = this.selectedConfigId
-      this.store.dispatch('logistics/loadStock', { spaceId, configId })
-      this.loadLatestInventory(spaceId)
-      if (this.canReconcile) {
-        this.store.dispatch('logistics/loadReconciliations', { spaceId })
-        this.store.dispatch('logistics/loadLossesSummary', { spaceId })
-      }
-    },
     /** Stock attendu affiché (level − ventes, casse de pack) — 0/0 si non suivi. */
     expectedDisplay(elementId, item) {
       const expected = this.store.getters['logistics/expectedFor'](elementId, item.name)
@@ -1144,6 +1095,7 @@ export default {
         this.movementMarketPrices = await this.store.dispatch('logistics/loadMarketPricesForItem', {
           spaceId: this.currentSpaceId,
           itemKey: item.name,
+          currentMarketPriceId: item.marketPriceId,
         })
       } finally {
         this.movementMarketPricesLoading = false
@@ -1159,6 +1111,10 @@ export default {
           spaceId,
           elementId: this.movementElement.id,
           itemKey: this.movementItem.name,
+          // ADR-0006 (chantier 377) : identité stable déjà résolue par le référentiel /stock —
+          // préférée par le backend à la résolution par nom quand présente.
+          itemKind: this.movementItem.refKind ?? undefined,
+          itemRefId: this.movementItem.refKind ? this.movementItem.id : undefined,
           ...payload,
         })
         this.movementDialog = false
@@ -1173,58 +1129,6 @@ export default {
     openHistory(element) {
       this.historyElement = { id: element.id, name: element.name }
       this.historyDrawer = true
-    },
-    openSimulate() {
-      this.simulateError = null
-      this.simulateResult = null
-      this.simulateDialog = true
-    },
-    /**
-     * QA : simule une vente puis compare l'attendu avant/après pour les denrées
-     * réellement impactées (consumptionPreview renvoyé par le backend). L'« avant »
-     * DOIT être lu du state courant AVANT le loadStock qui suit (sinon écrasé).
-     */
-    async submitSimulateSale({ elementId, lines, realMode }) {
-      const spaceId = this.currentSpaceId
-      if (!spaceId) return
-      this.simulateSaving = true
-      this.simulateError = null
-      try {
-        const res = await this.store.dispatch('logistics/simulateSale', { spaceId, elementId, lines, realMode })
-        const itemKeys = [...new Set((res?.consumptionPreview || []).map((c) => c.itemKey))]
-        const before = {}
-        for (const key of itemKeys) before[key] = this.expectedDisplay(elementId, { name: key })
-        await this.store.dispatch('logistics/loadStock', { spaceId, configId: this.selectedConfigId })
-        const shopEntry = this.shopEntries.find((e) => e.element.id === elementId)
-        this.simulateResult = {
-          elementId,
-          elementName: shopEntry?.element?.name || res?.elementName,
-          lines: itemKeys.map((itemKey) => ({
-            itemKey,
-            before: before[itemKey],
-            after: this.expectedDisplay(elementId, { name: itemKey }),
-          })),
-        }
-      } catch (e) {
-        this.simulateError = e?.response?.data?.message || e?.userMessage || this.t('logiSimulateError')
-      } finally {
-        this.simulateSaving = false
-      }
-    },
-    async purgeSimulated(elementId) {
-      const spaceId = this.currentSpaceId
-      if (!spaceId || !elementId) return
-      this.simulatePurging = true
-      try {
-        await this.store.dispatch('logistics/purgeSimulatedSales', { spaceId, elementId })
-        this.simulateResult = null
-        this.simulateDialog = false
-        this.toast(this.t('logiSimulatePurged'), 'success')
-      } catch (e) {
-        this.toast(this.t('logiSimulatePurgeError'), 'error')
-      } finally {
-        this.simulatePurging = false
-      }
     },
     /**
      * Inventory Reset : construit les lignes depuis le référentiel courant ×
@@ -1247,6 +1151,10 @@ export default {
         const line = {
           elementId,
           itemKey: item.name,
+          // ADR-0006 (chantier 377) : identité stable déjà résolue par le référentiel — absente
+          // pour les niveaux orphelins synthétisés ci-dessous (item quitté du référentiel).
+          itemKind: item.refKind ?? undefined,
+          itemRefId: item.refKind ? item.id : undefined,
           countedPacked: counted?.packedUnits ?? 0,
           countedLoose: counted?.looseUnits ?? 0,
         }
@@ -1416,8 +1324,7 @@ export default {
    Space Inventory (.si-back / .si-actions :deep(.v-btn:not(.si-save-btn))). */
 .lg-back,
 .lg-hbtn,
-.lg-reset-btn,
-.lg-simulate-btn {
+.lg-reset-btn {
   border: 1.5px solid rgba(255, 255, 255, 0.62) !important;
   border-radius: 100px !important;
   background: rgba(255, 255, 255, 0.1) !important;
@@ -1425,27 +1332,23 @@ export default {
 }
 .lg-back :deep(.v-icon),
 .lg-hbtn :deep(.v-icon),
-.lg-reset-btn :deep(.v-icon),
-.lg-simulate-btn :deep(.v-icon) {
+.lg-reset-btn :deep(.v-icon) {
   color: #fff !important;
 }
 .lg-back:hover,
 .lg-hbtn:hover,
-.lg-reset-btn:hover,
-.lg-simulate-btn:hover {
+.lg-reset-btn:hover {
   border-color: #fff !important;
   background: #fff !important;
   color: var(--lg-primary) !important;
 }
 .lg-back:hover :deep(.v-icon),
 .lg-hbtn:hover :deep(.v-icon),
-.lg-reset-btn:hover :deep(.v-icon),
-.lg-simulate-btn:hover :deep(.v-icon) {
+.lg-reset-btn:hover :deep(.v-icon) {
   color: var(--lg-primary) !important;
 }
 .lg-hbtn,
-.lg-reset-btn,
-.lg-simulate-btn {
+.lg-reset-btn {
   text-transform: none;
   font-weight: 700;
   white-space: nowrap;

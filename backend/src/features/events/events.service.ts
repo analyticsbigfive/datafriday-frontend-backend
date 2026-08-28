@@ -44,6 +44,11 @@ export class EventsService {
     eventCategory: true,
     eventSubcategory: true,
     visitingTeam: true,
+    // BUG-368-02 (2026-08-25) : expose le nom du club/intégration réel (Integration.name),
+    // affiché en badge dans le wizard (step 4) — un espace partagé par plusieurs intégrations
+    // (ex. PFC/SFP sur Jean Bouin) n'avait jusqu'ici aucun repère fiable, seulement le nom
+    // saisi manuellement sur l'event.
+    integration: { select: { id: true, name: true } },
   };
 
   private async findOwnedEventTypeOrThrow(id: string, tenantId: string) {
@@ -232,6 +237,20 @@ export class EventsService {
     return space;
   }
 
+  // BUG-368-02 : ownership check pour Event.integrationId, même patron que
+  // findOwnedSpaceOrThrow/findOwnedConfigOrThrow.
+  private async findOwnedIntegrationOrThrow(id: string, tenantId: string) {
+    const integration = await this.prisma.integration.findFirst({
+      where: { id, tenantId },
+    });
+
+    if (!integration) {
+      throw new NotFoundException(`Integration ${id} not found`);
+    }
+
+    return integration;
+  }
+
   /**
    * BUG-34 : `Config` (configuration d'espace) n'a pas de `tenantId` propre — son
    * appartenance tenant est portée par l'espace parent (`Config.spaceId` ->
@@ -337,6 +356,16 @@ export class EventsService {
         data.configurationId = dto.configurationId;
       }
     }
+    // BUG-368-02 : intégration explicite de l'event — voir resolveEventWindow
+    // (aggregation.service.ts) pour son usage (mode `integration-range`, prioritaire).
+    if (dto.integrationId !== undefined) {
+      if (dto.integrationId === null) {
+        data.integrationId = null;
+      } else {
+        await this.findOwnedIntegrationOrThrow(dto.integrationId, tenantId);
+        data.integrationId = dto.integrationId;
+      }
+    }
     return data;
   }
 
@@ -360,11 +389,43 @@ export class EventsService {
     return data;
   }
 
+  /**
+   * BUG-145-01 (plan 25/08, étape 2.4) : garde de cohérence des dates. SFP-Montauban a pu
+   * être saisi avec eventDate 2025-09-20 et eventEndDate 2025-09-06 (fin AVANT le début) —
+   * fenêtre d'attribution invalide côté Analyse (0 € affiché) et agrégats posés sur un
+   * autre jour que la date visible. Aucun contrôle croisé n'existait (validation de format
+   * seule dans le DTO). Comparaison sur les valeurs EFFECTIVES : pour l'update partiel,
+   * l'appelant fusionne le payload avec la ligne existante avant d'appeler cette garde.
+   */
+  private assertEventDatesCoherent(effective: {
+    eventDate: Date;
+    eventStartDate: Date | null;
+    eventEndDate: Date | null;
+  }) {
+    const day = (d: Date) => d.toISOString().slice(0, 10);
+    const { eventDate, eventStartDate, eventEndDate } = effective;
+    if (eventEndDate && eventEndDate.getTime() < eventDate.getTime()) {
+      throw new BadRequestException(
+        `eventEndDate (${day(eventEndDate)}) cannot be earlier than eventDate (${day(eventDate)}).`,
+      );
+    }
+    if (eventStartDate && eventEndDate && eventEndDate.getTime() < eventStartDate.getTime()) {
+      throw new BadRequestException(
+        `eventEndDate (${day(eventEndDate)}) cannot be earlier than eventStartDate (${day(eventStartDate)}).`,
+      );
+    }
+  }
+
   async create(tenantId: string, dto: CreateEventDto) {
     this.logger.log(`Creating event "${dto.name}" for tenant ${tenantId}`);
     let created;
     try {
       const eventDate = new Date(dto.eventDate);
+      this.assertEventDatesCoherent({
+        eventDate,
+        eventStartDate: dto.eventStartDate !== undefined ? new Date(dto.eventStartDate) : null,
+        eventEndDate: dto.eventEndDate !== undefined ? new Date(dto.eventEndDate) : null,
+      });
       created = await this.prisma.event.create({
         data: {
           tenantId,
@@ -475,6 +536,24 @@ export class EventsService {
     const dateChanged =
       dto.eventDate !== undefined && new Date(dto.eventDate).getTime() !== existing.eventDate.getTime();
 
+    // Garde de cohérence sur les valeurs EFFECTIVES (payload partiel fusionné à
+    // l'existant) — voir assertEventDatesCoherent. `null` explicite = champ effacé.
+    // Seulement si le payload touche une date : une ligne DÉJÀ incohérente en base
+    // (Montauban avant son correctif SQL) doit rester renommable/éditable par ailleurs.
+    const touchesDates =
+      dto.eventDate !== undefined || dto.eventStartDate !== undefined || dto.eventEndDate !== undefined;
+    if (touchesDates) this.assertEventDatesCoherent({
+      eventDate: dto.eventDate !== undefined ? new Date(dto.eventDate) : existing.eventDate,
+      eventStartDate:
+        dto.eventStartDate !== undefined
+          ? (dto.eventStartDate === null ? null : new Date(dto.eventStartDate))
+          : existing.eventStartDate,
+      eventEndDate:
+        dto.eventEndDate !== undefined
+          ? (dto.eventEndDate === null ? null : new Date(dto.eventEndDate))
+          : existing.eventEndDate,
+    });
+
     let updated;
     try {
       updated = await this.prisma.event.update({
@@ -542,51 +621,22 @@ export class EventsService {
 
   // ── BUG-021 : désambiguïsation manuelle Event <-> WeezeventEvent ──
 
-  /**
-   * Events non liés (`weezeventEventId` null) pour lesquels au moins un
-   * WeezeventEvent existe le même jour calendaire — cas laissés de côté par
-   * l'auto-link (EventWeezeventLinkService) faute d'appariement 1:1 univoque.
-   * Retourne les candidats WeezeventEvent pour chaque event, à choisir manuellement.
-   */
-  async listAmbiguousWeezeventMatches(tenantId: string) {
-    return this.prisma.$queryRaw<
-      { eventId: string; eventName: string; eventDate: Date; candidates: unknown }[]
-    >`
-      SELECT
-        e.id           AS "eventId",
-        e.name         AS "eventName",
-        e."eventDate"  AS "eventDate",
-        (
-          SELECT jsonb_agg(jsonb_build_object(
-            'id',         we.id,
-            'name',       we.name,
-            'startDate',  we."startDate",
-            'externalId', we."weezeventId"
-          ) ORDER BY we."startDate")
-          FROM "WeezeventEvent" we
-          WHERE we."tenantId" = e."tenantId"
-            AND we."startDate" IS NOT NULL
-            AND DATE(we."startDate") = DATE(e."eventDate")
-        ) AS candidates
-      FROM "Event" e
-      WHERE e."tenantId" = ${tenantId}
-        AND e."weezeventEventId" IS NULL
-        AND EXISTS (
-          SELECT 1 FROM "WeezeventEvent" we
-          WHERE we."tenantId" = e."tenantId"
-            AND we."startDate" IS NOT NULL
-            AND DATE(we."startDate") = DATE(e."eventDate")
-        )
-      ORDER BY e."eventDate" DESC
-    `;
-  }
+  // listAmbiguousWeezeventMatches (banner de résolution manuelle BUG-021, GET
+  // /events/weezevent-ambiguous-matches) supprimée le 2026-08-25 : proposait des conteneurs de
+  // saison/site comme candidats de résolution (cas réel observé, BUG-361-02) et jugée sans valeur
+  // par l'utilisateur une fois ce cas corrigé. resolveWeezeventLink ci-dessous (endpoint PATCH)
+  // reste utilisé par bulkCreateEvents (StepProcessTimeline.vue) pour le rattachement automatique.
 
   /**
    * Résolution manuelle d'un appariement Event <-> WeezeventEvent laissé ambigu.
-   * `weezeventEventId: null` délie explicitement un event déjà lié.
+   * `weezeventEventId: null` délie explicitement un event déjà lié — c'est le "Démapper" du step 4
+   * (StepProcessTimeline.vue, `handleUnmapEvent`) : ne touche QUE le lien vers la donnée
+   * Weezevent/Digifood, jamais `spaceId` (2026-08-25 — l'event reste un event DE l'espace, sa
+   * date/son lieu ne changent pas ; retirer `spaceId` le faisait disparaître de la liste du
+   * space, empêchant tout re-mapping ultérieur — confusion signalée par l'utilisateur).
    */
   async resolveWeezeventLink(id: string, tenantId: string, weezeventEventId: string | null, user?: SpaceScopedUser) {
-    await this.findOne(id, tenantId, user);
+    const existing = await this.findOne(id, tenantId, user);
 
     if (weezeventEventId !== null) {
       const target = await this.prisma.salesEvent.findFirst({
@@ -598,11 +648,58 @@ export class EventsService {
       }
     }
 
-    return this.prisma.event.update({
+    const updated = await this.prisma.event.update({
       where: { id },
       data: { weezeventEventId },
       include: this.includeRelations,
     });
+
+    // Garde `SalesEvent.metadata.dfEventId` (miroir écrit par bulkCreateEvents, lu par
+    // loadWeezeventEvents pour réhydrater weezEventMappings côté front, BUG-331-02) synchronisé
+    // avec `Event.weezeventEventId` — la vraie source de vérité — quel que soit l'appelant de CE
+    // endpoint, pas seulement bulkCreateEvents qui l'écrit lui-même en plus à la création. Sans
+    // ça, "Démapper" rompait le vrai lien mais laissait le miroir pointer sur cet Event : le
+    // WeezeventEvent restait invisible pour "Créer et lier tout" indéfiniment (weezEventMappings
+    // le montrait toujours "déjà lié"), même après un rechargement complet (2026-08-25).
+    const oldLink = existing.weezeventEventId;
+    if (oldLink && oldLink !== weezeventEventId) {
+      await this.clearDfEventIdMirrorIfOwnedBy(oldLink, tenantId, id);
+    }
+    if (weezeventEventId) {
+      await this.setDfEventIdMirror(weezeventEventId, tenantId, id);
+    }
+
+    // Le lien change (ou se vide) : les agrégats déjà calculés pour l'ANCIEN rattachement sont
+    // périmés — même raisonnement que le nettoyage historique de update()/spaceId=null, étendu
+    // ici aux DEUX tables (SpaceRevenueMinuteAgg pour le step 4, SpaceRevenueMinuteItemAgg pour
+    // l'Analyse — la seconde n'était jamais purgée, cf. constat du 2026-08-25).
+    if (existing.spaceId) {
+      const deleteWhere = { tenantId, spaceId: existing.spaceId, weezeventEventId: id };
+      await Promise.all([
+        this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere }),
+        this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere }),
+      ]);
+    }
+
+    return updated;
+  }
+
+  /** Efface le miroir dfEventId d'un SalesEvent — seulement s'il pointe encore vers `expectedDfEventId`
+   *  (un autre Event a pu reprendre ce lien entre-temps, ne pas lui voler son miroir). */
+  private async clearDfEventIdMirrorIfOwnedBy(salesEventId: string, tenantId: string, expectedDfEventId: string) {
+    const se = await this.prisma.salesEvent.findFirst({ where: { id: salesEventId, tenantId }, select: { id: true, metadata: true } });
+    if (!se) return;
+    const meta = (se.metadata as Record<string, unknown>) ?? {};
+    if (meta.dfEventId !== expectedDfEventId) return;
+    await this.prisma.salesEvent.update({ where: { id: se.id }, data: { metadata: { ...meta, dfEventId: null } } });
+  }
+
+  /** Pose/écrase le miroir dfEventId d'un SalesEvent pour qu'il pointe vers `dfEventId`. */
+  private async setDfEventIdMirror(salesEventId: string, tenantId: string, dfEventId: string) {
+    const se = await this.prisma.salesEvent.findFirst({ where: { id: salesEventId, tenantId }, select: { id: true, metadata: true } });
+    if (!se) return;
+    const meta = (se.metadata as Record<string, unknown>) ?? {};
+    await this.prisma.salesEvent.update({ where: { id: se.id }, data: { metadata: { ...meta, dfEventId } } });
   }
 
   // ── Event Types CRUD ──

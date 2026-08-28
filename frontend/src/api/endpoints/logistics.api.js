@@ -23,12 +23,16 @@ export async function getLogisticsStock(spaceId, configId, eventId) {
 
 /**
  * Market prices candidats pour le dropdown du popup +/− d'une denrée — évite de
- * charger le catalogue complet côté front.
- * GET /logistics/:spaceId/market-prices?itemKey=
+ * charger le catalogue complet côté front. `currentMarketPriceId` : le market price
+ * déjà lié à cette ligne de stock, renvoyé même si son nom a divergé depuis (évite
+ * qu'un renommage côté Market Price "perde" la sélection en cours, cf. BUG-049).
+ * GET /logistics/:spaceId/market-prices?itemKey=&currentMarketPriceId=
  */
-export async function getMarketPricesForItem(spaceId, itemKey) {
+export async function getMarketPricesForItem(spaceId, itemKey, currentMarketPriceId) {
   if (!itemKey) return []
-  return api.get(`/logistics/${spaceId}/market-prices`, { params: { itemKey } })
+  const params = { itemKey }
+  if (currentMarketPriceId) params.currentMarketPriceId = currentMarketPriceId
+  return api.get(`/logistics/${spaceId}/market-prices`, { params })
 }
 
 /**
@@ -84,7 +88,9 @@ export async function getElementHistory(elementId, { limit, cursor } = {}) {
  * les écarts dans une réconciliation. Permission front.fb.logisticReconcile.
  * POST /logistics/:spaceId/reset
  * @param {object} payload { eventId?, eventName?, lines: [{elementId, itemKey,
- *   countedPacked, countedLoose, unitsPerPack?}] }
+ *   countedPacked, countedLoose, unitsPerPack?, itemKind?, itemRefId?}] } — itemKind/itemRefId
+ *   (ADR-0006, chantier 377) : identité stable déjà résolue par le référentiel, préférée par le
+ *   backend à la résolution par nom quand fournie.
  */
 export async function resetLogisticsInventory(spaceId, payload) {
   return api.post(`/logistics/${spaceId}/reset`, payload)

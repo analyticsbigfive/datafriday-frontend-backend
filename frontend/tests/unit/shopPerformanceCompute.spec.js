@@ -5,6 +5,7 @@ import {
   aggregateBaseShops,
   aggregateShopsFromTimeline,
   computeRatesFromTimeline,
+  sumShopTransactionRates,
 } from '@/utils/shopPerformanceCompute'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
@@ -194,5 +195,42 @@ describe('aggregateShopsFromTimeline', () => {
     const shops = aggregateShopsFromTimeline(rows, events, { start: '20:00', end: '20:05' })
     expect(shops[0].totalRevenue).toBe(15)
     expect(shops[0].totalTransactions).toBe(0)
+  })
+})
+
+// ─── sumShopTransactionRates (carte TX/MIN, décision JLH 2026-08-24) ────────
+describe('sumShopTransactionRates', () => {
+  it('Σ des rates par shop — même sémantique que computeRatesFromTimeline', () => {
+    // Bar A : (60 txn ev1 + 10 txn ev2) / (70 min + 10 min) = 70/80 ; Kiosque B : 3.
+    expect(sumShopTransactionRates(timeline)).toBeCloseTo(70 / 80 + 3, 10)
+  })
+
+  it('parité verrouillée : Σ computeRatesFromTimeline === sumShopTransactionRates', () => {
+    const base = aggregateBaseShops(granular, events)
+    const shops = computeRatesFromTimeline(base, events, timeline)
+    const panelSum = shops.reduce((s, sh) => s + (sh.transactionRate || 0), 0)
+    expect(sumShopTransactionRates(timeline)).toBeCloseTo(panelSum, 10)
+  })
+
+  it('records pré-filtrés (plage horaire) : span des minutes restantes', () => {
+    // Simule filteredBaskets après une plage 21:00-21:04 : Bar A seul, 25 txn / 5 min.
+    const windowed = timeline.filter((r) => r.minute >= '21:00' && r.minute <= '21:04')
+    expect(sumShopTransactionRates(windowed)).toBeCloseTo(5, 10)
+  })
+
+  it('ignore minutes invalides, txn ≤ 0, records sans shop ; vide → 0', () => {
+    expect(sumShopTransactionRates([])).toBe(0)
+    expect(sumShopTransactionRates(null)).toBe(0)
+    const rows = [
+      { eventId: 'ev1', shopName: 'Bar A', minute: 'bad', transactionCount: 5 },
+      { eventId: 'ev1', shopName: 'Bar A', minute: '20:00', transactionCount: 0 },
+      { eventId: 'ev1', minute: '20:00', transactionCount: 5 },
+    ]
+    expect(sumShopTransactionRates(rows)).toBe(0)
+  })
+
+  it('ne mute pas les records gelés (BUG-285)', () => {
+    const frozen = timeline.map((r) => Object.freeze({ ...r }))
+    expect(() => sumShopTransactionRates(frozen)).not.toThrow()
   })
 })

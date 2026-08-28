@@ -236,34 +236,51 @@ const chartOptions = computed(() => ({
   height: 180px;
   position: relative;
 }
-/* Skeleton : anneau + 3 lignes de légende, même shimmer que SpacePredictView. */
+/* Skeleton : anneau + 3 lignes de légende, même rendu shimmer que SpacePredictView.
+   Lighthouse 24/08 (BUG-363-01) : l'ancienne animation de `background-position`
+   n'est PAS compositable — 21 éléments repeints à chaque frame pendant tout le
+   chargement. Désormais : fond uni + voile en pseudo-élément animé en
+   `transform: translateX` (composité GPU, zéro repaint). */
 .donut-skeleton-ring {
   border-radius: 50%;
-  background: linear-gradient(90deg, #EEEEEE 0%, #F7F7F7 42%, #EEEEEE 78%);
-  background-size: 220% 100%;
-  animation: donut-shimmer 1.3s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  background: #EEEEEE;
   /* Trou central : reproduit le cutout 65% du Doughnut. */
   mask: radial-gradient(circle at 50% 50%, transparent 0 32%, #000 33%);
   -webkit-mask: radial-gradient(circle at 50% 50%, transparent 0 32%, #000 33%);
 }
 .donut-skeleton-legend {
   display: grid;
-  gap: 10px;
-  padding: 6px 8px 2px;
+  /* CLS 0.102 (Lighthouse 24/08) : rangées calées sur les 28px des v-list-item
+     de la légende réelle — la carte garde la même hauteur quand les données
+     remplacent le skeleton, plus de layout shift. */
+  grid-auto-rows: 28px;
+  align-items: center;
+  padding: 0 8px;
 }
 .donut-skeleton-line {
   height: 10px;
   border-radius: 999px;
-  background: linear-gradient(90deg, #EEEEEE 0%, #F7F7F7 42%, #EEEEEE 78%);
-  background-size: 220% 100%;
-  animation: donut-shimmer 1.3s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
+  background: #EEEEEE;
 }
 .donut-skeleton-line:nth-child(2) { width: 78%; }
 .donut-skeleton-line:nth-child(3) { width: 56%; }
 
+.donut-skeleton-ring::after,
+.donut-skeleton-line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, #F7F7F7 50%, transparent 100%);
+  transform: translateX(-100%);
+  animation: donut-shimmer 1.3s ease-in-out infinite;
+}
+
 @keyframes donut-shimmer {
-  0% { background-position: 120% 0; }
-  100% { background-position: -120% 0; }
+  to { transform: translateX(100%); }
 }
 
 .donut-empty {
@@ -340,10 +357,13 @@ const chartOptions = computed(() => ({
   color: #f9fafb;
 }
 /* Skeleton : shimmer clair (#EEEEEE/#F7F7F7) invisible ou éblouissant sur fond
-   sombre → même animation, dégradé recalé sur la famille de surfaces sombres. */
+   sombre → même animation, couleurs recalées sur la famille de surfaces sombres. */
 .donut-card--dark .donut-skeleton-ring,
 .donut-card--dark .donut-skeleton-line {
-  background: linear-gradient(90deg, #1f2937 0%, #374151 42%, #1f2937 78%);
-  background-size: 220% 100%;
+  background: #1f2937;
+}
+.donut-card--dark .donut-skeleton-ring::after,
+.donut-card--dark .donut-skeleton-line::after {
+  background: linear-gradient(90deg, transparent 0%, #374151 50%, transparent 100%);
 }
 </style>

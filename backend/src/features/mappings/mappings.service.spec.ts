@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { RedisService } from '../../core/redis/redis.service';
 import { MappingsService } from './mappings.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpacesService } from '../spaces/spaces.service';
@@ -38,6 +39,8 @@ describe('MappingsService', () => {
         { provide: SpacesService, useValue: mockSpacesService },
         { provide: MenuItemPricingService, useValue: mockPricingService },
         { provide: SpaceAccessService, useValue: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => 'ALL' } },
+        // BUG-144-01 : purge du cache spaces:unmapped:* à l'écriture de mapping.
+        { provide: RedisService, useValue: { deletePattern: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 

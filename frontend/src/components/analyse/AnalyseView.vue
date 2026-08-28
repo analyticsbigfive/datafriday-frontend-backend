@@ -63,6 +63,33 @@
                 >
                   <v-icon size="18">mdi-pencil-outline</v-icon>
                 </v-btn>
+                <!-- BUG-356-01 v2/v3 (retours client + user, 24/08) : l'indicateur
+                     « Non mappées » vit DANS le bandeau rouge — le bandeau dédié prenait
+                     de la place. v3 : triangle warning `mdi-alert` (plus lisible que
+                     link-variant-off) + VRAIE infobulle Vuetify (patron SummaryPanel)
+                     au lieu du title natif. Visible seulement si volume > 0 ;
+                     clic → Data Integration. Ne change aucun chiffre. -->
+                <v-tooltip v-if="unmappedBannerText" location="bottom" max-width="300">
+                  <template #activator="{ props: tipProps }">
+                    <v-btn
+                      v-bind="tipProps"
+                      icon
+                      variant="text"
+                      size="small"
+                      class="fs-icon-btn av-unmapped-warn"
+                      :aria-label="unmappedBannerText"
+                      @click="router.push({ name: 'data-integration-fb' })"
+                    >
+                      <v-icon size="18">mdi-alert</v-icon>
+                    </v-btn>
+                  </template>
+                  <div class="av-unmapped-tip">
+                    <div>{{ unmappedBannerText }}</div>
+                    <div class="av-unmapped-tip__action">
+                      {{ t('anUnmappedTipAction') }} {{ t('anUnmappedInfoLink') }}
+                    </div>
+                  </div>
+                </v-tooltip>
                 <v-spacer />
                 <v-btn
                   icon
@@ -323,6 +350,31 @@
             class="mb-4"
           >
             {{ t('anItemLevelTruncated').replace('{n}', String(ITEM_LEVEL_EVENT_CAP)) }}
+          </v-alert>
+
+
+          <!-- BUG-363-01 — chargement progressif : indicateur x/N pendant que les
+               paquets event-timeline arrivent (Jean Bouin, 77 events : remplace
+               110 s d'écran figé sans feedback). -->
+          <v-alert
+            v-if="itemRecordsSourceState === 'loading' && itemRecordsLoadProgress.total > 1"
+            type="info"
+            variant="tonal"
+            density="compact"
+            icon="mdi-progress-download"
+            class="mb-4"
+          >
+            {{ t('anEventsLoadingProgress').replace('{x}', String(itemRecordsLoadProgress.loaded)).replace('{n}', String(itemRecordsLoadProgress.total)) }}
+            <!-- BUG-364-01 : barre DÉTERMINÉE (progression réelle connue par paquet,
+                 pas de spinner — règle « zéro valeur provisoire »), même palette que
+                 l'alerte tonale. -->
+            <v-progress-linear
+              :model-value="(itemRecordsLoadProgress.loaded / itemRecordsLoadProgress.total) * 100"
+              color="info"
+              height="6"
+              rounded
+              class="mt-2"
+            />
           </v-alert>
 
           <v-row v-if="chartsLoading" dense class="mb-4">
@@ -644,10 +696,14 @@ import {
   resolveItemCategory,
   buildItemFilterPredicate,
 } from '@/utils/analyseDimensions'
+// BUG-364-01 : détection d'une plage horaire active (curseur de la courbe).
+import { hasActiveRange } from '@/utils/timelineBucketing'
 import { UNATTACHED_ITEM_KEY, reconcileRecord } from '@/utils/analyseReconciliation'
 import { useReconciliationContext } from '@/composables/useReconciliationContext'
 import { useTransactionBaskets } from '@/composables/useTransactionBaskets'
+import { useAnalyseUnmapped } from '@/composables/useAnalyseUnmapped'
 import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
+import { sumShopTransactionRates } from '@/utils/shopPerformanceCompute'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
@@ -769,6 +825,8 @@ const {
   // BUG-350-01 — cap porté à 100 ; au-delà la troncature subsiste et doit être dite.
   truncatedEventCount: itemRecordsTruncatedCount,
   sourceState: itemRecordsSourceState,
+  // BUG-363-01 — progression du chargement par paquets (indicateur « x/N »).
+  loadProgress: itemRecordsLoadProgress,
 } = useAnalyseItemRecords(filteredEvents)
 
 // Contexte de réconciliation PARTAGÉ avec useAnalyseItemRecords : voir
@@ -782,9 +840,21 @@ const reconciliationCtx = useReconciliationContext()
 // ci-dessous, les records article des scénarios Predict, et la timeline. Le
 // filtre event est déjà appliqué en amont (filteredEvents).
 const itemLevelRecords = computed(() => {
+  // BUG-364-01 (étape 5) : le montage est en grain SUMMARY (event × shop × produit,
+  // sans minute). Le curseur horaire (`selectedTimeRange`, écrit par la courbe
+  // ouverte) ne peut donc plus filtrer ces lignes — quand la courbe est OUVERTE et
+  // qu'une plage est active, la source devient les lignes MINUTE de la courbe
+  // (déjà chargées plein grain, même réconciliation, même prédicat). Les bornes
+  // sont DATÉES : seules les lignes de l'event ouvert passent — la sémantique
+  // d'avant, à l'identique. Courbe fermée : plage résiduelle inerte (skipMinute),
+  // le curseur n'a jamais agi sans courbe ouverte.
+  const cursorActive = isTimelineActive.value && hasActiveRange(filters.value?.selectedTimeRange)
+  if (cursorActive) {
+    return reconciledTimelineData.value.filter(buildItemFilterPredicate(filters.value || {}))
+  }
   const recs = globalItemRecords.value || []
   if (!recs.length) return []
-  return recs.filter(buildItemFilterPredicate(filters.value || {}))
+  return recs.filter(buildItemFilterPredicate(filters.value || {}, { skipMinute: true }))
 })
 
 // ─── Timeline : réconciliation + filtrage AVANT le graphique ───────────────
@@ -825,9 +895,26 @@ const filteredTimelineData = computed(() =>
 const {
   basketRecords,
   loading: basketsLoading,
+  sourceState: basketsSourceState,
   refresh: refreshBaskets,
   clearCache: clearBasketsCache,
 } = useTransactionBaskets(filteredEvents)
+
+// ── Volume non mappé (BUG-356-01) — indicateur INFORMATIF du bandeau rouge ──
+// Décision JLH 2026-08-24 : les ventes non mappées restent COMPTÉES, affichées
+// « Non mappées ». v2 (retour client, même jour) : plus de bandeau dédié — une
+// icône ambre dans le bandeau rouge, texte complet au survol, clic → Data
+// Integration. Ne change aucun chiffre : distingue « rien vendu » de « rien de
+// mappé » (piège BUG-300-01) et pointe le travail restant.
+const { unmapped: analyseUnmapped, clearCache: clearUnmappedCache } =
+  useAnalyseUnmapped(filteredEvents)
+const unmappedBannerText = computed(() => {
+  const x = analyseUnmapped.value
+  if (!x.known || !x.lines) return ''
+  return t('anUnmappedInfo')
+    .replace('{lines}', formatNumber(x.lines))
+    .replace('{revenue}', formatCurrency(x.revenueHt))
+})
 
 // Réconciliation AVANT filtrage, exactement comme la timeline — et pour la même
 // raison : les donuts « type de PdV » / « zone » émettent des clés RÉCONCILIÉES
@@ -854,6 +941,19 @@ const filteredBaskets = computed(() =>
   reconciledBaskets.value.filter(buildBasketFilterPredicate(filters.value || {})),
 )
 
+// Décision JLH 2026-08-24 — valeur UNIQUE de la carte TX/MIN : Σ des taux moyens
+// par PdV (txn / minutes actives réelles de chaque shop), dérivée des paniers
+// filtrés — donc réactive à TOUS les filtres de la page comme les autres KPI, et
+// stable à l'ouverture/fermeture du panneau Shop Performance (l'ancien override
+// au clic faisait sauter la carte d'une formule à l'autre). `null` = pas de
+// valeur (predict, ou source paniers pas terminale → squelette via
+// kpiSourceState) ; un périmètre chargé sans ticket donne 0, terminal et exact.
+const perShopTransactionRateSum = computed(() =>
+  isPredictRecords.value || basketsSourceState.value === 'loading'
+    ? null
+    : sumShopTransactionRates(filteredBaskets.value),
+)
+
 // Signature des filtres qui BOUGENT les données de la timeline. Sert au
 // graphique à remettre son curseur horaire à pleine largeur : `rangePct` y est
 // local, donc après un changement de filtre les mêmes pourcentages désigneraient
@@ -863,6 +963,10 @@ const filteredBaskets = computed(() =>
 const timelineFilterSignature = computed(() => {
   const f = filters.value || {}
   return [
+    // BUG-355-01 : `selectedEventIds` INCLUS. Sans lui, changer d'event conservait
+    // une plage horaire DATÉE de l'event précédent — bornes d'un autre jour, donc
+    // aucun record dans la fenêtre et les vues se vidaient en silence.
+    f.selectedEventIds,
     f.selectedShopIds,
     f.selectedShopTypes,
     f.selectedShopAreas,
@@ -916,6 +1020,9 @@ const kpiSourceState = computed(() =>
   resolveKpiSourceState({
     isPredict: isPredictRecords.value,
     itemLevelState: itemRecordsSourceState.value,
+    // BUG-354-01 — les transactions et le panier moyen viennent des paniers : la bande
+    // reste en squelette tant que cette seconde source canonique n'a pas répondu.
+    transactionState: basketsSourceState.value,
   }),
 )
 
@@ -1360,10 +1467,48 @@ watch(
   },
 )
 
+// BUG-146-01 (décision Bertrand 25/08) — CA/transactions de la bande KPI depuis le
+// rollup `Event.revenue`/`transactionCount` (même donnée qu'Events Library et que la
+// carte d'accueil → cohérence au centime par construction), UNIQUEMENT quand le
+// périmètre affiché est « des events entiers » : mode Analyse, aucun filtre qui
+// découpe l'INTÉRIEUR des events (PdV / type / zone / article / curseur horaire).
+// Les filtres d'events (catégories, équipes, dates…) réduisent `filteredEvents` et
+// restent compatibles — le rollup se somme sur les events filtrés. `null` sinon →
+// formules record-level historiques.
+const intraEventFiltersActive = computed(() => {
+  const f = filters.value || {}
+  const some = (v) => Array.isArray(v) && v.length > 0
+  const tr = f.selectedTimeRange
+  return (
+    some(f.selectedShopIds) || some(f.selectedShopTypes) || some(f.selectedShopAreas) ||
+    some(f.selectedMenuItemIds) || some(f.selectedMenuItemTypes) || some(f.selectedMenuItemCategories) ||
+    !!(tr && (tr.start || tr.end))
+  )
+})
+const eventRollupTotals = computed(() => {
+  if (isPredictRecords.value || intraEventFiltersActive.value) return null
+  const evs = filteredEvents.value || []
+  if (!evs.length) return null
+  let revenue = 0
+  let transactions = 0
+  let eventsWithRevenueCount = 0
+  for (const e of evs) {
+    // Un event sans rollup (jamais agrégé : `revenue` null/undefined) invalide la
+    // bascule — mélanger rollup et absence sous-compterait en silence.
+    const r = e.revenue
+    if (r == null || Number.isNaN(Number(r))) return null
+    revenue += Number(r)
+    transactions += Number(e.transactionCount || 0)
+    if (Number(r) > 0) eventsWithRevenueCount++
+  }
+  return { revenue, transactions, eventsWithRevenueCount }
+})
+
 const metrics = useMetricsCalculator({
   filteredShopGranularData: kpiRecords,
   chartFilteredEvents: filteredEvents,
   menuItemCostMap,
+  eventRollupTotals,
   isTimelineFilterActive: isTimelineActive,
   // operatingMinutes doit refléter les events filtrés (et non l'ensemble brut)
   // pour que la métrique « Transaction Rate » réagisse aux filtres.
@@ -1372,13 +1517,23 @@ const metrics = useMetricsCalculator({
     filteredEvents.value.reduce((sum, e) => sum + (e.durationMinutes || 180), 0)
   ),
   selectedEventIds: computed(() => filters.value.selectedEventIds || []),
-  // Lot 4.1 — si le panneau Transaction Rate est ouvert et enrichi, on
-  // pousse la somme des txn/min par shop (cf. React `shopPerformanceData`).
-  overrideTransactionRate: computed(() =>
-    showTransactionRateShops.value && shopPerformance.enriched.value
-      ? shopPerformance.totalTransactionRate.value
-      : null,
+  // BUG-354-01 — les transactions viennent des PANIERS (un ticket = une ligne),
+  // plus de la somme du grain article qui comptait un ticket autant de fois qu'il
+  // portait d'articles distincts. `null` tant que la source n'a pas répondu.
+  // `null` tant que la source paniers n'est pas terminale — `basketsLoading` seul ne
+  // suffit pas : au tout premier rendu il vaut encore `false` alors que le batch n'est
+  // pas parti, et `filteredBaskets` vaut `[]` (donc « 0 transaction »). L'état à 3
+  // valeurs distingue « pas encore » de « rien à afficher ». Pendant 'loading', la
+  // bande KPI est de toute façon en squelette (`kpiSourceState`).
+  transactionRecords: computed(() =>
+    isPredictRecords.value || basketsSourceState.value === 'loading'
+      ? null
+      : filteredBaskets.value,
   ),
+  // Décision JLH 2026-08-24 — Σ des taux par PdV en permanence (voir la
+  // définition de `perShopTransactionRateSum`) : plus d'override conditionné à
+  // l'ouverture du panneau, le chiffre de la carte ne bouge plus au clic.
+  perShopTransactionRate: perShopTransactionRateSum,
 })
 
 // ---- KPI de la bande centre du header (WorkspaceAppHeader) -----------------
@@ -1428,6 +1583,22 @@ const shopPerformance = useShopPerformance({
   spaceId: computed(() => route.params.spaceId),
   // BUG-287-01 : la plage horaire de la timeline fenêtre txn/min + agrégats.
   timeRange: computed(() => filters.value?.selectedTimeRange || null),
+  // BUG-364-01 — sources PARTAGÉES : la page possède déjà la timeline item-level
+  // (useAnalyseItemRecords) et les paniers (useTransactionBaskets) pour les mêmes
+  // events. Les passer ici supprime le re-téléchargement ET la copie mémoire que
+  // ce composable gardait en double (5ᵉ point de rétention, ~164 Mo).
+  // BUG-364-01 (étape 5) : le montage est en grain summary (sans minute) ; quand le
+  // curseur horaire est actif (courbe ouverte), le panneau bascule sur les lignes
+  // MINUTE de la courbe — même source que les KPIs, même sémantique fenêtrée.
+  sharedTimelineRecords: computed(() =>
+    isTimelineActive.value && hasActiveRange(filters.value?.selectedTimeRange)
+      ? reconciledTimelineData.value
+      : globalItemRecords.value,
+  ),
+  sharedBasketRecords: basketRecords,
+  sharedReady: computed(
+    () => itemRecordsSourceState.value !== 'loading' && basketsSourceState.value !== 'loading',
+  ),
 })
 
 // Ferme automatiquement le panneau si la sélection devient vide
@@ -1538,6 +1709,15 @@ watch(
     const sameLen = ids.length === (prev?.length || 0)
     const sameContent = sameLen && ids.every((x) => prev.includes(x))
     if (sameContent) return
+
+    // BUG-359-01 — au remontage après un changement d'espace, ce watcher
+    // (`immediate: true`) tire AVANT loadSpace : le store contient encore les
+    // events ET la sélection de l'ANCIEN espace → la timeline s'ouvrait titrée
+    // avec le match de l'espace précédent pendant que le fetch partait avec le
+    // nouveau spaceId. Tant que le store n'est pas aligné sur la route, on ne
+    // déclenche rien : le reset des filtres au changement d'espace (store,
+    // CLEAR_SPACE_KEYED_CACHES) refera passer ce watcher avec un état cohérent.
+    if (String(store.state.analyse.spaceId || '') !== String(route.params.spaceId || '')) return
 
     if (!ids || ids.length === 0) {
       if (isTimelineActive.value) closeTimeline()
@@ -1991,7 +2171,20 @@ function resetLiveFiltersIfNeeded() {
   liveEventDetected.value = false
 }
 onDeactivated(resetLiveFiltersIfNeeded)
-onBeforeUnmount(resetLiveFiltersIfNeeded)
+// BUG-364-01 — purge des caches composables au VRAI démontage (pas onDeactivated :
+// la route Live keepAlive doit garder ses données). Jusqu'ici la purge n'existait
+// qu'au changement d'espace (watcher route plus bas) : quitter l'Analyse pour un
+// autre module laissait ~164 Mo de records préprocessés en mémoire pour rien.
+// Le cache session module-level de space.api.js (LRU 30, borné) n'est PAS touché —
+// revenir sur la page reste instantané pour les events encore dans le LRU.
+onBeforeUnmount(() => {
+  resetLiveFiltersIfNeeded()
+  clearItemRecordsCache()
+  clearComparisonCache()
+  clearBasketsCache()
+  clearUnmappedCache()
+  shopPerformance.reset()
+})
 
 onMounted(() => {
   ensureAuthAndLoad(route.params.spaceId)
@@ -2026,12 +2219,18 @@ watch(
       clearItemRecordsCache()
       clearComparisonCache()
       clearBasketsCache()
+      clearUnmappedCache()
       // BUG-300-01 — reset immédiat du latch du différé « All Configurations »
       // (le watcher `loading` le remet aussi à false, mais plus tard) : la
       // cause racine du « Par zone » vide était la garde « déjà chargé » de
       // requestDeferredAllConfigsContext, qui voyait le contexte de l'ANCIEN
       // espace — purgé désormais par CLEAR_SPACE_KEYED_CACHES (store).
       allConfigsCtxRequested = false
+      // BUG-359-01 — le détail timeline ouvert appartient à l'ancien espace
+      // (instance survivante = route keepAlive, key = route.name) : on le ferme
+      // avant de charger le nouveau, sinon il reste affiché avec le match de
+      // l'espace précédent.
+      if (isTimelineActive.value) closeTimeline()
     }
     ensureAuthAndLoad(id)
   }
@@ -2267,6 +2466,19 @@ function findTodayEventId() {
   background: #ff3131;
   box-shadow: 0 8px 24px rgba(255, 49, 49, 0.28);
 }
+/* Indicateur « Non mappées » (BUG-356-01 v2/v3) : triangle warning ambre sur le
+   bandeau rouge — les autres icônes y sont blanches, celle-ci doit se lire comme
+   un avertissement. */
+.av-unmapped-warn .v-icon {
+  color: #ffd54f;
+}
+
+.av-unmapped-tip__action {
+  margin-top: 4px;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
 /* Badge Live (module Live) : pastille claire + point pulsant sur le bandeau rouge. */
 .av-live-badge {
   display: inline-flex;

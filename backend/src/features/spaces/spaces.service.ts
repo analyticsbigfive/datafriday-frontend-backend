@@ -10,7 +10,12 @@ import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { LogisticsService } from '../logistics/logistics.service';
-import { parseEventSessions, combineDayAndLocalTime } from '../../shared/utils/event-window.util';
+import { resolveEventTransactionWindow } from '../../shared/utils/event-window.util';
+// BUG-146-01 : mêmes marges portes→fin que l'agrégation (resolveEventWindow) — la fenêtre
+// de l'Analyse doit être identique à celle qui a écrit les agrégats, sinon les deux
+// pages divergent à nouveau.
+import { Semaphore } from '../../shared/utils/semaphore';
+import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
 
 /**
  * Nom de la configuration interne auto-générée par le backend lors de l'import Weezevent.
@@ -47,6 +52,36 @@ export class SpacesService {
   private readonly SPACE_SHOPDETAILS_CACHE_TTL = 60;
   private readonly SPACE_SHOPDETAILS_CACHE_KEY = (tenantId: string, spaceId: string) =>
     `spaces:shopdetails:${tenantId}:${spaceId}`;
+  // BUG-143-01 : les endpoints batch de l'Analyse (event-timeline, transaction-baskets)
+  // relisaient la pré-agrégat + le JOIN d'affichage à CHAQUE chargement de page — 7 à 27 s
+  // par paquet de 15 events sur Stade Jean Bouin (275k lignes d'agrégat) — alors que
+  // l'historique d'un event PASSÉ est immuable. Cache par (tenant, space, event) : TTL long
+  // quand la fenêtre de ventes de l'event est terminée, court sinon (event du jour : le
+  // module Live re-poll toutes les 15 s et doit voir les ventes fraîches).
+  // analyse-unmapped N'EST PAS caché (BUG-137-01 : un re-mapping doit se voir au prochain
+  // chargement). Invalidation : invalidateSpaceCache + fin de re-agrégation (voir
+  // EVENT_BATCH_CACHE_PREFIXES, purgé aussi par AggregationService.executeProcessEvents).
+  private readonly EVENT_TIMELINE_CACHE_KEY = (tenantId: string, spaceId: string, eventId: string) =>
+    `spaces:evtimeline:${tenantId}:${spaceId}:${eventId}`;
+  private readonly EVENT_BASKETS_CACHE_KEY = (tenantId: string, spaceId: string, eventId: string) =>
+    `spaces:baskets:${tenantId}:${spaceId}:${eventId}`;
+  private readonly EVENT_BATCH_CACHE_TTL_PAST = 6 * 3600; // 6 h — event terminé, données immuables
+  private readonly EVENT_BATCH_CACHE_TTL_LIVE = 60; // event du jour/futur ou sans fenêtre résolue
+  // BUG-144-01 : volume non mappé, caché comme les deux autres depuis le 25/08 — REMPLACE
+  // la décision BUG-137-01 (« jamais caché ») : l'invalidation à l'écriture de mapping
+  // (MappingsService) garantit qu'un re-mapping se voit au chargement suivant, sans payer
+  // le re-scan brut des 786k lignes à CHAQUE visite.
+  private readonly EVENT_UNMAPPED_CACHE_KEY = (tenantId: string, spaceId: string, eventId: string) =>
+    `spaces:unmapped:${tenantId}:${spaceId}:${eventId}`;
+  // BUG-144-01 : entrées STABLES de resolveEventSalesScope (events de l'espace, intégrations,
+  // timezone) — recalculées à chaque appel batch alors qu'elles ne varient pas par event.
+  private readonly SPACE_SALESSCOPE_CACHE_KEY = (tenantId: string, spaceId: string) =>
+    `spaces:salesscope:${tenantId}:${spaceId}`;
+  private readonly SPACE_SALESSCOPE_CACHE_TTL = 60;
+  // BUG-144-01 : borne de concurrence de la section SQL des 3 endpoints batch Analyse —
+  // 2 requêtes lourdes en parallèle, 32 en file, 60 s d'attente max → 503 explicite.
+  // Les hits cache Redis ne passent PAS par cette file.
+  private readonly analyseBatchSemaphore = new Semaphore(2, 32, 60_000, 'analyse-batch');
 
   constructor(
     private readonly prisma: PrismaService,
@@ -100,6 +135,13 @@ export class SpacesService {
       keys.push(this.redis.delete(this.SPACE_SHOPIDS_CACHE_KEY(tenantId, spaceId)));
       // deletePattern : getShopDetails écrit des clés suffixées ":page:limit:granular"
       keys.push(this.redis.deletePattern(`${this.SPACE_SHOPDETAILS_CACHE_KEY(tenantId, spaceId)}*`) as unknown as Promise<void>);
+      // BUG-143-01 : caches par event des endpoints batch Analyse (clés suffixées ":eventId").
+      // Motifs partagés avec AggregationService.executeProcessEvents (fin de re-agrégation).
+      for (const pattern of eventBatchCachePatterns(tenantId, spaceId)) {
+        keys.push(this.redis.deletePattern(pattern) as unknown as Promise<void>);
+      }
+      // BUG-144-01 : entrées stables de resolveEventSalesScope.
+      keys.push(this.redis.delete(this.SPACE_SALESSCOPE_CACHE_KEY(tenantId, spaceId)));
     }
     await Promise.all(keys);
   }
@@ -1199,41 +1241,61 @@ export class SpacesService {
     spaceId: string,
     uniqueIds: string[],
     tenantId: string,
-  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql; spaceTimezone: string } | null> {
+  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql; spaceTimezone: string; shopIds: string[]; windows: { id: string; windowStart: Date; windowEnd: Date; tagId: string | null; eventIntegrationId: string | null }[] } | null> {
     // All independent queries run in parallel: ownership check, event dates (tried
     // against both DataFriday Event and WeezeventEvent so the frontend can pass
     // either a DataFriday UUID or a WeezeventEvent CUID), integration scope,
     // shop IDs resolved from plan floors + forecourt, and the space's timezone
     // (used to display transaction hours in venue-local time, see BUG-270) —
     // none of this varies per event.
-    const [, datafridayEvents, allSpaceEvents, weezeventEvents, locationMapping, shopIds, spaceRow] = await Promise.all([
+    // BUG-144-01 : les entrées STABLES (tous les events de l'espace, intégrations,
+    // timezone) ne varient pas par event ni par paquet — cachées 60 s
+    // (spaces:salesscope:*), purgées par invalidateSpaceCache, TTL court en filet
+    // pour les écritures qui n'y passent pas (édition d'event). L'ancien 1er
+    // event.findMany (events du batch seul) est SUPPRIMÉ : dérivable de la liste
+    // complète, déjà nécessaire à BUG-339-02 (events voisins hors batch).
+    // BUG-146-01 : le select porte aussi eventStartDate (même précédence de date que
+    // l'agrégation — Montauban a un eventDate faux mais un eventStartDate juste) et
+    // weezeventEventId (tag du conteneur de club — devient ev."tagId" des requêtes).
+    // BUG-136-01 (conservé) : locationSpaceMapping en findMany, PAS findFirst — un
+    // espace peut être alimenté par PLUSIEURS intégrations.
+    const [, statics, weezeventEvents, shopIds] = await Promise.all([
       this.findOne(spaceId, tenantId),
-      this.prisma.event.findMany({
-        where: { id: { in: uniqueIds }, tenantId, spaceId },
-        select: { id: true, eventDate: true, eventEndDate: true, eventEndTime: true, sessions: true },
-      }),
-      // BUG-339-02 : tous les events de l'espace (pas seulement le batch demandé) — nécessaires
-      // pour détecter qu'un event VOISIN, hors batch, se termine le jour où celui du batch
-      // commence (ex. "PFC - RC Lens" finit le 15/02 à 03h00, jour de début de "SFP-Toulouse").
-      this.prisma.event.findMany({
-        where: { tenantId, spaceId },
-        select: { id: true, eventDate: true, eventEndDate: true, eventEndTime: true, sessions: true },
-      }),
+      this.redis.getOrSet(
+        this.SPACE_SALESSCOPE_CACHE_KEY(tenantId, spaceId),
+        async () => {
+          const [allSpaceEvents, locationMapping, spaceRow] = await Promise.all([
+            this.prisma.event.findMany({
+              where: { tenantId, spaceId },
+              select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true, weezeventEventId: true, integrationId: true },
+            }),
+            this.prisma.locationSpaceMapping.findMany({
+              where: { tenantId, spaceId },
+              select: { salesLocationId: true },
+            }),
+            this.prisma.space.findFirst({
+              where: { id: spaceId, tenantId },
+              select: { timezone: true },
+            }),
+          ]);
+          return {
+            allSpaceEvents,
+            integrationIds: locationMapping.map(m => m.salesLocationId).filter(Boolean),
+            spaceTimezone: spaceRow?.timezone || 'Europe/Paris',
+          };
+        },
+        { ttl: this.SPACE_SALESSCOPE_CACHE_TTL },
+      ),
       this.prisma.salesEvent.findMany({
         where: { id: { in: uniqueIds }, tenantId },
         select: { id: true, startDate: true, endDate: true },
       }),
-      this.prisma.locationSpaceMapping.findFirst({
-        where: { tenantId, spaceId },
-        select: { salesLocationId: true },
-      }),
       this.resolveShopIdsForSpace(spaceId, tenantId),
-      this.prisma.space.findFirst({
-        where: { id: spaceId, tenantId },
-        select: { timezone: true },
-      }),
     ]);
-    const spaceTimezone = spaceRow?.timezone || 'Europe/Paris';
+    // NB : sur un hit Redis, les Date sont des strings ISO — tout le code aval fait
+    // déjà `new Date(...)` avant usage (fenêtres, voisins — resolveEventTransactionWindow
+    // tolère aussi les ISO strings directement).
+    const { allSpaceEvents, integrationIds, spaceTimezone } = statics;
 
     if (shopIds.length === 0) return null;
 
@@ -1254,101 +1316,88 @@ export class SpacesService {
     // fin après 00h) sans risquer de repêcher un conteneur de saison (271 à 356 jours
     // observés). Les vrais events observés font 0 à 1 jour.
     const MAX_EVENT_SPAN_DAYS = 2;
-    const dfMap = new Map(datafridayEvents.map(e => [e.id, e]));
+    const dfMap = new Map(allSpaceEvents.map(e => [e.id, e]));
     const wzMap = new Map(weezeventEvents.map(e => [e.id, e]));
 
-    // BUG-339-02 (docs/bugs/) : fin de fenêtre à l'heure de fin réelle de l'event
-    // (Event.eventEndTime, posée sur eventEndDate — repli : showTime de la dernière session),
-    // plus au jour calendaire entier "+1 jour". Règle métier (2026-08-19) : les transactions
-    // d'un event vont de minuit (jour de début) jusqu'à son heure de fin (jour de fin), EN
-    // EXCLUANT la tranche minuit → heure de fin d'un event précédent qui se termine le jour
-    // où celui-ci commence (ex. "PFC - RC Lens" 14/02 → 15/02 03h00 ; "SFP-Toulouse" démarre
-    // le 15/02 : sa fenêtre commence à 03h00, pas à minuit). Sans ça, la fenêtre au jour
-    // entier de PFC (14/02 → 16/02) absorbait tout le CA de SFP-Toulouse (48k€ → 184k€).
-    const preciseEndOf = (e: {
-      eventDate: Date;
-      eventEndDate: Date | null;
-      eventEndTime: string | null;
-      sessions: string | null;
-    }): Date | null => {
-      const endDay = new Date(e.eventEndDate ?? e.eventDate);
-      const sessions = parseEventSessions(e.sessions);
-      return combineDayAndLocalTime(
-        endDay,
-        e.eventEndTime ?? sessions[sessions.length - 1]?.showTime,
-        spaceTimezone,
-      );
-    };
-
-    const windows: { id: string; windowStart: Date; windowEnd: Date }[] = [];
+    // Fiche 147-01 (slide « Transactions prises en compte par Event » — remplace la lecture
+    // « portes ±2 h » que BUG-146-01 avait faite de cette même slide : les boîtes « Ouverture
+    // des portes 19h00 » y sont des repères, la bande de transactions démarre à 00h00) :
+    // fenêtre = minuit LOCAL du jour de début → heure de fin déclarée (posée sur le jour de
+    // fin — minuit franchi autorisé ; repli journée calendaire pleine), avancée à la fin
+    // déclarée d'un voisin qui se termine le jour de début (ex. slide : « PFC - RC Lens »
+    // fin 02h00 le 15/02 → « SFP-Toulouse » démarre le 15/02 à 02h00, pas à minuit — sans ça
+    // la fenêtre de PFC absorbait le CA de SFP-Toulouse, 48k€ → 184k€, BUG-339-02).
+    // MÊME logique que l'agrégation (resolveEventTransactionWindow, event-window.util) : la
+    // divergence lecteur/writer était la cause des trois CA différents de la fiche 145-01.
+    const windows: { id: string; windowStart: Date; windowEnd: Date; tagId: string | null; eventIntegrationId: string | null }[] = [];
     for (const id of uniqueIds) {
       const df = dfMap.get(id);
       const wz = wzMap.get(id);
+      // BUG-146-01 : même précédence de jour que l'agrégation (`eventStartDate ?? eventDate`)
+      // — un event dont eventDate est faux mais eventStartDate juste (SFP-Montauban, fiche
+      // 145-01) obtient une fenêtre valide au lieu d'un `windowStart >= windowEnd` silencieux.
       const eventDate: Date | null = df
-        ? new Date(df.eventDate)
+        ? new Date(df.eventStartDate ?? df.eventDate)
         : wz?.startDate
           ? new Date(wz.startDate)
           : null;
       if (!eventDate) continue; // event not found in either table → stays []
-      const endDate = df
-        ? new Date(df.eventEndDate ?? df.eventDate)
-        : wz?.endDate
-          ? new Date(wz.endDate)
-          : eventDate;
-      // Fin de fenêtre : heure de fin réelle si connue (event DataFriday), sinon repli
-      // historique jour calendaire entier (+1 jour, eventEndDate = dernier jour INCLUS).
-      const fallbackEnd = new Date(endDate);
-      fallbackEnd.setDate(fallbackEnd.getDate() + 1);
-      const windowEnd = (df && preciseEndOf(df)) || fallbackEnd;
-      // Début de fenêtre : minuit du jour de début, avancé à l'heure de fin du dernier
-      // event voisin qui se termine ce jour-là (sa tranche minuit → heure de fin lui
-      // appartient). Seuls les voisins finissant AVANT la fin de cet event comptent —
-      // sinon, deux events le même jour se videraient mutuellement leur fenêtre.
-      let windowStart = eventDate;
+      let windowStart: Date;
+      let windowEnd: Date;
       if (df) {
-        for (const neighbor of allSpaceEvents) {
-          if (neighbor.id === id) continue;
-          const neighborEndDay = new Date(neighbor.eventEndDate ?? neighbor.eventDate);
-          if (neighborEndDay.getTime() !== eventDate.getTime()) continue;
-          const neighborEnd = preciseEndOf(neighbor);
-          if (!neighborEnd) continue; // voisin sans heure de fin → pas d'exclusion (comportement historique)
-          if (neighborEnd >= windowEnd) continue;
-          if (neighborEnd > windowStart) windowStart = neighborEnd;
-        }
+        ({ start: windowStart, end: windowEnd } = resolveEventTransactionWindow(
+          df,
+          spaceTimezone,
+          allSpaceEvents,
+        ));
+      } else {
+        // Repli WeezeventEvent (le front a passé un CUID Weezevent, pas un Event DataFriday) :
+        // jour calendaire entier, endDate = dernier jour INCLUS → +1 jour.
+        windowStart = eventDate;
+        windowEnd = new Date(wz?.endDate ? new Date(wz.endDate) : eventDate);
+        windowEnd.setDate(windowEnd.getDate() + 1);
       }
       if (windowStart >= windowEnd) continue; // fenêtre vide → stays []
       const spanDays = (windowEnd.getTime() - eventDate.getTime()) / 86_400_000;
       if (spanDays > MAX_EVENT_SPAN_DAYS) continue; // event-conteneur (saison…) → stays []
-      windows.push({ id, windowStart, windowEnd });
+      // BUG-146-01 : tag du conteneur de club (ou d'un match précis) — devient ev."tagId".
+      // Null (event non lié, ou id WeezeventEvent passé directement) → les requêtes
+      // retombent sur la fenêtre seule, comportement d'avant.
+      // BUG-368-02 : eventIntegrationId — mode prioritaire, robuste, ne dépend pas d'un
+      // conteneur de saison ; coexiste avec tagId (legacy) pour les events pas encore migrés.
+      windows.push({ id, windowStart, windowEnd, tagId: df?.weezeventEventId ?? null, eventIntegrationId: df?.integrationId ?? null });
     }
     if (!windows.length) return null;
 
-    // Scope transactions to the integration that feeds this space (étape 1 du wizard).
-    // WeezeventLocationSpaceMapping.weezeventLocationId stores the integrationId.
+    // Scope transactions to the integrationS that feed this space (étape 1 du wizard).
+    // WeezeventLocationSpaceMapping.weezeventLocationId stores the integrationId, et un
+    // espace peut en avoir PLUSIEURS (BUG-136-01) — d'où `= ANY(...)` et non `= <une>`.
     // If no mapping yet, fall back to tenant-wide (degraded mode, broader scope).
-    const integrationId = locationMapping?.salesLocationId ?? null;
-    const integrationClause = integrationId
-      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+    const integrationClause = integrationIds.length
+      ? Prisma.sql`AND t."integrationId" = ANY(${integrationIds})`
       : Prisma.sql``;
 
     // Shop scoping aligned with the get_space_shop_details RPC: keep sales whose
     // location has no shop mapping (they surface as the frontend's grey
-    // "unattached" bucket, UNATTACHED_SHOP_KEY) instead of silently dropping them
-    // — an unmapped POS previously zeroed out every item-level view while the
-    // shop-level aggregate kept showing revenue. Rows mapped to another space's
-    // shops stay excluded. Without an integration scope the query is tenant-wide,
-    // so the unmapped branch would leak other spaces' sales into this space's
-    // date windows — in that degraded mode, require the mapping.
-    const shopScopeClause = integrationId
+    // "unattached" bucket) instead of silently dropping them — an unmapped POS
+    // previously zeroed out every item-level view while the shop-level aggregate
+    // kept showing revenue. Rows mapped to another space's shops stay excluded.
+    // Without an integration scope the query is tenant-wide, so the unmapped branch
+    // would leak other spaces' sales into this space's date windows — in that
+    // degraded mode, require the mapping.
+    // Décision JLH 2026-08-24 (BUG-137-01, après aller-retour) : les ventes non
+    // mappées restent COMPTÉES, affichées « Non mappées » — le volume est mesuré à
+    // part (getAnalyseUnmappedBatch → bandeau informatif), jamais filtré ici.
+    const shopScopeClause = integrationIds.length
       ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))`
       : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
 
     const valuesSql = Prisma.join(
-      windows.map(w => Prisma.sql`(${w.id}::text, ${w.windowStart}::timestamp, ${w.windowEnd}::timestamp)`),
+      windows.map(w => Prisma.sql`(${w.id}::text, ${w.windowStart}::timestamp, ${w.windowEnd}::timestamp, ${w.tagId}::text, ${w.eventIntegrationId}::text)`),
       ', ',
     );
 
-    return { integrationClause, shopScopeClause, valuesSql, spaceTimezone };
+    return { integrationClause, shopScopeClause, valuesSql, spaceTimezone, shopIds, windows };
   }
 
   /**
@@ -1370,14 +1419,152 @@ export class SpacesService {
    * MenuItem → ProductType/ProductCategory), faite ici à la lecture pour rester à jour sans
    * jamais réinvalider l'agrégat.
    */
-  async getEventTimelineBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any[]>> {
+  /** BUG-143-01 : TTL par event — long si sa fenêtre de ventes est terminée (immuable),
+   *  court sinon (event du jour, futur, ou sans fenêtre résolue — conteneur/inconnu). */
+  private eventBatchCacheTtl(
+    windows: { id: string; windowEnd: Date }[],
+    eventId: string,
+  ): number {
+    const w = windows.find(w => w.id === eventId);
+    return w && new Date(w.windowEnd).getTime() < Date.now()
+      ? this.EVENT_BATCH_CACHE_TTL_PAST
+      : this.EVENT_BATCH_CACHE_TTL_LIVE;
+  }
+
+  async getEventTimelineBatch(
+    spaceId: string,
+    eventIds: string[],
+    tenantId: string,
+    // BUG-364-01 (étape 5 du plan 25/08) : granularity 'summary' = grain event × shop ×
+    // produit SANS la dimension minute — le chargement de montage de l'Analyse n'a
+    // besoin que de totaux (vérifié consommateur par consommateur, fiche 364-01), le
+    // grain minute (~2 Mo/event) ne sert qu'à la courbe horaire, qui garde son fetch
+    // séparé plein grain. Facteur ~100-200× sur la taille de réponse.
+    opts: { granularity?: 'minute' | 'summary' } = {},
+  ): Promise<Record<string, any[]>> {
+    const summary = opts.granularity === 'summary';
+    // Clé de cache distincte par granularité (':sum'), couverte par le motif de purge
+    // spaces:evtimeline:{tenantId}:{spaceId}:* (suffixe APRÈS l'eventId).
+    const cacheKeyOf = (id: string) =>
+      this.EVENT_TIMELINE_CACHE_KEY(tenantId, spaceId, id) + (summary ? ':sum' : '');
     const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
     const out: Record<string, any[]> = Object.fromEntries(uniqueIds.map(id => [id, []]));
     if (!uniqueIds.length) return out;
 
-    const scope = await this.resolveEventSalesScope(spaceId, uniqueIds, tenantId);
+    // BUG-143-01 : lookup Redis par event — seuls les manquants paient le SQL ci-dessous.
+    const cachedEntries = await Promise.all(
+      uniqueIds.map(async id => [id, await this.redis.get<any[]>(cacheKeyOf(id))] as const),
+    );
+    const missing: string[] = [];
+    for (const [id, cached] of cachedEntries) {
+      // `!= null` (et pas `!== null`) : RedisService.get renvoie null sur miss, mais un
+      // double mocké/dégradé peut renvoyer undefined — les deux sont des miss. `[]` en
+      // cache est un HIT valide (« aucune vente » est un résultat).
+      if (cached != null) out[id] = cached;
+      else missing.push(id);
+    }
+    if (!missing.length) return out;
+
+    const scope = await this.resolveEventSalesScope(spaceId, missing, tenantId);
     if (!scope) return out;
     const { shopScopeClause, valuesSql, spaceTimezone } = scope;
+
+    // BUG-364-01 — granularity=summary : grain event × shop × produit, SANS minute.
+    // Même CTE dedup (l'élimination des lignes jumelles inter-writers reste PAR minute,
+    // cf. BUG-130-01 ci-dessous), même clause tag conteneur (BUG-146-01), mêmes fenêtres —
+    // seule l'agrégation finale écrase la dimension minute. Dégraissage assumé du même
+    // coup (plan étape 5.3) : pas de `minute`/`minuteLocal`, pas de doublon `revenue`
+    // (les consommateurs lisent `revenueHt`, repli ajouté dans timelineBucketing.js).
+    if (summary) {
+      const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
+        WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql}),
+        dedup AS (
+          SELECT
+            ev."eventId"                 AS "eventId",
+            mem."minute"                 AS "minute",
+            mem."spaceElementId"         AS "spaceElementId",
+            mem."weezeventLocationId"    AS "weezeventLocationId",
+            mem."weezeventLocationName"  AS "weezeventLocationName",
+            mem."weezeventProductId"     AS "weezeventProductId",
+            MAX(mem."itemsCount")        AS "itemsCount",
+            MAX(mem."transactionsCount") AS "transactionsCount",
+            MAX(mem."revenueHt")         AS "revenueHt"
+          FROM ev
+          INNER JOIN "SpaceRevenueMinuteItemAgg" mem
+            ON mem."minute" >= ev."windowStart"
+           AND mem."minute" <  ev."windowEnd"
+           AND (ev."tagId" IS NULL OR mem."weezeventEventId" IN (ev."eventId", ev."tagId"))
+           AND mem."tenantId" = ${tenantId}
+           AND mem."spaceId"  = ${spaceId}
+          WHERE ${shopScopeClause}
+          GROUP BY
+            ev."eventId", mem."minute",
+            mem."spaceElementId", mem."weezeventLocationId", mem."weezeventLocationName",
+            mem."weezeventMerchantId", mem."weezeventProductId"
+        )
+        SELECT
+          dd."eventId"                                                      AS "eventId",
+          COALESCE(dd."spaceElementId", dd."weezeventLocationId")           AS "shopId",
+          COALESCE(se.name, dd."weezeventLocationName", dd."weezeventLocationId") AS "shopName",
+          COALESCE(se.attributes::jsonb->>'originalType', se.type::text)   AS "shopType",
+          se.attributes::jsonb->>'area'                                     AS "shopArea",
+          dd."weezeventProductId"                                           AS "weezeventProductId",
+          wpm."menuItemId",
+          mi.name                                                           AS "menuItemName",
+          pt.name                                                           AS "menuItemType",
+          pc.name                                                           AS "menuItemCategory",
+          SUM(dd."itemsCount")::integer                                     AS quantity,
+          SUM(dd."transactionsCount")::integer                              AS "transactionCount",
+          SUM(dd."revenueHt")::numeric(12,2)                                AS "revenueHt"
+        FROM dedup dd
+        LEFT JOIN "SpaceElement" se
+          ON se.id = dd."spaceElementId"
+        LEFT JOIN "WeezeventProductMapping" wpm
+          ON wpm."weezeventProductId" = dd."weezeventProductId"
+         AND wpm."tenantId" = ${tenantId}
+        LEFT JOIN "MenuItem" mi
+          ON mi.id = wpm."menuItemId"
+        LEFT JOIN "ProductType" pt
+          ON pt.id = mi."typeId"
+        LEFT JOIN "ProductCategory" pc
+          ON pc.id = mi."categoryId"
+        GROUP BY
+          dd."eventId",
+          COALESCE(dd."spaceElementId", dd."weezeventLocationId"),
+          COALESCE(se.name, dd."weezeventLocationName", dd."weezeventLocationId"),
+          se.type, se.attributes,
+          dd."weezeventProductId", wpm."menuItemId", mi.name, pt.name, pc.name
+        ORDER BY dd."eventId"
+      `));
+
+      for (const r of rows) {
+        const bucket = out[r.eventId];
+        if (!bucket) continue;
+        bucket.push({
+          shopId:           r.shopId,
+          shopName:         r.shopName,
+          shopType:         r.shopType ?? null,
+          shopArea:         r.shopArea ?? null,
+          weezeventProductId: r.weezeventProductId ?? null,
+          menuItemId:       r.menuItemId ?? null,
+          menuItemName:     r.menuItemName ?? null,
+          menuItemType:     r.menuItemType ?? null,
+          menuItemCategory: r.menuItemCategory ?? null,
+          quantity:         Number(r.quantity         || 0),
+          transactionCount: Number(r.transactionCount || 0),
+          revenueHt:        Number(r.revenueHt        || 0),
+        });
+      }
+
+      await Promise.all(
+        missing.map(id =>
+          this.redis.set(cacheKeyOf(id), out[id], {
+            ttl: this.eventBatchCacheTtl(scope.windows, id),
+          }),
+        ),
+      );
+      return out;
+    }
 
     // BUG-270 : "minute" est un TIMESTAMP sans fuseau mais sa valeur littérale est du vrai
     // UTC (même nature que WeezeventTransaction."transactionDate", dont elle est dérivée par
@@ -1412,8 +1599,10 @@ export class SpacesService {
     //    que le MAX à un seul niveau écrasait (le GROUP BY sortait aussi
     //    "weezeventMerchantId") : chaque minute était plafonnée à la plus grosse ligne au
     //    lieu du total → timeline réelle aplatie en plateau constant.
-    const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
-      WITH ev("eventId", "windowStart", "windowEnd") AS (VALUES ${valuesSql}),
+    // BUG-144-01 : section SQL sous sémaphore (2 en vol, file 32, 60 s -> 503) — les
+    // hits cache plus haut ne font pas la queue.
+    const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
+      WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql}),
       dedup AS (
         SELECT
           ev."eventId"                 AS "eventId",
@@ -1429,6 +1618,13 @@ export class SpacesService {
         INNER JOIN "SpaceRevenueMinuteItemAgg" mem
           ON mem."minute" >= ev."windowStart"
          AND mem."minute" <  ev."windowEnd"
+         -- BUG-146-01 : quand l'event est lié à son conteneur de club (ev."tagId"), ne
+         -- prendre que les lignes agrégées SOUS cet event (id Event DataFriday, writer
+         -- aggregation.service) ou sous le tag brut (id WeezeventEvent, writer
+         -- space-aggregation) — les fenêtres portes→fin de deux events le même jour se
+         -- recouvrent, seul le tag départage. tagId NULL → fenêtre seule, comportement
+         -- d'avant (BUG-123-01 : events qui n'existent qu'en WeezeventEvent).
+         AND (ev."tagId" IS NULL OR mem."weezeventEventId" IN (ev."eventId", ev."tagId"))
          AND mem."tenantId" = ${tenantId}
          AND mem."spaceId"  = ${spaceId}
         WHERE ${shopScopeClause}
@@ -1483,7 +1679,7 @@ export class SpacesService {
       -- Tri sur la minute DATEE (BUG-351-01) : trier sur la colonne minute
       -- (HH24:MI) placait les ventes d'apres minuit en tete d'evenement.
       ORDER BY dd."eventId", tz."minuteLocal" ASC
-    `);
+    `));
 
     for (const r of rows) {
       const bucket = out[r.eventId];
@@ -1506,6 +1702,16 @@ export class SpacesService {
         revenue:          Number(r.revenueHt        || 0),
       });
     }
+
+    // BUG-143-01 : écrit chaque event résolu (y compris []) — un event passé sans vente
+    // est un résultat définitif au même titre qu'un event plein.
+    await Promise.all(
+      missing.map(id =>
+        this.redis.set(cacheKeyOf(id), out[id], {
+          ttl: this.eventBatchCacheTtl(scope.windows, id),
+        }),
+      ),
+    );
     return out;
   }
 
@@ -1545,7 +1751,20 @@ export class SpacesService {
     const out: Record<string, any[]> = Object.fromEntries(uniqueIds.map(id => [id, []]));
     if (!uniqueIds.length) return out;
 
-    const scope = await this.resolveEventSalesScope(spaceId, uniqueIds, tenantId);
+    // BUG-143-01 : même cache par event que getEventTimelineBatch (clé dédiée — forme de
+    // record différente), seuls les manquants paient le scan brut WeezeventTransaction.
+    const cachedEntries = await Promise.all(
+      uniqueIds.map(async id => [id, await this.redis.get<any[]>(this.EVENT_BASKETS_CACHE_KEY(tenantId, spaceId, id))] as const),
+    );
+    const missing: string[] = [];
+    for (const [id, cached] of cachedEntries) {
+      // `!= null` : null (RedisService) ET undefined (double mocké/dégradé) sont des miss.
+      if (cached != null) out[id] = cached;
+      else missing.push(id);
+    }
+    if (!missing.length) return out;
+
+    const scope = await this.resolveEventSalesScope(spaceId, missing, tenantId);
     if (!scope) return out;
     const { integrationClause, shopScopeClause, valuesSql, spaceTimezone } = scope;
 
@@ -1556,13 +1775,19 @@ export class SpacesService {
     // (status='V', deletedAt IS NULL, scope tenant/intégration/PdV) — cf. BUG-028
     // et BUG-108. Un panier à N lignes ne produit qu'UNE ligne ici : c'est ce qui
     // évite le double comptage au dénominateur.
-    const rows: any[] = await this.prisma.$queryRaw(Prisma.sql`
-      WITH ev("eventId", "windowStart", "windowEnd") AS (VALUES ${valuesSql}),
+    // BUG-144-01 : même sémaphore que getEventTimelineBatch.
+    const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
+      WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql}),
       tx AS (
         SELECT
           t.id                                                            AS "txId",
           ev."eventId"                                                    AS "eventId",
           TO_CHAR(DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}), 'HH24:MI') AS minute,
+          -- BUG-136-01 : la minute DATEE, meme semantique que getEventTimelineBatch.
+          -- Sans elle, buildBasketFilterPredicate (qui n applique PAS skipMinute) evalue
+          -- les bornes DATEES du curseur horaire contre un simple HH24:MI et renvoie false
+          -- pour toutes les lignes des qu un event franchit minuit : donuts paniers vides.
+          TO_CHAR(DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${spaceTimezone}), 'YYYY-MM-DD"T"HH24:MI') AS "minuteLocal",
           COALESCE(mem."spaceElementId", t."locationId")                  AS "shopId",
           COALESCE(se.name, t."locationName", t."locationId")             AS "shopName",
           COALESCE(se.attributes::jsonb->>'originalType', se.type::text)  AS "shopType",
@@ -1580,6 +1805,13 @@ export class SpacesService {
         INNER JOIN "WeezeventTransaction" t
           ON t."transactionDate" >= ev."windowStart"
          AND t."transactionDate" <  ev."windowEnd"
+         -- BUG-146-01 (legacy) : tag du conteneur du club quand l'event y est lié — les jours
+         -- à double affiche, la fenêtre seule mélangeait les caisses des deux clubs. tagId
+         -- NULL (event non lié, source CSV sans tag) → fenêtre seule, comme avant.
+         AND (ev."tagId" IS NULL OR t."eventId" = ev."tagId")
+         -- BUG-368-02 : eventIntegrationId explicite, prioritaire et robuste — même rôle que
+         -- tagId ci-dessus mais sans dépendre d'un conteneur de saison Weezevent.
+         AND (ev."eventIntegrationId" IS NULL OR t."integrationId" = ev."eventIntegrationId")
          AND t."tenantId" = ${tenantId}
          ${integrationClause}
          AND t.status = 'V'
@@ -1608,23 +1840,24 @@ export class SpacesService {
           se.type, se.attributes
       )
       SELECT
-        "eventId", minute, "shopId", "shopName", "shopType", "shopArea",
+        "eventId", minute, "minuteLocal", "shopId", "shopName", "shopType", "shopArea",
         "categoryCombo", "typeCombo", "itemCombo",
         COUNT(*)::integer                AS "transactionCount",
         SUM(quantity)::integer           AS quantity,
         SUM("revenueHt")::numeric(12,2)  AS "revenueHt"
       FROM tx
       GROUP BY
-        "eventId", minute, "shopId", "shopName", "shopType", "shopArea",
+        "eventId", minute, "minuteLocal", "shopId", "shopName", "shopType", "shopArea",
         "categoryCombo", "typeCombo", "itemCombo"
-      ORDER BY "eventId", minute ASC
-    `);
+      ORDER BY "eventId", "minuteLocal" ASC
+    `));
 
     for (const r of rows) {
       const bucket = out[r.eventId];
       if (!bucket) continue;
       bucket.push({
-        minute:   r.minute,
+        minute:      r.minute,
+        minuteLocal: r.minuteLocal ?? null,
         shopId:   r.shopId,
         shopName: r.shopName,
         shopType: r.shopType ?? null,
@@ -1640,6 +1873,123 @@ export class SpacesService {
         revenue:          Number(r.revenueHt        || 0),
       });
     }
+
+    // BUG-143-01 : même écriture par event que getEventTimelineBatch.
+    await Promise.all(
+      missing.map(id =>
+        this.redis.set(this.EVENT_BASKETS_CACHE_KEY(tenantId, spaceId, id), out[id], {
+          ttl: this.eventBatchCacheTtl(scope.windows, id),
+        }),
+      ),
+    );
+    return out;
+  }
+
+  /**
+   * Volume NON MAPPÉ des ventes de l'Analyse (BUG-137-01) : lignes dont le produit
+   * externe n'a pas de WeezeventProductMapping, ou dont le PdV n'a pas de
+   * WeezeventLocationShopMapping vers cet espace.
+   *
+   * INFORMATIF UNIQUEMENT — décision JLH 2026-08-24 (après aller-retour) : ces ventes
+   * restent COMPTÉES dans toutes les vues, sous le libellé « Non mappées ». Cet
+   * endpoint ne filtre rien ; il alimente le bandeau de la page, qui distingue
+   * « rien vendu » de « rien de mappé » (piège BUG-300-01) et pointe le travail
+   * restant en Data Integration. Cause unique mesurée en base : produit importé au
+   * catalogue mais jamais associé à un menu item à l'étape 3 du wizard (0 ligne à
+   * productId NULL sur 786 882 lignes non mappées).
+   * Mêmes fenêtres, même scope d'intégration et mêmes prédicats de lecture
+   * (status 'V', deletedAt) que event-timeline / transaction-baskets. Les ventes
+   * mappées vers les shops d'un AUTRE espace ne sont pas comptées ici : elles
+   * n'appartiennent pas à cet écran.
+   * Retourne { [eventId]: { unmappedLines, unmappedUnits, unmappedRevenueHt,
+   * unmappedProductLines, unmappedPosLines } } — ids demandés absents → zéros.
+   */
+  async getAnalyseUnmappedBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any>> {
+    const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
+    const zero = () => ({
+      unmappedLines: 0,
+      unmappedUnits: 0,
+      unmappedRevenueHt: 0,
+      unmappedProductLines: 0,
+      unmappedPosLines: 0,
+    });
+    const out: Record<string, any> = Object.fromEntries(uniqueIds.map(id => [id, zero()]));
+    if (!uniqueIds.length) return out;
+
+    // BUG-144-01 : caché par event comme event-timeline/transaction-baskets — REMPLACE la
+    // décision BUG-137-01 (« jamais caché ») : l'endpoint re-scannait 786k lignes brutes à
+    // CHAQUE visite. La fraîcheur d'un re-mapping est désormais garantie par l'invalidation
+    // à l'écriture de mapping (MappingsService → spaces:unmapped:*), plus par l'absence de
+    // cache. TTL long pour un event passé, court sinon — même règle que les deux autres.
+    const cachedEntries = await Promise.all(
+      uniqueIds.map(async id => [id, await this.redis.get<any>(this.EVENT_UNMAPPED_CACHE_KEY(tenantId, spaceId, id))] as const),
+    );
+    const missing: string[] = [];
+    for (const [id, cached] of cachedEntries) {
+      if (cached != null) out[id] = cached;
+      else missing.push(id);
+    }
+    if (!missing.length) return out;
+
+    const scope = await this.resolveEventSalesScope(spaceId, missing, tenantId);
+    if (!scope) return out;
+    const { integrationClause, valuesSql, shopIds } = scope;
+
+    // BUG-144-01 : même sémaphore que les deux autres endpoints batch.
+    const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
+      WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql})
+      SELECT
+        ev."eventId"                                                        AS "eventId",
+        COUNT(ti."id")::int                                                 AS "unmappedLines",
+        COALESCE(SUM(ti."quantity"), 0)::float8                             AS "unmappedUnits",
+        COALESCE(SUM(ti."unitPrice" * ti."quantity" / (1 + ti."vat" / 100)), 0)::float8 AS "unmappedRevenueHt",
+        COUNT(ti."id") FILTER (WHERE wpm."menuItemId" IS NULL)::int         AS "unmappedProductLines",
+        COUNT(ti."id") FILTER (WHERE mem."spaceElementId" IS NULL)::int     AS "unmappedPosLines"
+      FROM ev
+      INNER JOIN "WeezeventTransaction" t
+        ON t."transactionDate" >= ev."windowStart"
+       AND t."transactionDate" <  ev."windowEnd"
+       -- BUG-146-01 (legacy) / BUG-368-02 : mêmes clauses tag conteneur + integrationId que
+       -- event-timeline/transaction-baskets.
+       AND (ev."tagId" IS NULL OR t."eventId" = ev."tagId")
+       AND (ev."eventIntegrationId" IS NULL OR t."integrationId" = ev."eventIntegrationId")
+       AND t."tenantId" = ${tenantId}
+       ${integrationClause}
+       AND t.status = 'V'
+       AND t."deletedAt" IS NULL
+      INNER JOIN "WeezeventTransactionItem" ti
+        ON ti."transactionId" = t.id
+      LEFT JOIN "WeezeventLocationShopMapping" mem
+        ON mem."weezeventLocationId" = t."locationId"
+       AND mem."tenantId" = ${tenantId}
+      LEFT JOIN "WeezeventProductMapping" wpm
+        ON wpm."weezeventProductId" = ti."productId"
+       AND wpm."tenantId" = ${tenantId}
+      WHERE (mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))
+        AND (wpm."menuItemId" IS NULL OR mem."spaceElementId" IS NULL)
+      GROUP BY ev."eventId"
+    `));
+
+    for (const r of rows) {
+      if (!(r.eventId in out)) continue;
+      out[r.eventId] = {
+        unmappedLines: Number(r.unmappedLines || 0),
+        unmappedUnits: Number(r.unmappedUnits || 0),
+        unmappedRevenueHt: Number(r.unmappedRevenueHt || 0),
+        unmappedProductLines: Number(r.unmappedProductLines || 0),
+        unmappedPosLines: Number(r.unmappedPosLines || 0),
+      };
+    }
+
+    // BUG-144-01 : écriture par event, zéros compris (« rien de non mappé » est un
+    // résultat) — même TTL différencié que les deux autres endpoints batch.
+    await Promise.all(
+      missing.map(id =>
+        this.redis.set(this.EVENT_UNMAPPED_CACHE_KEY(tenantId, spaceId, id), out[id], {
+          ttl: this.eventBatchCacheTtl(scope.windows, id),
+        }),
+      ),
+    );
     return out;
   }
 
@@ -1828,6 +2178,32 @@ export class SpacesService {
       openingAct:      (e.metadata as any)?.openingAct      ?? null,
       sponsor:         (e.metadata as any)?.sponsor         ?? null,
     }));
+  }
+
+  /**
+   * BUG-369-02 (2026-08-25) : liste des intégrations rattachées à un espace — remplace le
+   * dérivé côté front (`spaceIntegrations`, à partir des events déjà chargés, retiré le même
+   * jour) qui ne révélait une intégration qu'une fois qu'un event lui était déjà tagué. Même
+   * pattern que `getWeezeventEventsForSpace` : `locationSpaceMapping` peut avoir PLUSIEURS
+   * lignes pour un même espace (BUG-136-01), pas de relation Prisma directe vers `Integration`
+   * (`salesLocationId` est un `String` simple) — résolution en 2 requêtes.
+   */
+  async getSpaceIntegrations(spaceId: string, tenantId: string) {
+    await this.findOne(spaceId, tenantId);
+
+    const mappings = await this.prisma.locationSpaceMapping.findMany({
+      where: { tenantId, spaceId },
+      select: { salesLocationId: true },
+    });
+    const integrationIds = [...new Set(mappings.map((m) => m.salesLocationId).filter(Boolean))];
+    if (!integrationIds.length) return [];
+
+    const integrations = await this.prisma.integration.findMany({
+      where: { id: { in: integrationIds }, tenantId },
+      select: { id: true, name: true, provider: true },
+      orderBy: { name: 'asc' },
+    });
+    return integrations;
   }
 
   /**

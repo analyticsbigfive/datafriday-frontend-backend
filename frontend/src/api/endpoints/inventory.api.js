@@ -88,6 +88,15 @@ export async function deleteInventoryReconciliation(spaceId, id) {
 }
 
 /**
+ * Bouton "Update Logistic" — pousse manuellement le comptage courant (Pre ou
+ * Post-event) vers le registre Logistic, sans créer de document de réconciliation.
+ * POST /inventory/:spaceId/push-to-logistic
+ */
+export async function pushInventoryCountToLogistic(spaceId, eventId, phase) {
+  return api.post(`/inventory/${spaceId}/push-to-logistic`, { eventId, phase })
+}
+
+/**
  * Inventaire de référence pré-événement (réco POST-event) : comptage Pre-event
  * Inventory du même event (snapshot kind='pre-event'), repli SCOPÉ = comptage
  * post-event du match précédent (BUG-241 — plus « n'importe quel snapshot avant

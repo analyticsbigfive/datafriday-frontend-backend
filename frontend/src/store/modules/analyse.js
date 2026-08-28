@@ -920,9 +920,8 @@ const getters = {
       menuItems: state.menuItems || [],
       productCategories: state.productCategoriesList || [],
       productTypes: state.productTypesList || [],
+      // BUG-353-01 : plus d'`assignment` / `assignmentItemsByShop` (cf. analyseReconciliation.js).
       floorElements: state.configShopContext?.floorElements || [],
-      assignment: state.configShopContext?.assignment || null,
-      assignmentItemsByShop: state.configShopContext?.assignmentItemsByShop || null,
       weezeventProducts: state.weezeventProducts || [],
     })
     const _t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
@@ -1847,6 +1846,15 @@ const mutations = {
     // sans ce bump, son commit tardif écraserait le contexte vierge (les
     // actions vérifient `stale()` sur ce jeton).
     state.configContextReqId = (state.configContextReqId || 0) + 1
+    // BUG-360-01 — les filtres aussi appartiennent à l'ESPACE : `selectedEventIds`
+    // (et shops/articles) gardaient les ids de l'ancien espace, `filteredEvents`
+    // les intersectait avec les nouveaux events → ∅ → KPIs et ventes à 0 €
+    // définitivement (seul un hard refresh réinitialisait le store).
+    // `pruneFiltersToOptions` ne rattrape pas : pas d'entrée `selectedEventIds`
+    // dans sa table, et sa garde `filtersState === 'ready'` ne passe jamais sur
+    // un périmètre vide. La restauration du deep-link `?config=` reste possible :
+    // elle est rejouée par ensureAuthAndLoad APRÈS loadSpace.
+    state.filters = DEFAULT_FILTERS()
   },
   APPLY_EVENT_PREDICT_VERSION(state, { eventId, version }) {
     if (!eventId || !version) return

@@ -118,7 +118,7 @@ export class WeezeventCronService implements OnModuleInit {
                     spaceId: { not: null },
                     eventDate: { lte: now, gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
                 },
-                select: { id: true, spaceId: true, eventDate: true, eventEndDate: true },
+                select: { id: true, spaceId: true, eventDate: true, eventEndDate: true, weezeventEventId: true },
             });
 
             const liveEvents = recentEvents.filter((e) => {
@@ -128,17 +128,40 @@ export class WeezeventCronService implements OnModuleInit {
             });
             if (!liveEvents.length) continue;
 
-            // Un job par space (pas par event) — process-events accepte une liste d'eventIds.
-            const eventIdsBySpace = new Map<string, string[]>();
+            // BUG-365-02 : un space alimenté par PLUSIEURS intégrations (ex. Stade Jean Bouin,
+            // PFC + SFP) ne doit JAMAIS être traité en un seul job sans integrationId — sans ce
+            // filtre, executeProcessEvents peut taguer les transactions d'une intégration sous
+            // l'event d'une AUTRE (fenêtres qui se recoupent le même jour), contaminant
+            // silencieusement SpaceRevenueMinuteAgg/ItemAgg à l'écriture — irréversible côté
+            // lecture (BUG-146-01 filtre par tag, mais le tag lui-même serait déjà faux). On
+            // résout l'intégration réelle de chaque event via son SalesEvent lié
+            // (Event.weezeventEventId → SalesEvent.integrationId) et on groupe par
+            // (space, intégration) au lieu de (space) seul. Un event pas encore lié
+            // (weezeventEventId null) reste sans integrationId — comportement inchangé pour ce
+            // cas (le repli `t."eventId" IS NULL` de l'agrégation ne dépend déjà pas de
+            // l'intégration).
+            const linkedEventIds = liveEvents.map((e) => e.weezeventEventId).filter((id): id is string => !!id);
+            const salesEvents = linkedEventIds.length
+                ? await this.prisma.salesEvent.findMany({
+                      where: { id: { in: linkedEventIds }, tenantId: tenant.id },
+                      select: { id: true, integrationId: true },
+                  })
+                : [];
+            const integrationBySalesEventId = new Map(salesEvents.map((se) => [se.id, se.integrationId]));
+
+            // Un job par (space, intégration) — process-events accepte une liste d'eventIds.
+            const eventIdsByGroup = new Map<string, { spaceId: string; integrationId: string | undefined; eventIds: string[] }>();
             for (const e of liveEvents) {
-                const list = eventIdsBySpace.get(e.spaceId as string) ?? [];
-                list.push(e.id);
-                eventIdsBySpace.set(e.spaceId as string, list);
+                const integrationId = e.weezeventEventId ? integrationBySalesEventId.get(e.weezeventEventId) : undefined;
+                const groupKey = `${e.spaceId}::${integrationId ?? ''}`;
+                const group = eventIdsByGroup.get(groupKey) ?? { spaceId: e.spaceId as string, integrationId, eventIds: [] };
+                group.eventIds.push(e.id);
+                eventIdsByGroup.set(groupKey, group);
             }
 
-            for (const [spaceId, eventIds] of eventIdsBySpace) {
+            for (const { spaceId, integrationId, eventIds } of eventIdsByGroup.values()) {
                 try {
-                    const events = liveEvents.filter((e) => e.spaceId === spaceId);
+                    const events = liveEvents.filter((e) => eventIds.includes(e.id));
                     const dates = events.map((e) => e.eventDate).sort((a, b) => a.getTime() - b.getTime());
                     const jobLog = await this.prisma.aggregationJobLog.create({
                         data: {
@@ -148,7 +171,7 @@ export class WeezeventCronService implements OnModuleInit {
                             status: 'pending',
                             fromDate: dates[0],
                             toDate: dates[dates.length - 1],
-                            metadata: { eventIds, trigger: 'live-safety-net' },
+                            metadata: { eventIds, integrationId, trigger: 'live-safety-net' },
                         },
                     });
                     await this.queueService.queueAggregationJob({
@@ -157,10 +180,11 @@ export class WeezeventCronService implements OnModuleInit {
                         spaceId,
                         jobLogId: jobLog.id,
                         eventIds,
+                        integrationId,
                     });
                 } catch (error) {
                     this.logger.warn(
-                        `Live aggregation safety net failed for tenant ${tenant.id}/space ${spaceId}: ${error.message}`,
+                        `Live aggregation safety net failed for tenant ${tenant.id}/space ${spaceId}${integrationId ? `/integration ${integrationId}` : ''}: ${error.message}`,
                     );
                 }
             }

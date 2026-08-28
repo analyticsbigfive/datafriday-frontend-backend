@@ -256,6 +256,8 @@ model Integration {
   webhookEvents     IntegrationWebhookEvent[]
   syncJobs          WeezeventSyncJob[]
   csvImportRuns     DigifoodCsvImportRun[]
+  // BUG-368-02 : Event DataFriday déclarant explicitement cette intégration comme sa source.
+  dfEvents          Event[]                  @relation("EventIntegration")
 
   @@index([tenantId])
   @@index([tenantId, enabled])
@@ -1189,6 +1191,8 @@ model MarketPrice {
   industrial          Industrial?          @relation(fields: [industrialId], references: [id], onDelete: SetNull)
   ingredients         Ingredient[]
   packagings          Packaging[]
+  stockLevels         StockLevel[]
+  stockMovements      StockMovement[]
 
   @@index([tenantId])
   @@index([supplierId])
@@ -2731,7 +2735,21 @@ model Event {
   // exactement 1 Event et 1 WeezeventEvent partagent tenant+date calendaire ;
   // laissé null en cas d'ambiguïté (plusieurs candidats), à résoudre manuellement
   // via l'API de désambiguïsation.
+  // LEGACY depuis integrationId (BUG-368-02, 2026-08-25) : ne sert plus qu'aux tenants
+  // pas encore migrés (mode `container-range`, BUG-146-01 — tag du conteneur de saison
+  // du club, combiné à la fenêtre). Une fois `integrationId` posé sur un Event, ce champ
+  // n'est plus lu par l'agrégation pour lui.
   weezeventEventId String?
+
+  // BUG-368-02 (2026-08-25) : source de vérité explicite de l'intégration/data-integration
+  // à laquelle cet Event appartient — remplace la déduction implicite via weezeventEventId
+  // (conteneur de saison = proxy du club, BUG-146-01) qui dépendait d'un backfill manuel par
+  // tenant. Posé à la création (bulkCreateEvents passe l'intégration sélectionnée). Permet à
+  // l'agrégation de matcher directement `WeezeventTransaction.integrationId = Event.
+  // integrationId` + fenêtre calendaire, sans jamais regarder `t.eventId` — élimine toute la
+  // détection de "conteneur de saison" (span observé/déclaré, cold-start) pour les events qui
+  // l'utilisent.
+  integrationId String?
 
   // Event date/time details
   eventStartDate DateTime?
@@ -2791,9 +2809,12 @@ model Event {
   eventSubcategory EventSubcategory? @relation(fields: [eventSubcategoryId], references: [id])
   visitingTeam     Team?             @relation("EventVisitingTeam", fields: [visitingTeamId], references: [id])
   weezeventEvent   SalesEvent?       @relation("EventWeezeventEvent", fields: [weezeventEventId], references: [id], onDelete: SetNull)
+  integration      Integration?      @relation("EventIntegration", fields: [integrationId], references: [id], onDelete: SetNull)
   staffLines       EventStaffLine[]
 
   @@index([tenantId])
+  @@index([integrationId])
+  @@index([spaceId, integrationId])
   @@index([spaceId])
   @@index([configurationId])
   @@index([eventDate])
@@ -3205,6 +3226,12 @@ model StockMovement {
   spaceId               String
   elementId             String // PDV ou storage (SpaceElement)
   itemKey               String // même référence que l'inventaire dérivé (nom)
+  // Identité stable en remplacement progressif d'itemKey (ADR-0006) — polymorphe car un article
+  // est la vérité de l'une de 5 tables différentes (MarketPrice/Ingredient/Packaging/MenuItem/
+  // MenuComponent), sans FK Prisma unique possible. Nullable : double-écriture en cours, itemKey
+  // reste la clé effective tant que la bascule des lectures n'est pas faite (chantier 377).
+  itemKind              String? // 'marketPrice' | 'ingredient' | 'packaging' | 'menuItem' | 'menuComponent'
+  itemRefId             String?
   menuItemId            String?
   marketPriceId         String?
   packedDelta           Int                  @default(0)
@@ -3221,10 +3248,14 @@ model StockMovement {
   createdBy             String?
   createdAt             DateTime             @default(now())
 
+  marketPrice MarketPrice? @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
+
   @@index([tenantId, elementId, createdAt])
   @@index([tenantId, spaceId, createdAt])
+  @@index([itemRefId])
   @@index([tenantId, spaceId, eventId])
   @@index([tenantId, counterpartyElementId, status])
+  @@index([marketPriceId])
 }
 
 // État courant matérialisé du stock attendu par élément × item (packed/loose).
@@ -3236,6 +3267,9 @@ model StockLevel {
   spaceId       String
   elementId     String
   itemKey       String
+  // Identité stable en remplacement progressif d'itemKey (ADR-0006) — voir StockMovement.
+  itemKind      String? // 'marketPrice' | 'ingredient' | 'packaging' | 'menuItem' | 'menuComponent'
+  itemRefId     String?
   packedUnits   Int      @default(0)
   looseUnits    Float    @default(0)
   unitsPerPack  Float? // MarketPrice.numberOfUnits du dernier ajout (casse de pack)
@@ -3243,8 +3277,17 @@ model StockLevel {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
+  marketPrice MarketPrice? @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
+
   @@unique([tenantId, elementId, itemKey], name: "uniq_stock_level")
+  // ADR-0006 (chantier 377, étape 5) : deuxième contrainte, basée sur l'identité stable — les
+  // deux coexistent tant qu'itemKey reste la clé effective de la double-écriture. Postgres ne
+  // considère jamais deux NULL comme égaux dans un index unique standard : les lignes orphelines
+  // (itemRefId null) ne collisionnent jamais entre elles, seule une VRAIE identité dupliquée
+  // (même élément, même article) est bloquée.
+  @@unique([tenantId, elementId, itemRefId], name: "uniq_stock_level_by_ref")
   @@index([tenantId, spaceId])
+  @@index([marketPriceId])
 }
 
 // Archive des écarts attendu vs compté figée par un Inventory Reset.
@@ -3288,6 +3331,9 @@ model StockTransferLoss {
   tenantId             String
   spaceId              String
   itemKey              String
+  // Identité stable en remplacement progressif d'itemKey (ADR-0006) — voir StockMovement.
+  itemKind             String? // 'marketPrice' | 'ingredient' | 'packaging' | 'menuItem' | 'menuComponent'
+  itemRefId            String?
   sourceElementId      String
   destinationElementId String
   unitsPerPack         Float?
@@ -3305,6 +3351,7 @@ model StockTransferLoss {
 
   @@index([tenantId, spaceId, createdAt])
   @@index([tenantId, spaceId, archivedAt])
+  @@index([itemRefId])
 }
 
 // ==================== LOGISTIC TASKS (transferts assignés, mockups 08/2026) ====================
