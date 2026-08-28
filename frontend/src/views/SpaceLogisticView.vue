@@ -21,12 +21,10 @@
             />
 
             <!-- Résumé AVANT les filtres — cellules KPI style EventPredict/Analyse
-                 (fond blanc, rail latéral coloré, label majuscule, valeur sombre). -->
-            <div class="lg-panel lg-summary-panel">
-              <div class="lg-panel-title">
-                <ClipboardList :size="15" class="me-1" />
-                {{ t('logiSummary') }}
-              </div>
+                 (fond blanc, rail latéral coloré, label majuscule, valeur sombre).
+                 Section repliable indépendamment des autres (retour utilisateur 08/2026). -->
+            <SidebarPanel :title="t('logiSummary')" storage-key="logistic-summary">
+              <template #icon><ClipboardList :size="15" /></template>
               <div class="lg-summary-grid">
                 <div class="lg-kpi-cell" style="--lg-kpi:#ff3131">
                   <div class="lg-kpi-label">{{ t('logiSummaryElements') }}</div>
@@ -48,25 +46,19 @@
               <div v-if="anchorLabel" class="lg-summary-anchor">
                 {{ t('logiSince') }} {{ anchorLabel }}
               </div>
-            </div>
+            </SidebarPanel>
 
             <!-- Filtres — carte accordéon calquée sur Space Inventory
                  (InventoryFilterPanel) : carte blanche, titre .lg-fp-section,
                  badges #ff3131, bouton reset tonal. Facettes RÉELLES Logistic
                  seulement (recherche PdV + type de denrée) — pas de section vide. -->
-            <div class="lg-filter-panel">
-              <div class="lg-fp-head">
-                <h3 class="lg-fp-title">{{ t('logiFilters') }}</h3>
-                <button
-                  v-if="itemKindFilter.length || elementSearch"
-                  type="button"
-                  class="lg-fp-reset-inline"
-                  @click="resetLogisticFilters"
-                >
+            <SidebarPanel :title="t('logiFilters')" storage-key="logistic-filters">
+              <template v-if="itemKindFilter.length || elementSearch" #meta>
+                <button type="button" class="lg-fp-reset-inline" @click="resetLogisticFilters">
                   <v-icon size="14" class="mr-1">mdi-refresh</v-icon>
                   {{ t('invResetFilters') }}
                 </button>
-              </div>
+              </template>
 
               <AppSearchBar
                 v-model="elementSearch"
@@ -118,14 +110,11 @@
                 <v-icon start size="16">mdi-refresh</v-icon>
                 {{ t('invResetFilters') }}
               </v-btn>
-            </div>
+            </SidebarPanel>
 
             <!-- Section Réconciliation : super admin / rôles avec la permission -->
-            <div v-if="canReconcile" class="lg-panel">
-              <div class="lg-panel-title">
-                <GitCompare :size="15" class="me-1" />
-                {{ t('logiReconciliation') }}
-              </div>
+            <SidebarPanel v-if="canReconcile" :title="t('logiReconciliation')" storage-key="logistic-reconciliation">
+              <template #icon><GitCompare :size="15" /></template>
               <div v-if="!reconciliations.length" class="lg-panel-empty">
                 {{ t('logiReconciliationEmpty') }}
               </div>
@@ -138,15 +127,12 @@
                   <Download :size="16" />
                 </button>
               </div>
-            </div>
+            </SidebarPanel>
 
             <!-- BUG-259-02 : section "Pertes" (transferts confirmés avec écart), séparée
                  de Réconciliation, qui modélise un écart de comptage, pas de transfert. -->
-            <div v-if="canReconcile" class="lg-panel">
-              <div class="lg-panel-title">
-                <TrendingDown :size="15" class="me-1" />
-                {{ t('logiLossesTitle') }}
-              </div>
+            <SidebarPanel v-if="canReconcile" :title="t('logiLossesTitle')" storage-key="logistic-losses">
+              <template #icon><TrendingDown :size="15" /></template>
               <div v-if="!lossesSummary.count" class="lg-panel-empty">
                 {{ t('logiLossesEmpty') }}
               </div>
@@ -163,7 +149,7 @@
                   </button>
                 </div>
               </template>
-            </div>
+            </SidebarPanel>
           </aside>
 
           <section class="lg-main">
@@ -367,13 +353,36 @@
             </template>
           </section>
 
-          <!-- Colonne droite : agrégat transversal ruptures/stock bas — niveau liste uniquement -->
-          <LogisticAggregateView
-            v-if="!drillElement"
-            :stats="aggregateStats"
-            :loading="loading || stockLoading"
-            @go="goToItem"
-          />
+          <!-- Colonne droite : agrégat transversal ruptures/stock bas + panneau Tasks
+               Restocker, niveau liste uniquement. Chaque section se replie/déplie
+               indépendamment (SidebarPanel), la colonne elle-même scrolle si les deux
+               sont ouvertes en même temps (retour utilisateur 08/2026 : plus de hauteur
+               imposée à l'une par la présence de l'autre). -->
+          <div v-if="!drillElement" class="lg-right-col">
+            <SidebarPanel :title="t('logiAggTitle')" storage-key="logistic-restock-alerts">
+              <template #icon><v-icon size="15">mdi-alert-decagram-outline</v-icon></template>
+              <LogisticAggregateView
+                :stats="aggregateStats"
+                :loading="loading || stockLoading"
+                @go="goToItem"
+              />
+            </SidebarPanel>
+            <SidebarPanel :title="t('lgTasksTitle')" storage-key="logistic-tasks">
+              <template #icon><v-icon size="15">mdi-clipboard-check-outline</v-icon></template>
+              <template #meta>
+                <button
+                  type="button"
+                  class="lg-tasks-refresh"
+                  :title="t('lgTasksRefresh')"
+                  :disabled="$refs.tasksPanelRef?.loading"
+                  @click="$refs.tasksPanelRef?.fetchTasks()"
+                >
+                  <v-icon size="15" :class="{ 'lg-tasks-refresh-spin': $refs.tasksPanelRef?.loading }">mdi-refresh</v-icon>
+                </button>
+              </template>
+              <LogisticTasksPanel ref="tasksPanelRef" :space-id="currentSpaceId" />
+            </SidebarPanel>
+          </div>
         </div>
 
         <!-- Popup ajout / suppression -->
@@ -461,6 +470,8 @@ import LogisticTransferConfirmDrawer from '@/components/LogisticTransferConfirmD
 import LogisticLossesDrawer from '@/components/LogisticLossesDrawer.vue'
 import LogisticHistoryDrawer from '@/components/LogisticHistoryDrawer.vue'
 import LogisticAggregateView from '@/components/LogisticAggregateView.vue'
+import LogisticTasksPanel from '@/components/LogisticTasksPanel.vue'
+import SidebarPanel from '@/components/SidebarPanel.vue'
 import LogisticConfigSelect from '@/components/LogisticConfigSelect.vue'
 import LogisticByItemView from '@/components/LogisticByItemView.vue'
 import { getLatestInventory } from '@/api/endpoints/inventory.api'
@@ -529,6 +540,8 @@ export default {
     LogisticLossesDrawer,
     LogisticHistoryDrawer,
     LogisticAggregateView,
+    LogisticTasksPanel,
+    SidebarPanel,
     ClipboardList,
     GitCompare,
     Download,
@@ -638,10 +651,10 @@ export default {
     /** Entrées niveau 1, shape { element:{id,name,configIds}, items } — miroir de l'ancien wrapper
      *  useInventoryData. configIds n'est peuplé que côté backend en vue agrégée (chantier 341). */
     shopEntries() {
-      return (this.store.getters['logistics/shopElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [] }, items: e.items || [] }))
+      return (this.store.getters['logistics/shopElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [], floorGroupId: e.floorGroupId ?? null }, items: e.items || [] }))
     },
     storageEntries() {
-      return (this.store.getters['logistics/storageElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [] }, items: e.items || [] }))
+      return (this.store.getters['logistics/storageElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [], floorGroupId: e.floorGroupId ?? null }, items: e.items || [] }))
     },
     /** Candidats aux transferts, avec le stock actuel de la denrée (pour choisir en
      *  connaissance de cause). PDV : uniquement ceux qui suivent déjà la denrée
@@ -1028,7 +1041,7 @@ export default {
     /** Élément candidat au transfert, enrichi du stock actuel de la denrée en cours. */
     elementWithStock(entry, itemName) {
       const expected = itemName ? this.expectedDisplay(entry.element.id, { name: itemName }) : { packed: 0, loose: 0 }
-      return { id: entry.element.id, name: entry.element.name, packed: expected.packed, loose: expected.loose }
+      return { id: entry.element.id, name: entry.element.name, packed: expected.packed, loose: expected.loose, floorGroupId: entry.element.floorGroupId ?? null }
     },
     unitsPerPackFor(elementId, item) {
       const level = this.store.getters['logistics/levelFor'](elementId, item.name)
@@ -1083,7 +1096,7 @@ export default {
       }
     },
     async openMovement(element, item, mode) {
-      this.movementElement = { id: element.id, name: element.name }
+      this.movementElement = { id: element.id, name: element.name, floorGroupId: element.floorGroupId ?? null }
       this.movementItem = item
       this.movementMode = mode
       this.movementError = null
@@ -1421,24 +1434,27 @@ export default {
   overflow-y: auto;
   padding-right: 2px;
 }
-.lg-panel {
-  background: var(--lg-surface);
-  border: 1px solid var(--lg-border);
-  border-radius: var(--fb-radius-panel, 12px);
-  padding: 12px;
-}
-/* Titre de section = kicker EventPredict (.ep-metrics-kicker) : 11px, gras 800,
-   letter-spacing .08em. Couleur = var thème (dark-safe). */
-.lg-panel-title {
+/* Colonne droite : chaque SidebarPanel garde sa hauteur naturelle (ouvert ou
+   replié à sa seule en-tête) ; si les deux sont ouvertes en même temps et
+   dépassent le viewport, c'est la COLONNE qui scrolle (même pattern que
+   .lg-aside), jamais une section qui écrase l'autre. */
+.lg-right-col {
   display: flex;
-  align-items: center;
-  font-size: 0.6875rem;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--lg-muted);
-  margin-bottom: 8px;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 2px;
 }
+.lg-tasks-refresh {
+  border: none; background: transparent; cursor: pointer; padding: 3px; border-radius: 7px;
+  display: flex; align-items: center; opacity: 0.65; color: inherit;
+}
+.lg-tasks-refresh:hover { opacity: 1; background: rgba(0, 0, 0, 0.06); }
+.lg-tasks-refresh:disabled { cursor: default; }
+.lg-tasks-refresh-spin { animation: lg-tasks-refresh-spin 0.8s linear infinite; }
+@keyframes lg-tasks-refresh-spin { to { transform: rotate(360deg); } }
 .lg-panel-empty { color: var(--fb-faint, #9ca3af); font-size: 0.82rem; }
 
 .lg-filter-label {
@@ -1549,21 +1565,6 @@ export default {
 .lg-summary-anchor { margin-top: 10px; font-size: 0.76rem; color: var(--lg-muted); }
 
 /* ── Filtre restylé : carte accordéon calquée sur InventoryFilterPanel ── */
-.lg-filter-panel {
-  border: 1px solid var(--lg-border);
-  border-radius: 18px;
-  background: var(--lg-surface);
-  box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.04));
-  padding: 12px 10px;
-}
-.lg-fp-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  min-height: 28px;
-}
-.lg-fp-title { font-size: 13px; font-weight: 700; color: var(--lg-text); margin: 0; }
 .lg-fp-reset-inline {
   display: inline-flex;
   align-items: center;
@@ -1660,6 +1661,7 @@ export default {
      (déjà visibles, pas besoin de les voir avant la liste elle-même). */
   .lg-main { order: 1; }
   .lg-aside { position: static; order: 2; height: auto; overflow: visible; }
+  .lg-right-col { order: 3; height: auto; overflow: visible; }
   .lg-item-grid { grid-template-columns: 1fr; }
   .lg-header__inner { padding: 12px 16px; }
   .lg-layout { padding: 12px 16px 24px; }

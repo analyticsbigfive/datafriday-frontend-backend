@@ -1,12 +1,5 @@
 <template>
-  <aside class="lg-agg">
-    <div class="lg-agg-head">
-      <span class="lg-agg-title">
-        <v-icon size="16" class="mr-1">mdi-alert-decagram-outline</v-icon>
-        {{ t('logiAggTitle') }}
-      </span>
-    </div>
-
+  <div class="lg-agg-content">
     <div v-if="loading" class="lg-agg-stats">
       <v-skeleton-loader v-for="n in 3" :key="n" type="text" class="lg-agg-stat-skeleton" />
     </div>
@@ -96,7 +89,7 @@
         </div>
       </div>
     </div>
-  </aside>
+  </div>
 </template>
 
 <script>
@@ -168,30 +161,14 @@ export default {
 </script>
 
 <style scoped>
-.lg-agg {
-  /* Carte englobante = style « Résumé inventaire » de Space Inventory (look EP :
-     radius 18, border #d9e2ec, ombre douce). Plus de simple border-left. */
-  background: var(--fb-surface, #ffffff);
-  border: 1px solid var(--fb-border, #d9e2ec);
-  border-radius: 18px;
-  box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.04));
-  padding: 14px;
+/* Carte/en-tête retirés (08/2026) : ce composant est désormais un simple contenu,
+   affiché à l'intérieur d'un SidebarPanel qui possède la carte, le titre et le
+   chevron d'ouverture/fermeture (retour utilisateur : chaque section latérale se
+   replie/déplie librement, plus de hauteur imposée par une section voisine). */
+.lg-agg-content {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  /* Colonne étirée à la hauteur de .lg-layout (parent, align-items:stretch) —
-     seule la liste défile (ci-dessous), jamais la page (cf. .space-logistic-view). */
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-}
-.lg-agg-head { display: flex; align-items: center; flex-shrink: 0; }
-.lg-agg-title {
-  display: flex;
-  align-items: center;
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--fb-text, #212121);
 }
 
 .lg-agg-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; flex-shrink: 0; }
@@ -215,12 +192,14 @@ export default {
   padding: 20px 8px;
 }
 
+/* Plafond fixe, indépendant des sections voisines (contrairement à l'ancien
+   `height: 100%` hérité de la carte) : une liste de ruptures longue scrolle sur
+   elle-même sans jamais forcer la hauteur des autres sections repliables. */
 .lg-agg-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  flex: 1 1 auto;
-  min-height: 0;
+  max-height: 360px;
   overflow-y: auto;
   padding-right: 4px;
   margin-right: -4px;
@@ -369,17 +348,4 @@ export default {
 .lg-agg-item-warn .lg-agg-item-icon { color: var(--fb-warning, #d97706); }
 .lg-agg-item-bad .lg-agg-item-total strong { color: var(--fb-danger, #ff3131); }
 .lg-agg-item-warn .lg-agg-item-total strong { color: var(--fb-warning, #d97706); }
-
-@media (max-width: 900px) {
-  /* Empilé sous la liste et les filtres (cf. .lg-layout du parent) — plus de
-     colonne sticky, juste un bloc de fin de page borné à sa propre hauteur. */
-  .lg-agg {
-    border-left: none;
-    border-top: 1px solid var(--fb-border, #e5e7eb);
-    padding: 16px 0 0;
-    position: static;
-    order: 3;
-    max-height: 70vh;
-  }
-}
 </style>
