@@ -10,7 +10,7 @@ import { api } from '../client'
  * Crée en un lot les tâches accumulées dans le drawer Restocker ("Tâches : N").
  * POST /spaces/:spaceId/logistic-tasks/batch
  * @param {string} spaceId
- * @param {Array<{itemKey, menuItemId?, sourceElementId, destinationElementId, packed, loose, assignedToUserId, priority}>} tasks
+ * @param {Array<{itemKey, itemKind?, itemRefId?, menuItemId?, sourceElementId, destinationElementId, packed, loose, assignedToUserId, priority}>} tasks
  */
 export async function createLogisticTaskBatch(spaceId, tasks) {
   return api.post(`/spaces/${spaceId}/logistic-tasks/batch`, { tasks })

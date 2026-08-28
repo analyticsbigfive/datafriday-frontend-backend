@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
 import { IsArray, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
+import { STOCK_ITEM_KINDS, StockItemKind } from '../../logistics/dto/logistics.dto';
 
 export const LOGISTIC_TASK_PRIORITIES = ['VERY_URGENT', 'URGENT', 'TODO', 'NOT_PRIORITY'] as const;
 export type LogisticTaskPriorityValue = (typeof LOGISTIC_TASK_PRIORITIES)[number];
@@ -10,6 +11,19 @@ export class CreateLogisticTaskLineDto {
   @IsString()
   @IsNotEmpty()
   itemKey: string;
+
+  @ApiPropertyOptional({
+    enum: STOCK_ITEM_KINDS,
+    description: 'ADR-0006 (chantier 377) — voir CreateMovementDto.itemKind. Optionnel, préféré à la résolution serveur par nom quand fourni avec itemRefId.',
+  })
+  @IsOptional()
+  @IsIn(STOCK_ITEM_KINDS as unknown as string[])
+  itemKind?: StockItemKind;
+
+  @ApiPropertyOptional({ description: 'ADR-0006 (chantier 377) — voir CreateMovementDto.itemRefId.' })
+  @IsOptional()
+  @IsString()
+  itemRefId?: string;
 
   @ApiPropertyOptional({ description: "Menu item si l'item du référentiel est un produit readyForSale" })
   @IsOptional()

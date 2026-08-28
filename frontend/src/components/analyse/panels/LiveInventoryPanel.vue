@@ -157,6 +157,8 @@
       :space-id="spaceId"
       :element="restockerElement"
       :item-key="restockerItemKey"
+      :item-kind="restockerItemKind"
+      :item-ref-id="restockerItemRefId"
       :tasks="restockerTasks"
       :confirming="restockerConfirming"
       :error="restockerError"
@@ -213,6 +215,8 @@ export default {
       restockerOpen: false,
       restockerElement: null,
       restockerItemKey: '',
+      restockerItemKind: null,
+      restockerItemRefId: null,
     };
   },
   computed: {
@@ -308,13 +312,16 @@ export default {
       const num = this.formatNumber(v);
       return unit ? `${num} ${unit.toLowerCase()}` : num;
     },
-    // `child.shopId`/`child.itemKey` portés explicitement par buildLiveInventoryChild
-    // (cf. utils/liveInventoryRows.js) — valables dans les deux vues (shop/item), le
-    // nom du shop seul diffère (node.label en vue shop, child.label en vue item).
+    // `child.shopId`/`child.itemKey`/`child.itemKind`/`child.itemRefId` portés
+    // explicitement par buildLiveInventoryChild (cf. utils/liveInventoryRows.js) —
+    // valables dans les deux vues (shop/item), le nom du shop seul diffère (node.label
+    // en vue shop, child.label en vue item). itemKind/itemRefId : ADR-0006 (chantier 377).
     openRestocker(node, child) {
       const shopName = this.view === 'shop' ? node.label : child.label;
       this.restockerElement = { id: child.shopId, name: shopName };
       this.restockerItemKey = child.itemKey;
+      this.restockerItemKind = child.itemKind ?? null;
+      this.restockerItemRefId = child.itemRefId ?? null;
       this.restockerOpen = true;
     },
     onRestockAddTask(task) {

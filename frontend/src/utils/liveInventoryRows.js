@@ -104,19 +104,21 @@ export function buildLiveInventoryRows(inv, view, search = '', statusFilters = [
 
   // shopId/itemKey portés explicitement sur chaque enfant (pas déduits de `key`,
   // dont le format diffère selon la vue) — le bouton "Stocker" (RestockerDrawer) en
-  // a besoin quelle que soit la vue affichée.
+  // a besoin quelle que soit la vue affichée. itemKind/itemRefId (ADR-0006, chantier
+  // 377) suivent la même logique : identité stable, préférée par le backend au nom
+  // seul quand fournie.
   let groups;
   if (view === 'shop') {
     groups = (inv.shops || []).map((s) => ({
       key: `shop:${s.shopId}`,
       label: s.shopName || s.shopId || '—',
-      children: sortAndFilter((s.items || []).map((it) => buildLiveInventoryChild(it, it.itemKey || '—', `${s.shopId}:${it.itemKey}`, { shopId: s.shopId, itemKey: it.itemKey }))),
+      children: sortAndFilter((s.items || []).map((it) => buildLiveInventoryChild(it, it.itemKey || '—', `${s.shopId}:${it.itemKey}`, { shopId: s.shopId, itemKey: it.itemKey, itemKind: it.itemKind ?? null, itemRefId: it.itemRefId ?? null }))),
     }));
   } else {
     groups = (inv.items || []).map((it) => ({
       key: `item:${it.itemKey}`,
       label: it.itemKey || '—',
-      children: sortAndFilter((it.shops || []).map((s) => buildLiveInventoryChild(s, s.shopName || s.shopId || '—', `${it.itemKey}:${s.shopId}`, { shopId: s.shopId, itemKey: it.itemKey }))),
+      children: sortAndFilter((it.shops || []).map((s) => buildLiveInventoryChild(s, s.shopName || s.shopId || '—', `${it.itemKey}:${s.shopId}`, { shopId: s.shopId, itemKey: it.itemKey, itemKind: it.itemKind ?? null, itemRefId: it.itemRefId ?? null }))),
     }));
   }
 

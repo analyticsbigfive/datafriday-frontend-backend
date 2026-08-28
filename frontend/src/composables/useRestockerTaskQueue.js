@@ -15,9 +15,9 @@ export function useRestockerTaskQueue() {
   const confirming = ref(false)
   const error = ref(null)
 
-  /** @param {{itemKey, menuItemId?, itemLabel, sourceElementId, sourceElementName,
-   *   destinationElementId, destinationElementName, packed, loose, assignedToUserId,
-   *   assignedToName, priority}} task */
+  /** @param {{itemKey, itemKind?, itemRefId?, menuItemId?, itemLabel, sourceElementId,
+   *   sourceElementName, destinationElementId, destinationElementName, packed, loose,
+   *   assignedToUserId, assignedToName, priority}} task */
   function addTask(task) {
     queue.value = [...queue.value, { ...task, _localId: ++_localId }]
   }
@@ -37,6 +37,8 @@ export function useRestockerTaskQueue() {
     try {
       const tasks = queue.value.map((t) => ({
         itemKey: t.itemKey,
+        itemKind: t.itemKind || undefined,
+        itemRefId: t.itemRefId || undefined,
         menuItemId: t.menuItemId || undefined,
         sourceElementId: t.sourceElementId,
         destinationElementId: t.destinationElementId,

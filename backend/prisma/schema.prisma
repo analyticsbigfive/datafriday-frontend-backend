@@ -3385,6 +3385,10 @@ model LogisticTask {
   tenantId             String
   spaceId              String
   itemKey              String // même référentiel que StockMovement.itemKey
+  // Identité stable en remplacement progressif d'itemKey (ADR-0006, chantier 377) — même
+  // convention que StockLevel/StockMovement/StockTransferLoss : nullable, repli par nom si absent.
+  itemKind             String? // 'marketPrice' | 'ingredient' | 'packaging' | 'menuItem' | 'menuComponent'
+  itemRefId            String?
   menuItemId           String?
   sourceElementId      String
   destinationElementId String
@@ -3404,6 +3408,7 @@ model LogisticTask {
 
   @@index([tenantId, spaceId, assignedToUserId, status])
   @@index([tenantId, spaceId, status])
+  @@index([itemRefId])
 }
 
 // ==================== NOTIFICATIONS (in-app) ====================

@@ -170,6 +170,10 @@ export default {
     /** PDV en cours de réapprovisionnement (destination) { id, name } */
     element: { type: Object, default: null },
     itemKey: { type: String, default: '' },
+    /** Identité stable de l'article (ADR-0006, chantier 377) — optionnelle, transmise
+     * telle quelle jusqu'au backend qui la préfère au nom quand fournie. */
+    itemKind: { type: String, default: null },
+    itemRefId: { type: String, default: null },
     /** File d'attente locale, possédée par le parent (survit à la fermeture du drawer). */
     tasks: { type: Array, default: () => [] },
     confirming: { type: Boolean, default: false },
@@ -341,6 +345,10 @@ export default {
       const staff = this.staffList.find((s) => s.id === this.form.assignedToUserId)
       this.$emit('add-task', {
         itemKey: this.itemKey,
+        // ADR-0006 (chantier 377) : identité stable — currentItem (référentiel Logistic,
+        // toujours à jour) prioritaire, repli sur les props transmises par le parent.
+        itemKind: this.currentItem?.refKind ?? this.itemKind ?? undefined,
+        itemRefId: this.currentItem?.id ?? this.itemRefId ?? undefined,
         menuItemId: this.currentItem?.kind === 'product' ? this.currentItem.id : undefined,
         itemLabel: this.currentItem?.name || this.itemKey,
         unit: this.currentItem?.unit || null,

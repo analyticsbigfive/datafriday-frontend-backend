@@ -1758,6 +1758,10 @@ export class LogisticsService {
           const level = levelByKey.get(`${el.id}::${item.name}`);
           return {
             itemKey: item.name,
+            // ADR-0006 (chantier 377) : id/kind déjà résolus par le référentiel (itemRefsForMenuItem),
+            // simplement propagés ici — voir CreateMovementDto.itemKind pour l'usage côté écriture.
+            itemKind: item.refKind ?? null,
+            itemRefId: item.id ?? null,
             unit: item.unit ?? null,
             packedUnits: level?.packedUnits ?? 0,
             looseUnits: level?.looseUnits ?? 0,
@@ -1770,12 +1774,14 @@ export class LogisticsService {
 
     // Index inversé item → shops (11_LIVE.md §3.2) — n'existe nulle part ailleurs, seul vrai
     // travail neuf de ce chantier : les deux vues partagent la même donnée déjà assemblée ci-dessus.
-    const itemsByKey = new Map<string, { itemKey: string; unit: string | null; shops: any[] }>();
+    const itemsByKey = new Map<string, { itemKey: string; itemKind: string | null; itemRefId: string | null; unit: string | null; shops: any[] }>();
     for (const shop of shops) {
       for (const item of shop.items) {
         let entry = itemsByKey.get(item.itemKey);
         if (!entry) {
-          entry = { itemKey: item.itemKey, unit: item.unit, shops: [] };
+          // Identité produit stable au niveau du groupe : même article, même id/kind
+          // quel que soit le shop (ADR-0006, chantier 377).
+          entry = { itemKey: item.itemKey, itemKind: item.itemKind, itemRefId: item.itemRefId, unit: item.unit, shops: [] };
           itemsByKey.set(item.itemKey, entry);
         }
         entry.shops.push({

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { LogisticTaskPriority, LogisticTaskStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { LogisticsService } from '../logistics/logistics.service';
+import { StockItemKind } from '../logistics/dto/logistics.dto';
 import { CreateLogisticTaskBatchDto } from './dto/logistic-tasks.dto';
 
 /** Miroir de SHOP_TYPES (logistics.service.ts) : sert uniquement à choisir TRANSFER_SHOP
@@ -73,6 +74,8 @@ export class LogisticTasksService {
               tenantId,
               spaceId,
               itemKey: line.itemKey,
+              itemKind: line.itemKind ?? null,
+              itemRefId: line.itemRefId ?? null,
               menuItemId: line.menuItemId ?? null,
               sourceElementId: line.sourceElementId,
               destinationElementId: line.destinationElementId,
@@ -110,6 +113,8 @@ export class LogisticTasksService {
     return rows.map((r) => ({
       id: r.id,
       itemKey: r.itemKey,
+      itemKind: r.itemKind,
+      itemRefId: r.itemRefId,
       menuItemId: r.menuItemId,
       sourceElementId: r.sourceElementId,
       sourceElementName: elementsById.get(r.sourceElementId)?.name ?? r.sourceElementId,
@@ -199,6 +204,8 @@ export class LogisticTasksService {
         spaceId: task.spaceId,
         elementId: task.sourceElementId,
         itemKey: task.itemKey,
+        itemKind: (task.itemKind as StockItemKind | null) ?? undefined,
+        itemRefId: task.itemRefId ?? undefined,
         direction: 'remove',
         packed: task.packedQty,
         loose: task.looseQty,
