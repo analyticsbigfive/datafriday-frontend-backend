@@ -16,106 +16,181 @@
           </div>
           <v-divider />
 
-          <!-- Body -->
-          <div class="rsk-body">
-            <div class="rsk-field">
-              <div class="rsk-label">{{ t('restockOrigin') }}</div>
-              <v-select
-                v-model="form.sourceElementId"
-                :items="originOptions"
-                item-title="title"
-                item-value="value"
-                variant="outlined"
-                density="compact"
-                rounded="lg"
-                hide-details
-                :loading="stockLoading"
-                :placeholder="t('restockOriginPlaceholder')"
-                :menu-props="{ zIndex: 3500 }"
-              />
-            </div>
-
-            <div class="rsk-field-row">
+          <div class="rsk-content">
+            <!-- Form pane : jamais compressée par la file, sa propre zone de scroll -->
+            <div class="rsk-form-pane">
               <div class="rsk-field">
-                <div class="rsk-label">{{ packedFieldLabel }}</div>
-                <v-text-field
-                  v-model.number="form.packed"
-                  type="number"
-                  min="0"
-                  step="1"
+                <div class="rsk-label">{{ t('restockOrigin') }}</div>
+                <v-select
+                  v-model="form.sourceElementId"
+                  :items="originOptions"
+                  item-title="title"
+                  item-value="value"
                   variant="outlined"
                   density="compact"
                   rounded="lg"
                   hide-details
+                  :loading="stockLoading"
+                  :placeholder="t('restockOriginPlaceholder')"
+                  :menu-props="{ zIndex: 3500 }"
                 />
               </div>
+
+              <div class="rsk-field-row">
+                <div class="rsk-field">
+                  <div class="rsk-label">{{ packedFieldLabel }}</div>
+                  <v-text-field
+                    v-model.number="form.packed"
+                    type="number"
+                    min="0"
+                    step="1"
+                    variant="outlined"
+                    density="compact"
+                    rounded="lg"
+                    hide-details
+                  />
+                </div>
+                <div class="rsk-field">
+                  <div class="rsk-label">{{ looseFieldLabel }}</div>
+                  <v-text-field
+                    v-model.number="form.loose"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    variant="outlined"
+                    density="compact"
+                    rounded="lg"
+                    hide-details
+                  />
+                </div>
+              </div>
+
+              <div v-if="availableCap" class="rsk-cap" :class="{ 'rsk-cap-over': exceedsCap }">
+                <v-icon size="14" class="mr-1">{{ exceedsCap ? 'mdi-alert-circle-outline' : 'mdi-information-outline' }}</v-icon>
+                {{ t('logiAvailable') }} : {{ availableCap.packed }} {{ packedShortLabel }}
+                <template v-if="availableCapTotal !== null"> ({{ availableCapTotal }})</template>
+                <template v-else> · {{ formatUnits(availableCap.loose) }} {{ looseShortLabel }}</template>
+              </div>
+
               <div class="rsk-field">
-                <div class="rsk-label">{{ looseFieldLabel }}</div>
-                <v-text-field
-                  v-model.number="form.loose"
-                  type="number"
-                  min="0"
-                  step="0.01"
+                <div class="rsk-label">{{ t('restockAssignTo') }}</div>
+                <v-select
+                  v-model="form.assignedToUserId"
+                  :items="staffOptions"
+                  item-title="title"
+                  item-value="value"
                   variant="outlined"
                   density="compact"
                   rounded="lg"
                   hide-details
+                  :loading="staffLoading"
+                  :placeholder="t('restockStaffPlaceholder')"
+                  :no-data-text="t('restockNoStaff')"
+                  :menu-props="{ zIndex: 3500 }"
                 />
               </div>
-            </div>
 
-            <div v-if="availableCap" class="rsk-cap" :class="{ 'rsk-cap-over': exceedsCap }">
-              <v-icon size="14" class="mr-1">{{ exceedsCap ? 'mdi-alert-circle-outline' : 'mdi-information-outline' }}</v-icon>
-              {{ t('logiAvailable') }} : {{ availableCap.packed }} {{ packedShortLabel }}
-              <template v-if="availableCapTotal !== null"> ({{ availableCapTotal }})</template>
-              <template v-else> · {{ formatUnits(availableCap.loose) }} {{ looseShortLabel }}</template>
-            </div>
-
-            <div class="rsk-field">
-              <div class="rsk-label">{{ t('restockAssignTo') }}</div>
-              <v-select
-                v-model="form.assignedToUserId"
-                :items="staffOptions"
-                item-title="title"
-                item-value="value"
-                variant="outlined"
-                density="compact"
-                rounded="lg"
-                hide-details
-                :loading="staffLoading"
-                :placeholder="t('restockStaffPlaceholder')"
-                :no-data-text="t('restockNoStaff')"
-                :menu-props="{ zIndex: 3500 }"
-              />
-            </div>
-
-            <div class="rsk-field">
-              <div class="rsk-label">{{ t('restockPriority') }}</div>
-              <div class="rsk-priority-grid">
-                <button
-                  v-for="p in priorities"
-                  :key="p.value"
-                  type="button"
-                  class="rsk-priority-btn"
-                  :class="[`rsk-priority-btn--${p.value.toLowerCase()}`, { 'rsk-priority-btn--active': form.priority === p.value }]"
-                  @click="form.priority = p.value"
-                >{{ p.title }}</button>
+              <div class="rsk-field">
+                <div class="rsk-label">{{ t('restockPriority') }}</div>
+                <div class="rsk-priority-grid">
+                  <button
+                    v-for="p in priorities"
+                    :key="p.value"
+                    type="button"
+                    class="rsk-priority-btn"
+                    :class="[`rsk-priority-btn--${p.value.toLowerCase()}`, { 'rsk-priority-btn--active': form.priority === p.value }]"
+                    @click="form.priority = p.value"
+                  >{{ p.title }}</button>
+                </div>
               </div>
+
+              <button type="button" class="rsk-add-btn" :disabled="!isValid" :title="t('restockAddTask')" @click="addTask">
+                <v-icon size="18" class="mr-1">mdi-plus</v-icon>
+                {{ t('restockAddTask') }}
+              </button>
             </div>
 
-            <button type="button" class="rsk-add-btn" :disabled="!isValid" :title="t('restockAddTask')" @click="addTask">
-              <v-icon size="20">mdi-plus</v-icon>
-            </button>
+            <!-- Queue pane : regroupable, indépendamment scrollable -->
+            <div class="rsk-queue-pane">
+              <div class="rsk-queue-head">
+                <div class="rsk-queue-title">
+                  {{ t('restockTasksCount') }}
+                  <span v-if="tasks.length" class="rsk-queue-count">{{ tasks.length }}</span>
+                </div>
+                <div v-if="tasks.length" class="rsk-view-tabs">
+                  <button
+                    v-for="v in viewOptions"
+                    :key="v.value"
+                    type="button"
+                    class="rsk-view-tab"
+                    :class="{ 'rsk-view-tab--active': viewMode === v.value }"
+                    @click="viewMode = v.value"
+                  >{{ v.title }}</button>
+                </div>
+              </div>
 
-            <div v-if="tasks.length" class="rsk-queue">
-              <div class="rsk-queue-title">{{ t('restockTasksCount') }} : {{ tasks.length }}</div>
-              <div v-for="(task, i) in tasks" :key="task._localId" class="rsk-queue-line">
-                <span class="rsk-queue-line__text">
-                  {{ i + 1 }} - {{ task.assignedToName }} : {{ taskQtyLabel(task) }} {{ task.itemLabel }} {{ t('restockFrom') }} {{ task.sourceElementName }} {{ t('restockTo') }} {{ task.destinationElementName }}
-                </span>
-                <button type="button" class="rsk-queue-line__remove" :title="t('restockRemoveTask')" @click="$emit('remove-task', task._localId)">
-                  <v-icon size="14">mdi-close</v-icon>
-                </button>
+              <div class="rsk-queue-scroll">
+                <div v-if="!tasks.length" class="rsk-queue-empty">
+                  <v-icon size="28" class="mb-2">mdi-clipboard-list-outline</v-icon>
+                  <div>{{ t('restockEmptyQueue') }}</div>
+                </div>
+
+                <!-- Vue liste : chronologique, numérotée -->
+                <div v-else-if="viewMode === 'flat'" class="rsk-flat-list">
+                  <div v-for="(task, i) in tasks" :key="task._localId" class="rsk-task-row">
+                    <span class="rsk-priority-dot" :style="{ background: priorityColor(task.priority) }" />
+                    <span class="rsk-task-row__text">
+                      {{ i + 1 }} - {{ task.assignedToName }} : {{ taskQtyLabel(task) }} {{ task.itemLabel }} {{ t('restockFrom') }} {{ task.sourceElementName }} {{ t('restockTo') }} {{ task.destinationElementName }}
+                    </span>
+                    <button type="button" class="rsk-task-row__remove" :title="t('restockRemoveTask')" @click="$emit('remove-task', task._localId)">
+                      <v-icon size="14">mdi-close</v-icon>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Vue par staff : un groupe par logisticien assigné -->
+                <div v-else-if="viewMode === 'staff'" class="rsk-groups">
+                  <div v-for="group in groupedByStaff" :key="group.key" class="rsk-group">
+                    <button type="button" class="rsk-group-head" @click="toggleGroup(`staff:${group.key}`)">
+                      <v-icon size="16" class="rsk-group-chevron" :class="{ 'rsk-group-chevron--open': !isCollapsed(`staff:${group.key}`) }">mdi-chevron-right</v-icon>
+                      <v-icon size="15" class="mr-1">mdi-account-outline</v-icon>
+                      <span class="rsk-group-label">{{ group.label }}</span>
+                      <span class="rsk-queue-count">{{ group.tasks.length }}</span>
+                    </button>
+                    <div v-show="!isCollapsed(`staff:${group.key}`)" class="rsk-group-body">
+                      <div v-for="task in group.tasks" :key="task._localId" class="rsk-task-row">
+                        <span class="rsk-priority-dot" :style="{ background: priorityColor(task.priority) }" />
+                        <span class="rsk-task-row__text">
+                          {{ taskQtyLabel(task) }} {{ task.itemLabel }} {{ t('restockFrom') }} {{ task.sourceElementName }} {{ t('restockTo') }} {{ task.destinationElementName }}
+                        </span>
+                        <button type="button" class="rsk-task-row__remove" :title="t('restockRemoveTask')" @click="$emit('remove-task', task._localId)">
+                          <v-icon size="14">mdi-close</v-icon>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Vue par lieu : un groupe par trajet origine → destination -->
+                <div v-else class="rsk-groups">
+                  <div v-for="group in groupedByRoute" :key="group.key" class="rsk-group">
+                    <button type="button" class="rsk-group-head" @click="toggleGroup(`route:${group.key}`)">
+                      <v-icon size="16" class="rsk-group-chevron" :class="{ 'rsk-group-chevron--open': !isCollapsed(`route:${group.key}`) }">mdi-chevron-right</v-icon>
+                      <v-icon size="15" class="mr-1">mdi-map-marker-path</v-icon>
+                      <span class="rsk-group-label">{{ t('restockFrom') }} {{ group.sourceElementName }} {{ t('restockTo') }} {{ group.destinationElementName }}</span>
+                      <span class="rsk-queue-count">{{ group.tasks.length }}</span>
+                    </button>
+                    <div v-show="!isCollapsed(`route:${group.key}`)" class="rsk-group-body">
+                      <div v-for="task in group.tasks" :key="task._localId" class="rsk-task-row">
+                        <span class="rsk-priority-dot" :style="{ background: priorityColor(task.priority) }" />
+                        <span class="rsk-task-row__text">{{ task.assignedToName }} : {{ taskQtyLabel(task) }} {{ task.itemLabel }}</span>
+                        <button type="button" class="rsk-task-row__remove" :title="t('restockRemoveTask')" @click="$emit('remove-task', task._localId)">
+                          <v-icon size="14">mdi-close</v-icon>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -152,6 +227,18 @@ import { packedLabel, looseUnitLabel, compactQtyLabel } from '@/composables/useL
 import { useAssignableStaff } from '@/composables/useAssignableStaff'
 import { sortElementsByFloorAndQuantity } from '@/utils/logisticElementOptions'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
+import { groupTasksByStaff, groupTasksByRoute } from '@/utils/restockerTaskGrouping'
+import { getLogisticTasks } from '@/api/endpoints/logistic-tasks.api'
+
+// Même palette que .rsk-priority-btn--* (style, en bas de fichier), dupliquée ici pour
+// le point coloré des lignes de tâches, qui ne peut pas réutiliser une classe CSS pour
+// une couleur dynamique par tâche.
+const PRIORITY_COLORS = {
+  VERY_URGENT: '#7c3aed',
+  URGENT: '#ff3131',
+  TODO: '#fab219',
+  NOT_PRIORITY: '#fde68a',
+}
 
 /**
  * Drawer "Restocker" (Live inventory, mockups 08/2026) : crée une ou plusieurs
@@ -161,6 +248,12 @@ import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslat
  * L'origine est résolue via le store `logistics` (mêmes données que l'écran
  * Logistic) — le parent (LiveInventoryPanel) n'a besoin de connaître ni le stock
  * détaillé ni les floors, seulement l'élément/l'item ouverts.
+ *
+ * Layout à deux volets (retour utilisateur 08/2026, la 1re version en colonne unique
+ * réduisait le formulaire au fur et à mesure que la file grandissait) : le formulaire
+ * de gauche ne bouge jamais, la file de droite scrolle indépendamment et se regroupe
+ * par staff ou par trajet (groupTasksByStaff/groupTasksByRoute, extraits dans
+ * utils/restockerTaskGrouping.js sur le même principe que liveInventoryRows.js).
  */
 export default {
   name: 'RestockerDrawer',
@@ -170,7 +263,7 @@ export default {
     /** PDV en cours de réapprovisionnement (destination) { id, name } */
     element: { type: Object, default: null },
     itemKey: { type: String, default: '' },
-    /** Identité stable de l'article (ADR-0006, chantier 377) — optionnelle, transmise
+    /** Identité stable de l'article (ADR-0006, chantier 377), optionnelle, transmise
      * telle quelle jusqu'au backend qui la préfère au nom quand fournie. */
     itemKind: { type: String, default: null },
     itemRefId: { type: String, default: null },
@@ -189,6 +282,11 @@ export default {
   data() {
     return {
       form: { sourceElementId: null, packed: 0, loose: 0, assignedToUserId: null, priority: null },
+      viewMode: 'flat', // 'flat' | 'staff' | 'location'
+      collapsedGroupKeys: {}, // { [`${dimension}:${groupKey}`]: true }, replié seulement si présent et vrai
+      // Tâches LogisticTask PENDING de tout l'espace (autres sessions/staff compris),
+      // rechargées à chaque ouverture du drawer — voir reservedAtOrigin.
+      openTasks: [],
     }
   },
   computed: {
@@ -199,6 +297,19 @@ export default {
         { value: 'TODO', title: this.t('restockPriorityTodo') },
         { value: 'NOT_PRIORITY', title: this.t('restockPriorityNotPriority') },
       ]
+    },
+    viewOptions() {
+      return [
+        { value: 'flat', title: this.t('restockViewFlat') },
+        { value: 'staff', title: this.t('restockViewByStaff') },
+        { value: 'location', title: this.t('restockViewByLocation') },
+      ]
+    },
+    groupedByStaff() {
+      return groupTasksByStaff(this.tasks)
+    },
+    groupedByRoute() {
+      return groupTasksByRoute(this.tasks)
     },
     currentItem() {
       return this.store.getters['logistics/itemByKey'](this.itemKey)
@@ -225,14 +336,49 @@ export default {
     looseShortLabel() {
       return this.currentItem?.unit || this.t('logiLooseShort')
     },
+    /** Identité de l'item courant pour matcher les réservations (id stable prioritaire,
+     *  repli sur itemKey nom, même logique que addTask/ADR-0006). */
+    currentItemRefId() {
+      return this.currentItem?.id ?? this.itemRefId ?? null
+    },
+    /** Quantité déjà engagée sur une origine pour l'item courant, sans encore avoir
+     *  bougé le stock (LogisticTask.PENDING encore là = pas récupérée, cf. schéma) :
+     *  file locale (pas envoyée) + tâches PENDING de tout l'espace (déjà envoyées par
+     *  cette session ou une autre, cf. openTasks). Les tâches PICKED_UP ne comptent
+     *  PAS ici : leur pickup a déjà décrémenté StockLevel (ensureStock rafraîchit à
+     *  chaque ouverture), les compter en plus doublerait la réservation. */
+    reservedByOriginId() {
+      const reserved = {}
+      const add = (elementId, packed, loose) => {
+        const cur = reserved[elementId] || { packed: 0, loose: 0 }
+        cur.packed += Number(packed) || 0
+        cur.loose += Number(loose) || 0
+        reserved[elementId] = cur
+      }
+      for (const task of this.tasks) {
+        if (this.matchesCurrentItem(task)) add(task.sourceElementId, task.packed, task.loose)
+      }
+      for (const task of this.openTasks) {
+        if (task.status === 'PENDING' && this.matchesCurrentItem(task)) add(task.sourceElementId, task.packedQty, task.looseQty)
+      }
+      return reserved
+    },
     originCandidates() {
       const shops = this.store.getters['logistics/shopElements'] || []
       const storages = this.store.getters['logistics/storageElements'] || []
+      const reservedByOriginId = this.reservedByOriginId
       return [...shops, ...storages]
         .filter((e) => e.id !== this.element?.id)
         .map((e) => {
           const expected = this.store.getters['logistics/expectedFor'](e.id, this.itemKey) || { packed: 0, loose: 0 }
-          return { id: e.id, name: e.name, packed: expected.packed, loose: expected.loose, floorGroupId: e.floorGroupId ?? null }
+          const reserved = reservedByOriginId[e.id] || { packed: 0, loose: 0 }
+          return {
+            id: e.id,
+            name: e.name,
+            packed: Math.max(0, (expected.packed ?? 0) - reserved.packed),
+            loose: Math.max(0, (expected.loose ?? 0) - reserved.loose),
+            floorGroupId: e.floorGroupId ?? null,
+          }
         })
     },
     sortedOrigins() {
@@ -305,15 +451,36 @@ export default {
     modelValue(open) {
       if (!open) return
       this.resetForm()
-      if (this.spaceId) this.fetchStaff(this.spaceId)
+      if (this.spaceId) {
+        this.fetchStaff(this.spaceId)
+        this.fetchOpenTasks()
+      }
       this.ensureStock()
     },
   },
   methods: {
+    /** Rafraîchi à CHAQUE ouverture (pas de cache par espace, contrairement à avant) :
+     *  un pickup exécuté ailleurs entre-temps a réellement décrémenté StockLevel, un
+     *  cache périmé masquerait ce mouvement dans le select Origine. */
     async ensureStock() {
-      const state = this.store.state.logistics
-      if (state?.spaceId === this.spaceId && (state?.elements || []).length) return
       await this.store.dispatch('logistics/loadStock', { spaceId: this.spaceId })
+    },
+    /** Tâches LogisticTask PENDING de tout l'espace : reflètent une quantité déjà
+     *  engagée sur une origine mais pas encore décrémentée de StockLevel (pickup pas
+     *  encore fait, cf. reservedByOriginId) — silencieuses sinon dans le select Origine. */
+    async fetchOpenTasks() {
+      try {
+        this.openTasks = (await getLogisticTasks(this.spaceId)) || []
+      } catch {
+        this.openTasks = []
+      }
+    },
+    /** Item d'une tâche (locale ou backend) = item courant du drawer ? Id stable
+     *  prioritaire (ADR-0006), repli sur le nom (itemKey) sinon. */
+    matchesCurrentItem(task) {
+      if (this.currentItemRefId && task.itemRefId) return task.itemRefId === this.currentItemRefId
+      const key = String(task.itemKey ?? '').trim().toLowerCase()
+      return key === String(this.itemKey ?? '').trim().toLowerCase()
     },
     /** Réinitialise l'item en cours ; garde staff/priorité (par défaut le même
      *  logisticien pour la tâche suivante, cf. mockup). */
@@ -336,6 +503,15 @@ export default {
     taskQtyLabel(task) {
       return compactQtyLabel(task.packed, task.loose, { unit: task.unit, packagingType: task.packagingType }, task.unitsPerPack, this.t, this.locale, formatUnits)
     },
+    priorityColor(priority) {
+      return PRIORITY_COLORS[priority] || '#9ca3af'
+    },
+    isCollapsed(key) {
+      return !!this.collapsedGroupKeys[key]
+    },
+    toggleGroup(key) {
+      this.collapsedGroupKeys = { ...this.collapsedGroupKeys, [key]: !this.collapsedGroupKeys[key] }
+    },
     close() {
       this.$emit('update:modelValue', false)
     },
@@ -345,7 +521,7 @@ export default {
       const staff = this.staffList.find((s) => s.id === this.form.assignedToUserId)
       this.$emit('add-task', {
         itemKey: this.itemKey,
-        // ADR-0006 (chantier 377) : identité stable — currentItem (référentiel Logistic,
+        // ADR-0006 (chantier 377) : identité stable, currentItem (référentiel Logistic,
         // toujours à jour) prioritaire, repli sur les props transmises par le parent.
         itemKind: this.currentItem?.refKind ?? this.itemKind ?? undefined,
         itemRefId: this.currentItem?.id ?? this.itemRefId ?? undefined,
@@ -382,7 +558,11 @@ export default {
   background: rgba(0, 0, 0, 0.4);
 }
 .rsk-panel {
-  width: 440px;
+  /* Jusqu'à ~48% de l'écran (retour utilisateur 08/2026 : la file de tâches a besoin
+     d'espace pour se regrouper lisiblement), plafonné pour rester raisonnable sur les
+     très grands écrans ; sous ~920px de viewport, revient à une colonne unique pleine
+     largeur (cf. rsk-content en media query). */
+  width: clamp(440px, 48vw, 960px);
   max-width: 100vw;
   height: 100%;
   background: rgb(var(--v-theme-surface));
@@ -390,7 +570,7 @@ export default {
   flex-direction: column;
   box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
 }
-.rsk-header { display: flex; align-items: center; gap: 10px; padding: 16px; }
+.rsk-header { display: flex; align-items: center; gap: 10px; padding: 16px; flex-shrink: 0; }
 .rsk-header-icon {
   width: 34px; height: 34px; border-radius: 10px; background: #ff3131;
   display: flex; align-items: center; justify-content: center; flex-shrink: 0;
@@ -405,7 +585,19 @@ export default {
 }
 .rsk-close:hover { opacity: 1; background: rgba(0, 0, 0, 0.06); }
 
-.rsk-body { padding: 16px; flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+/* Deux volets : formulaire (jamais compressé) + file (scroll et regroupement propres) */
+.rsk-content { flex: 1; min-height: 0; display: flex; overflow: hidden; }
+
+.rsk-form-pane {
+  width: 360px;
+  flex-shrink: 0;
+  padding: 16px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  border-right: 1px solid rgba(0, 0, 0, 0.08);
+}
 .rsk-field { display: flex; flex-direction: column; gap: 6px; }
 .rsk-field-row { display: flex; gap: 12px; }
 .rsk-field-row .rsk-field { flex: 1; }
@@ -440,31 +632,84 @@ export default {
 .rsk-cap-over { color: #ff3131; background: #fef2f2; border-color: rgba(255, 49, 49, .3); font-weight: 600; }
 
 .rsk-add-btn {
-  align-self: flex-end; width: 44px; height: 44px; border-radius: 12px; border: none;
+  width: 100%; height: 42px; border-radius: 12px; border: none;
   background: #ff3131; color: #fff; display: flex; align-items: center; justify-content: center;
-  cursor: pointer; transition: opacity .15s;
+  font-size: 13px; font-weight: 700; cursor: pointer; transition: opacity .15s;
 }
 .rsk-add-btn:disabled { opacity: 0.4; cursor: default; }
 
-.rsk-queue { border-top: 1px solid rgba(0, 0, 0, 0.08); padding-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-.rsk-queue-title { font-size: 12px; font-weight: 700; opacity: 0.7; }
-.rsk-queue-line {
-  display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(0, 0, 0, 0.03); font-size: 12.5px;
+/* Volet file : header fixe (compteur + tabs) + zone scrollable indépendante */
+.rsk-queue-pane { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.rsk-queue-head { flex-shrink: 0; padding: 14px 16px 10px; display: flex; flex-direction: column; gap: 10px; }
+.rsk-queue-title { font-size: 12px; font-weight: 700; opacity: 0.7; display: flex; align-items: center; gap: 6px; }
+.rsk-queue-count {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px;
+  padding: 0 5px; border-radius: 9px; background: rgba(0, 0, 0, 0.08); font-size: 11px; font-weight: 700;
 }
-.rsk-queue-line__text { flex: 1; }
-.rsk-queue-line__remove {
+
+.rsk-view-tabs { display: flex; gap: 4px; background: rgba(0, 0, 0, 0.04); border-radius: 10px; padding: 3px; align-self: flex-start; }
+.rsk-view-tab {
+  border: none; background: transparent; padding: 5px 10px; border-radius: 8px; font-size: 11.5px;
+  font-weight: 700; cursor: pointer; opacity: 0.6; transition: opacity .15s, background .15s, color .15s;
+}
+.rsk-view-tab:hover { opacity: 0.9; }
+.rsk-view-tab--active { opacity: 1; background: rgb(var(--v-theme-surface)); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
+
+.rsk-queue-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 8px; }
+
+.rsk-queue-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center; padding: 24px; opacity: 0.5; font-size: 12.5px;
+}
+
+.rsk-flat-list { display: flex; flex-direction: column; gap: 8px; }
+
+.rsk-task-row {
+  display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 8px;
+  background: rgba(0, 0, 0, 0.03); font-size: 12.5px;
+}
+.rsk-priority-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+.rsk-task-row__text { flex: 1; }
+.rsk-task-row__remove {
   border: none; background: transparent; cursor: pointer; opacity: 0.5; padding: 2px; flex-shrink: 0;
 }
-.rsk-queue-line__remove:hover { opacity: 1; }
+.rsk-task-row__remove:hover { opacity: 1; }
 
-.rsk-alert { margin: 0 16px 12px; }
+.rsk-groups { display: flex; flex-direction: column; gap: 6px; }
+.rsk-group { border: 1px solid rgba(0, 0, 0, 0.07); border-radius: 10px; overflow: hidden; }
+.rsk-group-head {
+  width: 100%; display: flex; align-items: center; gap: 4px; padding: 8px 10px; border: none;
+  background: rgba(0, 0, 0, 0.03); cursor: pointer; font-size: 12.5px; text-align: left;
+}
+.rsk-group-chevron { transition: transform .15s; opacity: 0.6; flex-shrink: 0; }
+.rsk-group-chevron--open { transform: rotate(90deg); }
+.rsk-group-label { flex: 1; min-width: 0; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rsk-group-body { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+.rsk-group-body .rsk-task-row { background: transparent; padding: 4px 4px 4px 2px; }
+
+.rsk-alert { margin: 0 16px 12px; flex-shrink: 0; }
 
 .rsk-footer {
   display: flex; justify-content: flex-end; gap: 8px; padding: 12px 16px; border-top: 1px solid rgba(0, 0, 0, 0.08);
+  flex-shrink: 0;
 }
 .rsk-footer :deep(.v-btn) { border-radius: 20px; text-transform: none; font-weight: 600; padding: 0 18px; }
 .rsk-confirm-btn { background: #ff3131 !important; color: #fff !important; }
 
 .rsk-enter-active, .rsk-leave-active { transition: opacity 0.18s ease; }
 .rsk-enter-from, .rsk-leave-to { opacity: 0; }
+
+/* Sous ~920px de viewport, le panneau reste à sa largeur mini (440px, cf. clamp
+   ci-dessus), pas la place pour deux colonnes, on empile formulaire puis file. */
+@media (max-width: 920px) {
+  .rsk-content { flex-direction: column; }
+  .rsk-form-pane {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+    max-height: 48vh;
+    flex-shrink: 0;
+  }
+  .rsk-queue-pane { flex: 1; min-height: 0; }
+}
 </style>
