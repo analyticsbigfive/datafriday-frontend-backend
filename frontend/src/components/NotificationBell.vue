@@ -1,7 +1,9 @@
 <template>
   <!-- Cloche partagée : identique dans WorkspaceAppHeader (Analyse/Restock/
        Logistique/Inventaire) et EventPredict → « partie droite » harmonisée.
-       Badge = non-lus réels du store. Aucun polling. -->
+       Badge = non-lus réels, fusion de deux stores : `notifications` (local,
+       sans réseau) + `serverNotifications` (serveur, poll léger piloté par
+       App.vue, décision Bertrand 08/2026. Ce composant lui-même ne poll rien. -->
   <v-menu
     v-model="open"
     :close-on-content-click="false"
@@ -65,7 +67,7 @@ export default {
       return this.theme.current.value.dark
     },
     unreadCount() {
-      return this.$store.getters['notifications/unreadCount'] || 0
+      return (this.$store.getters['notifications/unreadCount'] || 0) + (this.$store.getters['serverNotifications/unreadCount'] || 0)
     },
     badgeContent() {
       return this.unreadCount > 99 ? '99+' : String(this.unreadCount)

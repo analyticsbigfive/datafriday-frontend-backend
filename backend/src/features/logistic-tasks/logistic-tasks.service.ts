@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { LogisticTaskPriority, LogisticTaskStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { LogisticsService } from '../logistics/logistics.service';
@@ -60,6 +61,9 @@ export class LogisticTasksService {
       throw new BadRequestException('Aucune tâche à créer');
     }
     const space = await this.assertSpace(spaceId, tenantId);
+    // Un batchId par appel : sert uniquement à détecter la clôture complète du lot
+    // (tous ses statuts passés à COMPLETED) pour notifier son créateur, cf. drop().
+    const batchId = randomUUID();
 
     const created = await this.prisma.$transaction((tx) =>
       Promise.all(
@@ -85,6 +89,7 @@ export class LogisticTasksService {
               assignedToUserId: line.assignedToUserId,
               priority: line.priority as LogisticTaskPriority,
               createdBy: userId ?? null,
+              batchId,
             },
           });
         }),
@@ -223,23 +228,29 @@ export class LogisticTasksService {
     if (!destination) throw new NotFoundException(`Element ${task.destinationElementId} not found`);
     const reason = SHOP_TYPES.includes(destination.type) ? 'TRANSFER_SHOP' : 'TRANSFER_STORAGE';
 
-    const { movement } = await this.logisticsService.createMovement(
-      {
-        spaceId: task.spaceId,
-        elementId: task.sourceElementId,
-        itemKey: task.itemKey,
-        itemKind: (task.itemKind as StockItemKind | null) ?? undefined,
-        itemRefId: task.itemRefId ?? undefined,
-        direction: 'remove',
-        packed: task.packedQty,
-        loose: task.looseQty,
-        reason: reason as any,
-        counterpartyElementId: task.destinationElementId,
-        menuItemId: task.menuItemId ?? undefined,
-      },
-      tenantId,
-      userId,
-    );
+    let movement: { id: string };
+    try {
+      ({ movement } = await this.logisticsService.createMovement(
+        {
+          spaceId: task.spaceId,
+          elementId: task.sourceElementId,
+          itemKey: task.itemKey,
+          itemKind: (task.itemKind as StockItemKind | null) ?? undefined,
+          itemRefId: task.itemRefId ?? undefined,
+          direction: 'remove',
+          packed: task.packedQty,
+          loose: task.looseQty,
+          reason: reason as any,
+          counterpartyElementId: task.destinationElementId,
+          menuItemId: task.menuItemId ?? undefined,
+        },
+        tenantId,
+        userId,
+      ));
+    } catch (e) {
+      await this.notifyTaskFailure(task, tenantId, 'pickup', e as Error);
+      throw e;
+    }
 
     return this.prisma.logisticTask.update({
       where: { id: task.id },
@@ -264,12 +275,78 @@ export class LogisticTasksService {
       throw new BadRequestException(`Tâche ${id} sans mouvement de récupération associé`);
     }
 
-    await this.logisticsService.confirmTransfer(task.pickupMovementId, {}, tenantId, userId);
+    try {
+      await this.logisticsService.confirmTransfer(task.pickupMovementId, {}, tenantId, userId);
+    } catch (e) {
+      await this.notifyTaskFailure(task, tenantId, 'drop', e as Error);
+      throw e;
+    }
 
-    return this.prisma.logisticTask.update({
+    const updated = await this.prisma.logisticTask.update({
       where: { id: task.id },
       data: { status: LogisticTaskStatus.COMPLETED, completedAt: new Date(), completedBy: userId ?? null },
     });
+
+    await this.notifyBatchCompletedIfDone(updated, tenantId);
+
+    return updated;
+  }
+
+  // ─── Notifications best-effort (échec pickup/drop, clôture de lot) ────────────
+
+  /** Alerte le créateur de la tâche (pas l'assigné, déjà au courant via l'erreur
+   *  affichée dans son propre écran) qu'un pickup/drop a échoué, sinon un souci de
+   *  stock reste invisible pour qui a planifié le restockage. Best-effort : ne doit
+   *  jamais faire échouer pickup()/drop() elles-mêmes. */
+  private async notifyTaskFailure(
+    task: { id: string; createdBy: string | null; itemKey: string; spaceId: string },
+    tenantId: string,
+    action: 'pickup' | 'drop',
+    error: Error,
+  ) {
+    if (!task.createdBy) return;
+    try {
+      await this.prisma.notification.create({
+        data: {
+          tenantId,
+          userId: task.createdBy,
+          type: 'logistic_task_failed',
+          title: action === 'pickup' ? 'Récupération échouée' : 'Dépôt échoué',
+          message: `${task.itemKey} : ${error?.message || 'erreur inconnue'}`,
+          meta: { spaceId: task.spaceId, taskId: task.id },
+          link: `/spaces/${task.spaceId}/logistic`,
+        },
+      });
+    } catch (e) {
+      this.logger.error(`Notification logistic_task_failed échouée pour ${task.id} : ${(e as Error)?.message}`);
+    }
+  }
+
+  /** Toutes les tâches du même lot sont-elles COMPLETED ? Si oui, notifie le créateur
+   *  du lot (boucle refermée : il sait que son restockage est entièrement livré). */
+  private async notifyBatchCompletedIfDone(task: { batchId: string | null; createdBy: string | null; spaceId: string }, tenantId: string) {
+    if (!task.batchId || !task.createdBy) return;
+    try {
+      const [space, remaining, total] = await Promise.all([
+        this.prisma.space.findFirst({ where: { id: task.spaceId, tenantId }, select: { name: true } }),
+        this.prisma.logisticTask.count({ where: { tenantId, batchId: task.batchId, status: { not: LogisticTaskStatus.COMPLETED } } }),
+        this.prisma.logisticTask.count({ where: { tenantId, batchId: task.batchId } }),
+      ]);
+      if (remaining > 0) return;
+      await this.prisma.notification.create({
+        data: {
+          tenantId,
+          userId: task.createdBy,
+          type: 'logistic_batch_completed',
+          title: 'Restockage terminé',
+          message: `${total} tâche(s) livrée(s) pour ${space?.name ?? 'ton espace'}`,
+          meta: { spaceId: task.spaceId, batchId: task.batchId },
+          link: `/spaces/${task.spaceId}/logistic`,
+        },
+      });
+    } catch (e) {
+      this.logger.error(`Notification logistic_batch_completed échouée pour le lot ${task.batchId} : ${(e as Error)?.message}`);
+    }
   }
 
   // ─── PATCH /logistic-tasks/:id/undo-pickup ─────────────────────────────────────

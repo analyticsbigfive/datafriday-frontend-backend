@@ -32,6 +32,24 @@
       </select>
     </div>
 
+    <!-- Recherche + "mes tâches" (retour utilisateur 08/2026) : utile dès que la liste
+         dépasse quelques tâches, notamment pour un logisticien qui veut isoler les siennes. -->
+    <div class="lgt-filters-row">
+      <div class="lgt-search">
+        <v-icon size="14" class="lgt-search-icon">mdi-magnify</v-icon>
+        <input v-model="searchQuery" type="text" class="lgt-search-input" :placeholder="t('lgTasksSearchPlaceholder')" />
+      </div>
+      <button
+        type="button"
+        class="lgt-mine-toggle"
+        :class="{ 'lgt-mine-toggle--active': onlyMine }"
+        :disabled="!currentUserId"
+        @click="onlyMine = !onlyMine"
+      >
+        {{ t('lgTasksOnlyMine') }}
+      </button>
+    </div>
+
     <div class="lgt-scroll">
       <div v-if="!loading && !activeGroups.length" class="lgt-empty">
         <v-icon size="26" class="mb-2">mdi-clipboard-text-off-outline</v-icon>
@@ -144,6 +162,8 @@ export default {
       error: null,
       activeStatus: 'PENDING', // 'PENDING' | 'PICKED_UP' | 'COMPLETED'
       groupBy: 'staff', // 'staff' | 'item' | 'source' | 'destination'
+      searchQuery: '',
+      onlyMine: false,
       actingTaskIds: {},
       bulkActingKeys: {},
       pollTimer: null,
@@ -158,10 +178,34 @@ export default {
         { status: 'COMPLETED', label: this.t('lgTasksClosed') },
       ]
     },
-    /** Filtrage par statut D'ABORD (onglet actif), le groupBy choisi ne s'applique
-     *  qu'ensuite, sommer des quantités PENDING+COMPLETED n'aurait aucun sens. */
+    currentUserId() {
+      return this.store.getters['auth/userId']
+    },
+    /** Recherche + "mes tâches" appliquées à TOUS les statuts (pas seulement l'onglet
+     *  actif) : les compteurs des onglets (countByStatus) doivent refléter le filtre
+     *  actif, sinon chercher "Badiane" laisserait "Pending 12" alors qu'une seule tâche
+     *  matche réellement. */
+    visibleTasksAllStatuses() {
+      let list = this.tasks
+      if (this.onlyMine && this.currentUserId) {
+        list = list.filter((t) => t.assignedToUserId === this.currentUserId)
+      }
+      const q = this.searchQuery.trim().toLowerCase()
+      if (q) {
+        list = list.filter(
+          (t) =>
+            this.itemNameLabel(t).toLowerCase().includes(q) ||
+            (t.assignedToName || '').toLowerCase().includes(q) ||
+            (t.sourceElementName || '').toLowerCase().includes(q) ||
+            (t.destinationElementName || '').toLowerCase().includes(q),
+        )
+      }
+      return list
+    },
+    /** Filtrage par statut ENSUITE (onglet actif), le groupBy choisi ne s'applique
+     *  qu'après, sommer des quantités PENDING+COMPLETED n'aurait aucun sens. */
     filteredTasks() {
-      return this.tasks.filter((t) => t.status === this.activeStatus)
+      return this.visibleTasksAllStatuses.filter((t) => t.status === this.activeStatus)
     },
     activeGroups() {
       return groupTasksByDimension(this.filteredTasks, this.groupBy)
@@ -213,7 +257,7 @@ export default {
       return this.resolveItem(task)?.name || task.itemKey
     },
     countByStatus(status) {
-      return this.tasks.filter((t) => t.status === status).length
+      return this.visibleTasksAllStatuses.filter((t) => t.status === status).length
     },
     /** Quantité totale sommée pour un groupe par ARTICLE (mêmes unités garanties) ;
      *  simple compte de tâches pour les autres dimensions (staff/lieu mélangent des
@@ -351,6 +395,21 @@ export default {
   flex: 1; min-width: 0; font-size: 11.5px; font-weight: 600; padding: 4px 6px; border-radius: 7px;
   border: 1px solid rgba(0, 0, 0, 0.12); background: transparent; color: inherit; cursor: pointer;
 }
+
+.lgt-filters-row { display: flex; gap: 6px; flex-shrink: 0; }
+.lgt-search {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 7px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+}
+.lgt-search-icon { opacity: 0.5; flex-shrink: 0; }
+.lgt-search-input { flex: 1; min-width: 0; border: none; background: transparent; font-size: 11.5px; color: inherit; outline: none; }
+.lgt-mine-toggle {
+  flex-shrink: 0; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 7px; cursor: pointer;
+  border: 1px solid rgba(0, 0, 0, 0.12); background: transparent; color: inherit; opacity: 0.7;
+}
+.lgt-mine-toggle:hover { opacity: 1; }
+.lgt-mine-toggle--active { opacity: 1; background: #ff3131; border-color: #ff3131; color: #fff; }
+.lgt-mine-toggle:disabled { opacity: 0.35; cursor: default; }
 
 /* Plafond fixe, indépendant des sections voisines (même principe que LogisticAggregateView) :
    une longue liste scrolle sur elle-même sans jamais forcer la hauteur des autres sections. */

@@ -2356,6 +2356,8 @@ export const translations = {
     lgTasksTaskCount: 'tasks',
     lgTasksErrorBulkPickup: 'Some pickups failed.',
     lgTasksErrorBulkDrop: 'Some drop-offs failed.',
+    lgTasksSearchPlaceholder: 'Search item, staff, location…',
+    lgTasksOnlyMine: 'My tasks',
 
     invMetricShops: 'Shops',
     invMetricStorages: 'Storage',
@@ -6980,6 +6982,8 @@ export const translations = {
     lgTasksTaskCount: 'tâches',
     lgTasksErrorBulkPickup: 'Certaines récupérations ont échoué.',
     lgTasksErrorBulkDrop: 'Certains dépôts ont échoué.',
+    lgTasksSearchPlaceholder: 'Chercher un article, un staff, un lieu…',
+    lgTasksOnlyMine: 'Mes tâches',
 
     invMetricShops: 'Boutiques',
     invMetricStorages: 'Stockages',

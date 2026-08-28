@@ -60,6 +60,14 @@ export default {
       (id) => this.$store.dispatch('notifications/setUser', id),
       { immediate: true },
     )
+    // Notifications serveur (décision Bertrand 08/2026) : poll démarré/arrêté sur le
+    // même signal, module séparé (store/modules/serverNotifications.js, pas de
+    // réseau dans `notifications`, volontairement local-only).
+    this._unwatchServerNotifUser = this.$store.watch(
+      () => this.$store.getters['auth/userId'],
+      (id) => this.$store.dispatch(id ? 'serverNotifications/startPolling' : 'serverNotifications/stopPolling'),
+      { immediate: true },
+    )
     // Cross-onglet : ré-hydrate quand un AUTRE onglet écrit la clé courante
     // (event `storage`, passif). e.key === null = localStorage.clear() ailleurs.
     this._onNotifStorage = (e) => {
@@ -79,6 +87,11 @@ export default {
     if (this._unwatchNotifUser) {
       this._unwatchNotifUser()
       this._unwatchNotifUser = null
+    }
+    if (this._unwatchServerNotifUser) {
+      this._unwatchServerNotifUser()
+      this._unwatchServerNotifUser = null
+      this.$store.dispatch('serverNotifications/stopPolling')
     }
   },
 }
