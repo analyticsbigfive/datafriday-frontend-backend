@@ -173,6 +173,7 @@ export class AggregationController {
     return this.aggregationService.getJobProgress(user.tenantId, jobId);
   }
 
+  @RequirePermissions('stats.financial.view')
   @Get('event-breakdown/:spaceId/:eventId')
   @ApiOperation({
     summary: 'Détail par shops et articles pour un événement',
@@ -190,6 +191,7 @@ export class AggregationController {
     return this.aggregationService.getEventBreakdown(user.tenantId, spaceId, eventId);
   }
 
+  @RequirePermissions('stats.financial.view')
   @Get('event-stats/:spaceId/:eventId')
   @ApiOperation({
     summary: 'Statistiques agrégées d\'un événement',
@@ -223,6 +225,7 @@ export class AggregationController {
     return this.aggregationService.getStep4Context(user.tenantId, spaceId, integrationId);
   }
 
+  @RequirePermissions('stats.financial.view')
   @Get('event-minute-chart/:spaceId/:eventId')
   @ApiOperation({
     summary: 'CA par minute pour un événement',

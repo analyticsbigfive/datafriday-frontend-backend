@@ -38,6 +38,7 @@
     "prisma:studio": "prisma studio",
     "prisma:seed": "npx tsx prisma/seed.ts",
     "rbac:backfill": "npx tsx prisma/backfill-rbac.ts",
+    "rbac:backfill-stats-financial-view": "npx tsx prisma/backfill-stats-financial-view.ts",
     "stock-identity:backfill": "npx tsx prisma/backfill-stock-item-identity.ts",
     "images:migrate-to-storage": "npx tsx prisma/migrate-images-to-storage.ts",
     "docker:up": "docker-compose up -d",

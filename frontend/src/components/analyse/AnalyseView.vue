@@ -135,6 +135,7 @@
                      activant un bouton « réalisé » sur un event encore en cours. -->
                 <span
                   v-if="selectedToolbox === 'analyse' && !isLive"
+                  v-can="'stats.financial.view'"
                   :title="reportEvent ? t('rj1Button') : t('rj1ButtonHint')"
                 >
                   <v-btn
@@ -384,6 +385,7 @@
           </v-row>
           <FinancialMetricsGrid
             v-else
+            v-can="'stats.financial.view'"
             :metrics="metrics"
             :summary="itemSummary"
             :source-state="kpiSourceState"
@@ -393,6 +395,7 @@
           <!-- Lot 4.1 — Panneau Shop Performance by Transaction Rate -->
           <ShopPerformanceByTransactionRate
             v-if="showTransactionRateShops"
+            v-can="'stats.financial.view'"
             :shops="shopPerformance.shops.value"
             :loading="shopPerformance.loading.value"
             :selected-shop-ids="filters.selectedShopIds || []"
@@ -404,6 +407,7 @@
                carte Event Revenue, fond teinté = couleur du KPI cliqué. -->
           <v-card
             v-if="inlineChartVisible"
+            v-can="'stats.financial.view'"
             flat
             rounded="lg"
             class="an-inline-kpi-chart mb-4"
@@ -432,7 +436,7 @@
                démonter/remonter le canvas pendant un reload provoquait le crash
                Chart.js « Cannot read properties of null (reading 'ownerDocument') »
                via le ResizeObserver « detached ». -->
-          <v-card flat rounded="lg" class="pa-4 mb-4">
+          <v-card v-can="'stats.financial.view'" flat rounded="lg" class="pa-4 mb-4">
             <div v-if="isTimelineActive" class="ep-timeline-wrap">
               <!-- :key force un remount propre uniquement quand l'event
                    (ou la moyenne) change réellement. NE PAS y ajouter la
@@ -510,6 +514,7 @@
                qui remplaçait toute la carte. Le donut « Par zone » garde en plus
                son propre pending (contexte PdV différé — cf. BUG-223). -->
           <ShopDistributionPieChart
+            v-can="'stats.financial.view'"
             :records="chartRecords"
             :loading="chartsLoading"
             @shop-click="(v) => toggleArrayFilter('selectedShopIds', v)"
@@ -522,6 +527,7 @@
                (même composant, aucune garde !isLive). Son drill-down reste local
                au composant, cf. son en-tête. -->
           <TransactionCategoryMixChart
+            v-can="'stats.financial.view'"
             :records="filteredBaskets"
             :loading="basketsLoading"
             :excluded-predicted-count="basketsMissingEventCount"
@@ -542,6 +548,7 @@
                  article des prévisions vient des scénarios Event Predict. Les events
                  prédits sans scénario n'en ont pas → compteur discret. -->
             <MenuItemRevenueDistribution
+              v-can="'stats.financial.view'"
               :records="articleRecords"
               :loading="itemRecordsLoading || (isPredictMode && predictionsGenerating)"
               :missing-events-count="predictEventsWithoutScenarioCount"
@@ -551,6 +558,7 @@
               @shop-type-click="(v) => toggleArrayFilter('selectedShopTypes', v)"
             />
             <MenuItemsByShopTable
+              v-can="'stats.financial.view'"
               :records="articleRecords"
               :loading="itemRecordsLoading || (isPredictMode && predictionsGenerating)"
               :missing-events-count="predictEventsWithoutScenarioCount"
@@ -573,6 +581,7 @@
             @close="activeFilterDimension = null"
           />
           <SummaryPanel
+            v-can="'stats.financial.view'"
             :records="chartRecords"
             :item-records="itemLevelRecords"
             :events="filteredEvents"
