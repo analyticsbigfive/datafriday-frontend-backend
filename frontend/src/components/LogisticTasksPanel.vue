@@ -19,17 +19,42 @@
       </button>
     </div>
 
+    <!-- Regroupement au choix (retour utilisateur 08/2026) : par staff (défaut), par
+         article (quantité totale visible d'un coup), ou par lieu (retrait/dépôt) pour
+         organiser une tournée physique plutôt que par personne. -->
+    <div class="lgt-groupby">
+      <span class="lgt-groupby-label">{{ t('lgTasksGroupBy') }}</span>
+      <select v-model="groupBy" class="lgt-groupby-select">
+        <option value="staff">{{ t('lgTasksGroupStaff') }}</option>
+        <option value="item">{{ t('lgTasksGroupItem') }}</option>
+        <option value="source">{{ t('lgTasksGroupSource') }}</option>
+        <option value="destination">{{ t('lgTasksGroupDestination') }}</option>
+      </select>
+    </div>
+
     <div class="lgt-scroll">
-      <div v-if="!loading && !activeStaffGroups.length" class="lgt-empty">
+      <div v-if="!loading && !activeGroups.length" class="lgt-empty">
         <v-icon size="26" class="mb-2">mdi-clipboard-text-off-outline</v-icon>
         <div>{{ t('lgTasksEmpty') }}</div>
       </div>
 
-      <div v-for="group in activeStaffGroups" :key="group.key" class="lgt-staff-group">
-        <div class="lgt-staff-label">
-          <v-icon size="14" class="mr-1">mdi-account-circle-outline</v-icon>
-          {{ group.name }}
+      <div v-for="group in activeGroups" :key="group.key" class="lgt-group">
+        <div class="lgt-group-head">
+          <v-icon size="14" class="mr-1">{{ groupIcon }}</v-icon>
+          <span class="lgt-group-label">{{ group.label }}</span>
+          <span class="lgt-group-total">{{ groupTotalLabel(group) }}</span>
         </div>
+
+        <button
+          v-if="showBulkButton(group)"
+          type="button"
+          class="lgt-bulk-btn"
+          :disabled="!!bulkActingKeys[group.key]"
+          @click="onBulk(group)"
+        >
+          <v-progress-circular v-if="bulkActingKeys[group.key]" size="12" width="2" indeterminate class="mr-1" />
+          {{ bulkLabel }} ({{ group.tasks.length }})
+        </button>
 
         <div v-for="task in group.tasks" :key="task.id" class="lgt-task">
           <div class="lgt-task-summary">
@@ -48,11 +73,11 @@
               <input
                 type="checkbox"
                 :checked="task.status !== 'PENDING'"
-                :disabled="task.status !== 'PENDING' || isActing(task.id)"
-                @change="onPickup(task)"
+                :disabled="isActing(task.id)"
+                @change="onTogglePickup(task)"
               />
               <span>{{ t('lgTasksPickup') }} {{ taskQtyLabel(task) }} {{ itemNameLabel(task) }} {{ t('lgTasksAt') }} {{ task.sourceElementName }}</span>
-              <v-progress-circular v-if="isActing(task.id) && task.status === 'PENDING'" size="14" width="2" indeterminate class="ml-1" />
+              <v-progress-circular v-if="isActing(task.id)" size="14" width="2" indeterminate class="ml-1" />
             </label>
             <label class="lgt-check" :class="{ 'lgt-check--done': task.status === 'COMPLETED' }">
               <input
@@ -76,19 +101,28 @@ import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 import { compactQtyLabel } from '@/composables/useLogisticUnitLabels'
-import { getLogisticTasks, pickupLogisticTask, dropLogisticTask } from '@/api/endpoints/logistic-tasks.api'
-import { groupLogisticTasksByStaff } from '@/utils/logisticTaskBoard'
+import { getLogisticTasks, pickupLogisticTask, dropLogisticTask, undoPickupLogisticTask } from '@/api/endpoints/logistic-tasks.api'
+import { groupTasksByDimension } from '@/utils/logisticTaskBoard'
 import { priorityColor } from '@/utils/logisticTaskPriority'
+
+const GROUP_ICONS = {
+  staff: 'mdi-account-circle-outline',
+  item: 'mdi-package-variant',
+  source: 'mdi-map-marker-outline',
+  destination: 'mdi-map-marker-check-outline',
+}
 
 const POLL_MS = 20000
 
 /**
  * Panneau "Tasks" (mockup "Déclenchement d'un restockage dans Logistique", 08/2026) :
- * exécution des LogisticTask créées par le drawer Restocker (Live inventory). Un
- * groupe par staff assigné (Pending/Ongoing/Closed = PENDING/PICKED_UP/COMPLETED),
- * deux checkboxes par tâche ouverte (Récupérer/Déposer) qui délèguent directement au
- * ledger StockMovement déjà en place (LogisticTasksService.pickup/drop), ce composant
- * ne recalcule ni ne duplique aucune règle de stock, il déclenche et affiche.
+ * exécution des LogisticTask créées par le drawer Restocker (Live inventory). Statut
+ * d'abord (onglets Pending/Ongoing/Closed = PENDING/PICKED_UP/COMPLETED), puis
+ * regroupement au choix (staff/article/lieu, groupTasksByDimension) avec quantité
+ * totale par article et action groupée (Tout récupérer/déposer) quand un groupe compte
+ * plusieurs tâches. Deux checkboxes par tâche ouverte (Récupérer/Déposer) qui délèguent
+ * directement au ledger StockMovement déjà en place (LogisticTasksService.pickup/drop),
+ * ce composant ne recalcule ni ne duplique aucune règle de stock, il déclenche et affiche.
  *
  * Emplacement : 3e colonne de SpaceLogisticView.vue (grid déjà réservée à 340px,
  * `.lg-layout`), visible dès qu'on n'est pas en vue détail (`!drillElement`).
@@ -109,7 +143,9 @@ export default {
       loading: false,
       error: null,
       activeStatus: 'PENDING', // 'PENDING' | 'PICKED_UP' | 'COMPLETED'
+      groupBy: 'staff', // 'staff' | 'item' | 'source' | 'destination'
       actingTaskIds: {},
+      bulkActingKeys: {},
       pollTimer: null,
       _reqId: 0,
     }
@@ -122,16 +158,19 @@ export default {
         { status: 'COMPLETED', label: this.t('lgTasksClosed') },
       ]
     },
-    groups() {
-      return groupLogisticTasksByStaff(this.tasks)
+    /** Filtrage par statut D'ABORD (onglet actif), le groupBy choisi ne s'applique
+     *  qu'ensuite, sommer des quantités PENDING+COMPLETED n'aurait aucun sens. */
+    filteredTasks() {
+      return this.tasks.filter((t) => t.status === this.activeStatus)
     },
-    /** Groupes staff réduits au statut de l'onglet actif, le staff n'est plus qu'un
-     *  sous-libellé de regroupement, jamais un conteneur replié qui cache le reste. */
-    activeStaffGroups() {
-      const arrayKey = { PENDING: 'pending', PICKED_UP: 'ongoing', COMPLETED: 'closed' }[this.activeStatus]
-      return this.groups
-        .map((g) => ({ key: g.key, name: g.name, tasks: g[arrayKey] }))
-        .filter((g) => g.tasks.length)
+    activeGroups() {
+      return groupTasksByDimension(this.filteredTasks, this.groupBy)
+    },
+    groupIcon() {
+      return GROUP_ICONS[this.groupBy] || GROUP_ICONS.staff
+    },
+    bulkLabel() {
+      return this.activeStatus === 'PENDING' ? this.t('lgTasksBulkPickup') : this.t('lgTasksBulkDrop')
     },
   },
   watch: {
@@ -176,14 +215,40 @@ export default {
     countByStatus(status) {
       return this.tasks.filter((t) => t.status === status).length
     },
+    /** Quantité totale sommée pour un groupe par ARTICLE (mêmes unités garanties) ;
+     *  simple compte de tâches pour les autres dimensions (staff/lieu mélangent des
+     *  denrées différentes, sommer leurs quantités n'aurait pas de sens). */
+    groupTotalLabel(group) {
+      if (this.groupBy === 'item') {
+        const item = this.store.getters['logistics/itemByKey'](group.itemKey)
+        const qty = compactQtyLabel(group.totalPacked, group.totalLoose, item, item?.unitsPerPack, this.t, this.locale, formatUnits)
+        return `${this.t('lgTasksTotal')} : ${qty}`
+      }
+      return `${group.tasks.length} ${this.t('lgTasksTaskCount')}`
+    },
+    /** Action groupée visible seulement si utile (2+ tâches) et sur un statut actionnable
+     *  (rien à faire en masse dans Closed). */
+    showBulkButton(group) {
+      return this.activeStatus !== 'COMPLETED' && group.tasks.length >= 2
+    },
     isActing(id) {
       return !!this.actingTaskIds[id]
     },
     /** Rafraîchit aussi le stock Logistic (store `logistics`) : le pickup/drop décrémente
      *  StockLevel côté backend, sans ça les cartes items de l'écran principal resteraient
-     *  périmées jusqu'à un reload manuel (même défaut que corrigé sur RestockerDrawer). */
+     *  périmées jusqu'à un reload manuel (même défaut que corrigé sur RestockerDrawer).
+     *  `silent` : ne touche pas `state.loading` (retour utilisateur 08/2026, ce flag est
+     *  partagé par toute la page, cocher une case ici faisait clignoter en skeleton la
+     *  liste PDV de la colonne centre, sans rapport avec ce qu'on regarde). */
     async refreshStock() {
-      await this.store.dispatch('logistics/loadStock', { spaceId: this.spaceId })
+      await this.store.dispatch('logistics/loadStock', { spaceId: this.spaceId, silent: true })
+    },
+    /** La case "Récupérer" est cochable ET décochable (retour utilisateur 08/2026) :
+     *  cochée depuis PENDING → pickup ; décochée depuis PICKED_UP → annule (undoPickup).
+     *  Jamais rendue pour une tâche COMPLETED (branche read-only du template). */
+    onTogglePickup(task) {
+      if (task.status === 'PENDING') return this.onPickup(task)
+      if (task.status === 'PICKED_UP') return this.onUndoPickup(task)
     },
     async onPickup(task) {
       if (task.status !== 'PENDING' || this.isActing(task.id)) return
@@ -193,6 +258,24 @@ export default {
         await Promise.all([this.fetchTasks(), this.refreshStock()])
       } catch (e) {
         this.error = e?.userMessage || e?.message || this.t('lgTasksErrorPickup')
+      } finally {
+        const next = { ...this.actingTaskIds }
+        delete next[task.id]
+        this.actingTaskIds = next
+      }
+    },
+    /** Annule un pickup (mouvement pas encore confirmé, cf. LogisticsService.reverseMovement) :
+     *  la tâche redevient PENDING. Volontairement pas de symétrique pour "Déposer" décoché
+     *  (COMPLETED → PICKED_UP) : à ce stade le mouvement est confirmé, une contrepartie a
+     *  déjà été créditée, défaire ça touche à l'historique confirmé, hors scope ici. */
+    async onUndoPickup(task) {
+      if (task.status !== 'PICKED_UP' || this.isActing(task.id)) return
+      this.actingTaskIds = { ...this.actingTaskIds, [task.id]: true }
+      try {
+        await undoPickupLogisticTask(task.id)
+        await Promise.all([this.fetchTasks(), this.refreshStock()])
+      } catch (e) {
+        this.error = e?.userMessage || e?.message || this.t('lgTasksErrorUndoPickup')
       } finally {
         const next = { ...this.actingTaskIds }
         delete next[task.id]
@@ -212,6 +295,32 @@ export default {
         delete next[task.id]
         this.actingTaskIds = next
       }
+    },
+    /** "Tout récupérer"/"Tout déposer" : le groupe est déjà filtré au statut de l'onglet
+     *  actif (activeGroups), donc toutes ses tâches sont éligibles à LA MÊME action.
+     *  Promise.allSettled : un échec isolé (ex. stock insuffisant sur une seule tâche)
+     *  ne doit jamais bloquer les autres. */
+    async onBulk(group) {
+      const kind = this.activeStatus === 'PENDING' ? 'pickup' : 'drop'
+      const targets = group.tasks.filter((t) => !this.isActing(t.id))
+      if (!targets.length) return
+      this.bulkActingKeys = { ...this.bulkActingKeys, [group.key]: true }
+      const marks = {}
+      targets.forEach((t) => { marks[t.id] = true })
+      this.actingTaskIds = { ...this.actingTaskIds, ...marks }
+      const call = kind === 'pickup' ? pickupLogisticTask : dropLogisticTask
+      const results = await Promise.allSettled(targets.map((t) => call(t.id)))
+      const failedCount = results.filter((r) => r.status === 'rejected').length
+      if (failedCount) {
+        this.error = kind === 'pickup' ? this.t('lgTasksErrorBulkPickup') : this.t('lgTasksErrorBulkDrop')
+      }
+      await Promise.all([this.fetchTasks(), this.refreshStock()])
+      const nextActing = { ...this.actingTaskIds }
+      targets.forEach((t) => delete nextActing[t.id])
+      this.actingTaskIds = nextActing
+      const nextBulk = { ...this.bulkActingKeys }
+      delete nextBulk[group.key]
+      this.bulkActingKeys = nextBulk
     },
   },
 }
@@ -234,14 +343,33 @@ export default {
 .lgt-tab[aria-selected="true"] { opacity: 1; background: rgb(var(--v-theme-surface)); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12); }
 .lgt-tab-count { font-size: 10.5px; padding: 1px 6px; border-radius: 8px; background: rgba(0, 0, 0, 0.08); }
 
+/* Regroupement au choix : select compact, la file de 4 options segmentées serait trop
+   à l'étroit dans les ~300px utiles de la colonne. */
+.lgt-groupby { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.lgt-groupby-label { font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.55; flex-shrink: 0; }
+.lgt-groupby-select {
+  flex: 1; min-width: 0; font-size: 11.5px; font-weight: 600; padding: 4px 6px; border-radius: 7px;
+  border: 1px solid rgba(0, 0, 0, 0.12); background: transparent; color: inherit; cursor: pointer;
+}
+
 /* Plafond fixe, indépendant des sections voisines (même principe que LogisticAggregateView) :
    une longue liste scrolle sur elle-même sans jamais forcer la hauteur des autres sections. */
 .lgt-scroll { max-height: 400px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 2px; }
 
 .lgt-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; opacity: 0.5; font-size: 12px; padding: 20px; }
 
-.lgt-staff-group { display: flex; flex-direction: column; gap: 6px; }
-.lgt-staff-label { display: flex; align-items: center; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.55; }
+.lgt-group { display: flex; flex-direction: column; gap: 6px; }
+.lgt-group-head { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em; opacity: 0.7; }
+.lgt-group-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lgt-group-total { margin-left: auto; flex-shrink: 0; font-weight: 700; font-variant-numeric: tabular-nums; opacity: 0.8; text-transform: none; letter-spacing: normal; }
+
+.lgt-bulk-btn {
+  display: flex; align-items: center; justify-content: center; align-self: flex-start; gap: 4px;
+  border: 1px solid rgba(255, 49, 49, 0.35); color: #ff3131; background: rgba(255, 49, 49, 0.06);
+  border-radius: 8px; padding: 4px 9px; font-size: 11px; font-weight: 700; cursor: pointer;
+}
+.lgt-bulk-btn:hover { background: rgba(255, 49, 49, 0.12); }
+.lgt-bulk-btn:disabled { opacity: 0.55; cursor: default; }
 
 .lgt-task { display: flex; flex-direction: column; gap: 4px; padding: 8px 9px; border-radius: 8px; background: rgba(0, 0, 0, 0.03); }
 .lgt-task-summary { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; }

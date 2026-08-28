@@ -68,4 +68,15 @@ export class LogisticTasksController {
     this.logger.log(`PATCH /logistic-tasks/${id}/drop`);
     return this.service.drop(id, user.tenantId, user.id);
   }
+
+  @Patch('logistic-tasks/:id/undo-pickup')
+  @ApiOperation({
+    summary:
+      'Case "Récupérer" décochée : annule le mouvement (pas encore confirmé) et réapplique le stock source, statut → PENDING.',
+  })
+  @ApiParam({ name: 'id', description: 'ID de la LogisticTask' })
+  async undoPickup(@Param('id') id: string, @CurrentUser() user: any) {
+    this.logger.log(`PATCH /logistic-tasks/${id}/undo-pickup`);
+    return this.service.undoPickup(id, user.tenantId);
+  }
 }

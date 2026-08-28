@@ -552,6 +552,38 @@ export class LogisticsService {
     });
   }
 
+  // ─── Annulation d'un mouvement encore PENDING (LogisticTasksService.undoPickup) ──
+
+  /**
+   * Annule un mouvement de transfert PAS ENCORE confirmé : réapplique le delta
+   * inverse sur le StockLevel source (l'aller n'a jamais été confirmé, aucune
+   * contrepartie n'existe, rien d'autre à défaire) puis supprime la ligne
+   * StockMovement. Un mouvement déjà `CONFIRMED` refuse (confirmTransfer a déjà
+   * crédité une contrepartie et clos la ligne, annuler à ce stade demanderait de
+   * défaire aussi le crédit et la StockTransferLoss éventuelle, hors scope ici,
+   * cf. LogisticTasksService.undoPickup qui n'appelle jamais ce chemin après drop()).
+   */
+  async reverseMovement(movementId: string, tenantId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const movement = await tx.stockMovement.findFirst({ where: { id: movementId, tenantId } });
+      if (!movement) throw new NotFoundException(`Mouvement ${movementId} not found`);
+      if (movement.status && movement.status !== StockTransferStatus.PENDING) {
+        throw new BadRequestException(`Mouvement ${movementId} déjà confirmé, impossible à annuler`);
+      }
+      const element = await this.getElementOrThrow(movement.elementId, tenantId);
+      const itemIdentity =
+        movement.itemKind && movement.itemRefId ? { itemKind: movement.itemKind, itemRefId: movement.itemRefId } : null;
+      // Delta inverse : on redonne à la source ce que la sortie initiale lui avait
+      // retiré. Toujours positif dans ce sens (une sortie ne peut jamais avoir été
+      // négative), donc `strict` (garde-fou anti stock négatif) ne s'applique pas ici.
+      await this.applyLevelDelta(
+        tx, tenantId, element, movement.itemKey, -movement.packedDelta, -movement.looseDelta,
+        null, movement.marketPriceId, false, itemIdentity,
+      );
+      await tx.stockMovement.delete({ where: { id: movement.id } });
+    });
+  }
+
   // ─── Confirmation d'un transfert (BUG-259-02) ─────────────────────────────────
 
   /**

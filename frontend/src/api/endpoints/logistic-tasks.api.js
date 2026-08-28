@@ -44,3 +44,8 @@ export async function pickupLogisticTask(id) {
 export async function dropLogisticTask(id) {
   return api.patch(`/logistic-tasks/${id}/drop`)
 }
+
+/** Case "Récupérer" décochée : annule le mouvement pas encore confirmé. PATCH /logistic-tasks/:id/undo-pickup */
+export async function undoPickupLogisticTask(id) {
+  return api.patch(`/logistic-tasks/${id}/undo-pickup`)
+}

@@ -1,41 +1,65 @@
 // Regroupement du panneau Tasks (Logistic, mockup "Déclenchement d'un restockage") :
-// un groupe par staff assigné, statuts séparés (Pending/Ongoing/Closed, mêmes noms que
-// LogisticTaskStatus PENDING/PICKED_UP/COMPLETED côté backend), tâches ouvertes triées
-// par priorité puis par ancienneté. Extrait pour rester testable sans monter le
-// composant, même principe que liveInventoryRows.js / restockerTaskGrouping.js.
+// une fois filtrées par statut (onglet actif, géré par le composant), les tâches se
+// regroupent selon UNE dimension au choix (staff / article / lieu de retrait / lieu de
+// dépôt), avec quantité totale sommée par groupe. Extrait pour rester testable sans
+// monter le composant, même principe que liveInventoryRows.js / restockerTaskGrouping.js.
 
 import { priorityRank } from './logisticTaskPriority';
+
+export const GROUP_DIMENSIONS = ['staff', 'item', 'source', 'destination'];
+
+const KEY_OF = {
+  staff: (t) => t.assignedToUserId,
+  item: (t) => t.itemRefId || t.itemKey,
+  source: (t) => t.sourceElementId,
+  destination: (t) => t.destinationElementId,
+};
+
+const LABEL_OF = {
+  staff: (t) => t.assignedToName,
+  item: (t) => t.itemKey,
+  source: (t) => t.sourceElementName,
+  destination: (t) => t.destinationElementName,
+};
 
 function byPriorityThenAge(a, b) {
   return priorityRank(a.priority) - priorityRank(b.priority) || new Date(a.createdAt) - new Date(b.createdAt);
 }
 
 /**
- * @param {Array} tasks réponse brute de GET /spaces/:id/logistic-tasks (tous statuts)
- * @returns {Array<{key, name, pending: [], ongoing: [], closed: []}>} un groupe par
- *   staff, triés par charge ouverte décroissante (celui qui a le plus à faire en premier).
+ * @param {Array} tasks déjà filtrées par statut par l'appelant (un seul statut à la fois,
+ *   sinon sommer des quantités PENDING+COMPLETED n'aurait pas de sens opérationnel)
+ * @param {'staff'|'item'|'source'|'destination'} dimension
+ * @returns {Array<{key, label, tasks, totalPacked, totalLoose, itemKey, itemRefId}>}
+ *   totalPacked/totalLoose : somme brute du groupe. N'a de sens affiché tel quel que pour
+ *   dimension='item' (mêmes unités garanties), les autres dimensions mélangent des denrées
+ *   différentes, le composant affiche alors un simple compte de tâches.
  */
-export function groupLogisticTasksByStaff(tasks) {
+export function groupTasksByDimension(tasks, dimension) {
+  const keyFn = KEY_OF[dimension] || KEY_OF.staff;
+  const labelFn = LABEL_OF[dimension] || LABEL_OF.staff;
   const groups = [];
   const byKey = new Map();
   for (const task of tasks) {
-    const key = task.assignedToUserId || '—';
+    const key = keyFn(task) || '—';
     let group = byKey.get(key);
     if (!group) {
-      group = { key, name: task.assignedToName || key, pending: [], ongoing: [], closed: [] };
+      group = {
+        key,
+        label: labelFn(task) || key,
+        tasks: [],
+        totalPacked: 0,
+        totalLoose: 0,
+        itemKey: task.itemKey,
+        itemRefId: task.itemRefId,
+      };
       byKey.set(key, group);
       groups.push(group);
     }
-    if (task.status === 'PENDING') group.pending.push(task);
-    else if (task.status === 'PICKED_UP') group.ongoing.push(task);
-    else group.closed.push(task);
+    group.tasks.push(task);
+    group.totalPacked += Number(task.packedQty) || 0;
+    group.totalLoose += Number(task.looseQty) || 0;
   }
-  for (const group of groups) {
-    group.pending.sort(byPriorityThenAge);
-    group.ongoing.sort(byPriorityThenAge);
-    group.closed.sort((a, b) => new Date(b.completedAt || b.createdAt) - new Date(a.completedAt || a.createdAt));
-  }
-  return groups.sort(
-    (a, b) => (b.pending.length + b.ongoing.length) - (a.pending.length + a.ongoing.length) || a.name.localeCompare(b.name, 'fr'),
-  );
+  for (const group of groups) group.tasks.sort(byPriorityThenAge);
+  return groups.sort((a, b) => b.tasks.length - a.tasks.length || a.label.localeCompare(b.label, 'fr'));
 }

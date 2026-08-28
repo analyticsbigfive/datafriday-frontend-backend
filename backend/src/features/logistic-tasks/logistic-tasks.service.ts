@@ -271,4 +271,27 @@ export class LogisticTasksService {
       data: { status: LogisticTaskStatus.COMPLETED, completedAt: new Date(), completedBy: userId ?? null },
     });
   }
+
+  // ─── PATCH /logistic-tasks/:id/undo-pickup ─────────────────────────────────────
+
+  /** Case "Récupérer" décochée par erreur : annule le mouvement (pas encore confirmé,
+   *  cf. LogisticsService.reverseMovement), la tâche redevient PENDING. Rien à annuler
+   *  côté "Déposer" (COMPLETED) : le mouvement est alors déjà confirmé, une contrepartie
+   *  a déjà été créditée, hors scope de ce garde-fou volontairement borné. */
+  async undoPickup(id: string, tenantId: string) {
+    const task = await this.getTaskOrThrow(id, tenantId);
+    if (task.status !== LogisticTaskStatus.PICKED_UP) {
+      throw new BadRequestException(`Tâche ${id} n'est pas au statut Récupérée, rien à annuler`);
+    }
+    if (!task.pickupMovementId) {
+      throw new BadRequestException(`Tâche ${id} sans mouvement de récupération associé`);
+    }
+
+    await this.logisticsService.reverseMovement(task.pickupMovementId, tenantId);
+
+    return this.prisma.logisticTask.update({
+      where: { id: task.id },
+      data: { status: LogisticTaskStatus.PENDING, pickupMovementId: null, pickedUpAt: null, pickedUpBy: null },
+    });
+  }
 }
