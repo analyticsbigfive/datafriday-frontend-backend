@@ -108,12 +108,16 @@ export default {
     isDark() {
       return this.theme.current.value.dark
     },
-    // Source de vérité = store Vuex (miroir localStorage). Plus de mock.
+    // Fusion des deux sources (décision Bertrand 08/2026) : local/localStorage
+    // (éphémère, ex. "action réussie") + serveur/persisté (ex. tâche assignée),
+    // triées ensemble par date. `source` distingue l'action de clic/lu à faire.
     notifications() {
-      return this.$store.getters['notifications/items'] || []
+      const local = this.$store.getters['notifications/items'] || []
+      const server = this.$store.getters['serverNotifications/items'] || []
+      return [...local, ...server].sort((a, b) => b.ts - a.ts)
     },
     unreadCount() {
-      return this.$store.getters['notifications/unreadCount'] || 0
+      return (this.$store.getters['notifications/unreadCount'] || 0) + (this.$store.getters['serverNotifications/unreadCount'] || 0)
     },
   },
 
@@ -121,7 +125,10 @@ export default {
     interpolate,
     markAllRead() {
       this.$store.dispatch('notifications/markAllRead')
+      this.$store.dispatch('serverNotifications/markAllRead')
     },
+    // Local uniquement : les notifications serveur sont un historique d'assignation,
+    // pas des toasts jetables, "Tout marquer lu" les traite, pas "Tout effacer".
     clearAll() {
       this.$store.dispatch('notifications/clear')
     },
@@ -134,10 +141,16 @@ export default {
       return n.messageKey ? interpolate(this.t(n.messageKey), n.params) : n.message
     },
     onRowClick(n) {
-      this.$store.dispatch('notifications/markRead', n.id)
-      const route = resolveNotificationRoute(n)
       // Fermer AVANT le push : la surface téléportée du v-menu ne doit pas
       // traîner au-dessus de la page de destination.
+      if (n.source === 'server') {
+        this.$store.dispatch('serverNotifications/markRead', n.id)
+        this.onClose()
+        if (n.link) this.$router.push(n.link).catch(() => {})
+        return
+      }
+      this.$store.dispatch('notifications/markRead', n.id)
+      const route = resolveNotificationRoute(n)
       this.onClose()
       if (route) this.$router.push(route).catch(() => {})
     },
@@ -150,11 +163,14 @@ export default {
         case 'menuitem':
           return 'UtensilsCrossed'
         case 'inventory':
+        case 'logistic_task_assigned':
           return 'Package'
         case 'success':
+        case 'logistic_batch_completed':
           return 'CheckCircle'
         case 'warning':
         case 'error':
+        case 'logistic_task_failed':
           return 'AlertCircle'
         default:
           return 'Info'
@@ -168,11 +184,14 @@ export default {
           return 'event'
         case 'menuitem':
         case 'success':
+        case 'logistic_batch_completed':
           return 'success'
         case 'inventory':
         case 'warning':
+        case 'logistic_task_assigned':
           return 'warning'
         case 'error':
+        case 'logistic_task_failed':
           return 'error'
         default:
           return 'info'

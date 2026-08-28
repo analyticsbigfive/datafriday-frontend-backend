@@ -119,6 +119,18 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
   // Account (rôles & permissions)
   { code: 'org.roles.manage', name: 'Gérer les rôles', category: 'Account' },
   { code: 'org.permissions.manage', name: 'Gérer les permissions', category: 'Account' },
+
+  // Statistiques
+  {
+    code: 'stats.financial.view',
+    name: 'Voir les chiffres financiers',
+    category: 'Statistiques',
+    description:
+      "Affiche le chiffre d'affaires, les revenus F&B/ticketing/merch, le panier moyen et les " +
+      "moyennes par transaction/événement partout dans l'app. Sans cette permission, ces chiffres " +
+      'sont masqués côté interface et retirés des réponses API (gating serveur, pas un simple ' +
+      'masquage visuel).',
+  },
 ];
 
 const ALL_CODES = SYSTEM_PERMISSIONS.map((p) => p.code);
@@ -161,25 +173,32 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'front.fb.shoppingList',
       'back.fb.costTracking',
       'back.fb.marginReport',
+      'stats.financial.view',
     ],
   },
   {
     systemKey: null,
     name: 'Logistic F&B',
     description: 'Logistique F&B : inventaire des espaces, réarmement et écran Logistic.',
-    permissions: ['nav.spaces', 'front.fb.spaceInventory', 'front.fb.restock', 'front.fb.logistic'],
+    permissions: [
+      'nav.spaces',
+      'front.fb.spaceInventory',
+      'front.fb.restock',
+      'front.fb.logistic',
+      'stats.financial.view',
+    ],
   },
   {
     systemKey: null,
     name: 'Technicien Logistic',
     description: 'Technicien logistique : tableau de réarmement.',
-    permissions: ['nav.spaces', 'front.fb.restockBoard'],
+    permissions: ['nav.spaces', 'front.fb.restockBoard', 'stats.financial.view'],
   },
   {
     systemKey: null,
     name: 'PDV Superviseur',
     description: "Superviseur point de vente : inventaire d'espace et tableau de réarmement.",
-    permissions: ['nav.spaces', 'front.fb.spaceInventory', 'front.fb.restockBoard'],
+    permissions: ['nav.spaces', 'front.fb.spaceInventory', 'front.fb.restockBoard', 'stats.financial.view'],
   },
   {
     systemKey: null,
@@ -198,6 +217,7 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'front.fb.spaceInventory',
       'front.fb.preInventoryExpected',
       'front.fb.preInventoryPredicted',
+      'stats.financial.view',
     ],
   },
   {
@@ -212,6 +232,7 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'front.fb.logisticReconcile',
       'front.fb.spaceInventory',
       'front.fb.preInventoryExpected',
+      'stats.financial.view',
     ],
   },
   {
@@ -229,13 +250,14 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'front.fb.stockUp',
       'front.fb.live',
       'front.fb.shoppingList',
+      'stats.financial.view',
     ],
   },
   {
     systemKey: null,
     name: 'Chef',
     description: 'Chef : composants, articles de menu et menus par espace.',
-    permissions: ['nav.spaces', 'menu.fb.components', 'menu.fb.menuItems', 'menu.fb.spaceMenu'],
+    permissions: ['nav.spaces', 'menu.fb.components', 'menu.fb.menuItems', 'menu.fb.spaceMenu', 'stats.financial.view'],
   },
 ];
 

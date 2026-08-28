@@ -3,7 +3,7 @@
     <div class="slv-container">
 
       <!-- ===== STICKY HEADER ===== -->
-      <div class="slv-sticky-header">
+      <div ref="stickyHeader" class="slv-sticky-header">
         <SpaceStats
           :total-revenue="totalRevenue"
           :total-f-b-revenue="totalFBRevenue"
@@ -88,7 +88,7 @@
       <!-- end sticky header -->
 
       <!-- ===== SCROLL AREA ===== -->
-      <div class="slv-scroll-area">
+      <div class="slv-scroll-area" :style="{ paddingTop: headerHeight + 'px' }">
 
         <!-- LOADING -->
         <div v-if="loading">
@@ -293,6 +293,12 @@ export default {
       createDialog: false,
       isEditMode: false,
       editingSpaceInitial: null,
+
+      // Hauteur réelle du header sticky (SpaceStats + barre de filtres), mesurée
+      // au lieu d'un padding-top fixe : SpaceStats peut être masqué (permission
+      // stats.financial.view absente) et laisser un vide sinon non compensé.
+      headerHeight: 250,
+      headerResizeObserver: null,
     };
   },
 
@@ -309,12 +315,16 @@ export default {
       return [...new Set(this.spaceList.map((s) => s.spaceType).filter(Boolean))].sort();
     },
     sortOptions() {
-      return [
+      const options = [
         { title: this.t('spaceList.sortName'), value: "name" },
         { title: this.t('spaceList.sortRevenue'), value: "revenue" },
         { title: this.t('spaceList.sortCapacity'), value: "capacity" },
         { title: this.t('spaceList.sortRecent'), value: "created" },
       ];
+      if (!this.$store.getters['auth/can']('stats.financial.view')) {
+        return options.filter((o) => o.value !== "revenue");
+      }
+      return options;
     },
     filteredSpaces() {
       let spaces = Array.isArray(this.spaceList) ? [...this.spaceList] : [];
@@ -455,6 +465,15 @@ export default {
 
   mounted() {
     this.fetchSpaces();
+    this.headerResizeObserver = new ResizeObserver((entries) => {
+      const height = entries[0]?.contentRect?.height;
+      if (height) this.headerHeight = Math.ceil(height);
+    });
+    this.headerResizeObserver.observe(this.$refs.stickyHeader);
+  },
+
+  beforeUnmount() {
+    this.headerResizeObserver?.disconnect();
   },
 };
 </script>
@@ -487,7 +506,10 @@ export default {
 
 /* ========== SCROLL AREA ========== */
 .slv-scroll-area {
-  padding-top: 250px;
+  /* padding-top posé en inline (headerHeight, mesuré via ResizeObserver) :
+     la hauteur du header sticky varie (SpaceStats masqué selon permission,
+     filtres actifs affichés ou non) — une valeur fixe désynchronise et
+     laisse un vide ou un chevauchement selon le contenu réellement affiché. */
   padding-bottom: 40px;
 }
 
@@ -771,13 +793,17 @@ export default {
 .slv-empty__sub { font-size: var(--fs-md); color: #6b7280; max-width: 360px; margin: 0 0 8px; }
 
 /* ========== GRID VIEW ========== */
+/* auto-fill + largeur de carte fixe plutôt que repeat(3, 1fr) : avec peu
+   d'espaces (souvent 1 seul par organisation), diviser en tiers étirait la
+   carte sur toute la largeur d'une colonne et laissait un grand vide à
+   droite. Ici la carte garde une taille cohérente quel que soit le nombre
+   d'espaces, alignée à gauche. */
 .slv-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fill, minmax(300px, 340px));
   gap: 20px;
 }
-@media (max-width: 1024px) { .slv-grid { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 600px)  { .slv-grid { grid-template-columns: 1fr; } }
+@media (max-width: 600px) { .slv-grid { grid-template-columns: 1fr; } }
 
 /* ========== LIST VIEW — card rows ========== */
 .slv-type-pill {

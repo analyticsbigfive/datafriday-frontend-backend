@@ -299,7 +299,7 @@ export class SpacesController {
     @CurrentUser() user: any,
     @Query('light') light?: string,
   ) {
-    const space = await this.spacesService.findOne(id, user.tenantId);
+    const space = await this.spacesService.findOne(id, user.tenantId, user);
     
     // In light mode, exclude heavy data like images
     if (light === 'true') {
@@ -495,7 +495,7 @@ export class SpacesController {
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 20));
     const includeGranular = granular === '1' || granular === 'true';
-    return this.spacesService.getShopDetails(id, user.tenantId, pageNum, limitNum, includeGranular);
+    return this.spacesService.getShopDetails(id, user.tenantId, pageNum, limitNum, includeGranular, user);
   }
 
   /**
@@ -600,7 +600,7 @@ export class SpacesController {
     @CurrentUser() user: any,
   ) {
     const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
-    return this.spacesService.getTransactionBasketsBatch(id, ids, user.tenantId);
+    return this.spacesService.getTransactionBasketsBatch(id, ids, user.tenantId, user);
   }
 
   /**

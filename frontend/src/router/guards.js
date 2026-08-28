@@ -189,3 +189,43 @@ export async function spaceEntryGuard(to, from, next) {
   }
   return next('/spaces')
 }
+
+// Routes considérées comme un « atterrissage » (connexion, inscription, onboarding,
+// ou navigation initiale de l'app où `from.name` est vide) plutôt qu'une navigation
+// explicite depuis l'intérieur de l'app déjà authentifiée.
+const LANDING_ROUTE_NAMES = ['login', 'signup', 'reset-password', 'onboarding']
+
+/**
+ * Guard d'entrée de la liste des espaces (`/spaces`). Une organisation avec un
+ * seul espace n'a aucune raison de voir une liste à un élément : on saute
+ * direct dessus (spaceEntryGuard choisit ensuite son 1er écran autorisé) —
+ * mais UNIQUEMENT à l'atterrissage (connexion/inscription/onboarding ou
+ * navigation initiale de l'app), jamais sur un clic explicite depuis
+ * l'intérieur de l'app (ex. lien "Mes espaces" du menu) : la liste doit
+ * rester consultable à la demande, même à 1 élément, sinon elle disparaît
+ * sans prévenir dès qu'on y accède volontairement.
+ */
+export async function spacesListEntryGuard(to, from, next) {
+  if (!store.getters['auth/isInitialized']) {
+    await store.dispatch('auth/initialize')
+  }
+  if (!store.getters['auth/isAuthenticated']) {
+    return next({ path: '/login', query: { redirect: to.fullPath } })
+  }
+
+  const isLanding = !from.name || LANDING_ROUTE_NAMES.includes(from.name)
+  if (!isLanding) return next()
+
+  try {
+    await store.dispatch('spaces/fetchSpaces')
+  } catch (_) {
+    return next()
+  }
+
+  const spaces = store.getters['spaces/spaces'] || []
+  if (spaces.length === 1) {
+    return next({ name: 'space-analyse', params: { spaceId: spaces[0].id } })
+  }
+
+  next()
+}

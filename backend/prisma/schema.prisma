@@ -314,7 +314,11 @@ model User {
   firstName String
   lastName  String
   fullName  String?
-  phone     String? // Téléphone de contact (optionnel)
+  phone     String? // Téléphone de contact (optionnel), réutilisé comme numéro WhatsApp
+  // Opt-in notifications WhatsApp (décision Bertrand 08/2026, option pour les logisticiens).
+  // Terrain préparé, aucun envoi réel : pas de fournisseur (Twilio/Meta Cloud API) branché
+  // encore, ce flag ne fait rien tant que ce chantier n'est pas repris.
+  notifyWhatsapp  Boolean  @default(false)
 
   role            UserRole @default(VIEWER) // Legacy - conservé pour compatibilité, voir roleRef
   roleId          String? // RBAC dynamique - FK vers Role (nullable pendant la transition)
@@ -3403,12 +3407,17 @@ model LogisticTask {
   completedAt          DateTime?
   completedBy          String?
   createdBy            String?
+  // Lot d'origine (un POST .../logistic-tasks/batch = un batchId partagé par toutes ses
+  // lignes), sert uniquement à détecter la clôture complète d'un lot pour notifier son
+  // créateur (LogisticTasksService.drop). Nullable : lignes créées avant ce champ.
+  batchId              String?
   createdAt            DateTime             @default(now())
   updatedAt            DateTime             @updatedAt
 
   @@index([tenantId, spaceId, assignedToUserId, status])
   @@index([tenantId, spaceId, status])
   @@index([itemRefId])
+  @@index([batchId])
 }
 
 // ==================== NOTIFICATIONS (in-app) ====================

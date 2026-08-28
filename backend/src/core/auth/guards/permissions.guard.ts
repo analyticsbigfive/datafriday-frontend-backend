@@ -1,6 +1,6 @@
 import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { UserRole } from '@prisma/client';
+import { hasPermission } from '../../rbac/permission.util';
 
 export const PERMISSIONS_KEY = 'permissions';
 
@@ -33,14 +33,6 @@ export class PermissionsGuard implements CanActivate {
       return false;
     }
 
-    // Le rôle ADMIN (systemKey) a toujours toutes les permissions, quel que soit
-    // le contenu de RolePermission, pour éviter un auto-verrouillage accidentel.
-    if (user.role?.systemKey === UserRole.ADMIN) {
-      return true;
-    }
-
-    const granted: string[] = user.role?.permissions ?? [];
-
-    return required.some((code) => granted.includes(code));
+    return required.some((code) => hasPermission(user, code));
   }
 }

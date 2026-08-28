@@ -55,7 +55,7 @@
     </div>
 
     <!-- ── Stats grid ── -->
-    <div class="si-stats">
+    <div v-can="'stats.financial.view'" class="si-stats">
       <div class="si-stat">
         <div class="si-stat__label"><TrendingUp :size="11" />{{ t('spaceCardFbRevenue') }}</div>
         <div class="si-stat__value si-stat__value--red">{{ formatCurrency(space?.fbRevenue) }}</div>

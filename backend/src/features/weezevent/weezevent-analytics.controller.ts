@@ -2,12 +2,14 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { PrismaService } from '../../core/database/prisma.service';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
+import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 
 @ApiTags('Weezevent Analytics')
 @ApiBearerAuth('supabase-jwt')
 @Controller('weezevent/analytics')
 @UseGuards(JwtDatabaseGuard)
+@RequirePermissions('stats.financial.view')
 export class WeezeventAnalyticsController {
     constructor(private readonly prisma: PrismaService) {}
 
