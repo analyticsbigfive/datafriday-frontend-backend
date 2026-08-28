@@ -1,5 +1,5 @@
 <template>
-  <div class="ss-strip" :class="{ 'ss-strip--dark': isDark }">
+  <div v-can="'stats.financial.view'" class="ss-strip" :class="{ 'ss-strip--dark': isDark }">
     <div
       v-for="(card, i) in statCards"
       :key="card.key"
