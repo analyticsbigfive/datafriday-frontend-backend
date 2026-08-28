@@ -214,10 +214,15 @@ const mutations = {
 }
 
 const actions = {
-  async loadStock({ commit }, { spaceId, configId, eventId } = {}) {
+  /** `silent` (LogisticTasksPanel, après pickup/drop) : rafraîchit les données SANS
+   *  toucher `state.loading`, ce flag est partagé par toute la page (skeleton de la
+   *  liste PDV en colonne centre, cf. SpaceLogisticView `loading || stockLoading`) ;
+   *  sans `silent`, cocher une case dans le panneau Tasks faisait clignoter TOUTE la
+   *  liste centrale en skeleton à chaque pickup/drop, sans rapport avec ce qu'on regarde. */
+  async loadStock({ commit }, { spaceId, configId, eventId, silent = false } = {}) {
     if (!spaceId) return
     const mySeq = ++_stockSeq
-    commit('SET_LOADING', true)
+    if (!silent) commit('SET_LOADING', true)
     commit('SET_ERROR', null)
     try {
       const data = await getLogisticsStock(spaceId, configId, eventId)
@@ -239,7 +244,7 @@ const actions = {
         commit('SET_ERROR', e?.userMessage || 'Impossible de charger le stock logistique.')
       }
     } finally {
-      if (mySeq === _stockSeq) commit('SET_LOADING', false)
+      if (mySeq === _stockSeq && !silent) commit('SET_LOADING', false)
     }
   },
 

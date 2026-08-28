@@ -552,6 +552,38 @@ export class LogisticsService {
     });
   }
 
+  // ─── Annulation d'un mouvement encore PENDING (LogisticTasksService.undoPickup) ──
+
+  /**
+   * Annule un mouvement de transfert PAS ENCORE confirmé : réapplique le delta
+   * inverse sur le StockLevel source (l'aller n'a jamais été confirmé, aucune
+   * contrepartie n'existe, rien d'autre à défaire) puis supprime la ligne
+   * StockMovement. Un mouvement déjà `CONFIRMED` refuse (confirmTransfer a déjà
+   * crédité une contrepartie et clos la ligne, annuler à ce stade demanderait de
+   * défaire aussi le crédit et la StockTransferLoss éventuelle, hors scope ici,
+   * cf. LogisticTasksService.undoPickup qui n'appelle jamais ce chemin après drop()).
+   */
+  async reverseMovement(movementId: string, tenantId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      const movement = await tx.stockMovement.findFirst({ where: { id: movementId, tenantId } });
+      if (!movement) throw new NotFoundException(`Mouvement ${movementId} not found`);
+      if (movement.status && movement.status !== StockTransferStatus.PENDING) {
+        throw new BadRequestException(`Mouvement ${movementId} déjà confirmé, impossible à annuler`);
+      }
+      const element = await this.getElementOrThrow(movement.elementId, tenantId);
+      const itemIdentity =
+        movement.itemKind && movement.itemRefId ? { itemKind: movement.itemKind, itemRefId: movement.itemRefId } : null;
+      // Delta inverse : on redonne à la source ce que la sortie initiale lui avait
+      // retiré. Toujours positif dans ce sens (une sortie ne peut jamais avoir été
+      // négative), donc `strict` (garde-fou anti stock négatif) ne s'applique pas ici.
+      await this.applyLevelDelta(
+        tx, tenantId, element, movement.itemKey, -movement.packedDelta, -movement.looseDelta,
+        null, movement.marketPriceId, false, itemIdentity,
+      );
+      await tx.stockMovement.delete({ where: { id: movement.id } });
+    });
+  }
+
   // ─── Confirmation d'un transfert (BUG-259-02) ─────────────────────────────────
 
   /**
@@ -1199,9 +1231,9 @@ export class LogisticsService {
         name: true,
         type: true,
         attributes: true,
-        floor: { select: { config: { select: { id: true } } } },
-        forecourt: { select: { config: { select: { id: true } } } },
-        externalMerch: { select: { config: { select: { id: true } } } },
+        floor: { select: { id: true, config: { select: { id: true } } } },
+        forecourt: { select: { id: true, config: { select: { id: true } } } },
+        externalMerch: { select: { id: true, config: { select: { id: true } } } },
         configurationElements: { select: { configId: true }, orderBy: { createdAt: 'asc' }, take: 1 },
         menuAssignments: { select: { menuItemId: true, enabled: true, configId: true } },
       },
@@ -1283,6 +1315,7 @@ export class LogisticsService {
       items: ElementItem[];
       provider?: string | null;
       configIds?: string[];
+      floorGroupId: string | null;
     }> = [];
     for (const shop of configuredShops) {
       const ids = enabledByShop.get(shop.id) ?? [];
@@ -1296,6 +1329,7 @@ export class LogisticsService {
         items: [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
         provider: providerByElementId.get(shop.id) ?? null,
         ...(aggregateAllConfigs ? { configIds: configIdsByShop.get(shop.id) ?? [] } : {}),
+        floorGroupId: this.floorGroupIdOf(shop),
       });
     }
 
@@ -1333,10 +1367,17 @@ export class LogisticsService {
         type: storage.type,
         items: [...merged.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr')),
         ...(aggregateAllConfigs ? { configIds: [...storageConfigIds] } : {}),
+        floorGroupId: this.floorGroupIdOf(storage),
       });
     }
 
     return elements;
+  }
+
+  /** Regroupement "même étage/zone" (mockups Restocker, 08/2026) : id du Floor v1, ou à
+   *  défaut du Forecourt/ExternalMerch — null si aucun (élément v2 sans floor/forecourt). */
+  private floorGroupIdOf(el: { floor?: { id?: string } | null; forecourt?: { id?: string } | null; externalMerch?: { id?: string } | null }): string | null {
+    return el.floor?.id ?? el.forecourt?.id ?? el.externalMerch?.id ?? null;
   }
 
   /**
@@ -1749,6 +1790,10 @@ export class LogisticsService {
           const level = levelByKey.get(`${el.id}::${item.name}`);
           return {
             itemKey: item.name,
+            // ADR-0006 (chantier 377) : id/kind déjà résolus par le référentiel (itemRefsForMenuItem),
+            // simplement propagés ici — voir CreateMovementDto.itemKind pour l'usage côté écriture.
+            itemKind: item.refKind ?? null,
+            itemRefId: item.id ?? null,
             unit: item.unit ?? null,
             packedUnits: level?.packedUnits ?? 0,
             looseUnits: level?.looseUnits ?? 0,
@@ -1761,12 +1806,14 @@ export class LogisticsService {
 
     // Index inversé item → shops (11_LIVE.md §3.2) — n'existe nulle part ailleurs, seul vrai
     // travail neuf de ce chantier : les deux vues partagent la même donnée déjà assemblée ci-dessus.
-    const itemsByKey = new Map<string, { itemKey: string; unit: string | null; shops: any[] }>();
+    const itemsByKey = new Map<string, { itemKey: string; itemKind: string | null; itemRefId: string | null; unit: string | null; shops: any[] }>();
     for (const shop of shops) {
       for (const item of shop.items) {
         let entry = itemsByKey.get(item.itemKey);
         if (!entry) {
-          entry = { itemKey: item.itemKey, unit: item.unit, shops: [] };
+          // Identité produit stable au niveau du groupe : même article, même id/kind
+          // quel que soit le shop (ADR-0006, chantier 377).
+          entry = { itemKey: item.itemKey, itemKind: item.itemKind, itemRefId: item.itemRefId, unit: item.unit, shops: [] };
           itemsByKey.set(item.itemKey, entry);
         }
         entry.shops.push({

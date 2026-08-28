@@ -3354,6 +3354,83 @@ model StockTransferLoss {
   @@index([itemRefId])
 }
 
+// ==================== LOGISTIC TASKS (transferts assignés, mockups 08/2026) ====================
+
+// Priorité choisie dans le drawer "Restocker" (Live inventory) à la création d'une tâche.
+enum LogisticTaskPriority {
+  VERY_URGENT // Très Urgent
+  URGENT // Urgent
+  TODO // À effectuer
+  NOT_PRIORITY // Non Prioritaire
+}
+
+// 3 phases (mockup "Déclenchement d'un restockage dans Logistique") : PENDING = tâche
+// créée, rien n'a bougé ; PICKED_UP = case "Récupérer" cochée, stock source décrémenté
+// (LogisticsService.createMovement) ; COMPLETED = case "Déposer" cochée, stock
+// destination crédité (LogisticsService.confirmTransfer).
+enum LogisticTaskStatus {
+  PENDING
+  PICKED_UP
+  COMPLETED
+}
+
+// Couche d'orchestration staff/priorité PAR-DESSUS le ledger StockMovement existant —
+// ne duplique pas la mécanique de transfert : pickup/drop appellent respectivement
+// LogisticsService.createMovement()/confirmTransfer() et stockent la référence du
+// StockMovement source dans pickupMovementId. Sans FK (mêmes raisons que
+// EventPredictVersion/RestockState) : denrées/éléments/utilisateurs référencés par id,
+// résolus côté service.
+model LogisticTask {
+  id                   String               @id @default(cuid())
+  tenantId             String
+  spaceId              String
+  itemKey              String // même référentiel que StockMovement.itemKey
+  // Identité stable en remplacement progressif d'itemKey (ADR-0006, chantier 377) — même
+  // convention que StockLevel/StockMovement/StockTransferLoss : nullable, repli par nom si absent.
+  itemKind             String? // 'marketPrice' | 'ingredient' | 'packaging' | 'menuItem' | 'menuComponent'
+  itemRefId            String?
+  menuItemId           String?
+  sourceElementId      String
+  destinationElementId String
+  packedQty            Int                  @default(0)
+  looseQty             Float                @default(0)
+  assignedToUserId     String
+  priority             LogisticTaskPriority
+  status               LogisticTaskStatus   @default(PENDING)
+  pickupMovementId     String? // StockMovement PENDING créé à la phase PICKED_UP
+  pickedUpAt           DateTime?
+  pickedUpBy           String?
+  completedAt          DateTime?
+  completedBy          String?
+  createdBy            String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+
+  @@index([tenantId, spaceId, assignedToUserId, status])
+  @@index([tenantId, spaceId, status])
+  @@index([itemRefId])
+}
+
+// ==================== NOTIFICATIONS (in-app) ====================
+
+// Notification serveur persistée (assignation de LogisticTask, etc.). Distincte du
+// store frontend `notifications.js` (purement local/localStorage) : ce modèle est la
+// source de vérité côté serveur, le frontend la fusionne avec ses notices client-side.
+model Notification {
+  id        String    @id @default(cuid())
+  tenantId  String
+  userId    String
+  type      String // ex: "logistic_task_assigned"
+  title     String
+  message   String
+  meta      Json?
+  link      String?
+  read      Boolean   @default(false)
+  createdAt DateTime  @default(now())
+
+  @@index([tenantId, userId, read, createdAt])
+}
+
 // ==================== KV STORE ====================
 
 // Generic key-value store (Event Predict versions, etc.)
