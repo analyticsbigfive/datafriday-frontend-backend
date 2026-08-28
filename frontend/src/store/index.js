@@ -37,6 +37,7 @@ import shopMenuItems from './modules/shopMenuItems'
 import shopMenuAvailability from './modules/shopMenuAvailability'
 import historyAliases from './modules/historyAliases'
 import notifications from './modules/notifications'
+import serverNotifications from './modules/serverNotifications'
 import hrSettings from './modules/hrSettings'
 import staffing from './modules/staffing'
 import seasons from './modules/seasons'
@@ -90,6 +91,7 @@ export default createStore({
     shopMenuAvailability,
     historyAliases,
     notifications,
+    serverNotifications,
     hrSettings,
     staffing,
     seasons,

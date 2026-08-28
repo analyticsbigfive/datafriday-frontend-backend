@@ -16,6 +16,7 @@ import { resolveEventTransactionWindow } from '../../shared/utils/event-window.u
 // pages divergent à nouveau.
 import { Semaphore } from '../../shared/utils/semaphore';
 import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
+import { hasPermission, PermissionCheckableUser } from '../../core/rbac/permission.util';
 
 /**
  * Nom de la configuration interne auto-générée par le backend lors de l'import Weezevent.
@@ -197,6 +198,31 @@ export class SpacesService {
     return space;
   }
 
+  // Champs monétaires retirés des réponses quand l'appelant n'a pas `stats.financial.view`.
+  // Rédaction faite APRÈS lecture/écriture du cache Redis (findAll/findOne/getShopDetails/
+  // getTransactionBasketsBatch sont cachés par tenant, pas par utilisateur) : sinon le premier
+  // appelant autorisé mettrait les chiffres en cache pour tout le monde derrière lui.
+  private static readonly FINANCIAL_SPACE_FIELDS = [
+    'totalRevenue',
+    'fbRevenue',
+    'merchRevenue',
+    'ticketingCount',
+    'avgTransaction',
+    'avgEvent',
+    'perCapita',
+  ] as const;
+
+  private stripFields<T extends Record<string, any>>(obj: T, fields: readonly string[]): T {
+    const clone: any = { ...obj };
+    for (const field of fields) delete clone[field];
+    return clone;
+  }
+
+  private redactSpaceFinancials<T extends Record<string, any>>(space: T, user: PermissionCheckableUser): T {
+    if (hasPermission(user, 'stats.financial.view')) return space;
+    return this.stripFields(space, SpacesService.FINANCIAL_SPACE_FIELDS);
+  }
+
   /**
    * CA (total/F&B/merch), transactions et billets par espace — calculé à la volée depuis les
    * agrégats réels (SpaceRevenueMinuteAgg, corrigé BUG-014/015) et Event, pas depuis les
@@ -271,7 +297,11 @@ export class SpacesService {
    * Find all spaces for a tenant with pagination (Redis-cached, TTL 60s).
    * Cache is bypassed when a search filter is applied.
    */
-  async findAll(tenantId: string, query: QuerySpaceDto, user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'isOwner' | 'allSpacesAccess'>) {
+  async findAll(
+    tenantId: string,
+    query: QuerySpaceDto,
+    user: Pick<CurrentUserData, 'id' | 'isSuperAdmin' | 'isOwner' | 'allSpacesAccess' | 'role'>,
+  ) {
     const { search, page = 1, limit = 10 } = query;
     const skip = (page - 1) * limit;
 
@@ -283,7 +313,7 @@ export class SpacesService {
     const isCacheable = !search && page === 1 && limit === 10 && accessibleIds === null;
     if (isCacheable) {
       const cached = await this.redis.get<any>(this.SPACES_LIST_CACHE_KEY(tenantId));
-      if (cached) return cached;
+      if (cached) return this.redactSpaceListResult(cached, user);
     }
 
     const where: any = {
@@ -376,7 +406,18 @@ export class SpacesService {
       });
     }
 
-    return result;
+    return this.redactSpaceListResult(result, user);
+  }
+
+  private redactSpaceListResult(
+    result: { data: Record<string, any>[]; meta: any },
+    user: PermissionCheckableUser,
+  ) {
+    if (hasPermission(user, 'stats.financial.view')) return result;
+    return {
+      ...result,
+      data: result.data.map((space) => this.stripFields(space, SpacesService.FINANCIAL_SPACE_FIELDS)),
+    };
   }
 
   /**
@@ -414,10 +455,12 @@ export class SpacesService {
   /**
    * Find one space by ID
    */
-  async findOne(id: string, tenantId: string) {
+  async findOne(id: string, tenantId: string, user?: PermissionCheckableUser) {
     const cacheKey = this.SPACE_DETAIL_CACHE_KEY(id);
     const cached = await this.redis.get<any>(cacheKey);
-    if (cached && cached.tenantId === tenantId) return cached;
+    if (cached && cached.tenantId === tenantId) {
+      return user ? this.redactSpaceFinancials(cached, user) : cached;
+    }
 
     const space = await this.prisma.space.findFirst({
       where: {
@@ -507,7 +550,7 @@ export class SpacesService {
     // Cache the result to skip 3 round-trips on subsequent loads (TTL 2 min)
     await this.redis.set(cacheKey, space, { ttl: this.SPACE_DETAIL_CACHE_TTL });
 
-    return space;
+    return user ? this.redactSpaceFinancials(space, user) : space;
   }
 
   /**
@@ -1154,7 +1197,26 @@ export class SpacesService {
    * Delegates to the Supabase PostgreSQL RPC `get_space_shop_details`,
    * collapsing 8 sequential DB round-trips into a single network call (~2s → ~300ms).
    */
-  async getShopDetails(spaceId: string, tenantId: string, page = 1, limit = 20, includeGranular = false) {
+  async getShopDetails(
+    spaceId: string,
+    tenantId: string,
+    page = 1,
+    limit = 20,
+    includeGranular = false,
+    user?: PermissionCheckableUser,
+  ) {
+    const data = await this.getShopDetailsRaw(spaceId, tenantId, page, limit, includeGranular);
+    if (user && !hasPermission(user, 'stats.financial.view')) {
+      return {
+        ...data,
+        shops: (data.shops ?? []).map((shop: any) => this.stripFields(shop, ['revenue'])),
+        shopGranularData: (data.shopGranularData ?? []).map((row: any) => this.stripFields(row, ['revenue'])),
+      };
+    }
+    return data;
+  }
+
+  private async getShopDetailsRaw(spaceId: string, tenantId: string, page: number, limit: number, includeGranular: boolean) {
     // Cache Redis (60s) : la RPC est le poste dominant du premier rendu /analyse.
     // Une erreur (space_not_found) jette depuis la factory → rien n'est mis en cache.
     return this.redis.getOrSet(
@@ -1746,7 +1808,24 @@ export class SpacesService {
    * - les paniers VIDES (possibles sur ce même chemin incrémental) disparaissent d'eux-
    *   mêmes via l'INNER JOIN sur les items : un panier sans ligne n'a pas de combinaison.
    */
-  async getTransactionBasketsBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any[]>> {
+  async getTransactionBasketsBatch(
+    spaceId: string,
+    eventIds: string[],
+    tenantId: string,
+    user?: PermissionCheckableUser,
+  ): Promise<Record<string, any[]>> {
+    const out = await this.getTransactionBasketsBatchRaw(spaceId, eventIds, tenantId);
+    if (user && !hasPermission(user, 'stats.financial.view')) {
+      const redacted: Record<string, any[]> = {};
+      for (const [eventId, records] of Object.entries(out)) {
+        redacted[eventId] = records.map((r) => this.stripFields(r, ['revenue', 'revenueHt']));
+      }
+      return redacted;
+    }
+    return out;
+  }
+
+  private async getTransactionBasketsBatchRaw(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any[]>> {
     const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
     const out: Record<string, any[]> = Object.fromEntries(uniqueIds.map(id => [id, []]));
     if (!uniqueIds.length) return out;
