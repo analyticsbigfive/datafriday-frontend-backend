@@ -2398,12 +2398,14 @@ export default {
 .smi-qc-dialog {
   background: #fff; border-radius: 18px; overflow: hidden;
   box-shadow: 0 8px 40px rgba(0,0,0,.18);
+  display: flex; flex-direction: column; max-height: 90vh;
 }
 .smi-qc-dialog--dark { background: #1f2937; }
 
 .smi-qc-header {
   display: flex; align-items: flex-start; gap: 12px; padding: 20px;
   background: #ff3131;
+  flex-shrink: 0;
 }
 .smi-qc-header__icon {
   width: 42px; height: 42px; border-radius: 11px;
@@ -2421,7 +2423,7 @@ export default {
 .smi-qc-header__close:hover { background: rgba(255,255,255,.28); }
 .smi-qc-header__close:disabled { opacity: .45; cursor: not-allowed; }
 
-.smi-qc-body { padding: 20px; }
+.smi-qc-body { padding: 20px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 
 .smi-qc-loading {
   display: flex; align-items: center; gap: 10px;
@@ -2504,6 +2506,7 @@ export default {
 .smi-qc-footer {
   padding: 12px 20px 18px; border-top: 1px solid #f0f0f0;
   display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  flex-shrink: 0;
 }
 .smi-qc-dialog--dark .smi-qc-footer { border-top-color: #374151; }
 
