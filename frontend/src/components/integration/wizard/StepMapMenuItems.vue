@@ -308,7 +308,7 @@
     <!-- BUG-273 : l'erreur principale est téléportée avec le bouton (même Teleport que le
          footer) pour rester visible dans la zone fixe .iw-footer, au lieu d'être perdue dans
          le corps scrollable .iw-body du wizard parent (IntegrationWizard.vue). -->
-    <Teleport :to="footerTarget" :disabled="!footerTarget">
+    <Teleport v-if="teleportActive" :to="footerTarget" :disabled="!footerTarget">
       <div class="smi-footer-teleport">
         <div v-if="error" class="smi-infobar smi-infobar--error smi-footer-error">
           <AlertTriangle :size="14" style="flex-shrink: 0;" />
@@ -831,6 +831,7 @@ export default {
 
   data() {
     return {
+      teleportActive: true,
       products: [],
       menuItemsList: [],
       mappingStats: null,
@@ -1076,6 +1077,17 @@ export default {
 
   mounted() {
     if (this.location) this.loadData(this.location.id)
+  },
+
+  // KeepAlive (IntegrationWizard.vue) garde ce composant monté entre deux étapes — mais
+  // <Teleport> n'écoute pas deactivated(), son contenu resterait donc affiché dans le footer
+  // partagé même une fois l'étape quittée (boutons de plusieurs étapes empilés). teleportActive
+  // referme nous-mêmes le Teleport à la désactivation.
+  activated() {
+    this.teleportActive = true
+  },
+  deactivated() {
+    this.teleportActive = false
   },
 
   watch: {
