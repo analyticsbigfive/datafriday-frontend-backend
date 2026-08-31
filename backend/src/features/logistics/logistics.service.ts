@@ -336,6 +336,42 @@ export class LogisticsService {
   }
 
   /**
+   * ADR-0006 (chantier 377) : plusieurs MarketPrice peuvent partager un `itemName` (aucune
+   * contrainte unique sur ce nom, cf. ADR §diagnostic) — tie-break déterministe partagé par TOUS
+   * les appelants qui doivent résoudre un nom vers une ligne MarketPrice (résolution d'identité
+   * stock, référentiel catalogue) : la ligne la PLUS ANCIENNE gagne (`orderBy createdAt asc`,
+   * premier gagne). Centralisé ici pour ne plus le réimplémenter par appelant — deux copies
+   * distinctes de ce même tie-break avaient fini par diverger (l'une "premier gagne", l'autre
+   * "dernier gagne"), provoquant un vrai mismatch d'itemRefId entre mouvement de transfert et
+   * StockLevel existant sur le cas réel "Badiane" (deux MarketPrice homonymes, constaté le
+   * 2026-08-27). Match EXACT (pas insensible à la casse), volontairement, comme le reste de la
+   * résolution ADR-0006 : `itemKey`/`itemName` proviennent du nom copié verbatim par le
+   * référentiel — les cas non résolus dégradent proprement chez l'appelant.
+   */
+  private async resolveMarketPricesByName(
+    names: string[],
+    tenantId: string,
+  ): Promise<
+    Map<string, { id: string; itemName: string; packedUnits: number | null; inventoryPackaging: string | null }>
+  > {
+    const map = new Map<
+      string,
+      { id: string; itemName: string; packedUnits: number | null; inventoryPackaging: string | null }
+    >();
+    if (!names.length) return map;
+    const rows = await this.prisma.marketPrice.findMany({
+      where: { tenantId, deletedAt: null, itemName: { in: names } },
+      select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const mp of rows) {
+      const key = mp.itemName.trim();
+      if (key && !map.has(key)) map.set(key, mp);
+    }
+    return map;
+  }
+
+  /**
    * ADR-0006 (chantier 377) — résout (itemKind, itemRefId) pour un lot de `itemKey` en une seule
    * passe batchée (1 requête par table candidate, pas 1 par nom) : double-écriture progressive
    * en remplacement d'`itemKey`, sans jamais bloquer l'écriture existante si la résolution échoue.
@@ -362,12 +398,8 @@ export class LogisticsService {
     // le même nom vers deux ids DIFFÉRENTS d'un appel à l'autre, ce que la garde anti-homonyme
     // d'`applyLevelDelta`/`reset()` interprète alors À TORT comme un vrai homonyme (constaté en
     // production le 2026-08-27 sur "Badiane", deux MarketPrice réels partageant ce nom).
-    const [marketPrices, ingredients, packagings, components, menuItems] = await Promise.all([
-      this.prisma.marketPrice.findMany({
-        where: { tenantId, deletedAt: null, itemName: { in: names } },
-        select: { id: true, itemName: true },
-        orderBy: { createdAt: 'asc' },
-      }),
+    const [marketPricesByName, ingredients, packagings, components, menuItems] = await Promise.all([
+      this.resolveMarketPricesByName(names, tenantId),
       this.prisma.ingredient.findMany({
         where: { tenantId, deletedAt: null, name: { in: names } },
         select: { id: true, name: true },
@@ -395,7 +427,9 @@ export class LogisticsService {
         if (key && !result.has(key)) result.set(key, { itemKind: kind, itemRefId: r.id });
       }
     };
-    setIfAbsent(marketPrices, 'marketPrice', (r) => r.itemName);
+    for (const [itemName, mp] of marketPricesByName) {
+      if (!result.has(itemName)) result.set(itemName, { itemKind: 'marketPrice', itemRefId: mp.id });
+    }
     setIfAbsent(ingredients, 'ingredient', (r) => r.name);
     setIfAbsent(packagings, 'packaging', (r) => r.name);
     setIfAbsent(components, 'menuComponent', (r) => r.name);
@@ -1017,17 +1051,14 @@ export class LogisticsService {
         if (ing?.name && !ing.marketPrice) unresolvedNames.add(ing.name.trim());
       }
     }
+    // Tie-break homonymes délégué à resolveMarketPricesByName (ADR-0006) — clé relocalisée en
+    // minuscules ici pour la recherche insensible à la casse propre à ce référentiel (ligne
+    // ~1114), le tie-break "plus ancien gagne" lui-même reste partagé avec la résolution
+    // d'identité stock pour ne pas rediverger comme sur le cas "Badiane".
     const mpByName = new Map<string, { id: string; itemName: string; packedUnits: number | null; inventoryPackaging: string | null }>();
     if (unresolvedNames.size) {
-      const rows = await this.prisma.marketPrice.findMany({
-        where: { tenantId, deletedAt: null, itemName: { in: [...unresolvedNames] } },
-        select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true },
-        // Plusieurs Market Price peuvent partager un itemName (pas de contrainte
-        // unique) — tri déterministe pour que "dernier gagne" (ligne suivante)
-        // pointe toujours vers la même ligne plutôt qu'un ordre Postgres arbitraire.
-        orderBy: { createdAt: 'asc' },
-      });
-      for (const mp of rows) mpByName.set(mp.itemName.trim().toLowerCase(), mp);
+      const resolved = await this.resolveMarketPricesByName([...unresolvedNames], tenantId);
+      for (const mp of resolved.values()) mpByName.set(mp.itemName.trim().toLowerCase(), mp);
     }
 
     // Components (readyForSale=No à déplier) : élargissement itératif du graphe
