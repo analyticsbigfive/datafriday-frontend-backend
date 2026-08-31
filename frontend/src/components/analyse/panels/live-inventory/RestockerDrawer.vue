@@ -507,9 +507,15 @@ export default {
         itemKey: this.itemKey,
         // ADR-0006 (chantier 377) : identité stable, currentItem (référentiel Logistic,
         // toujours à jour) prioritaire, repli sur les props transmises par le parent.
+        // `refKind` (pas `kind`) fait foi : un article "orphelin" (StockLevel sans match
+        // catalogue courant) a kind='product' comme un vrai MenuItem, mais refKind=null et
+        // id=itemKey (le NOM, faute de mieux — cf. LogisticsService.getStock, orphanEntries).
+        // Sans ce garde, currentItem.id (un nom) partait comme itemRefId/menuItemId, et
+        // menuItemId atterrissait tel quel dans LogisticTask.menuItemId → 404 "Menu item
+        // <nom> not found" au pickup (createMovement cherche un MenuItem par id).
         itemKind: this.currentItem?.refKind ?? this.itemKind ?? undefined,
-        itemRefId: this.currentItem?.id ?? this.itemRefId ?? undefined,
-        menuItemId: this.currentItem?.kind === 'product' ? this.currentItem.id : undefined,
+        itemRefId: this.currentItem?.refKind ? this.currentItem.id : (this.itemRefId ?? undefined),
+        menuItemId: this.currentItem?.refKind === 'menuItem' ? this.currentItem.id : undefined,
         itemLabel: this.currentItem?.name || this.itemKey,
         unit: this.currentItem?.unit || null,
         packagingType: this.currentItem?.packagingType || null,
