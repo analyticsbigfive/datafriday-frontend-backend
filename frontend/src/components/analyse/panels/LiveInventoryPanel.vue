@@ -559,7 +559,7 @@ export default {
      identique sur toutes les lignes, quelle que soit la longueur du texte affiché de part et
      d'autre (ex. "0 kg" vs "0 kg (kilogram)") — un min-width seul ne suffisait pas, un libellé
      plus long que le minimum repoussait quand même la piste. */
-  grid-template-columns: 80px 1fr 80px;
+  grid-template-columns: 96px 1fr 96px;
   align-items: center;
   gap: 8px;
 }
