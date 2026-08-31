@@ -564,7 +564,10 @@ export default {
   color: #111827;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  min-width: 64px;
 }
+.lip-row__gauge-num--start { text-align: right; }
+.lip-row__gauge-num--end { text-align: left; }
 .lip-row__gauge-track {
   position: relative;
   flex: 1;

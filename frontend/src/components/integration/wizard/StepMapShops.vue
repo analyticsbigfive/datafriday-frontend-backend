@@ -767,7 +767,6 @@ import { Store, Check, X, Search, Zap, Plus, ChevronRight, AlertTriangle, Layers
 import { quickCreateSpaceElement, assignShopsFloor, bulkQuickCreateAndMap, getSpaceFloorOptions } from '@/api/endpoints/space.api'
 import { getBuilderState, updateZone, createZone, createConfiguration as createConfigurationV2 } from '@/api/endpoints/builder-v2.api'
 import { getLocationShopMappings, createLocationShopMapping, deleteLocationShopMapping, bulkLocationShopMappings } from '@/api/endpoints/mapping.api'
-import { getWeezeventLocations } from '@/api/endpoints/aggregation.api'
 
 // Seuils du matcher nom-de-location → shop (findBestElementMatch) : matchScore est
 // exposé en 0-100, MIN_CANDIDATE_SCORE est comparé au score interne 0-1.
@@ -1084,11 +1083,33 @@ export default {
         // - DataFriday shops for THIS space
         // - Existing location→shop mappings scoped to THIS space
         // - Space configurations (to extract real floors)
+        const configsPromise = this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId })
+        // getSpaceFloorOptions dépend du configId résolu depuis configsPromise (pas seulement
+        // de spaceId) — démarré dès que les configs sont connues, en parallèle du reste, au
+        // lieu d'attendre la fin du Promise.all ci-dessous puis d'être lancé en série.
+        const floorOptionsPromise = configsPromise.then(fetchedConfigs => {
+          const configs = Array.isArray(fetchedConfigs) ? fetchedConfigs : []
+          const userConfigs = configs.filter(c => !c.isSystem && c.name?.toLowerCase() !== 'weezevent import')
+          // Route légère : zones v2 (par espace, même vides) + floors legacy v1 de la
+          // config principale — remplace un getConfiguration COMPLET par config.
+          return getSpaceFloorOptions(spaceId, userConfigs[0]?.id || null)
+        })
+        // Marque la promesse comme gérée dès sa création : le Promise.all ci-dessous peut
+        // prendre plus longtemps que floorOptionsPromise, et un rejet non encore "await" à ce
+        // moment déclencherait un warning unhandledrejection — la vraie erreur reste traitée
+        // par le try/catch plus bas, au moment du await réel.
+        floorOptionsPromise.catch(() => {})
+
         const [locRes, rawShops, allMappings, fetchedConfigs] = await Promise.all([
-          getWeezeventLocations(integrationId),
-          this.$store.dispatch('spaceShops/fetchForSpace', { spaceId, forceRefresh: true }),
+          // Cache TTL court (weezeventLocations.js, 5 min) au lieu d'un appel direct sans
+          // cache — mêmes économies que spaceShops/spaceIntegrations sur les allers-retours.
+          this.$store.dispatch('weezeventLocations/fetchForIntegration', { integrationId }),
+          // Cache TTL déjà fonctionnel (spaceShops.js, 15 min) : plus de forceRefresh, un
+          // aller-retour Précédent/Suivant sur cette étape réutilise le cache au lieu de
+          // retaper le réseau.
+          this.$store.dispatch('spaceShops/fetchForSpace', { spaceId }),
           this.fetchAllLocationShopMappings(spaceId),
-          this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId, forceRefresh: true }),
+          configsPromise,
         ])
         this._spaceConfigsCache = Array.isArray(fetchedConfigs) ? fetchedConfigs : []
 
@@ -1135,12 +1156,7 @@ export default {
         // Reconstruit floorMap + floorNameMap depuis les zones sauvegardées, pour que
         // les assignations floor survivent à un rechargement de page.
         try {
-          const userConfigs = (this._spaceConfigsCache || [])
-            .filter(c => !c.isSystem && c.name?.toLowerCase() !== 'weezevent import')
-
-          // Route légère : zones v2 (par espace, même vides) + floors legacy v1 de la
-          // config principale — remplace un getConfiguration COMPLET par config.
-          const options = await getSpaceFloorOptions(spaceId, userConfigs[0]?.id || null)
+          const options = await floorOptionsPromise
 
           // elementId → { level, name } depuis les zones/floors retournés
           const elementFloorIndex = {}
@@ -1594,8 +1610,12 @@ export default {
     async confirmBulk() {
       this.bulkConfirmOpen = false
       if (this.bulkCreateMissing && this.bulkPlan.unmatched.length) {
-        const fetched = await this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId: this.spaceId })
-        this._spaceConfigsCache = Array.isArray(fetched) ? fetched : []
+        // Même garde que openQuickCreate/openFloorDialog : ne refetch que si le cache local
+        // (déjà peuplé par loadData au montage) est vide.
+        if (!this._spaceConfigsCache.length) {
+          const fetched = await this.$store.dispatch('spaceConfigurations/fetchForSpace', { spaceId: this.spaceId })
+          this._spaceConfigsCache = Array.isArray(fetched) ? fetched : []
+        }
         if (!this.bulkUserConfigs.length) {
           this.configCreateContext = 'bulk'
           this.configCreateError = null

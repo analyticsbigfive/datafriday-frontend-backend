@@ -883,8 +883,6 @@ import IntegrationWizard from '@/components/integration/wizard/IntegrationWizard
 import SyncProgressDialog from '@/components/integration/SyncProgressDialog.vue'
 import { X, ArrowLeft, Plus, ChevronRight, Eye, EyeOff, Zap, Settings, FileSpreadsheet, Upload } from 'lucide-vue-next'
 import {
-  syncWeezeventData,
-  getWeezeventSyncStatus,
   listWeezeventInstances,
   createWeezeventInstance,
   updateWeezeventInstance,
@@ -1061,10 +1059,6 @@ export default {
       removeDialogIntegration: null,
       removing: false,
 
-      // Set to true in beforeUnmount(): checked inside the legacy sync's retry/poll
-      // loops so they stop making requests if the component is destroyed mid-sync.
-      syncAbandoned: false,
-
       // i18n
       locale: getCurrentLocale(),
       theme: (() => { const s = localStorage.getItem('datafriday:theme') || localStorage.getItem('appTheme') || 'dataFridayLight'; return (s === 'light' ? 'dataFridayLight' : s === 'dark' ? 'dataFridayDark' : s); })(),
@@ -1141,7 +1135,6 @@ export default {
   beforeUnmount() {
     window.removeEventListener('locale-changed', this.handleLocaleChange)
     window.removeEventListener('theme-changed', this._onThemeChanged)
-    this.syncAbandoned = true
   },
 
   methods: {
@@ -1591,191 +1584,13 @@ export default {
       const fromDate = this.syncFromDates[integration.id]
       const toDate = this.syncToDates[integration.id]
 
-      // If dates are provided, use the new job-based bisection sync
-      if (fromDate && toDate) {
-        await this.handleSyncJob(integration, fromDate, toDate)
-        return
-      }
-
-      // ---- Legacy synchronous sync ----
-      this.syncJobId = null
-      // If a sync is already running for this integration, just re-show the dialog
-      if (this.syncingMap[integration.id]) {
-        this.syncProgressIntegration = integration
-        this.syncProgressOpen = true
-        return
-      }
-
-      const STEPS = [
-        { key: 'transactions', label: this.t('intgSyncProgStatTransactions') },
-        { key: 'events', label: this.t('intgSyncProgStatEvents') },
-        { key: 'locations', label: this.t('intgSyncProgStatLocations') },
-        { key: 'products', label: this.t('intgSyncProgStatProducts') },
-        { key: 'merchants', label: this.t('intgSyncProgStatMerchants') },
-      ]
-
-      this.syncSteps = STEPS.map(s => ({ ...s, status: 'pending', count: null, duration: null }))
-      this.syncProgressIntegration = integration
-      this.syncHasMore = false
-      this.syncingMap = { ...this.syncingMap, [integration.id]: true }
-
-      // Pre-load last sync time so the dialog shows "Dernière sync : il y a X" correctly
-      try {
-        const status = await getWeezeventSyncStatus(integration.id)
-        this.syncedAt = status?.transactions?.lastSyncedAt || null
-        this.lastTransactionDate = status?.transactions?.lastTransactionDate || null
-      } catch {
-        // ignore — non-blocking
-      }
-
-      this.syncProgressOpen = true
-
-      const setStep = (key, patch) => {
-        const idx = this.syncSteps.findIndex(s => s.key === key)
-        if (idx !== -1) {
-          this.syncSteps = [
-            ...this.syncSteps.slice(0, idx),
-            { ...this.syncSteps[idx], ...patch },
-            ...this.syncSteps.slice(idx + 1),
-          ]
-        }
-      }
-
-      const counts = { transactions: 0, events: 0, locations: 0, products: 0, merchants: 0 }
-      let livePollTimer = null
-
-      try {
-        // The backend fetches ALL pages from the Weezevent API in a single call.
-        // On 409 (another sync already running server-side): stay in "running" state and
-        // poll the status endpoint every 8s to show live counts, until the server lock
-        // is released (= next POST succeeds) or we exceed MAX_409_WAIT_MS.
-        const MAX_409_WAIT_MS = 10 * 60 * 1000 // 10 min max
-        const POLL_MS = 8000
-        let first409At = null
-
-        setStep('transactions', { status: 'running' })
-        setStep('events',    { status: 'pending', count: null })
-        setStep('locations', { status: 'pending', count: null })
-        setStep('products',  { status: 'pending', count: null })
-        setStep('merchants', { status: 'pending', count: null })
-
-        // Poll live transaction count every 5s so the dialog shows progress during the sync
-        const LIVE_POLL_MS = 5000
-        livePollTimer = setInterval(async () => {
-          try {
-            const liveStatus = await getWeezeventSyncStatus(integration.id)
-            const liveCount = liveStatus?.transactions?.count ?? null
-            if (liveCount !== null) {
-              setStep('transactions', { status: 'running', liveCount })
-            }
-          } catch { /* non-blocking */ }
-        }, LIVE_POLL_MS)
-
-        let res = null
-        while (true) {
-          if (this.syncAbandoned) break
-          const t0 = Date.now()
-          try {
-            res = await syncWeezeventData('transactions', { integrationId: integration.id })
-            const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
-            counts.transactions = res?.count ?? 0
-            counts.events       = res?.eventCount ?? 0
-            counts.locations    = res?.locationCount ?? 0
-            counts.products     = res?.productCount ?? 0
-            counts.merchants    = res?.merchantCount ?? 0
-            this.syncHasMore    = false
-
-            setStep('transactions', { status: 'done', count: counts.transactions, newCount: res?.itemsCreated ?? 0, duration: `${elapsed}s` })
-            setStep('events',    { status: counts.events > 0 ? 'done' : 'pending',   count: counts.events > 0 ? counts.events : null,   newCount: 0 })
-            setStep('locations', { status: 'done', count: counts.locations, newCount: 0 })
-            setStep('products',  { status: counts.products > 0 ? 'done' : 'pending', count: counts.products > 0 ? counts.products : null, newCount: 0 })
-            setStep('merchants', { status: 'done', count: counts.merchants, newCount: 0 })
-            break // success → exit retry loop
-          } catch (err) {
-            const httpStatus = err?.response?.status
-            const errorMessage = err?.response?.data?.message || err?.message || this.t('diSyncGenericError')
-
-            if (httpStatus === 409) {
-              if (!first409At) {
-                first409At = Date.now()
-                console.warn('[DataIntegrationView] transactions 409 — server sync running, switching to polling mode')
-                // Stop livePollTimer: the 409 inner loop owns polling now (no duplicate requests)
-                if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null }
-              }
-
-              // Inner polling loop: keep polling status until the backend lock releases.
-              // We never retry POST while syncRunning === true — that just generates 409 noise.
-              let timedOut = false
-              while (true) {
-                if (this.syncAbandoned) break
-                const waitedMs = Date.now() - first409At
-                if (waitedMs >= MAX_409_WAIT_MS) {
-                  const elapsed = (waitedMs / 1000).toFixed(0)
-                  setStep('transactions', { status: 'error', errorMessage: this.t('diSyncServerTooLong').replace('{s}', elapsed), duration: `${elapsed}s` })
-                  console.error(`[DataIntegrationView] 409 for ${elapsed}s — giving up`)
-                  timedOut = true
-                  break
-                }
-                try {
-                  const liveStatus = await getWeezeventSyncStatus(integration.id)
-                  setStep('transactions', {
-                    status: 'running',
-                    liveCount: liveStatus?.transactions?.count ?? null,
-                  })
-                  if (liveStatus?.transactions?.lastTransactionDate) {
-                    this.lastTransactionDate = liveStatus.transactions.lastTransactionDate
-                  }
-                  // Update all other steps with live counts from status
-                  if ((liveStatus?.events?.count ?? 0) > 0)
-                    setStep('events', { status: 'running', liveCount: liveStatus.events.count })
-                  if ((liveStatus?.locations?.count ?? 0) > 0)
-                    setStep('locations', { status: 'running', liveCount: liveStatus.locations.count })
-                  if ((liveStatus?.products?.count ?? 0) > 0)
-                    setStep('products', { status: 'running', liveCount: liveStatus.products.count })
-                  if ((liveStatus?.merchants?.count ?? 0) > 0)
-                    setStep('merchants', { status: 'running', liveCount: liveStatus.merchants.count })
-                  if (liveStatus?.syncRunning === false) {
-                    console.warn('[DataIntegrationView] backend lock released — retrying sync POST')
-                    break // exit inner polling loop → outer while will retry POST
-                  }
-                } catch { /* non-blocking */ }
-                console.warn(`[DataIntegrationView] server sync still running (${Math.round((Date.now() - first409At) / 1000)}s waited), polling again in ${POLL_MS / 1000}s…`)
-                await new Promise(resolve => setTimeout(resolve, POLL_MS))
-              }
-
-              if (timedOut) break // exit outer while → error already set
-            } else {
-              const elapsed = ((Date.now() - t0) / 1000).toFixed(1)
-              setStep('transactions', { status: 'error', errorMessage, duration: `${elapsed}s` })
-              setStep('events',    { status: 'error', errorMessage: this.t('diSyncCancelled') })
-              setStep('locations', { status: 'error', errorMessage: this.t('diSyncCancelled') })
-              setStep('products',  { status: 'error', errorMessage: this.t('diSyncCancelled') })
-              setStep('merchants', { status: 'error', errorMessage: this.t('diSyncCancelled') })
-              console.error(`[DataIntegrationView] transactions sync error after ${elapsed}s:`, err)
-              break // fatal error → exit retry loop
-            }
-          }
-        }
-
-        this.syncedAt = new Date().toISOString()
-
-        // Refresh lastTransactionDate now that transactions are in DB
-        try {
-          const statusAfter = await getWeezeventSyncStatus(integration.id)
-          this.lastTransactionDate = statusAfter?.transactions?.lastTransactionDate || null
-        } catch {
-          // non-blocking
-        }
-
-        this.syncResultData = counts
-
-        // Show inline results in the same dialog (handled by SyncProgressDialog isAllDone branch)
-      } finally {
-        if (livePollTimer) clearInterval(livePollTimer)
-        const sm = { ...this.syncingMap }
-        delete sm[integration.id]
-        this.syncingMap = sm
-      }
+      // Toujours router vers le job chunké (POST /weezevent/sync/start), y compris sans dates
+      // saisies. Le chemin legacy synchrone (POST /weezevent/sync) perdait silencieusement des
+      // données : BUG-139-01 (fromDate ignoré au profit du curseur incrémental) et BUG-138-01
+      // (plafond Weezevent 500/appel non contourné, contrairement à la bissection du job
+      // chunké). fromDate/toDate restent optionnels : si absents, le backend calcule une
+      // fenêtre par défaut (lastSyncedAt - 5min, ou tout l'historique au premier sync).
+      await this.handleSyncJob(integration, fromDate, toDate)
     },
 
     async loadAllSyncJobs() {
@@ -1906,8 +1721,10 @@ export default {
 
         const result = await startWeezeventSyncJob({
           integrationId: integration.id,
-          fromDate,
-          toDate,
+          // '' (champ date vidé) doit être omis, pas envoyé : @IsOptional() côté backend ne
+          // laisse passer que undefined/null, une chaîne vide échouerait @IsDateString().
+          fromDate: fromDate || undefined,
+          toDate: toDate || undefined,
         })
 
         this.syncJobId = result.jobId

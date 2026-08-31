@@ -33,6 +33,7 @@ import packaging from './modules/packaging'
 import spaceConfigurations from './modules/spaceConfigurations'
 import spaceShops from './modules/spaceShops'
 import spaceIntegrations from './modules/spaceIntegrations'
+import weezeventLocations from './modules/weezeventLocations'
 import shopMenuItems from './modules/shopMenuItems'
 import shopMenuAvailability from './modules/shopMenuAvailability'
 import historyAliases from './modules/historyAliases'
@@ -87,6 +88,7 @@ export default createStore({
     spaceConfigurations,
     spaceShops,
     spaceIntegrations,
+    weezeventLocations,
     shopMenuItems,
     shopMenuAvailability,
     historyAliases,
