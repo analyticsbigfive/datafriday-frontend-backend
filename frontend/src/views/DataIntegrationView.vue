@@ -1746,6 +1746,10 @@ export default {
       this.syncJobId = null
       if (this.syncProgressIntegration) {
         this.loadSyncJobsFor(this.syncProgressIntegration.id)
+        // Le cache TTL de weezeventLocations.js (5 min) survivrait à cette fin de sync : sans
+        // cette invalidation, rouvrir le wizard juste après montrerait encore "Run a Sync &
+        // Import first" avec la liste vide mise en cache avant que le sync n'ait tourné.
+        this.$store.dispatch('weezeventLocations/invalidateForIntegration', this.syncProgressIntegration.id)
       }
     },
 
