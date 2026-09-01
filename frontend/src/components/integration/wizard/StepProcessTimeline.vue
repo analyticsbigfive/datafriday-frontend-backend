@@ -470,7 +470,7 @@
       </div>
 
       <!-- ── Footer actions (teleported) ── -->
-      <Teleport :to="footerTarget" :disabled="!footerTarget">
+      <Teleport v-if="teleportActive" :to="footerTarget" :disabled="!footerTarget">
         <div class="spt-footer-actions">
           <span></span>
           <button class="spt-btn spt-btn--primary" @click="$emit('completed', { events: processedCount })">
@@ -654,6 +654,7 @@ export default {
   },
   data() {
     return {
+      teleportActive: true,
       activeTab: 'covered',
       showRegisteredEvents: true,
       processingEventId: null,
@@ -870,6 +871,16 @@ export default {
     // Signale à waitForSyncJob() d'arrêter son polling si le composant est démonté
     // pendant l'attente (jusqu'à 10 min).
     this.syncPollAbandoned = true
+  },
+  // KeepAlive (IntegrationWizard.vue) garde ce composant monté entre deux étapes — mais
+  // <Teleport> n'écoute pas deactivated(), son contenu resterait donc affiché dans le footer
+  // partagé même une fois l'étape quittée (boutons de plusieurs étapes empilés). teleportActive
+  // referme nous-mêmes le Teleport à la désactivation.
+  activated() {
+    this.teleportActive = true
+  },
+  deactivated() {
+    this.teleportActive = false
   },
   watch: {
     spaceId(val) {

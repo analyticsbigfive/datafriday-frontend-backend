@@ -554,7 +554,12 @@ export default {
    par l'auto-init/mouvements, avant décrément ventes ; jauge = habillage visuel,
    aucune écriture propre. */
 .lip-row__gauge {
-  display: flex;
+  display: grid;
+  /* Colonnes fixes pour les 2 libellés de quantité : la piste (1fr) garde ainsi une largeur
+     identique sur toutes les lignes, quelle que soit la longueur du texte affiché de part et
+     d'autre (ex. "0 kg" vs "0 kg (kilogram)") — un min-width seul ne suffisait pas, un libellé
+     plus long que le minimum repoussait quand même la piste. */
+  grid-template-columns: 30px 1fr 30px;
   align-items: center;
   gap: 8px;
 }
@@ -564,7 +569,11 @@ export default {
   color: #111827;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.lip-row__gauge-num--start { text-align: right; }
+.lip-row__gauge-num--end { text-align: left; }
 .lip-row__gauge-track {
   position: relative;
   flex: 1;

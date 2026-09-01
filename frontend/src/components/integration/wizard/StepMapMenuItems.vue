@@ -308,7 +308,7 @@
     <!-- BUG-273 : l'erreur principale est téléportée avec le bouton (même Teleport que le
          footer) pour rester visible dans la zone fixe .iw-footer, au lieu d'être perdue dans
          le corps scrollable .iw-body du wizard parent (IntegrationWizard.vue). -->
-    <Teleport :to="footerTarget" :disabled="!footerTarget">
+    <Teleport v-if="teleportActive" :to="footerTarget" :disabled="!footerTarget">
       <div class="smi-footer-teleport">
         <div v-if="error" class="smi-infobar smi-infobar--error smi-footer-error">
           <AlertTriangle :size="14" style="flex-shrink: 0;" />
@@ -831,6 +831,7 @@ export default {
 
   data() {
     return {
+      teleportActive: true,
       products: [],
       menuItemsList: [],
       mappingStats: null,
@@ -896,12 +897,18 @@ export default {
   },
 
   computed: {
-    // Le filtrage « vendus seulement » est fait CÔTÉ BACKEND (onlySold) : this.products ne contient
-    // déjà que les produits pertinents. Le nombre masqué = total catalogue (meta.catalogTotal,
-    // BUG-337-02) − renvoyés.
+    // this.products porte toujours le catalogue complet (vendus + jamais vendus) : le filtre
+    // « vendus seulement » est appliqué ICI, côté client, pour que la case à cocher n'ait plus
+    // besoin de recharger le réseau (elle ne fait que re-filtrer ce qui est déjà en mémoire).
+    visibleProducts() {
+      if (!this.hideUnsold) return this.products
+      return this.products.filter(p => p.basePrice != null && Number(p.basePrice) > 0)
+    },
+    // Nombre masqué = total catalogue (meta.catalogTotal, BUG-337-02, couvre une éventuelle
+    // troncature) − produits vendus effectivement affichés.
     unsoldHiddenCount() {
       if (!this.hideUnsold) return 0
-      return Math.max((this.catalogTotal || 0) - this.products.length, 0)
+      return Math.max((this.catalogTotal || 0) - this.visibleProducts.length, 0)
     },
     totalProductCount() {
       return this.productRows.length
@@ -912,8 +919,13 @@ export default {
     unmappedCount() {
       return this.productRows.filter(r => !this.localMappings[r.id]).length
     },
+    // autoSuggestions est calculé sur tout le catalogue (y compris invendus masqués, cf.
+    // loadData) pour rester utilisable immédiatement si l'utilisateur décoche "cacher invendus"
+    // sans recharger — mais le compteur affiché ne doit porter que sur ce qui est visible, sinon
+    // la bannière annoncerait des suggestions pour des lignes absentes du tableau.
     autoSuggestionCount() {
-      return Object.keys(this.autoSuggestions).filter(id => !this.localMappings[id]).length
+      const visibleIds = new Set(this.visibleProducts.map(p => p.id))
+      return Object.keys(this.autoSuggestions).filter(id => visibleIds.has(id) && !this.localMappings[id]).length
     },
     patchableItemsCount() {
       if (!this.spaceId) return 0
@@ -927,8 +939,9 @@ export default {
         || Object.values(this.savingRows).some(s => s === 'saving')
     },
     suggestionList() {
+      const visibleIds = new Set(this.visibleProducts.map(p => p.id))
       return Object.entries(this.autoSuggestions)
-        .filter(([id]) => !this.localMappings[id])
+        .filter(([id]) => visibleIds.has(id) && !this.localMappings[id])
         .map(([productId, menuItemId]) => {
           const product = this.products.find(p => p.id === productId)
           const menuItem = this.menuItemsList.find(mi => mi.id === menuItemId)
@@ -953,7 +966,7 @@ export default {
       return this.menuItemsList.map(mi => ({ id: mi.id, label: mi.name }))
     },
     productRows() {
-      return this.products.map(p => {
+      return this.visibleProducts.map(p => {
         const match = this.findBestMatch(p)
         return {
           id: p.id,
@@ -1066,6 +1079,17 @@ export default {
     if (this.location) this.loadData(this.location.id)
   },
 
+  // KeepAlive (IntegrationWizard.vue) garde ce composant monté entre deux étapes — mais
+  // <Teleport> n'écoute pas deactivated(), son contenu resterait donc affiché dans le footer
+  // partagé même une fois l'étape quittée (boutons de plusieurs étapes empilés). teleportActive
+  // referme nous-mêmes le Teleport à la désactivation.
+  activated() {
+    this.teleportActive = true
+  },
+  deactivated() {
+    this.teleportActive = false
+  },
+
   watch: {
     'location.id'(val) {
       if (val) this.loadData(val)
@@ -1074,11 +1098,10 @@ export default {
     activeTab() {
       this.currentPage = 1
     },
-    // Le filtrage vendus/tous est fait côté backend → on recharge la liste au changement.
+    // Le filtrage vendus/tous est fait côté client (visibleProducts) : this.products porte déjà
+    // le catalogue complet, pas besoin de recharger le réseau pour une case à cocher.
     hideUnsold() {
       this.currentPage = 1
-      const id = this.location?.id
-      if (id) this.loadData(id)
     },
     // Clamp : si la liste rétrécit (ex. après mapping en masse), ne pas rester sur une page vide.
     totalPages(val) {
@@ -1126,8 +1149,14 @@ export default {
       this.loading = true
       this.error = null
       try {
+        // Toujours charger le catalogue complet (produits jamais vendus inclus) : le filtre
+        // "cacher invendus" est appliqué côté client (computed visibleProducts) pour que
+        // basculer la case à cocher n'ait plus besoin de recharger le réseau. Catalogues réels
+        // vérifiés (max 1418 produits) largement sous la troncature MAX_PAGES=4 (2000, cf.
+        // aggregation.api.js) — un tenant qui la dépasserait un jour reverrait le warning
+        // productsTruncated s'afficher, pas une perte silencieuse.
         const [productsRes, menuItemsRes, mappingsRes, statsRes] = await Promise.all([
-          getWeezeventProducts(null, integrationId, this.spaceId, this.hideUnsold),
+          getWeezeventProducts(null, integrationId, this.spaceId, false),
           getAllMenuItems(),
           getProductMappings(),
           getProductMappingStats(integrationId),
@@ -1429,8 +1458,9 @@ export default {
     async applyAutoSuggestions() {
       if (this.autoMappingRunning) return
 
+      const visibleIds = new Set(this.visibleProducts.map(p => p.id))
       const entries = Object.entries(this.autoSuggestions)
-        .filter(([productId, menuItemId]) => !this.localMappings[productId] && menuItemId)
+        .filter(([productId, menuItemId]) => visibleIds.has(productId) && !this.localMappings[productId] && menuItemId)
 
       if (!entries.length) {
         this.autoSuggestions = {}
@@ -1787,8 +1817,9 @@ export default {
         await syncWeezeventData('products', { integrationId })
       }
 
-      // Recharger la liste fraîche depuis la DB (spaceId → prix de l'espace + repli par nom)
-      const productsRes = await getWeezeventProducts(null, integrationId, this.spaceId, this.hideUnsold)
+      // Recharger la liste fraîche depuis la DB (spaceId → prix de l'espace + repli par nom).
+      // Catalogue complet, filtre "cacher invendus" appliqué côté client (cf. loadData).
+      const productsRes = await getWeezeventProducts(null, integrationId, this.spaceId, false)
       this.products = this.filterNonVariantProducts(productsRes?.data || productsRes || [])
       // BUG-337-02 : meta.catalogTotal = total catalogue non filtré (meta.total est le total filtré).
       this.catalogTotal = productsRes?.meta?.catalogTotal ?? this.products.length
@@ -2379,12 +2410,14 @@ export default {
 .smi-qc-dialog {
   background: #fff; border-radius: 18px; overflow: hidden;
   box-shadow: 0 8px 40px rgba(0,0,0,.18);
+  display: flex; flex-direction: column; max-height: 90vh;
 }
 .smi-qc-dialog--dark { background: #1f2937; }
 
 .smi-qc-header {
   display: flex; align-items: flex-start; gap: 12px; padding: 20px;
   background: #ff3131;
+  flex-shrink: 0;
 }
 .smi-qc-header__icon {
   width: 42px; height: 42px; border-radius: 11px;
@@ -2402,7 +2435,7 @@ export default {
 .smi-qc-header__close:hover { background: rgba(255,255,255,.28); }
 .smi-qc-header__close:disabled { opacity: .45; cursor: not-allowed; }
 
-.smi-qc-body { padding: 20px; }
+.smi-qc-body { padding: 20px; overflow-y: auto; flex: 1 1 auto; min-height: 0; }
 
 .smi-qc-loading {
   display: flex; align-items: center; gap: 10px;
@@ -2485,6 +2518,7 @@ export default {
 .smi-qc-footer {
   padding: 12px 20px 18px; border-top: 1px solid #f0f0f0;
   display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  flex-shrink: 0;
 }
 .smi-qc-dialog--dark .smi-qc-footer { border-top-color: #374151; }
 

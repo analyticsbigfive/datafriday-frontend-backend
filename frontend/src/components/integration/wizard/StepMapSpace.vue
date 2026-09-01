@@ -414,7 +414,7 @@
     <!-- BUG-273 : l'erreur principale est téléportée avec le bouton (même Teleport que le
          footer) pour rester visible dans la zone fixe .iw-footer, au lieu d'être perdue en
          haut du corps scrollable .iw-body du wizard parent (IntegrationWizard.vue). -->
-    <Teleport :to="footerTarget" :disabled="!footerTarget">
+    <Teleport v-if="teleportActive" :to="footerTarget" :disabled="!footerTarget">
       <div class="smsp-footer-teleport">
         <div v-if="error" class="smsp-infobar smsp-infobar--error smsp-footer-error">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -496,6 +496,7 @@ export default {
       loading: false,
       saving: false,
       error: null,
+      teleportActive: true,
       selectedSpaceId: this.initialSpaceId,
       createPanelOpen: false,
       submitted: false,
@@ -587,6 +588,17 @@ export default {
     window.removeEventListener('locale-changed', this.handleLocaleChange)
   },
 
+  // KeepAlive (IntegrationWizard.vue) garde ce composant monté entre deux étapes — mais
+  // <Teleport> n'écoute pas deactivated(), son contenu resterait donc affiché dans le footer
+  // partagé même une fois l'étape quittée (boutons de plusieurs étapes empilés). teleportActive
+  // referme nous-mêmes le Teleport à la désactivation.
+  activated() {
+    this.teleportActive = true
+  },
+  deactivated() {
+    this.teleportActive = false
+  },
+
   methods: {
     t(key) {
       return translate(key, this.locale)
@@ -600,7 +612,11 @@ export default {
       this.loading = true
       this.error = null
       try {
-        await this.$store.dispatch('spaces/fetchSpaces', { forceRefresh: true })
+        // Cache TTL déjà fonctionnel (spaces.js, 15 min) : plus de forceRefresh au montage,
+        // un aller-retour Précédent/Suivant réutilise le cache au lieu de retaper le réseau.
+        // La post-création d'espace (closePostCreate) force toujours le refresh, elle : les
+        // données SONT réellement obsolètes à ce moment-là.
+        await this.$store.dispatch('spaces/fetchSpaces')
       } catch (err) {
         console.error('[StepMapSpace] loadAll error:', err)
         this.error = err.message
