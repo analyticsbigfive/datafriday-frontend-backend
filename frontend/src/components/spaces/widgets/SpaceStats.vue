@@ -127,7 +127,6 @@ export default {
 }
 
 @media (max-width: 960px) { .ss-strip { grid-template-columns: repeat(2, 1fr); } }
-@media (max-width: 480px) { .ss-strip { grid-template-columns: 1fr; } }
 
 /* ── Each stat section ── */
 .ss-stat {
