@@ -55,7 +55,12 @@ function checkLine(line) {
   // font-size (toutes les occurrences de la ligne)
   for (const fs of line.matchAll(/font-size\s*:\s*([^;{}!]+)/gi)) {
     const val = fs[1].trim().toLowerCase()
-    if (/var\(|inherit|initial|unset|calc\(|clamp\(|\bem\b|%|^0\b/.test(val)) continue
+    // `^0\b` matchait n'importe quelle valeur commençant par "0." (ex. "0.72rem") : `\b`
+    // est déjà satisfait entre "0" et "." (chiffre → non-mot), donc AUCUNE valeur sous
+    // 1rem n'était jamais vérifiée — silencieux, jamais remarqué car les 7 paliers eux-
+    // mêmes sont presque tous < 1rem (0.6875/0.75/0.8125/0.875). `^0$` : seul le zéro
+    // littéral (sans unité) doit être ignoré.
+    if (/var\(|inherit|initial|unset|calc\(|clamp\(|\bem\b|%|^0$/.test(val)) continue
     const px = /(-?\d*\.?\d+)px/.exec(val)
     if (px) { msgs.push(`font-size en px interdit (${px[0]}) → ${nearestSize(parseFloat(px[1]) / 16)}`); continue }
     const rem = /(-?\d*\.?\d+)rem/.exec(val)
