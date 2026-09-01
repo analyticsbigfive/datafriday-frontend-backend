@@ -209,6 +209,9 @@ export default {
 <style scoped>
 /* ── Card shell ── */
 .si-card {
+  width: 100%;
+  max-width: 340px;
+  margin: 0 auto;
   border-radius: 16px;
   overflow: hidden;
   background: #fff;
