@@ -3,13 +3,18 @@
     <div class="slv-container">
 
       <!-- ===== STICKY HEADER ===== -->
-      <div ref="stickyHeader" class="slv-sticky-header">
-        <SpaceStats
-          :total-revenue="totalRevenue"
-          :total-f-b-revenue="totalFBRevenue"
-          :total-ticketing-count="totalTicketingCount"
-          :total-merch-revenue="totalMerchRevenue"
-        />
+      <div class="slv-sticky-header">
+        <!-- Masqué < 600px (slv-stats-wrap) : sur mobile les 4 cartes empilées
+             mangeaient tout l'écran. cf. SpaceMobileFilterSheet pour l'équivalent
+             compact des contrôles Type/Tri/Vue déplacés hors de cette barre. -->
+        <div class="slv-stats-wrap">
+          <SpaceStats
+            :total-revenue="totalRevenue"
+            :total-f-b-revenue="totalFBRevenue"
+            :total-ticketing-count="totalTicketingCount"
+            :total-merch-revenue="totalMerchRevenue"
+          />
+        </div>
 
         <!-- Filter bar -->
         <div class="slv-filter-bar">
@@ -33,6 +38,18 @@
                   :placeholder="t('spaceList.searchPlaceholder')"
                 />
               </div>
+
+              <!-- Bouton filtres, mobile uniquement (< 600px) : ouvre SpaceMobileFilterSheet
+                   avec Type/Tri/Vue/Refresh, masqués inline sous ce breakpoint. -->
+              <button
+                class="slv-mobile-filter-trigger"
+                :class="{ 'slv-mobile-filter-trigger--active': !!typeFilter }"
+                @click="showMobileFilters = true"
+                :aria-label="t('spaceList.mobileFilterBtn')"
+              >
+                <SlidersHorizontal :size="17" />
+                <span v-if="typeFilter" class="slv-mobile-filter-trigger__dot"></span>
+              </button>
 
               <!-- Type filter -->
               <select v-model="typeFilter" class="slv-pill-select">
@@ -88,7 +105,7 @@
       <!-- end sticky header -->
 
       <!-- ===== SCROLL AREA ===== -->
-      <div class="slv-scroll-area" :style="{ paddingTop: headerHeight + 'px' }">
+      <div class="slv-scroll-area">
 
         <!-- LOADING -->
         <div v-if="loading">
@@ -211,6 +228,29 @@
 
     </div><!-- end slv-container -->
 
+    <!-- ===== MOBILE FAB — "New Space", visible < 600px uniquement ===== -->
+    <button
+      v-if="canEditSpace"
+      class="slv-mobile-fab"
+      @click="openCreateDialog"
+      :aria-label="t('spaceList.newSpace')"
+    >
+      <Plus :size="22" />
+    </button>
+
+    <!-- ===== MOBILE FILTER SHEET — Type/Tri/Vue/Refresh, < 600px ===== -->
+    <SpaceMobileFilterSheet
+      v-model="showMobileFilters"
+      v-model:type-filter="typeFilter"
+      v-model:sort-by="sortBy"
+      v-model:view-mode="viewMode"
+      :space-types="spaceTypes"
+      :sort-options="sortOptions"
+      :refreshing="loading"
+      :is-dark="isDark"
+      @refresh="fetchSpaces({ forceRefresh: true })"
+    />
+
     <!-- ===== CREATE / EDIT DRAWER ===== -->
     <SpaceCreateDrawer
       v-model="createDialog"
@@ -251,11 +291,13 @@ import {
   Trash2,
   Users,
   Boxes,
+  SlidersHorizontal,
 } from "lucide-vue-next";
 import SpaceStats from "../widgets/SpaceStats.vue";
 import SpaceItem from "../widgets/SpaceItem.vue";
 import SpaceCreateDrawer from "../drawers/SpaceCreateDrawer.vue";
 import SpaceDeleteDialog from "../dialogs/SpaceDeleteDialog.vue";
+import SpaceMobileFilterSheet from "../drawers/SpaceMobileFilterSheet.vue";
 import { deleteSpace } from "@/api/endpoints/space.api";
 import { formatCurrencyDetailed, formatNumber } from "@/composables/useFormatters";
 import { getLocationSpaceMappings, deleteLocationSpaceMapping } from "@/api/endpoints/mapping.api";
@@ -263,9 +305,9 @@ import { getLocationSpaceMappings, deleteLocationSpaceMapping } from "@/api/endp
 export default {
   name: "SpaceListView",
   components: {
-    Plus, X, Search, List, Building2, RefreshCw, LayoutGrid,
+    Plus, X, Search, List, Building2, RefreshCw, LayoutGrid, SlidersHorizontal,
     AlertCircle, MapPin, Pencil, Trash2, Users, Boxes,
-    SpaceStats, SpaceItem, SpaceCreateDrawer, SpaceDeleteDialog,
+    SpaceStats, SpaceItem, SpaceCreateDrawer, SpaceDeleteDialog, SpaceMobileFilterSheet,
   },
   setup() {
     const theme = useTheme();
@@ -294,11 +336,9 @@ export default {
       isEditMode: false,
       editingSpaceInitial: null,
 
-      // Hauteur réelle du header sticky (SpaceStats + barre de filtres), mesurée
-      // au lieu d'un padding-top fixe : SpaceStats peut être masqué (permission
-      // stats.financial.view absente) et laisser un vide sinon non compensé.
-      headerHeight: 250,
-      headerResizeObserver: null,
+      // Bottom sheet mobile (< 600px) : Type/Tri/Vue/Refresh y sont regroupés,
+      // remplacent les contrôles inline masqués sous ce breakpoint (cf. style).
+      showMobileFilters: false,
     };
   },
 
@@ -465,15 +505,6 @@ export default {
 
   mounted() {
     this.fetchSpaces();
-    this.headerResizeObserver = new ResizeObserver((entries) => {
-      const height = entries[0]?.contentRect?.height;
-      if (height) this.headerHeight = Math.ceil(height);
-    });
-    this.headerResizeObserver.observe(this.$refs.stickyHeader);
-  },
-
-  beforeUnmount() {
-    this.headerResizeObserver?.disconnect();
   },
 };
 </script>
@@ -487,18 +518,22 @@ export default {
   height: calc(100vh - var(--v-layout-top, 64px));
   overflow-y: auto;
   overflow-x: hidden;
+  /* html/body/#app sont en overflow:hidden (chaque page gère son propre
+     scroll) : ce conteneur DOIT rester scrollable au doigt sur mobile.
+     touch-action explicite + momentum iOS, sinon le swipe vertical ne
+     déclenche aucun scroll sur certains WebKit (in-app browsers, PWA). */
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
 }
 
 .slv-container {
   padding: 0 24px;
 }
 
-/* ========== FIXED HEADER ========== */
+/* ========== STICKY HEADER ========== */
 .slv-sticky-header {
-  position: fixed;
-  top: var(--v-layout-top, 64px);
-  left: var(--v-layout-left, 0px);
-  right: 0;
+  position: sticky;
+  top: 0;
   z-index: 100;
   background: #f3f4f6;
   padding: 20px 24px 16px;
@@ -506,10 +541,6 @@ export default {
 
 /* ========== SCROLL AREA ========== */
 .slv-scroll-area {
-  /* padding-top posé en inline (headerHeight, mesuré via ResizeObserver) :
-     la hauteur du header sticky varie (SpaceStats masqué selon permission,
-     filtres actifs affichés ou non) — une valeur fixe désynchronise et
-     laisse un vide ou un chevauchement selon le contenu réellement affiché. */
   padding-bottom: 40px;
 }
 
@@ -793,14 +824,16 @@ export default {
 .slv-empty__sub { font-size: var(--fs-md); color: #6b7280; max-width: 360px; margin: 0 0 8px; }
 
 /* ========== GRID VIEW ========== */
-/* auto-fill + largeur de carte fixe plutôt que repeat(3, 1fr) : avec peu
-   d'espaces (souvent 1 seul par organisation), diviser en tiers étirait la
-   carte sur toute la largeur d'une colonne et laissait un grand vide à
-   droite. Ici la carte garde une taille cohérente quel que soit le nombre
-   d'espaces, alignée à gauche. */
+/* auto-fill + colonnes élastiques (1fr) plutôt que repeat(3, 1fr) : avec peu
+   d'espaces (souvent 1 seul par organisation), diviser en tiers étirerait la
+   carte sur toute la largeur d'une colonne. Le plafond de largeur est posé
+   sur la carte elle-même (SpaceItem .si-card, max-width 340px) : les colonnes
+   remplissent toute la largeur du conteneur (une ligne pleine s'aligne avec
+   la barre au-dessus), et une carte isolée garde une taille cohérente au
+   lieu de s'étirer. */
 .slv-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 340px));
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   gap: 20px;
 }
 @media (max-width: 600px) { .slv-grid { grid-template-columns: 1fr; } }
@@ -1007,4 +1040,101 @@ export default {
 .slv--dark .slv-list-action-btn { background: #374151; color: #9ca3af; }
 .slv--dark .slv-list-action-btn:hover { background: #4b5563; color: #f9fafb; }
 .slv--dark .slv-list-action-btn--del:hover { background: rgba(255, 49, 49,.2); color: #f87171; }
+
+/* ========== MOBILE — FILTER TRIGGER + FAB ========== */
+/* Boutons dédiés < 600px (déclarés ici, activés dans le bloc @media plus bas) :
+   Type/Tri/Vue/Refresh vivent dans SpaceMobileFilterSheet plutôt qu'inline. */
+.slv-mobile-filter-trigger {
+  display: none;
+  position: relative;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 1.5px solid #e5e7eb;
+  background: #f9fafb;
+  color: #374151;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.slv--dark .slv-mobile-filter-trigger { border-color: #374151; background: #111827; color: #d1d5db; }
+.slv-mobile-filter-trigger--active { border-color: #ff3131; color: #ff3131; }
+.slv-mobile-filter-trigger__dot {
+  position: absolute;
+  top: 8px;
+  right: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ff3131;
+  border: 1.5px solid #fff;
+}
+
+.slv-mobile-fab {
+  display: none;
+  position: fixed;
+  right: 20px;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  z-index: 90;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: #ff3131;
+  color: #fff;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(255, 49, 49, .4);
+}
+
+/* ========== MOBILE LAYOUT (< 600px) ========== */
+/* Le header sticky (stats + barre de filtres pleine) dépassait la hauteur de
+   l'écran sur mobile. Refondu en header compact "app native" : stats
+   masquées, Type/Tri/Vue/Refresh déplacés dans SpaceMobileFilterSheet
+   (bouton déclencheur ci-dessus), CTA "New Space" en FAB flottant. Placé en
+   fin de fichier pour gagner en cascade sur les règles non-media plus haut. */
+@media (max-width: 600px) {
+  .slv-stats-wrap { display: none; }
+
+  /* Tout sur une seule ligne : titre + compteur + recherche + bouton filtre.
+     La barre en 2 rangées (titre puis recherche) prenait encore trop de
+     hauteur — on compacte le tout, quitte à rogner sur le décor (accent,
+     tailles de police). */
+  .slv-filter-bar { padding: 14px 16px; }
+
+  .slv-filter-bar__top {
+    flex-wrap: nowrap;
+    gap: 10px;
+  }
+  .slv-filter-bar__title-area { flex-shrink: 0; gap: 8px; }
+  .slv-title-accent { display: none; }
+  /* "My Spaces" est redondant sur cette page : ne reste que le compteur. */
+  .slv-page-title { display: none; }
+
+  .slv-filter-bar__controls {
+    margin-left: 0;
+    flex: 1 1 auto;
+    min-width: 0;
+    flex-wrap: nowrap;
+  }
+
+  .slv-search-wrap { flex: 1 1 auto; min-width: 0; }
+  .slv-search-wrap__input { width: 100%; }
+
+  /* Déplacés dans SpaceMobileFilterSheet — cf. bouton .slv-mobile-filter-trigger. */
+  .slv-pill-select,
+  .slv-icon-btn,
+  .slv-view-toggle,
+  .slv-btn--primary {
+    display: none;
+  }
+
+  .slv-mobile-filter-trigger { display: flex; width: 40px; height: 40px; }
+  .slv-mobile-fab { display: flex; }
+
+  /* Espace pour que le FAB ne recouvre pas la dernière ligne de cartes. */
+  .slv-scroll-area { padding-bottom: 90px; }
+}
 </style>
