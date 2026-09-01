@@ -64,7 +64,7 @@ export class AggregationProcessor extends WorkerHost {
     // event live en cours, publier dessus réveillerait des abonnés SSE pour rien.
     if (job.data.type === 'process-events') {
       try {
-        await this.redisService.publish(liveSpaceChannel(job.data.spaceId), {
+        await this.redisService.publish(liveSpaceChannel(job.data.tenantId, job.data.spaceId), {
           spaceId: job.data.spaceId,
           at: new Date().toISOString(),
         });

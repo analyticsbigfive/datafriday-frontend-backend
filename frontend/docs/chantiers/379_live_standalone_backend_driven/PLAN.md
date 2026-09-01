@@ -1,5 +1,60 @@
 # Plan — Live autonome, sorti d'Analyse, calculs déplacés côté backend
 
+## État d'avancement (2026-09-01, fin de session)
+
+**Branche `feat/live-standalone-backend-driven`, tout staged, RIEN committé** (attendre demande
+explicite). `git diff develop --stat` : 21 fichiers, ~1200 lignes.
+
+**Fait et testé en direct par l'utilisateur (simulation réelle sur Auxerre)** :
+- `/spaces/:id/live2` (route ajoutée à côté de `/live`, PAS à la place — `/live` remis sur
+  `AnalyseView.vue` comme avant, le bouton ◉/menu existant continue de fonctionner sans y toucher).
+- `useLiveData.js` + `LiveView.vue`/`LiveHeader`/`LiveKpiRow`/`LiveTimelineChart`/
+  `LiveCategoryBreakdown`/`LiveShopList` (`components/live/`) — KPIs/timeline/catégories/CA par shop
+  dérivés de `event-timeline` (PAS `shop-details`, qui est un total all-time sans filtre event,
+  vérifié en base — piège à ne pas retomber dedans). `LiveInventoryPanel.vue` réutilisé tel quel.
+- Deux vrais bugs trouvés et corrigés en testant : header qui ne se mettait jamais à jour (retour
+  anticipé sur `status.eventId` sans peupler `event.value`), et KPIs à 0 (`shopGranularData` vaut
+  `[]` en granular=0, truthy en JS, coupait la chaîne de repli avant `.shops`).
+- Typographie : toutes les valeurs converties aux tokens `var(--fs-*)`/`var(--fw-*)`
+  (`docs/CHARTE_GRAPHIQUE.md`) — au passage, bug trouvé+corrigé dans `check-typography.mjs`
+  (`^0\b` matchait toute valeur "0.xxx", donc ~aucune valeur sous 1rem n'était jamais vérifiée).
+- **SSE implémenté et câblé, PAS encore testé en direct par l'utilisateur** (dernière chose faite) :
+  - `AggregationProcessor.onCompleted` publie sur Redis (`live:tenant:{tenantId}:space:{spaceId}`,
+    `shared/live-channel.util.ts`) à chaque job `process-events` terminé — un seul point de
+    publication pour les 3 déclencheurs (webhook, simulateSale, cron de secours).
+  - `GET /spaces/:id/live/stream` (SSE, `spaces.controller.ts`) — un espace précis.
+  - `GET /live/stream` (SSE, nouveau module `features/live/`) — TOUS les espaces accessibles à
+    l'utilisateur (`psubscribe` pattern par tenant, filtré par `SpaceAccessService`), pour
+    l'indicateur global.
+  - Frontend : `useLiveStream.js` (fetch() manuel, PAS EventSource natif — auth par header
+    Bearer, EventSource ne permet aucun header custom). `useLiveData.js` : SSE reste connecté en
+    continu tant que la page est montée (live ou pas, le backend publie dès la 1ère agrégation
+    d'un event qui démarre) ; le seul timer restant (`FALLBACK_POLL_MS=30000`) ne tape le serveur
+    QUE si la connexion SSE est tombée — zéro idle-poll périodique (décision explicite user
+    2026-09-01, après calcul "1920 req/jour à 45s" jugé disproportionné).
+  - `GlobalLiveIndicator.vue` (badge rouge pulsant, coin haut-droit, monté dans `App.vue` —
+    racine toujours montée, même pattern que `SyncJobFloatingWidget`) + `useGlobalLiveIndicator.js`
+    (fenêtre 30 min par espace, même sémantique que `getLiveStatus`).
+
+**Explicitement abandonné** (2026-09-01, décision user) : cron périodique (même à 5 min) pour un
+signal "event programmé mais pas encore de vente" — jugé disproportionné vu que le signal réactif
+répond déjà en 2-10s (mesuré empiriquement). Si jamais reconsidéré : pas de cron 24/7, un job BullMQ
+delay-once par event à son heure exacte (`upsertJobScheduler`, pattern déjà utilisé par
+`simulation-run.processor.ts`) — pas un scan périodique de toute la table Events.
+
+**Reste à faire** :
+1. **Tester le SSE en direct** (simulation + observer que les widgets bougent sans attendre le
+   timer, que le badge global apparaît/disparaît, qu'après arrêt de la simulation plus aucune
+   requête ne part).
+2. Section "Todo, par ordre" ci-dessous, points 1 (marge %/remaining backend) et 3 (bascule finale,
+   nettoyage du code de masquage dans AnalyseView.vue/FilterPanel.vue) — pas commencés.
+3. Décider si `LiveInventoryPanel.vue` doit lui aussi passer en SSE (actuellement encore sur son
+   propre polling 15s d'origine, pas touché par ce chantier).
+4. Une fois tout validé : committer (staging actuel = tout ce qui précède), puis décider bascule
+   `/live2` → `/live` (remplacer AnalyseView.vue pour de vrai) après accord explicite.
+
+---
+
 Décision utilisateur (2026-09-01) : Live ne doit plus partager de code avec Analyse. Reconstruction
 isolée, composants dédiés, avec le calcul final déplacé côté backend plutôt que recalculé côté
 frontend à chaque poll. Analyse (`AnalyseView.vue`, 2733 lignes) n'est **pas touché** par ce chantier.

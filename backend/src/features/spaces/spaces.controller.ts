@@ -758,9 +758,9 @@ export class SpacesController {
       'ouverte à travers d\'éventuels proxys/CDN.',
   })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
-  liveStream(@Param('id') spaceId: string): Observable<MessageEvent> {
+  liveStream(@Param('id') spaceId: string, @CurrentUser() user: any): Observable<MessageEvent> {
     return new Observable<MessageEvent>((subscriber) => {
-      const channel = liveSpaceChannel(spaceId);
+      const channel = liveSpaceChannel(user.tenantId, spaceId);
       const sub = this.redisClient.duplicate();
 
       sub.subscribe(channel).catch((err) => subscriber.error(err));
