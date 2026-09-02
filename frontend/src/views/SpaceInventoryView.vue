@@ -172,12 +172,18 @@
              renseignées : rien n'est perdu. La computed reste utilisée par
              l'en-tête d'impression. -->
         <p v-else-if="contextEvent" class="si-band-title__sub">
-          <strong class="si-band-title__event">{{ contextAnchorLabel }}</strong>
-          <span v-if="contextEventDateLabel"> · {{ contextEventDateLabel }}</span>
-          <span v-if="spaceLabel"> · {{ spaceLabel }}</span>
-          <span v-if="countsAreEventIndependent" class="si-band-title__warn">
-            · {{ t('invContextCountsIndependent') }}
-          </span>
+          <!-- Mobile : "{match} - {date} @ {showTime}" compact (retour utilisateur),
+               le détail desktop (préfixe/espace/avertissement) ne tenait plus sur
+               1 ligne. -->
+          <template v-if="isMobile">{{ contextEventCompactLabel }}</template>
+          <template v-else>
+            <strong class="si-band-title__event">{{ contextAnchorLabel }}</strong>
+            <span v-if="contextEventDateLabel"> · {{ contextEventDateLabel }}</span>
+            <span v-if="spaceLabel"> · {{ spaceLabel }}</span>
+            <span v-if="countsAreEventIndependent" class="si-band-title__warn">
+              · {{ t('invContextCountsIndependent') }}
+            </span>
+          </template>
         </p>
         <p v-else-if="spaceLabel" class="si-band-title__sub">
           {{ spaceLabel }} · {{ t(isPreMode ? 'preInvNoUpcoming' : 'invContextNoPastEvent') }}
@@ -1122,6 +1128,18 @@ export default {
       const match = matchLabel(this.contextEvent)
       return this.t(this.isPreMode ? 'preInvContextAnchorNext' : 'invContextAnchorLast')
         .replace('{match}', match)
+    },
+    /** Sous-titre event compact, mobile uniquement : "{match} - {date} @
+     *  {showTime}" (retour utilisateur) — sans le préfixe "Prochain
+     *  Évènement :"/nom d'espace/avertissement du sous-titre desktop, qui ne
+     *  tenaient plus sur une ligne. showTime déjà normalisé racine sur chaque
+     *  event par SET_EVENTS (store/modules/analyse.js). */
+    contextEventCompactLabel() {
+      if (!this.contextEvent) return ''
+      let label = matchLabel(this.contextEvent)
+      if (this.contextEventDateLabel) label += ` - ${this.contextEventDateLabel}`
+      if (this.contextEvent.showTime) label += ` @ ${this.contextEvent.showTime}`
+      return label
     },
     /** Le filtre de comptage a été mis sur « Indépendant d'un évènement » : les
      *  saisies ne partent PAS sur le match affiché — à signaler explicitement. */
@@ -3860,7 +3878,9 @@ export default {
     margin-right: 16px;
   }
   .si-statstrip { margin-top: 10px; }
-  .si-body { margin-bottom: 16px; }
+  /* Pas d'espace entre le header app et le bandeau rouge (retour utilisateur) :
+     .si-body garde 18px de margin-top en desktop (base rule), annulé ici. */
+  .si-body { margin-top: 0; margin-bottom: 16px; }
   .si-mobile-filter-btn,
   .si-mobile-options-btn { display: inline-flex; }
   .si-actions { width: 100%; margin-left: 0; }
@@ -3869,13 +3889,17 @@ export default {
   .si-substatus { max-width: 100%; overflow-x: auto; }
   /* Bandeau rouge : reste sur 1 seule ligne (hamburger + titre/event + icônes),
      PAS de retour à la ligne — retour utilisateur. Remplace le flex-wrap:wrap
-     posé ci-dessus, et retire les marges gauche/droite de la règle
-     .si-segrow (16px) : le bloc rouge doit être plein-bord, pas une carte
-     détachée avec du gris visible de chaque côté. */
+     posé ci-dessus. Marge NÉGATIVE (pas juste 0) : .si-body (son ancêtre,
+     règle juste au-dessus) garde ses 16px de marge gauche/droite sur mobile —
+     annuler seulement la marge PROPRE du bandeau ne suffit pas à le sortir de
+     cet retrait hérité. -16px compense exactement pour un bandeau plein-bord,
+     collé aux 2 bords de l'écran, sans toucher au reste (recherche/tabs/cartes
+     qui gardent leur retrait normal). */
   .si-segrow--band {
     flex-wrap: nowrap;
-    margin-left: 0;
-    margin-right: 0;
+    margin-left: -16px;
+    margin-right: -16px;
+    border-radius: 0;
   }
   .si-band-right { flex-wrap: nowrap; }
   .si-band-search { flex-basis: 100%; }

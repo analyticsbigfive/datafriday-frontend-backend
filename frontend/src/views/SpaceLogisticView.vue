@@ -219,8 +219,9 @@
                     <span class="lg-hbtn-label">{{ t('logiHistoryBtn') }}</span>
                   </v-btn>
                   <!-- Reset inventory : niveau liste, permission logisticReconcile.
-                       Desktop : pilule pleine avec libellé. Mobile : icône ronde
-                       équivalente (.lg-mobile-reset-btn), même action. -->
+                       Desktop uniquement (pilule pleine avec libellé) — retiré du
+                       header mobile (retour utilisateur), reste accessible sur
+                       desktop. -->
                   <span
                     v-if="!drillElement && canReconcile"
                     class="lg-reset-btn--desktop"
@@ -237,16 +238,6 @@
                       {{ t('logiResetBtn') }}
                     </v-btn>
                   </span>
-                  <button
-                    v-if="!drillElement && canReconcile"
-                    type="button"
-                    class="lg-mobile-reset-btn"
-                    :disabled="isAggregateView || !hasCountedValues"
-                    :title="t('logiResetBtn')"
-                    @click="resetDialog = true"
-                  >
-                    <v-icon size="18">mdi-restore</v-icon>
-                  </button>
                   <!-- Mobile uniquement (< 900px) : ouvre .lg-right-col (alertes restock +
                        tâches) en panneau droit — sinon elle atterrit tout en bas de page,
                        après une liste PDV parfois longue (cf. .lg-right-col--open). -->
@@ -1449,20 +1440,6 @@ export default {
   color: #fff;
 }
 .lg-mobile-tools-trigger:active { transform: scale(.94); }
-.lg-mobile-reset-btn {
-  display: none;
-  width: 38px;
-  height: 38px;
-  border: 1.5px solid rgba(255, 255, 255, 0.62);
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.1);
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  cursor: pointer;
-  color: #fff;
-}
-.lg-mobile-reset-btn:disabled { opacity: .5; cursor: not-allowed; }
 /* Recherche unifiée PDV + articles, mobile uniquement. */
 .lg-mobile-search { display: none; }
 
@@ -1841,7 +1818,17 @@ export default {
   .lg-aside { position: static; order: 2; height: auto; overflow: visible; }
   .lg-item-grid { grid-template-columns: 1fr; }
   .lg-header__inner { padding: 12px 16px; }
-  .lg-layout { padding: 12px 16px 24px; }
+  /* Pas d'espace entre le header app et le bandeau rouge, ni de marge gauche/
+     droite sur celui-ci (même correctif que Space Inventory) : padding-top à 0
+     (aside/right-col ne sont plus visibles en flux normal sur mobile, rien
+     d'autre n'en dépend), bandeau tiré à -16px pour compenser le padding
+     horizontal hérité de .lg-layout et atteindre les 2 bords de l'écran. */
+  .lg-layout { padding: 0 16px 24px; }
+  .lg-header {
+    margin-left: -16px;
+    margin-right: -16px;
+    border-radius: 0;
+  }
   .lg-search-field { max-width: none; flex: 1 1 auto; }
 
   /* .lg-right-col (alertes restock + tâches) : au lieu de rester dans le flux
@@ -1933,7 +1920,6 @@ export default {
   /* Toutes les configurations actives par défaut sur mobile, pas de choix. */
   .lg-header__config-wrap { display: none; }
   .lg-reset-btn--desktop { display: none; }
-  .lg-mobile-reset-btn { display: flex; }
 
   .lg-mobile-search { display: block; margin: 0 0 10px; }
 
