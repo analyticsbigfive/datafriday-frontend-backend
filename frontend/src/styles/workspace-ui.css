@@ -46,3 +46,9 @@
   margin-top: 0px !important;
   padding-top: 0px !important;
 }
+
+@media (max-width: 600px) {
+  .lg-layout {
+    padding-top: 18px !important;
+  }
+}
