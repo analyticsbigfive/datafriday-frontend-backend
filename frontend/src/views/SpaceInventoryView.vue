@@ -188,9 +188,12 @@
         <!-- Onglets Boutiques/Stockages déplacés sous la recherche (parité
              Logistique). Sous-statuts À compter/Comptés → colonne droite. -->
 
-        <!-- Print + Save (retirés de l'ancien header). -->
+        <!-- Print + Save (retirés de l'ancien header). Menu Print masqué sur
+             mobile : Imprimer/Exporter CSV/Vérifier couverture existent déjà
+             dans mobileActionsSheet (bouton ⋮) — évite le doublon qui forçait
+             les actions du bandeau sur une 2e ligne. -->
         <div class="si-band-actions">
-          <v-menu offset="6">
+          <v-menu v-if="!isMobile" offset="6">
             <template #activator="{ props: menuProps }">
               <v-btn v-bind="menuProps" variant="outlined" class="si-band-btn">
                 <v-icon size="16" class="mr-1">mdi-printer</v-icon>
@@ -3466,6 +3469,38 @@ export default {
   .si-toggle--desktop { display: none; }
   .si-mobile-tools-trigger { display: flex; }
   .si-band-btn--desktop { display: none; }
+
+  /* Tout le bandeau (hamburger + titre + actions) sur une seule ligne au lieu
+     de 2 (titre/sous-titre puis, en dessous, Print/⋮/▶) — retour utilisateur.
+     Le titre/sous-titre s'ellipsent plutôt que de forcer un retour à la ligne. */
+  .si-segrow--band {
+    flex-wrap: nowrap;
+    align-items: center;
+    padding: 12px;
+    gap: 8px;
+  }
+  /* Titre + sous-titre event ré-empilés (comme la maquette) : ce qui manquait
+     de place, c'était le BANDEAU entier qui prenait 3 rangées (hamburger seul,
+     titre seul, icônes seules) à cause du flex-wrap:wrap plus bas dans ce
+     fichier (cf. .si-segrow--band ci-dessus, maintenant nowrap) — pas le fait
+     que titre/event soient sur 2 lignes l'un sous l'autre. */
+  .si-band-title {
+    min-width: 0;
+    overflow: hidden;
+  }
+  .si-band-title__main {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .si-band-title__sub {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .si-band-right { flex: 0 0 auto; }
+  .si-band-actions { flex-wrap: nowrap; gap: 6px; }
 }
 
 /* Pills ouvert / fermé */
@@ -3832,10 +3867,17 @@ export default {
   .si-event-select, .si-search-field { width: 100%; max-width: none; min-width: 0; }
   .si-tabs { overflow-x: auto; }
   .si-substatus { max-width: 100%; overflow-x: auto; }
-  /* Mobile : la ligne unique déborderait → retour ligne autorisé,
-     la recherche passe pleine largeur sous les onglets/pills. */
-  .si-segrow--band { flex-wrap: wrap; }
-  .si-band-right { flex-wrap: wrap; }
+  /* Bandeau rouge : reste sur 1 seule ligne (hamburger + titre/event + icônes),
+     PAS de retour à la ligne — retour utilisateur. Remplace le flex-wrap:wrap
+     posé ci-dessus, et retire les marges gauche/droite de la règle
+     .si-segrow (16px) : le bloc rouge doit être plein-bord, pas une carte
+     détachée avec du gris visible de chaque côté. */
+  .si-segrow--band {
+    flex-wrap: nowrap;
+    margin-left: 0;
+    margin-right: 0;
+  }
+  .si-band-right { flex-wrap: nowrap; }
   .si-band-search { flex-basis: 100%; }
 }
 
