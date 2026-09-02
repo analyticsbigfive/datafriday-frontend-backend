@@ -1,9 +1,11 @@
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
+import { Inject, Logger } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { AggregationJobEnqueueData } from '../../core/queue/queue.service';
 import { AggregationService } from './aggregation.service';
+import { RedisService } from '../../core/redis/redis.service';
+import { liveSpaceChannel } from '../../shared/live-channel.util';
 
 /**
  * Worker BullMQ pour les jobs d'agrégation Weezevent.
@@ -16,7 +18,10 @@ import { AggregationService } from './aggregation.service';
 export class AggregationProcessor extends WorkerHost {
   private readonly logger = new Logger(AggregationProcessor.name);
 
-  constructor(private readonly aggregationService: AggregationService) {
+  constructor(
+    private readonly aggregationService: AggregationService,
+    @Inject(RedisService) private readonly redisService: RedisService,
+  ) {
     super();
   }
 
@@ -48,9 +53,24 @@ export class AggregationProcessor extends WorkerHost {
   }
 
   @OnWorkerEvent('completed')
-  onCompleted(job: Job<AggregationJobEnqueueData>) {
+  async onCompleted(job: Job<AggregationJobEnqueueData>) {
     this.logger.log(
       `Aggregation job ${job.id} completed for space ${job.data.spaceId}`,
     );
+    // Chantier 379 : signal SSE pour l'écran Live v2 — un seul point de publication pour
+    // les 3 déclencheurs existants (webhook, simulateSale, cron de secours), qui
+    // convergent tous ici via queueAggregationJob({type:'process-events'}). 'synchronize'
+    // (resync manuel du wizard d'intégration) volontairement exclu : ne concerne pas un
+    // event live en cours, publier dessus réveillerait des abonnés SSE pour rien.
+    if (job.data.type === 'process-events') {
+      try {
+        await this.redisService.publish(liveSpaceChannel(job.data.tenantId, job.data.spaceId), {
+          spaceId: job.data.spaceId,
+          at: new Date().toISOString(),
+        });
+      } catch (e) {
+        this.logger.warn(`Live SSE publish failed for space ${job.data.spaceId}: ${(e as Error).message}`);
+      }
+    }
   }
 }

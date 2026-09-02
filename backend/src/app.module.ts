@@ -39,6 +39,7 @@ import { EventsModule } from './features/events/events.module';
 import { AnalyseModule } from './features/analyse/analyse.module';
 import { MappingsModule } from './features/mappings/mappings.module';
 import { AggregationModule } from './features/aggregation/aggregation.module';
+import { LiveModule } from './features/live/live.module';
 import { BrandsModule } from './features/brands/brands.module';
 import { DisplayNamesModule } from './features/display-names/display-names.module';
 import { IndustrialsModule } from './features/industrials/industrials.module';
@@ -173,6 +174,7 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     AnalyseModule,
     MappingsModule,
     AggregationModule,
+    LiveModule,
     BrandsModule,
     DisplayNamesModule,
     IndustrialsModule,
