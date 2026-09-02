@@ -163,9 +163,12 @@
                     <v-icon size="20">mdi-arrow-left</v-icon>
                   </v-btn>
                   <!-- Toggle STANDARD du panneau de filtres (composant partagé) au
-                       niveau liste ; en drill-in, icône décorative (pas d'aside). -->
+                       niveau liste ; en drill-in, icône décorative (pas d'aside).
+                       Desktop uniquement — cf. .lg-mobile-tools-trigger ci-dessous
+                       pour l'équivalent mobile (ouvre le drawer d'outils, pas l'aside). -->
                   <WorkspacePanelToggle
                     v-if="!drillElement"
+                    class="lg-header__toggle--desktop"
                     :open="showFilters"
                     :label="t('logiToggleFilters')"
                     @toggle="showFilters = !showFilters"
@@ -173,6 +176,17 @@
                   <div v-else class="lg-header__icon">
                     <v-icon size="22">mdi-warehouse</v-icon>
                   </div>
+                  <!-- Mobile uniquement : ouvre WorkspaceMobileToolDrawer (nav entre
+                       outils F&B), remplace le toggle filtres (aside masquée < 560px). -->
+                  <button
+                    v-if="!drillElement"
+                    type="button"
+                    class="lg-mobile-tools-trigger"
+                    @click="showMobileToolDrawer = true"
+                    :aria-label="t('srToolsLabel')"
+                  >
+                    <v-icon size="20">mdi-menu</v-icon>
+                  </button>
                   <div class="lg-header__text">
                     <h1 class="lg-header__title">
                       {{ drillElement ? drillElement.element.name : t('logiPageTitle') }}
@@ -180,22 +194,38 @@
                     <p v-if="drillElement" class="lg-header__subtitle">
                       {{ t('logiPageTitle') }}<span v-if="spaceLabel"> · {{ spaceLabel }}</span>
                     </p>
-                    <LogisticConfigSelect
-                      v-else
-                      :configurations="configurations"
-                      :model-value="selectedConfigId || 'all'"
-                      @update:model-value="onConfigSelect"
-                    />
+                    <!-- Desktop uniquement : masqué < 560px (.lg-header__config-wrap),
+                         toutes les configurations sont actives par défaut sur mobile. -->
+                    <div v-else class="lg-header__config-wrap">
+                      <LogisticConfigSelect
+                        :configurations="configurations"
+                        :model-value="selectedConfigId || 'all'"
+                        @update:model-value="onConfigSelect"
+                      />
+                    </div>
                   </div>
                 </div>
 
                 <div class="lg-header__right">
-                  <v-btn v-if="drillElement" variant="outlined" size="small" class="lg-hbtn" @click="openHistory(drillElement.element)">
+                  <v-btn
+                    v-if="drillElement"
+                    variant="outlined"
+                    size="small"
+                    class="lg-hbtn"
+                    @click="openHistory(drillElement.element)"
+                    :title="t('logiHistoryBtn')"
+                  >
                     <v-icon size="15" class="mr-1">mdi-history</v-icon>
-                    {{ t('logiHistoryBtn') }}
+                    <span class="lg-hbtn-label">{{ t('logiHistoryBtn') }}</span>
                   </v-btn>
-                  <!-- Reset inventory : niveau liste, permission logisticReconcile -->
-                  <span v-if="!drillElement && canReconcile" :title="isAggregateView ? t('logiQaDisabledAggregate') : undefined">
+                  <!-- Reset inventory : niveau liste, permission logisticReconcile.
+                       Desktop : pilule pleine avec libellé. Mobile : icône ronde
+                       équivalente (.lg-mobile-reset-btn), même action. -->
+                  <span
+                    v-if="!drillElement && canReconcile"
+                    class="lg-reset-btn--desktop"
+                    :title="isAggregateView ? t('logiQaDisabledAggregate') : undefined"
+                  >
                     <v-btn
                       variant="flat"
                       class="lg-reset-btn"
@@ -207,6 +237,16 @@
                       {{ t('logiResetBtn') }}
                     </v-btn>
                   </span>
+                  <button
+                    v-if="!drillElement && canReconcile"
+                    type="button"
+                    class="lg-mobile-reset-btn"
+                    :disabled="isAggregateView || !hasCountedValues"
+                    :title="t('logiResetBtn')"
+                    @click="resetDialog = true"
+                  >
+                    <v-icon size="18">mdi-restore</v-icon>
+                  </button>
                 </div>
               </div>
             </header>
@@ -216,6 +256,16 @@
               v-if="drillElement"
               v-model="search"
               :placeholder="t('logiSearchPlaceholder')"
+              :clear-label="t('logiClear') || 'Clear'"
+            />
+
+            <!-- Recherche niveau liste, mobile uniquement (< 560px) : PDV + articles,
+                 remplace la recherche PDV de l'aside filtres (masquée sur mobile). -->
+            <AppSearchBar
+              v-if="!drillElement"
+              v-model="elementSearch"
+              class="lg-mobile-search"
+              :placeholder="t('logiSearchAllPlaceholder')"
               :clear-label="t('logiClear') || 'Clear'"
             />
 
@@ -230,7 +280,8 @@
                 @click="activeTab = tab.value"
               >
                 <v-icon size="16" class="mr-1">{{ tab.icon }}</v-icon>
-                {{ t(tab.labelKey) }}
+                <span class="lg-tab-label-full">{{ t(tab.labelKey) }}</span>
+                <span class="lg-tab-label-short">{{ t(tab.labelKeyShort) }}</span>
                 <span class="lg-tab-count">({{ tabCount(tab.value) }})</span>
               </button>
             </div>
@@ -425,6 +476,17 @@
         <!-- Historique d'un PDV/storage -->
         <LogisticHistoryDrawer v-model="historyDrawer" :element="historyElement" />
 
+        <!-- Mobile uniquement : drawer de nav entre outils F&B (déclenché par
+             .lg-mobile-tools-trigger, remplace le WorkspaceToolSelect de l'aside
+             masquée sur mobile). -->
+        <WorkspaceMobileToolDrawer
+          v-model="showMobileToolDrawer"
+          :items="toolboxSelectItems"
+          current-value="logistic"
+          :title="t('srToolsLabel')"
+          @select="onToolboxSelect"
+        />
+
         <!-- Confirmation Inventory Reset -->
         <v-dialog v-model="resetDialog" max-width="440">
           <v-card class="lg-dialog">
@@ -479,13 +541,14 @@ import { downloadReconciliationCsv, downloadLossesCsv } from '@/api/endpoints/lo
 import { getMarketPrices } from '@/api/endpoints/market.price.api'
 import { ClipboardList, GitCompare, Download, TrendingDown } from 'lucide-vue-next'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
+import WorkspaceMobileToolDrawer from '@/components/WorkspaceMobileToolDrawer.vue'
 import { loadPredictedNeed, lookupPredictedNeed, lookupPredictedNeedPacks, buildRestockNeedIndex } from '@/composables/usePredictedNeed'
 import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
 
 const TABS = [
-  { value: 'shops', labelKey: 'logiTabShops', icon: 'mdi-store' },
-  { value: 'byItem', labelKey: 'logiTabByItem', icon: 'mdi-view-list' },
-  { value: 'storage', labelKey: 'logiTabStorage', icon: 'mdi-warehouse' },
+  { value: 'shops', labelKey: 'logiTabShops', labelKeyShort: 'logiTabShopsShort', icon: 'mdi-store' },
+  { value: 'byItem', labelKey: 'logiTabByItem', labelKeyShort: 'logiTabByItemShort', icon: 'mdi-view-list' },
+  { value: 'storage', labelKey: 'logiTabStorage', labelKeyShort: 'logiTabStorageShort', icon: 'mdi-warehouse' },
 ]
 
 const ITEM_KIND_OPTIONS = [
@@ -547,6 +610,7 @@ export default {
     Download,
     TrendingDown,
     WorkspacePanelToggle,
+    WorkspaceMobileToolDrawer,
     LogisticConfigSelect,
     LogisticByItemView,
   },
@@ -562,6 +626,8 @@ export default {
       TOOLBOX_ITEMS,
       tabs: TABS,
       activeTab: 'shops',
+      // Drawer nav outils F&B, mobile uniquement (cf. .lg-mobile-tools-trigger).
+      showMobileToolDrawer: false,
       loading: false,
       // Affichage du panneau de filtres (colonne gauche) — bascule via l'icône
       // du bandeau. Ouvert par défaut.
@@ -784,9 +850,16 @@ export default {
       return date.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
     },
     filterEntries(entries) {
+      // Recherche unifiée PDV + articles (barre mobile .lg-mobile-search, aussi
+      // utilisée par la recherche desktop de l'aside filtres) : matche le nom du
+      // PDV OU le nom d'au moins un article qu'il suit.
       const q = String(this.elementSearch || '').trim().toLowerCase()
       return entries.filter((e) => {
-        if (q && !String(e.element?.name || '').toLowerCase().includes(q)) return false
+        if (q) {
+          const nameMatch = String(e.element?.name || '').toLowerCase().includes(q)
+          const itemMatch = this.itemsOf(e).some((it) => String(it.name || '').toLowerCase().includes(q))
+          if (!nameMatch && !itemMatch) return false
+        }
         if (this.hasActiveItemFilters) {
           return this.itemsOf(e).some((it) => this.itemMatchesFilters(it))
         }
@@ -1326,6 +1399,41 @@ export default {
 .lg-header__space { color: rgba(255, 255, 255, .78); font-weight: 700; }
 .lg-header__subtitle { margin: 3px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, .75); min-height: 15px; }
 .lg-header__right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Équivalents mobile (< 560px) du toggle filtres / bouton reset — masqués par
+   défaut, activés dans le bloc @media plus bas. Desktop garde WorkspacePanelToggle
+   + .lg-reset-btn (libellé complet, ouvre l'aside filtres). */
+.lg-mobile-tools-trigger {
+  display: none;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .2);
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: #fff;
+}
+.lg-mobile-tools-trigger:active { transform: scale(.94); }
+.lg-mobile-reset-btn {
+  display: none;
+  width: 38px;
+  height: 38px;
+  border: 1.5px solid rgba(255, 255, 255, 0.62);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: #fff;
+}
+.lg-mobile-reset-btn:disabled { opacity: .5; cursor: not-allowed; }
+/* Recherche unifiée PDV + articles, mobile uniquement. */
+.lg-mobile-search { display: none; }
+
 /* Sélecteur d'espace dans le bandeau : texte en blanc sur le rouge. */
 .lg-header__switcher { flex-shrink: 0; }
 .lg-header__switcher :deep(.wsh-space-trigger) { color: #fff; }
@@ -1404,6 +1512,8 @@ export default {
 }
 .lg-tab-active { background: var(--lg-surface); color: var(--lg-primary); }
 .lg-tab-count { margin-left: 4px; font-weight: 500; }
+/* Libellé court, mobile uniquement (cf. @media plus bas) : masqué par défaut. */
+.lg-tab-label-short { display: none; }
 
 /* Défilement indépendant par colonne : la page elle-même ne scrolle plus
    (header/onglets fixes), .lg-layout occupe la hauteur restante et chaque
@@ -1670,10 +1780,59 @@ export default {
 
 @media (max-width: 560px) {
   .lg-header__text { min-width: 0; }
-  .lg-header__title { font-size: 17px; }
-  .lg-header__right { width: 100%; justify-content: flex-start; }
+  .lg-header__title {
+    font-size: 17px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .lg-header__subtitle {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .lg-row { flex-wrap: wrap; }
   .lg-row-stats { justify-content: flex-start; }
+
+  /* Drill-in "Container X" : tout tient sur une seule ligne (titre + bouton
+     Historique) au lieu du bouton qui passait sur sa propre rangée en
+     dessous. L'icône décorative entrepôt est retirée pour gagner la place. */
+  .lg-header__icon { display: none; }
+  .lg-header__inner { flex-wrap: nowrap; }
+  .lg-header__right { width: auto; flex-shrink: 0; justify-content: flex-end; }
+
+  /* Historique : pilule texte -> bouton rond icône seule (titre HTML garde
+     le libellé accessible). */
+  .lg-hbtn {
+    width: 38px !important;
+    height: 38px !important;
+    min-height: 38px !important;
+    padding: 0 !important;
+    border-radius: 50% !important;
+  }
+  .lg-hbtn-label { display: none; }
+  .lg-hbtn :deep(.mr-1) { margin-right: 0 !important; }
+
+  /* ── Niveau LISTE (mobile) : aside/toolbox-select + tri supprimés (maquette),
+     remplacés par le drawer d'outils, une recherche unifiée PDV+articles et
+     des tabs compacts sans compteur. ── */
+  .lg-aside { display: none; }
+  .lg-header__toggle--desktop { display: none; }
+  .lg-mobile-tools-trigger { display: flex; }
+  /* Toutes les configurations actives par défaut sur mobile, pas de choix. */
+  .lg-header__config-wrap { display: none; }
+  .lg-reset-btn--desktop { display: none; }
+  .lg-mobile-reset-btn { display: flex; }
+
+  .lg-mobile-search { display: block; margin: 0 0 10px; }
+
+  .lg-tabs { gap: 6px; }
+  .lg-tab { padding: 8px 10px; font-size: 0.8rem; }
+  .lg-tab-label-full { display: none; }
+  .lg-tab-label-short { display: inline; }
+  .lg-tab-count { display: none; }
+
+  .lg-sort-bar { display: none; }
 }
 
 /* ===================== DARK MODE =====================

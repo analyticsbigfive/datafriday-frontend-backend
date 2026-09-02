@@ -205,10 +205,24 @@ const routes = [
         // Live (BUG/module Live, cf. docs/modules/11_LIVE.md) : l'écran Analyse en
         // mode flux. Route dédiée (pas ?toolbox=) car Live comprendra un onglet
         // Inventaire (v2). `front.fb.live` déjà catalogué. `keepAlive` explicite.
+        // Remise en l'état d'origine (2026-09-01) : le chantier 379 vit sur /live2
+        // en parallèle le temps d'être validé, sans casser le bouton ◉/menu existant
+        // qui pointe ici.
         path: '/spaces/:spaceId/live',
         name: 'space-live',
         component: () => import('@/components/analyse/AnalyseView.vue'),
         meta: { title: 'Live', keepAlive: true, permission: 'front.fb.live' }
+      },
+
+      {
+        // Live v2 (chantier 379, frontend/docs/chantiers/379_live_standalone_backend_driven) :
+        // composant DÉDIÉ, ne réutilise pas AnalyseView.vue (décision 2026-09-01 — zéro
+        // couplage avec Analyse, cf. PLAN.md). Route séparée de /live le temps de valider
+        // le nouveau composant — pas encore reliée à un bouton/menu, accès direct par URL.
+        path: '/spaces/:spaceId/live2',
+        name: 'space-live2',
+        component: () => import('@/components/live/LiveView.vue'),
+        meta: { title: 'Live v2', keepAlive: true, permission: 'front.fb.live' }
       },
 
       {

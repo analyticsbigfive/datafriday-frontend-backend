@@ -112,11 +112,13 @@
     <div class="lg-item-actions">
       <v-btn class="lg-btn-add" variant="flat" size="small" @click="$emit('add', item)">
         <v-icon size="16" class="mr-1">mdi-plus</v-icon>
-        {{ t('logiAddTitle') }}
+        <span class="lg-btn-label-full">{{ t('logiAddTitle') }}</span>
+        <span class="lg-btn-label-short">{{ t('logiAddTitleShort') }}</span>
       </v-btn>
       <v-btn class="lg-btn-remove" variant="flat" size="small" @click="$emit('remove', item)">
         <v-icon size="16" class="mr-1">mdi-minus</v-icon>
-        {{ t('logiRemoveTitle') }}
+        <span class="lg-btn-label-full">{{ t('logiRemoveTitle') }}</span>
+        <span class="lg-btn-label-short">{{ t('logiRemoveTitleShort') }}</span>
       </v-btn>
     </div>
   </v-card>
@@ -352,6 +354,9 @@ function pendingTransferQtyLabel(pt) {
   background: var(--fb-danger-soft, #fef2f2) !important;
   color: var(--fb-danger, #dc2626) !important;
 }
+/* Libellé court ("Ajouter"/"Supprimer") : masqué par défaut, affiché < 560px
+   à la place du libellé complet (cf. media query en bas de fichier). */
+.lg-btn-label-short { display: none; }
 
 .lg-pending-transfers {
   border-top: 1px dashed var(--fb-border, #e5e7eb);
@@ -409,4 +414,21 @@ function pendingTransferQtyLabel(pt) {
   color: var(--fb-text, #212121);
 }
 .lg-outgoing-info { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* < 560px : boutons pleine largeur -> pilules compactes côte à côte (libellé
+   raccourci), pour laisser plus de place aux valeurs EMBALLÉ/VRAC au-dessus. */
+@media (max-width: 560px) {
+  /* Centrées avec un espacement généreux : équilibre gauche/droite plutôt que
+     collées à gauche, boutons plus grands (cible tactile) qu'en desktop. */
+  .lg-item-actions { justify-content: center; gap: 18px; padding-top: 12px; }
+  .lg-item-actions .v-btn {
+    flex: 0 1 auto;
+    border-radius: 999px;
+    min-height: 40px !important;
+    padding: 0 22px !important;
+    font-size: 0.85rem;
+  }
+  .lg-btn-label-full { display: none; }
+  .lg-btn-label-short { display: inline; }
+}
 </style>

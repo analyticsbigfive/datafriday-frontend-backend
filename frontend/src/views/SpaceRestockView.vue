@@ -1655,6 +1655,13 @@ import { findBestMatch } from '@/utils/menuItemMatching'
 import { countedRemaining } from '@/utils/shoppingList'
 // Netting stock ↔ feuille de course (cascade de matching + pool consommable).
 import { consumeFromPool, preparePool, orderQuantitiesByItemKey } from '@/utils/stockNetting'
+// Restant Logistic (ledger temps réel) : source primaire du netting depuis le
+// retour client 2026-09-02 (Règle 3 / Inventory devient le repli).
+import {
+  loadLogisticRemainingIndex,
+  lookupLogisticRemaining,
+  logisticPoolEntriesForElements,
+} from '@/composables/useLogisticRemaining'
 // Onglet Espaces de stockage : %, précédence globale/individuelle, seuils.
 import {
   normalizeStoragePercent,
@@ -1853,6 +1860,11 @@ export default {
       sourceInventoryEventId: null,
       inventoryReconciliations: [],
       inventoryReconciliationsLoading: false,
+      // Restant Logistic (retour client 2026-09-02) : index { `${elementId}::${nomNormalisé}` →
+      // {packed, loose, unitsPerPack, marketPriceId, unit} }, chargé par élément/config objectif
+      // dans loadPreviousInventory(). Vide tant que rien n'est chargé, le repli Inventory
+      // (storeInventoryCounts/previousInventoryCounts) reste actif élément par élément.
+      logisticRemainingIndex: {},
       // fiche 314-01 — drawer d'édition Market Price (Item Supplier Name).
       supplierEditDialog: false,
       supplierEditRow: null,
@@ -2147,8 +2159,9 @@ export default {
      * tampon saisi dans la section Inventaire du 3D Builder (lecture seule ici,
      * le PUT inventaire est full-replace côté Builder).
      *  - tampon   = row.quantity (Builder)
-     *  - restant  = comptages agrégés de l'élément (aggregateCountsForElements,
-     *               identité id puis nom — même cascade que le netting)
+     *  - restant  = restant agrégé de l'élément (aggregateCountsForElements,
+     *               Logistic en priorité par nom, repli comptage Inventory par
+     *               id, même cascade que le netting)
      *  - nécessaire (défaut) = max(0, tampon − restant BRUT) ; ajusté par un
      *    % par ligne (storagePercents, 0–200) avec précédence sur l'
      *    « Ajustement Global » (storageGlobalPercent/Enabled) — cf.
@@ -4862,13 +4875,18 @@ export default {
       )
     },
     remainingQuantityForRow(row, packaging) {
-      // Règle 3 : restant = inventoryStore.inventoryCounts (comptage courant) ;
-      // fallback snapshot event précédent si le store est vide.
+      // Restant = stock Logistic (StockLevel − ventes, retour client
+      // 2026-09-02) en priorité ; repli Inventory (Règle 3, comptage courant ou
+      // snapshot event précédent) quand Logistic n'a rien pour cette ligne
+      // (config pas chargé, article jamais mouvementé côté Logistic).
       //
       // IMPORTANT : keyé UNIQUEMENT sur row.shopId (l'élément F&B). Le stock
       // Storage n'est JAMAIS lu ici — il n'est pas physiquement dans ce shop et
       // ne réduit donc jamais le besoin d'un shop précis. Le Storage est déduit
       // au niveau de la feuille de course centrale (cf. nettedShopping).
+      const logisticQty = lookupLogisticRemaining(this.logisticRemainingIndex, row.shopId, row.itemName)
+      if (logisticQty != null) return logisticQty
+
       const live = this.storeInventoryCounts?.[row.shopId] || {}
       const prev = this.previousInventoryCounts?.[row.shopId] || {}
       const count =
@@ -4913,14 +4931,29 @@ export default {
       return countedRemaining(count, packSize)
     },
     /**
-     * Agrège les comptages d'inventaire de plusieurs éléments (Storage ou shops)
-     * en une liste d'entrées de stock identifiées, prête pour le matching :
-     * `[{ itemId, sourceId, marketPriceId, name, unit, qty }]`. Résout l'identité
-     * de chaque item compté via le catalogue (findStockReference).
+     * Agrège le restant de plusieurs éléments (Storage ou shops) en une liste
+     * d'entrées de stock identifiées, prête pour le matching :
+     * `[{ itemId, sourceId, marketPriceId, name, unit, qty }]`.
+     * Logistic en priorité, ÉLÉMENT PAR ÉLÉMENT (identité par nom, cf.
+     * useLogisticRemaining) ; repli comptage Inventory (Règle 3, identité par
+     * itemId via findStockReference) pour les seuls éléments que Logistic ne
+     * couvre pas encore (config jamais chargé côté Logistic pour cet élément).
      */
     aggregateCountsForElements(ids) {
+      const list = ids || []
+      const logisticKeys = Object.keys(this.logisticRemainingIndex || {})
+      const withLogistic = list.filter((elId) => logisticKeys.some((k) => k.startsWith(`${elId}::`)))
+      const withoutLogistic = list.filter((elId) => !withLogistic.includes(elId))
+
       const map = new Map()
-      ;(ids || []).forEach((elId) => {
+      logisticPoolEntriesForElements(this.logisticRemainingIndex, withLogistic).forEach((entry) => {
+        const key = normalizeStr(entry.name)
+        const prev = map.get(key)
+        if (prev) prev.qty += entry.qty
+        else map.set(key, entry)
+      })
+
+      withoutLogistic.forEach((elId) => {
         const bucket = this.storeInventoryCounts?.[elId] || {}
         Object.entries(bucket).forEach(([itemId, count]) => {
           if (!count) return
@@ -4932,7 +4965,8 @@ export default {
             this.components,
             this.menuItems,
           )
-          const key = String(itemId)
+          const name = ref?.name || ref?.itemName || ''
+          const key = name ? normalizeStr(name) : `__id:${itemId}`
           const prev = map.get(key)
           if (prev) {
             prev.qty += qty
@@ -4942,7 +4976,7 @@ export default {
             itemId: String(itemId),
             sourceId: ref?.sourceId != null ? String(ref.sourceId) : null,
             marketPriceId: ref?.marketPriceId != null ? String(ref.marketPriceId) : null,
-            name: ref?.name || ref?.itemName || '',
+            name,
             unit: ref?.unit || '',
             qty,
           })
@@ -4950,10 +4984,36 @@ export default {
       })
       return Array.from(map.values())
     },
+    /**
+     * Restant Logistic (retour client 2026-09-02) : chargé pour chaque config
+     * objectif résolu, indépendamment de l'Inventaire source. `await`é en tête
+     * de `loadPreviousInventory`, les deux sources de restant se rafraîchissent
+     * ensemble à chaque appel existant (génération, changement d'event/scénario,
+     * changement d'Inventaire source, etc.), sans multiplier les points d'appel.
+     */
+    async loadLogisticRemaining(spaceId) {
+      // Anti-race : loadPreviousInventory est appelé depuis 8 endroits, parfois
+      // en rafale (changement d'event puis de scénario). Sans garde, une
+      // réponse lente peut arriver APRÈS une plus récente et écraser un index à
+      // jour avec un index obsolète (même défense que store/modules/logistics
+      // `_stockSeq`, ici scopée à l'instance puisqu'on n'écrit pas ce store).
+      const mySeq = (this._logisticRemainingSeq = (this._logisticRemainingSeq || 0) + 1)
+      if (!spaceId) {
+        if (mySeq === this._logisticRemainingSeq) this.logisticRemainingIndex = {}
+        return
+      }
+      const { index } = await loadLogisticRemainingIndex({
+        spaceId,
+        configIds: Array.from(this.resolvedObjectiveConfigIds || []),
+      })
+      if (mySeq === this._logisticRemainingSeq) this.logisticRemainingIndex = index
+    },
     async loadPreviousInventory() {
       const spaceId = this.route.params?.spaceId
+      await this.loadLogisticRemaining(spaceId)
       // Règle 3 : alimente inventoryStore.inventoryCounts (source canonique du
-      // restant). Mode Ventes → counts de l'event de référence ; mode Prévision →
+      // restant DE REPLI, Logistic ci-dessus est désormais la source primaire).
+      // Mode Ventes → counts de l'event de référence ; mode Prévision →
       // counts de l'EVENT SÉLECTIONNÉ (celui qu'on vient de compter côté
       // Inventaire — charger l'event précédent écrasait ces comptages et
       // affichait REMAINING=0). Le snapshot event précédent reste disponible en
