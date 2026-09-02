@@ -44,6 +44,7 @@
             </span>
           </span>
           <span class="lgbi-summary">
+            <span class="lgbi-mini lgbi-mini--muted">{{ availableQtyLabel(group) }}</span>
             <span class="lgbi-mini lgbi-mini--muted">{{ group.rows.length }} {{ t('logiByItemShopsSuffix') }}</span>
           </span>
           <v-icon size="16" class="lgbi-chevron">{{ isExpanded(group.itemName) ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
@@ -64,9 +65,6 @@
               <span class="lgbi-shop-icon"><v-icon size="14">mdi-storefront-outline</v-icon></span>
               <span class="lgbi-shop-copy">
                 <span class="lgbi-shop-name">{{ row.elementName }}</span>
-                <span v-if="row.configNames.length" class="lgbi-cfg-tag" :title="row.configNames.join(', ')">
-                  {{ row.configNames.length }} {{ t('logiConfigCountSuffix') }}
-                </span>
               </span>
             </button>
             <span class="lgbi-shop-stats">
@@ -124,6 +122,13 @@ function predictedPacksLabel(group) {
   const type = translatePackagingType(group.packagingType, locale.value)
   const word = type ? pluralize(type) : t('logiPacksShort')
   return `${word} ${t('logiPredictedShort')}`
+}
+
+/** Stock disponible total du groupe (somme des lignes dépliées), même formule
+ *  compacte que chaque ligne (compactQtyLabel) : `group` sert de stand-in pour
+ *  `item` (packagingType/unit portés par le groupe, pas par ligne). */
+function availableQtyLabel(group) {
+  return compactQtyLabel(group.totalPacked, group.totalLoose, group, group.unitsPerPack, t, locale.value, formatUnits)
 }
 
 const props = defineProps({
@@ -222,7 +227,9 @@ const groupedItems = computed(() => {
       const rows = [...g.rows].sort((a, b) => severity(b.status) - severity(a.status) || a.elementName.localeCompare(b.elementName, 'fr'))
       const predictedRows = rows.filter((r) => r.predictedNeedPacks != null)
       const totalPredictedPacks = predictedRows.length ? predictedRows.reduce((sum, r) => sum + r.predictedNeedPacks, 0) : null
-      return { ...g, rows, totalPredictedPacks }
+      const totalPacked = rows.reduce((sum, r) => sum + (r.packed || 0), 0)
+      const totalLoose = rows.reduce((sum, r) => sum + (r.loose || 0), 0)
+      return { ...g, rows, totalPredictedPacks, totalPacked, totalLoose }
     })
     .sort((a, b) => a.itemName.localeCompare(b.itemName, 'fr'))
 })
@@ -263,7 +270,6 @@ const groupedItems = computed(() => {
 .lgbi-shop-icon { width: 26px; height: 26px; border-radius: 7px; background: var(--fb-surface, #fff); border: 1px solid var(--fb-border, #e5e7eb); display: flex; align-items: center; justify-content: center; color: var(--fb-muted, #6b7280); flex-shrink: 0; }
 .lgbi-shop-copy { min-width: 0; display: flex; align-items: center; gap: 6px; overflow: hidden; }
 .lgbi-shop-name { font-size: 0.82rem; font-weight: 700; color: var(--fb-text, #212121); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.lgbi-cfg-tag { flex-shrink: 0; display: inline-flex; align-items: center; font-size: 0.62rem; font-weight: 700; border-radius: 999px; padding: 1px 7px; background: var(--fb-subtle, #f1f5f9); color: var(--fb-muted, #475569); white-space: nowrap; }
 .lgbi-shop-stats { text-align: right; font-size: 0.8rem; font-weight: 700; color: var(--fb-text, #212121); white-space: nowrap; flex-shrink: 0; }
 .lgbi-shop-stats small { font-size: 0.64rem; font-weight: 600; color: var(--fb-faint, #9ca3af); }
 /* Besoin prédit accolé après emballé/vrac : même taille/format, seul l'accent
