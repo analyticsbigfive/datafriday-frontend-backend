@@ -5,11 +5,14 @@
         <v-icon size="18">mdi-arrow-left</v-icon>
       </v-btn>
 
-      <!-- Navigation boutique précédente -->
+      <!-- Navigation boutique précédente. Masquée sur mobile (.si-counting-mobile) :
+           redondante avec .si-shop-jumpbar en dessous, et mangeait la place du
+           titre (souvent tronqué). -->
       <v-btn
         icon
         variant="text"
         size="small"
+        class="si-nav-prev"
         :disabled="!hasPrev"
         aria-label="Boutique précédente"
         @click="goPrev"
@@ -53,11 +56,12 @@
         <v-progress-linear :model-value="progress" color="success" height="7" rounded />
       </div>
 
-      <!-- Navigation boutique suivante -->
+      <!-- Navigation boutique suivante — même remarque que si-nav-prev ci-dessus. -->
       <v-btn
         icon
         variant="text"
         size="small"
+        class="si-nav-next"
         :disabled="!hasNext"
         aria-label="Boutique suivante"
         @click="goNext"
@@ -249,15 +253,15 @@
         <div v-show="!mobile || isExpanded(item.id)" class="si-count-actions">
           <button v-if="canTransfer" type="button" class="si-act si-act--ghost" @click="emit('transfer', shop.element, item)">
             <v-icon size="15" class="mr-1">mdi-swap-horizontal</v-icon>
-            {{ t('invCountTransfer') }}
+            {{ mobile ? t('invCountTransferShort') : t('invCountTransfer') }}
           </button>
           <button type="button" class="si-act si-act--reset" @click="markCounted(item.id, false)">
             <v-icon size="15" class="mr-1">mdi-refresh</v-icon>
-            {{ t('invCountReset') }}
+            {{ mobile ? t('invCountResetShort') : t('invCountReset') }}
           </button>
           <button type="button" class="si-act si-act--success" @click="markCounted(item.id, true)">
             <v-icon size="15" class="mr-1">mdi-check</v-icon>
-            {{ t('invCountMarkCounted') }}
+            {{ mobile ? t('invCountMarkCountedShort') : t('invCountMarkCounted') }}
           </button>
         </div>
       </div>
@@ -811,6 +815,13 @@ function stepValue(shopId, itemId, field, delta) {
   padding: 12px;
   display: flex;
   flex-direction: column;
+  /* Filet de sécurité : un enfant flex garde min-width:auto par défaut, donc
+     même largeur-de-contenu-minimale légèrement trop grande (chip "Expected",
+     bouton "Passer à…") pouvait forcer un micro scroll horizontal malgré le
+     grid-template-columns:1fr ci-dessous. overflow-x:hidden coupe court plutôt
+     que de scroller sur un écran de comptage plein écran. */
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 .si-counting-mobile .si-counting-head {
   position: sticky;
@@ -828,12 +839,19 @@ function stepValue(shopId, itemId, field, delta) {
 .si-counting-mobile .si-shop-switch {
   max-width: 100%;
 }
+/* Flèches prev/next retirées ci-dessous (.si-nav-prev/.si-nav-next) : le titre
+   récupère toute la largeur disponible au lieu d'être plafonné à 58vw pour
+   leur laisser de la place — c'est ce qui le tronquait ("Compter : Containe…"). */
 .si-counting-mobile .si-shop-switch h2 {
-  max-width: min(58vw, 280px);
+  max-width: min(88vw, 320px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.94rem;
+}
+.si-counting-mobile .si-nav-prev,
+.si-counting-mobile .si-nav-next {
+  display: none;
 }
 .si-counting-mobile .si-counting-progress {
   display: none;
@@ -845,11 +863,22 @@ function stepValue(shopId, itemId, field, delta) {
   display: none;
 }
 .si-counting-mobile .si-counting-grid {
+  /* Root cause du débordement horizontal (marges/alignement décalés, boutons
+     coupés à droite) : la grille gardait le "grid-template-columns:
+     repeat(auto-fill, minmax(340px, 1fr))" du desktop, qui impose 340px MINIMUM
+     par carte même sur un écran plus étroit — la carte débordait alors du cadre
+     au lieu de se réduire. 1 seule colonne pleine largeur sur mobile. */
+  grid-template-columns: 1fr;
+  /* Un enfant flex garde min-width:auto par défaut (ne rétrécit jamais sous la
+     largeur min-content de son contenu) : sans ce reset, la grille pouvait
+     rester légèrement plus large que .si-counting-mobile et forcer un micro
+     scroll horizontal malgré le grid-template-columns ci-dessus. */
+  min-width: 0;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
   padding-bottom: 16px;
-  gap: 8px;
+  gap: 12px;
   /* Empêche la grille d'étirer les lignes pour remplir la hauteur quand il y a
      peu d'articles : les cartes repliées gardent une hauteur uniforme quel que
      soit leur nombre. */
@@ -877,6 +906,10 @@ function stepValue(shopId, itemId, field, delta) {
    une pile homogène : la carte ne porte plus de padding, c'est la ligne
    d'en-tête qui le porte et fixe une hauteur de touche uniforme. */
 .si-counting-mobile .si-count-item {
+  /* Item de grille garde min-width:auto par défaut lui aussi (même raison que
+     .si-counting-grid ci-dessus) : sans ce reset, une carte pouvait rester
+     légèrement plus large que sa colonne 1fr. */
+  min-width: 0;
   padding: 0;
   gap: 0;
   transition: background-color 0.15s ease;
@@ -888,10 +921,38 @@ function stepValue(shopId, itemId, field, delta) {
 /* Contenu déplié : padding propre (la carte n'en a plus) + léger espace au-dessus
    pour séparer de la ligne d'en-tête. */
 .si-counting-mobile .si-count-inputs {
-  padding: 4px 14px 0;
+  padding: 6px 14px 0;
+  gap: 12px 14px;
+  row-gap: 16px;
+}
+/* Steppers -/+ : plus de poids/cible tactile maintenant qu'une seule colonne
+   pleine largeur laisse la place (retour utilisateur). */
+.si-counting-mobile .si-count-stepper {
+  border-radius: 11px;
+}
+.si-counting-mobile .si-step {
+  width: 46px;
+}
+.si-counting-mobile .si-count-input.form-control {
+  font-size: 1.05rem;
+  padding: 11px 6px;
 }
 .si-counting-mobile .si-count-actions {
-  padding: 6px 14px 14px;
+  padding: 10px 14px 14px;
+  gap: 10px;
+}
+/* 3 boutons pleine largeur avec libellé complet + nowrap débordaient du cadre
+   (le 3e, validation, se retrouvait coupé). Libellés raccourcis en template
+   (mobile ? xxxShort : xxx). Un peu plus de poids/espacement (retour
+   utilisateur) maintenant que la carte pleine largeur laisse la place. */
+.si-counting-mobile .si-count-actions .si-act {
+  padding: 11px 6px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  gap: 5px;
+}
+.si-counting-mobile .si-count-actions .si-act .mr-1 {
+  margin-right: 5px !important;
 }
 /* État compté : liseré gauche rouge (charte datafriday), lisible même replié. */
 .si-counting-mobile .si-count-item-done {
