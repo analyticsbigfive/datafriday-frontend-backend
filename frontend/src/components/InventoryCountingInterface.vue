@@ -5,11 +5,14 @@
         <v-icon size="18">mdi-arrow-left</v-icon>
       </v-btn>
 
-      <!-- Navigation boutique précédente -->
+      <!-- Navigation boutique précédente. Masquée sur mobile (.si-counting-mobile) :
+           redondante avec .si-shop-jumpbar en dessous, et mangeait la place du
+           titre (souvent tronqué). -->
       <v-btn
         icon
         variant="text"
         size="small"
+        class="si-nav-prev"
         :disabled="!hasPrev"
         aria-label="Boutique précédente"
         @click="goPrev"
@@ -53,11 +56,12 @@
         <v-progress-linear :model-value="progress" color="success" height="7" rounded />
       </div>
 
-      <!-- Navigation boutique suivante -->
+      <!-- Navigation boutique suivante — même remarque que si-nav-prev ci-dessus. -->
       <v-btn
         icon
         variant="text"
         size="small"
+        class="si-nav-next"
         :disabled="!hasNext"
         aria-label="Boutique suivante"
         @click="goNext"
@@ -249,15 +253,15 @@
         <div v-show="!mobile || isExpanded(item.id)" class="si-count-actions">
           <button v-if="canTransfer" type="button" class="si-act si-act--ghost" @click="emit('transfer', shop.element, item)">
             <v-icon size="15" class="mr-1">mdi-swap-horizontal</v-icon>
-            {{ t('invCountTransfer') }}
+            {{ mobile ? t('invCountTransferShort') : t('invCountTransfer') }}
           </button>
           <button type="button" class="si-act si-act--reset" @click="markCounted(item.id, false)">
             <v-icon size="15" class="mr-1">mdi-refresh</v-icon>
-            {{ t('invCountReset') }}
+            {{ mobile ? t('invCountResetShort') : t('invCountReset') }}
           </button>
           <button type="button" class="si-act si-act--success" @click="markCounted(item.id, true)">
             <v-icon size="15" class="mr-1">mdi-check</v-icon>
-            {{ t('invCountMarkCounted') }}
+            {{ mobile ? t('invCountMarkCountedShort') : t('invCountMarkCounted') }}
           </button>
         </div>
       </div>
@@ -828,12 +832,19 @@ function stepValue(shopId, itemId, field, delta) {
 .si-counting-mobile .si-shop-switch {
   max-width: 100%;
 }
+/* Flèches prev/next retirées ci-dessous (.si-nav-prev/.si-nav-next) : le titre
+   récupère toute la largeur disponible au lieu d'être plafonné à 58vw pour
+   leur laisser de la place — c'est ce qui le tronquait ("Compter : Containe…"). */
 .si-counting-mobile .si-shop-switch h2 {
-  max-width: min(58vw, 280px);
+  max-width: min(88vw, 320px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 0.94rem;
+}
+.si-counting-mobile .si-nav-prev,
+.si-counting-mobile .si-nav-next {
+  display: none;
 }
 .si-counting-mobile .si-counting-progress {
   display: none;
@@ -845,6 +856,12 @@ function stepValue(shopId, itemId, field, delta) {
   display: none;
 }
 .si-counting-mobile .si-counting-grid {
+  /* Root cause du débordement horizontal (marges/alignement décalés, boutons
+     coupés à droite) : la grille gardait le "grid-template-columns:
+     repeat(auto-fill, minmax(340px, 1fr))" du desktop, qui impose 340px MINIMUM
+     par carte même sur un écran plus étroit — la carte débordait alors du cadre
+     au lieu de se réduire. 1 seule colonne pleine largeur sur mobile. */
+  grid-template-columns: 1fr;
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
@@ -892,6 +909,17 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .si-counting-mobile .si-count-actions {
   padding: 6px 14px 14px;
+}
+/* 3 boutons pleine largeur avec libellé complet + nowrap débordaient du cadre
+   (le 3e, validation, se retrouvait coupé). Libellés raccourcis en template
+   (mobile ? xxxShort : xxx) + boutons resserrés ici. */
+.si-counting-mobile .si-count-actions .si-act {
+  padding: 8px 4px;
+  font-size: 0.74rem;
+  gap: 4px;
+}
+.si-counting-mobile .si-count-actions .si-act .mr-1 {
+  margin-right: 4px !important;
 }
 /* État compté : liseré gauche rouge (charte datafriday), lisible même replié. */
 .si-counting-mobile .si-count-item-done {

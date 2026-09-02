@@ -440,4 +440,23 @@ export default {
 .lgt-check--done span { opacity: 0.55; text-decoration: line-through; }
 
 .lgt-task-done { display: flex; align-items: center; font-size: 11.5px; padding-left: 13px; opacity: 0.7; }
+
+/* < 560px : case + texte trop petits pour cocher fiablement au doigt (retour
+   utilisateur). Case agrandie, la ligne entière gagne du padding vertical
+   pour élargir la zone tactile réelle (le <label> couvre déjà tout .lgt-check). */
+@media (max-width: 560px) {
+  .lgt-task { padding: 10px 12px; }
+  .lgt-task-summary { font-size: 13.5px; }
+  .lgt-check {
+    font-size: 13.5px;
+    gap: 10px;
+    padding: 10px 2px;
+    min-height: 40px;
+  }
+  .lgt-check input[type='checkbox'] {
+    width: 20px;
+    height: 20px;
+  }
+  .lgt-task-done { font-size: 13px; padding: 10px 2px; }
+}
 </style>
