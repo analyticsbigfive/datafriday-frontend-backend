@@ -16,6 +16,16 @@
         :reports="menuCoverageReports"
       />
 
+      <!-- Mobile uniquement : drawer de nav entre outils F&B, même pattern que
+           Logistique (.si-mobile-tools-trigger dans le bandeau rouge). -->
+      <WorkspaceMobileToolDrawer
+        v-model="showMobileToolDrawer"
+        :items="toolboxSelectItems"
+        :current-value="isPreMode ? 'space-pre-inventory' : 'space-inventory'"
+        :title="t('invToolsLabel')"
+        @select="onToolboxSelect"
+      />
+
       <InventoryFilterDrawer
         v-model="filterDrawerOpen"
         :active-tab="activeTab"
@@ -121,13 +131,26 @@
          <!-- Bandeau rouge (style Space Menus) : onglets (gauche) + pills ouvert/fermé
          + sous-statuts comptage + recherche PdV (droite). -->
     <div class="si-segrow si-segrow--band">
-      <!-- Toggle STANDARD du panneau de filtres gauche (composant partagé). -->
+      <!-- Toggle STANDARD du panneau de filtres gauche (composant partagé), desktop
+           uniquement — cf. .si-mobile-tools-trigger ci-dessous pour le mobile
+           (ouvre le drawer de nav outils au lieu du panneau de filtres). -->
       <WorkspacePanelToggle
         v-if="canToggleFilters"
+        class="si-toggle--desktop"
         :open="!filtersCollapsed"
         :label="t('invToggleFilters')"
         @toggle="filtersCollapsed = !filtersCollapsed"
       />
+      <!-- Mobile uniquement (< 900px) : drawer de nav entre outils F&B, même
+           pattern que Logistique (WorkspaceMobileToolDrawer + toolboxSelectItems). -->
+      <button
+        type="button"
+        class="si-mobile-tools-trigger"
+        @click="showMobileToolDrawer = true"
+        :aria-label="t('invToolsLabel')"
+      >
+        <v-icon size="20">mdi-menu</v-icon>
+      </button>
       <!-- Titre du bandeau (parité Analyse / Réarmement / Logistique). -->
       <div class="si-band-title">
         <h1 class="si-band-title__main">{{ t(isPreMode ? 'preInvPageTitle' : 'invPageTitle') }}</h1>
@@ -165,9 +188,12 @@
         <!-- Onglets Boutiques/Stockages déplacés sous la recherche (parité
              Logistique). Sous-statuts À compter/Comptés → colonne droite. -->
 
-        <!-- Print + Save (retirés de l'ancien header). -->
+        <!-- Print + Save (retirés de l'ancien header). Menu Print masqué sur
+             mobile : Imprimer/Exporter CSV/Vérifier couverture existent déjà
+             dans mobileActionsSheet (bouton ⋮) — évite le doublon qui forçait
+             les actions du bandeau sur une 2e ligne. -->
         <div class="si-band-actions">
-          <v-menu offset="6">
+          <v-menu v-if="!isMobile" offset="6">
             <template #activator="{ props: menuProps }">
               <v-btn v-bind="menuProps" variant="outlined" class="si-band-btn">
                 <v-icon size="16" class="mr-1">mdi-printer</v-icon>
@@ -205,12 +231,39 @@
           >
             <v-icon size="20">mdi-dots-vertical</v-icon>
           </v-btn>
+          <!-- Mobile uniquement : "Mettre à jour la Logistique" + "Générer la
+               réconciliation" (Update Logistic / Save desktop ci-dessous) regroupés
+               dans un menu compact déclenché par une icône, plutôt que 2 boutons
+               pleine largeur — la réconciliation reste désactivée tant que le
+               comptage n'est pas complet (isCountComplete). -->
+          <v-menu v-if="isMobile" offset="6">
+            <template #activator="{ props: menuProps }">
+              <v-btn v-bind="menuProps" icon variant="text" class="si-band-btn" :aria-label="t('invSave')">
+                <v-icon size="20">mdi-play-circle-outline</v-icon>
+              </v-btn>
+            </template>
+            <v-list density="compact" min-width="240">
+              <v-list-item v-if="selectedEventId" :disabled="pushingToLogistic" @click="onUpdateLogistic">
+                <template #prepend><v-icon size="18">mdi-warehouse</v-icon></template>
+                <v-list-item-title>{{ t('invUpdateLogistic') }}</v-list-item-title>
+              </v-list-item>
+              <v-list-item :disabled="!isCountComplete || saving || recoCreating" @click="onSaveAll">
+                <template #prepend><v-icon size="18">mdi-content-save</v-icon></template>
+                <v-list-item-title>
+                  {{ t('invSave') }}
+                  <span v-if="inventoryStats.totalItems" class="si-menu-item-progress">
+                    {{ inventoryStats.countedItems }}/{{ inventoryStats.totalItems }}
+                  </span>
+                </v-list-item-title>
+              </v-list-item>
+            </v-list>
+          </v-menu>
           <v-btn
             v-if="selectedEventId"
             variant="outlined"
+            class="si-band-btn si-band-btn--desktop"
             :loading="pushingToLogistic"
             :disabled="pushingToLogistic"
-            class="si-band-btn"
             @click="onUpdateLogistic"
           >
             <v-icon size="16" class="mr-1">mdi-warehouse</v-icon>
@@ -219,7 +272,7 @@
           <v-btn
             :loading="saving || recoCreating"
             :disabled="saving || recoCreating"
-            class="si-band-btn si-band-btn--save"
+            class="si-band-btn si-band-btn--save si-band-btn--desktop"
             @click="onSaveAll"
           >
             <v-icon size="16" class="mr-1">mdi-content-save</v-icon>
@@ -291,13 +344,15 @@
               @click="activeTab = tab.value"
             >
               <v-icon size="16" class="mr-1">{{ tab.icon }}</v-icon>
-              {{ t(tab.labelKey) }}
-              <span class="si-tab-count">({{ topTabCount(tab.value) }})</span>
+              {{ isMobile ? t(tab.labelKeyShort) : t(tab.labelKey) }}
+              <span v-if="!isMobile" class="si-tab-count">({{ topTabCount(tab.value) }})</span>
             </button>
           </div>
 
-          <!-- Tri + filtre Ouvert/Fermé (onglet Boutiques). -->
-          <div class="si-sort-bar">
+          <!-- Tri + filtre Ouvert/Fermé (onglet Boutiques) — masqué sur mobile
+               (< 900px, retour utilisateur : prenait trop de place, cf. maquette
+               Post/Pre-Event Inventory mobile). -->
+          <div v-if="!isMobile" class="si-sort-bar">
             <span class="si-sort-label">{{ t('invSort') }}</span>
             <button
               type="button"
@@ -759,6 +814,7 @@ import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
 import InventoryMenuCoverageDrawer from '@/components/InventoryMenuCoverageDrawer.vue'
 import AppSearchBar from '@/components/common/AppSearchBar.vue'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
+import WorkspaceMobileToolDrawer from '@/components/WorkspaceMobileToolDrawer.vue'
 import { buildCoverageReports, totalCoverageIssues } from '@/utils/inventoryCoverage'
 import { getAllSpaces, getSpaceEventTimelineBatch } from '@/api/endpoints/space.api'
 // Réconciliation post-événement (docs/modules/10_POST_EVENT_INVENTORY.md §7)
@@ -792,9 +848,9 @@ import { parseEventDate } from '@/utils/dateFr'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 
 const TOP_TABS = [
-  { value: 'shops',   labelKey: 'invTabShops',   icon: 'mdi-store' },
-  { value: 'storage', labelKey: 'invTabStorage', icon: 'mdi-warehouse' },
-  { value: 'merch',   labelKey: 'invTabMerch',   icon: 'mdi-shopping' },
+  { value: 'shops',   labelKey: 'invTabShops',   labelKeyShort: 'invTabShopsShort',   icon: 'mdi-store' },
+  { value: 'storage', labelKey: 'invTabStorage', labelKeyShort: 'invTabStorageShort', icon: 'mdi-warehouse' },
+  { value: 'merch',   labelKey: 'invTabMerch',   labelKeyShort: 'invTabMerchShort',   icon: 'mdi-shopping' },
 ]
 
 const COUNTING_TABS = RAW_TABS
@@ -830,6 +886,7 @@ export default {
     InventoryMenuCoverageDrawer,
     AppSearchBar,
     WorkspacePanelToggle,
+    WorkspaceMobileToolDrawer,
     InventoryReconciliationSection,
     InventoryReconciliationView,
   },
@@ -920,6 +977,8 @@ export default {
       selectedStorages: [],
       selectedStorageFloors: [],
       isMobile: false,
+      // Drawer nav outils F&B, mobile uniquement (cf. .si-mobile-tools-trigger).
+      showMobileToolDrawer: false,
       // Repli du panneau de filtres gauche via l'icône du bandeau rouge.
       filtersCollapsed: false,
       // Réconciliation post-événement : documents du space (kind='post-event'),
@@ -3387,6 +3446,63 @@ export default {
 .si-band-btn--save :deep(.v-icon) { color: #ff3131 !important; }
 .si-band-btn--save:hover { background: rgba(255, 255, 255, 0.9) !important; color: #ff3131 !important; }
 
+/* Équivalent mobile (< 900px, cf. isMobile JS) du toggle filtres / des boutons
+   Update Logistic + Save — masqués par défaut, activés dans le bloc @media
+   plus bas. Desktop garde les pilules complètes avec libellé. */
+.si-mobile-tools-trigger {
+  display: none;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.2);
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: #fff;
+}
+.si-mobile-tools-trigger:active { transform: scale(.94); }
+.si-menu-item-progress { margin-left: 6px; opacity: .65; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 900px) {
+  .si-toggle--desktop { display: none; }
+  .si-mobile-tools-trigger { display: flex; }
+  .si-band-btn--desktop { display: none; }
+
+  /* Tout le bandeau (hamburger + titre + actions) sur une seule ligne au lieu
+     de 2 (titre/sous-titre puis, en dessous, Print/⋮/▶) — retour utilisateur.
+     Le titre/sous-titre s'ellipsent plutôt que de forcer un retour à la ligne. */
+  .si-segrow--band {
+    flex-wrap: nowrap;
+    align-items: center;
+    padding: 12px;
+    gap: 8px;
+  }
+  /* Titre + sous-titre event ré-empilés (comme la maquette) : ce qui manquait
+     de place, c'était le BANDEAU entier qui prenait 3 rangées (hamburger seul,
+     titre seul, icônes seules) à cause du flex-wrap:wrap plus bas dans ce
+     fichier (cf. .si-segrow--band ci-dessus, maintenant nowrap) — pas le fait
+     que titre/event soient sur 2 lignes l'un sous l'autre. */
+  .si-band-title {
+    min-width: 0;
+    overflow: hidden;
+  }
+  .si-band-title__main {
+    font-size: 15px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .si-band-title__sub {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .si-band-right { flex: 0 0 auto; }
+  .si-band-actions { flex-wrap: nowrap; gap: 6px; }
+}
+
 /* Pills ouvert / fermé */
 .si-status-pills { display: flex; gap: 6px; }
 .si-status-pill {
@@ -3751,10 +3867,17 @@ export default {
   .si-event-select, .si-search-field { width: 100%; max-width: none; min-width: 0; }
   .si-tabs { overflow-x: auto; }
   .si-substatus { max-width: 100%; overflow-x: auto; }
-  /* Mobile : la ligne unique déborderait → retour ligne autorisé,
-     la recherche passe pleine largeur sous les onglets/pills. */
-  .si-segrow--band { flex-wrap: wrap; }
-  .si-band-right { flex-wrap: wrap; }
+  /* Bandeau rouge : reste sur 1 seule ligne (hamburger + titre/event + icônes),
+     PAS de retour à la ligne — retour utilisateur. Remplace le flex-wrap:wrap
+     posé ci-dessus, et retire les marges gauche/droite de la règle
+     .si-segrow (16px) : le bloc rouge doit être plein-bord, pas une carte
+     détachée avec du gris visible de chaque côté. */
+  .si-segrow--band {
+    flex-wrap: nowrap;
+    margin-left: 0;
+    margin-right: 0;
+  }
+  .si-band-right { flex-wrap: nowrap; }
   .si-band-search { flex-basis: 100%; }
 }
 

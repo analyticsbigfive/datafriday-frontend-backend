@@ -247,6 +247,19 @@
                   >
                     <v-icon size="18">mdi-restore</v-icon>
                   </button>
+                  <!-- Mobile uniquement (< 900px) : ouvre .lg-right-col (alertes restock +
+                       tâches) en panneau droit — sinon elle atterrit tout en bas de page,
+                       après une liste PDV parfois longue (cf. .lg-right-col--open). -->
+                  <button
+                    v-if="!drillElement"
+                    type="button"
+                    class="lg-mobile-right-trigger"
+                    @click="showMobileRightPanel = true"
+                    :aria-label="t('logiAggTitle')"
+                  >
+                    <v-icon size="18">mdi-clipboard-alert-outline</v-icon>
+                    <span v-if="aggregateStats.bad" class="lg-mobile-right-trigger__badge">{{ aggregateStats.bad }}</span>
+                  </button>
                 </div>
               </div>
             </header>
@@ -409,7 +422,23 @@
                indépendamment (SidebarPanel), la colonne elle-même scrolle si les deux
                sont ouvertes en même temps (retour utilisateur 08/2026 : plus de hauteur
                imposée à l'une par la présence de l'autre). -->
-          <div v-if="!drillElement" class="lg-right-col">
+          <!-- Backdrop mobile uniquement : ferme .lg-right-col au clic hors panneau. -->
+          <div
+            v-if="!drillElement && showMobileRightPanel"
+            class="lg-right-col-backdrop"
+            @click="showMobileRightPanel = false"
+          ></div>
+
+          <div v-if="!drillElement" class="lg-right-col" :class="{ 'lg-right-col--open': showMobileRightPanel }">
+            <!-- Fermeture, mobile uniquement (panneau droit en overlay < 900px). -->
+            <button
+              type="button"
+              class="lg-right-col__close"
+              :aria-label="t('logiClear') || 'Close'"
+              @click="showMobileRightPanel = false"
+            >
+              <v-icon size="18">mdi-close</v-icon>
+            </button>
             <SidebarPanel :title="t('logiAggTitle')" storage-key="logistic-restock-alerts">
               <template #icon><v-icon size="15">mdi-alert-decagram-outline</v-icon></template>
               <LogisticAggregateView
@@ -628,6 +657,9 @@ export default {
       activeTab: 'shops',
       // Drawer nav outils F&B, mobile uniquement (cf. .lg-mobile-tools-trigger).
       showMobileToolDrawer: false,
+      // Panneau droit (alertes restock + tâches), overlay mobile uniquement
+      // (cf. .lg-right-col--open / .lg-mobile-right-trigger).
+      showMobileRightPanel: false,
       loading: false,
       // Affichage du panneau de filtres (colonne gauche) — bascule via l'icône
       // du bandeau. Ouvert par défaut.
@@ -1434,6 +1466,38 @@ export default {
 /* Recherche unifiée PDV + articles, mobile uniquement. */
 .lg-mobile-search { display: none; }
 
+/* Déclenche .lg-right-col en overlay < 900px (alertes restock + tâches). */
+.lg-mobile-right-trigger {
+  display: none;
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border: 1.5px solid rgba(255, 255, 255, 0.62);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: #fff;
+}
+.lg-mobile-right-trigger__badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: #111827;
+  border: 1.5px solid #fff;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+}
+
 /* Sélecteur d'espace dans le bandeau : texte en blanc sur le rouge. */
 .lg-header__switcher { flex-shrink: 0; }
 .lg-header__switcher :deep(.wsh-space-trigger) { color: #fff; }
@@ -1557,6 +1621,10 @@ export default {
   overflow-y: auto;
   padding-right: 2px;
 }
+/* Overlay mobile (< 900px, cf. @media plus bas) : masqués sur desktop où
+   .lg-right-col reste une colonne de grille normale, toujours visible. */
+.lg-right-col-backdrop { display: none; }
+.lg-right-col__close { display: none; }
 .lg-tasks-refresh {
   border: none; background: transparent; cursor: pointer; padding: 3px; border-radius: 7px;
   display: flex; align-items: center; opacity: 0.65; color: inherit;
@@ -1771,11 +1839,54 @@ export default {
      (déjà visibles, pas besoin de les voir avant la liste elle-même). */
   .lg-main { order: 1; }
   .lg-aside { position: static; order: 2; height: auto; overflow: visible; }
-  .lg-right-col { order: 3; height: auto; overflow: visible; }
   .lg-item-grid { grid-template-columns: 1fr; }
   .lg-header__inner { padding: 12px 16px; }
   .lg-layout { padding: 12px 16px 24px; }
   .lg-search-field { max-width: none; flex: 1 1 auto; }
+
+  /* .lg-right-col (alertes restock + tâches) : au lieu de rester dans le flux
+     empilé (order: 3, systématiquement après une liste PDV parfois longue —
+     retour utilisateur), devient un panneau overlay ouvert depuis la droite,
+     déclenché par .lg-mobile-right-trigger dans le bandeau. */
+  .lg-mobile-right-trigger { display: flex; }
+  .lg-right-col-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(17, 24, 39, .45);
+    z-index: 1000;
+  }
+  .lg-right-col {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1001;
+    width: min(340px, 88vw);
+    height: auto;
+    background: var(--lg-surface, #fff);
+    box-shadow: -8px 0 30px rgba(0, 0, 0, .18);
+    padding: 44px 14px 14px;
+    overflow-y: auto;
+    transform: translateX(100%);
+    transition: transform .26s cubic-bezier(.32, .72, 0, 1);
+  }
+  .lg-right-col--open { transform: translateX(0); }
+  .lg-right-col__close {
+    display: flex;
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 32px;
+    height: 32px;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, .06);
+    color: inherit;
+    cursor: pointer;
+  }
 }
 
 @media (max-width: 560px) {
