@@ -25,6 +25,10 @@
         minimized-event-name="digifood-csv-import-job-minimized"
         :offset-bottom="200"
       />
+      <!-- Chantier 379 : indicateur global "un event est live quelque part" (SSE, tous
+           espaces accessibles), même raison que SyncJobFloatingWidget — racine toujours
+           montée, survit à la navigation inter-routes. -->
+      <GlobalLiveIndicator />
     </v-main>
   </v-app>
 </template>
@@ -36,11 +40,12 @@ import RouteTransitionLoader from '@/components/RouteTransitionLoader.vue'
 import GlobalConfirmDialog from '@/components/GlobalConfirmDialog.vue'
 import DemoModeBanner from '@/components/DemoModeBanner.vue'
 import SyncJobFloatingWidget from '@/components/SyncJobFloatingWidget.vue'
+import GlobalLiveIndicator from '@/components/GlobalLiveIndicator.vue'
 import { getDigifoodCsvImportJobStatus } from '@/api/endpoints/aggregation.api.js'
 
 export default {
   name: 'App',
-  components: { RouteTransitionLoader, GlobalConfirmDialog, DemoModeBanner, Toaster, SyncJobFloatingWidget },
+  components: { RouteTransitionLoader, GlobalConfirmDialog, DemoModeBanner, Toaster, SyncJobFloatingWidget, GlobalLiveIndicator },
 
   data: () => ({
     //
