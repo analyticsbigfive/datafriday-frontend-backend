@@ -32,6 +32,14 @@ export class LogisticsController {
   constructor(private readonly service: LogisticsService) {}
 
   @Get(':spaceId/stock')
+  // Lecture seule ouverte au Réarmement (retour client 2026-09-02) : son moteur de
+  // netting lit désormais ce stock directement (frontend `useLogisticRemaining`),
+  // et ses rôles (« Technicien Logistic », « PDV Superviseur ») portent
+  // `front.fb.restockBoard`/`front.fb.spaceInventory` sans forcément `front.fb.logistic`.
+  // Sans cet OR, le fan-out par config renvoyait 403 pour ces rôles. Les routes
+  // d'écriture (mouvements, reset, réconciliation...) restent gatées `front.fb.logistic`
+  // seul via le décorateur de classe.
+  @RequirePermissions('front.fb.logistic', 'front.fb.restock', 'front.fb.restockBoard')
   @ApiOperation({
     summary:
       "Stock attendu de l'espace : espace/configs + référentiel d'items par élément (PDV/Storage, noms résolus côté serveur) + StockLevel (mouvements manuels) + consommation ventes dérivée depuis la dernière réconciliation. Attendu affiché = level − consumption (casse de pack au rendu). Réponse auto-suffisante : le front n'a plus besoin du catalogue complet (menu items/ingredients/market prices).",
