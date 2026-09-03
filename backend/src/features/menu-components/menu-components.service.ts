@@ -432,7 +432,10 @@ export class MenuComponentsService {
             meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
           };
         },
-        { ttl: 60 },
+        // 3600 (pas 60) : catalogue rarement modifié, `invalidateCache()` purge déjà
+        // cette clé à chaque écriture (:20-28) — le TTL est un filet de sécurité, pas
+        // le mécanisme de fraîcheur (même raisonnement que menu-items.service.ts).
+        { ttl: 3600 },
       );
     } catch (error) {
       this.logger.error(`Failed to fetch menu components: ${error.message}`, error.stack);

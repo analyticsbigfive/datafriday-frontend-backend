@@ -1,34 +1,30 @@
 <template>
   <div class="sp-card pa-3" :class="{ 'summary-panel--dark': isDark }">
     <div class="d-flex align-center justify-space-between mb-2">
-      <span class="section-title">{{ t('anShopPerformance') }}</span>
-      <v-btn-toggle v-model="mode" mandatory density="compact" class="pill-toggle">
-        <v-btn value="total" size="x-small">{{ t('anTotal') }}</v-btn>
-        <v-btn value="avg" size="x-small">{{ t('anAvg') }}</v-btn>
-      </v-btn-toggle>
+      <span class="section-title">{{ t('anItemPerformance') }}</span>
     </div>
 
     <div class="lb-list mb-2">
       <div
         v-for="(item, idx) in (showAll ? sorted : sorted.slice(0, 5))"
-        :key="item.shopId || item.shopName"
-        class="lb-card lb-card--pos sp-clickable"
-        :class="{ 'lb-card--active': selectedShopNames.includes(item.shopName) }"
+        :key="item.name"
+        class="lb-card lb-card--items sp-clickable"
+        :class="{ 'lb-card--active': selectedItemNames.includes(item.name) }"
         role="button"
         tabindex="0"
-        @click="$emit('shop-click', item.shopName)"
-        @keydown.enter="$emit('shop-click', item.shopName)"
+        @click="$emit('item-click', item.name)"
+        @keydown.enter="$emit('item-click', item.name)"
       >
         <div class="lb-top">
           <v-avatar size="24" :color="rankColor(idx + 1)" class="rank-badge">
             <span class="rank-num">{{ idx + 1 }}</span>
           </v-avatar>
-          <span class="item-name lb-name">{{ item.shopName }}</span>
+          <span class="item-name lb-name">{{ item.name }}</span>
           <span class="item-value lb-val">{{ formatCurrencyDetailed(item.revenue) }}</span>
         </div>
         <div class="lb-sub">
           <span class="lb-spacer"></span>
-          <span class="item-units-below">{{ formatNumber(item.itemsCount) }} {{ t('anUnits') }}</span>
+          <span class="item-units-below">{{ formatNumber(item.units) }} {{ t('anUnits') }}</span>
         </div>
         <div class="lb-meter">
           <i :style="{ width: shareWidth(item.revenue, maxRevenue) }"></i>
@@ -53,20 +49,27 @@ import { RANK_COLORS } from '@/constants/analyseColors'
 const { t } = useI18n()
 
 const props = defineProps({
-  shops: { type: Array, default: () => [] },
+  records: { type: Array, default: () => [] },
   isDark: { type: Boolean, default: false },
-  selectedShopNames: { type: Array, default: () => [] },
+  selectedItemNames: { type: Array, default: () => [] },
 })
-defineEmits(['shop-click'])
+defineEmits(['item-click'])
 
-const mode = ref('total')
 const showAll = ref(false)
 
-// Un seul event live : Total === Moy. par construction (mode single-event, même
-// convention que useMetricsCalculator.isSingleEventMode). Le toggle reste affiché
-// pour la parité visuelle, il ne change juste rien tant qu'un seul event est en jeu.
-const sorted = computed(() => [...props.shops].sort((a, b) => b.revenue - a.revenue))
-const maxRevenue = computed(() => sorted.value.reduce((m, s) => Math.max(m, Number(s.revenue) || 0), 0) || 1)
+const sorted = computed(() => {
+  const byItem = new Map()
+  for (const r of props.records) {
+    const name = r.menuItemName
+    if (!name) continue
+    if (!byItem.has(name)) byItem.set(name, { name, revenue: 0, units: 0 })
+    const it = byItem.get(name)
+    it.revenue += Number(r.revenue) || 0
+    it.units += Number(r.quantity) || 0
+  }
+  return [...byItem.values()].sort((a, b) => b.revenue - a.revenue)
+})
+const maxRevenue = computed(() => sorted.value.reduce((m, i) => Math.max(m, i.revenue), 0) || 1)
 
 function rankColor(rank) {
   if (rank === 1) return RANK_COLORS[1]
@@ -105,7 +108,7 @@ function shareWidth(value, max) {
   content: ""; position: absolute; inset: 0 auto 0 0; width: 3px;
   background: var(--lb-accent, #64748b);
 }
-.lb-card--pos { --lb-accent: #0284c7; }
+.lb-card--items { --lb-accent: #f59e0b; }
 .sp-clickable { cursor: pointer; }
 .lb-card--active { border-color: var(--lb-accent, #64748b); box-shadow: inset 0 0 0 1px var(--lb-accent, #64748b); }
 .lb-top { display: flex; align-items: center; gap: 10px; }

@@ -70,9 +70,13 @@ export function useLiveData(spaceId) {
     const status = await getSpaceLiveStatus(spaceId)
     isLive.value = !!(status?.isLive && status?.eventId)
     liveSince.value = status?.since || null
-    // Toujours résoudre l'objet event complet (nom affiché dans le header) — un
-    // retour anticipé sur status.eventId seul ne peuplait jamais event.value,
-    // le header affichait "Aucun event live" même avec un event valide.
+    // Le même event live reste résolu d'un tick à l'autre (nom/date ne changent
+    // pratiquement jamais en cours de vente) — pas besoin de retélécharger les 200
+    // events de l'espace À CHAQUE tick SSE juste pour retrouver le même objet.
+    // Seul un event qui vient de démarrer/changer justifie le fetch.
+    if (status?.eventId && event.value?.id === status.eventId) {
+      return status.eventId
+    }
     const res = await getEvents({ spaceId, limit: 200, excludeSimulated: false })
     const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : [])
     if (status?.eventId) {
@@ -210,7 +214,7 @@ export function useLiveData(spaceId) {
   return {
     isLive, liveSince, eventId, event, shopTotals, loading, error,
     revenue, transactionCount, itemsCount, avgSpendPerTx, txPerMinute,
-    categoryBreakdown, timelineByMinute,
+    categoryBreakdown, timelineByMinute, basketRows, timelineRows,
     refresh, startPolling, stopPolling,
   }
 }
