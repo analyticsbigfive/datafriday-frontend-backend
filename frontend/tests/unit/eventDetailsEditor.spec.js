@@ -1,5 +1,5 @@
 import { shallowMount } from '@vue/test-utils'
-import EventDetailsEditor from '@/components/EventDetailsEditor.vue'
+import EventDetailsEditor from '@/components/space-workspace/event-predict/EventDetailsEditor.vue'
 
 const event = {
   id: 'event-1',

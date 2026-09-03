@@ -29,7 +29,7 @@
  */
 import { expandMenuItemStock } from '@/utils/stockPlanning'
 import { buildConsolidatedInventory } from '@/utils/inventoryUtils'
-import EventPredictStockUpSection from '@/components/EventPredictStockUpSection.vue'
+import EventPredictStockUpSection from '@/components/space-workspace/event-predict/sections/EventPredictStockUpSection.vue'
 
 const { expandMenuItem, miUnitCost } = EventPredictStockUpSection.methods
 const stockUpCtx = { expandMenuItem, miUnitCost, menuItemCostMap: {}, recipeCatalogLoaded: true }

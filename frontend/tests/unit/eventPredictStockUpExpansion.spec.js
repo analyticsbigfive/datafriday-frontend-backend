@@ -9,7 +9,7 @@
  * avec un `this` minimal (seul `this.expandMenuItem` est utilisé en interne,
  * pour la récursion) — pas besoin de monter le composant complet.
  */
-import EventPredictStockUpSection from '@/components/EventPredictStockUpSection.vue'
+import EventPredictStockUpSection from '@/components/space-workspace/event-predict/sections/EventPredictStockUpSection.vue'
 
 const { expandMenuItem, miUnitCost } = EventPredictStockUpSection.methods
 // `recipeCatalogLoaded` simule l'état APRÈS la vague 2b de useSpaceData (catalogues
