@@ -100,6 +100,7 @@ import { getSpaceLiveStatus } from "@/api/endpoints/space.api";
 import { formatCurrencyDetailed } from "@/composables/useFormatters";
 import { currentIntlLocale } from "@/composables/useNumberFormat";
 import { useI18n } from "@/i18n/useI18n";
+import { useGlobalLiveIndicator } from "@/composables/useGlobalLiveIndicator";
 export default {
   name: 'SpaceItem',
   components: {
@@ -111,7 +112,10 @@ export default {
   // pas une retraduction : l'écran ne change pas d'apparence.
   setup() {
     const { t } = useI18n();
-    return { t };
+    // Singleton partagé (App.vue en démarre déjà la connexion SSE en continu, cf.
+    // GlobalLiveIndicator.vue) — pas de nouvelle connexion par carte, juste une lecture.
+    const { isSpaceLive } = useGlobalLiveIndicator();
+    return { t, isSpaceLive };
   },
   props: {
     space:         { type: Object,   default: null },
@@ -145,6 +149,23 @@ export default {
       if (!this.liveSince) return 'Live'
       const mins = Math.max(0, Math.round((Date.now() - new Date(this.liveSince).getTime()) / 60000))
       return mins > 0 ? `Live · depuis ${mins} min` : 'Live · à l\'instant'
+    },
+    // Signal continu (flux SSE partagé, déjà connecté en permanence par App.vue) — contrairement
+    // à `isLive`/`checkLiveStatus()` (figé au montage), celui-ci s'éteint tout seul dans la
+    // minute qui suit les 30 min sans nouvelle vente (bug constaté 2026-09-03 : le point restait
+    // rouge indéfiniment). Sert de DÉCLENCHEUR pour revérifier via /live-status (source exacte
+    // pour `since`), pas de source d'affichage directe — voir le watcher ci-dessous.
+    liveFromStream() {
+      const spaceId = this.space?.id || this.space?._id;
+      return spaceId ? this.isSpaceLive(spaceId) : false;
+    },
+  },
+  watch: {
+    // Ne re-vérifie QUE quand le flux signale un changement réel pour CET espace (nouvelle
+    // vente détectée, ou expiration après 30 min d'inactivité) — pas un polling par carte,
+    // juste une réaction à un signal déjà partagé par toute l'appli.
+    liveFromStream() {
+      this.checkLiveStatus();
     },
   },
   methods: {

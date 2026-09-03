@@ -98,7 +98,7 @@ async function fetchAllMenuComponents() {
   return rows
 }
 
-export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimulated = true } = {}) {
+export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimulated = true, skipRecipeCatalog = false } = {}) {
   // Mode démo retiré : on charge toujours via l'API réelle. Aucune donnée mock.
   console.log('[useSpaceData] 🟢 Fetching from API: /api/v1/spaces/' + spaceId)
 
@@ -302,6 +302,14 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
       )
       // Les graphes peuvent peindre : on rend la main AVANT les catalogues recette.
       if (onPartial) onPartial(chartsPayload)
+
+      // Appelants qui n'ont besoin QUE du catalogue vague 2a (menuItemCostMap,
+      // taxonomie) — Live (`useLiveItemRecords`/réconciliation), pas de recette
+      // composée : on s'arrête ici plutôt que de payer le fan-out /menu-components/:id
+      // (concurrence 5, un appel par composant sans recette déjà connue — jusqu'à
+      // plusieurs centaines sur un gros catalogue, cf. commentaire vague 2a ci-dessus)
+      // qui n'alimente que la feuille de course (Restock, BUG-292-01).
+      if (skipRecipeCatalog) return chartsPayload
 
       // ── Vague 2b : catalogues recette (Restock / Stock up) ─────────────────
       // Catalogues ingrédients/composants/packaging : le payload /menu-items ne
