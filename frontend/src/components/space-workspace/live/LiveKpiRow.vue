@@ -41,7 +41,7 @@ import { useI18n } from '@/i18n/useI18n'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 import { KPI_CARDS } from '@/constants/analyseColors'
-import KpiCard from '@/components/analyse/panels/KpiCard.vue'
+import KpiCard from '@/components/space-workspace/shared/KpiCard.vue'
 
 const { t } = useI18n()
 const { formatDecimal } = useNumberFormat()

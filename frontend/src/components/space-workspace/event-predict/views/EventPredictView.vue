@@ -1308,74 +1308,74 @@ import {
   Settings,
 } from "lucide-vue-next";
 
-import Card from "../ui/card.vue";
-import CardHeader from "../ui/cardHeader.vue";
-import CardTitle from "../ui/cardTitle.vue";
-import CardDescription from "../ui/cardDescription.vue";
-import CardContent from "../ui/cardContent.vue";
+import Card from "@/ui/card.vue";
+import CardHeader from "@/ui/cardHeader.vue";
+import CardTitle from "@/ui/cardTitle.vue";
+import CardDescription from "@/ui/cardDescription.vue";
+import CardContent from "@/ui/cardContent.vue";
 
-import * as eventApi from "../utils/eventApi";
-import { getSpaceEventTimeline, getSpaceShopGranular } from "../api/endpoints/space.api";
+import * as eventApi from "@/utils/eventApi";
+import { getSpaceEventTimeline, getSpaceShopGranular } from "@/api/endpoints/space.api";
 import {
   createEvent,
   updateEvent,
   getEventTypes as restGetEventTypes,
   getEventCategories as restGetEventCategories,
   getEventSubcategories as restGetEventSubcategories,
-} from "../api/endpoints/event.api";
-import * as api from "../utils/api";
-import store from "../store";
+} from "@/api/endpoints/event.api";
+import * as api from "@/utils/api";
+import store from "@/store";
 import {
   findAndScorePastEvents,
   generatePredictionsForEvent,
   isAdhocEvent,
   normalizeStr,
-} from "../utils/predictiveAnalytics";
-import { findBestMatch } from "../utils/menuItemMatching";
-import { getShopMenus } from "../api/endpoints/space-menu.api";
-import { getTeams as restGetTeams } from "../api/endpoints/team.api";
-import { getAllMenuItems as restGetAllMenuItems } from "../api/endpoints/menu-item.api";
-import { assignMenuItemsToShop, saveSpaceMenuConfiguration } from "../api/endpoints/menu.api";
-import { resolveIngredientSupplierId } from "../utils/menuItemAvailability";
-import { runWithConcurrency } from "../utils/asyncPool";
-import { htFromTtc, menuItemPriceHt } from "../utils/price";
-import { useEventPredictVersions } from "../composables/useEventPredictVersions";
+} from "@/utils/predictiveAnalytics";
+import { findBestMatch } from "@/utils/menuItemMatching";
+import { getShopMenus } from "@/api/endpoints/space-menu.api";
+import { getTeams as restGetTeams } from "@/api/endpoints/team.api";
+import { getAllMenuItems as restGetAllMenuItems } from "@/api/endpoints/menu-item.api";
+import { assignMenuItemsToShop, saveSpaceMenuConfiguration } from "@/api/endpoints/menu.api";
+import { resolveIngredientSupplierId } from "@/utils/menuItemAvailability";
+import { runWithConcurrency } from "@/utils/asyncPool";
+import { htFromTtc, menuItemPriceHt } from "@/utils/price";
+import { useEventPredictVersions } from "@/composables/useEventPredictVersions";
 import {
   formatNumber,
   formatCurrencyDetailed,
   formatCurrency as formatCurrencyShared,
 } from "@/composables/useFormatters";
-import { usePredictiveTimeline } from "../composables/usePredictiveTimeline";
+import { usePredictiveTimeline } from "@/composables/usePredictiveTimeline";
 import {
   aggregateTimelinePerMinute,
   preprocessTimelineRecords,
   windowPredictedRecords,
   hasActiveRange,
-} from "../utils/timelineBucketing";
-import EventPredictMenusSection from "./EventPredictMenusSection.vue";
-import EventPredictStaffSection from "./EventPredictStaffSection.vue";
-import EventPredictStockUpSection from "./EventPredictStockUpSection.vue";
-import EventTimelineChart from "./analyse/charts/EventTimelineChart.vue";
-import EventDetailsEditor from "./EventDetailsEditor.vue";
-import EventPredictSourcesDrawer from "./EventPredictSourcesDrawer.vue";
-import EventPredictHistoryAliasDrawer from "./EventPredictHistoryAliasDrawer.vue";
-import { applyHistoryAliases } from "../utils/historyAliases";
+} from "@/utils/timelineBucketing";
+import EventPredictMenusSection from "@/components/space-workspace/event-predict/sections/EventPredictMenusSection.vue";
+import EventPredictStaffSection from "@/components/space-workspace/event-predict/sections/EventPredictStaffSection.vue";
+import EventPredictStockUpSection from "@/components/space-workspace/event-predict/sections/EventPredictStockUpSection.vue";
+import EventTimelineChart from "@/components/space-workspace/shared/EventTimelineChart.vue";
+import EventDetailsEditor from "@/components/space-workspace/event-predict/EventDetailsEditor.vue";
+import EventPredictSourcesDrawer from "@/components/space-workspace/event-predict/drawers/EventPredictSourcesDrawer.vue";
+import EventPredictHistoryAliasDrawer from "@/components/space-workspace/event-predict/drawers/EventPredictHistoryAliasDrawer.vue";
+import { applyHistoryAliases } from "@/utils/historyAliases";
 import WorkspaceToolSelect from "@/components/WorkspaceToolSelect.vue";
 import WorkspacePanelToggle from "@/components/WorkspacePanelToggle.vue";
 import WorkspaceUserMenu from "@/components/WorkspaceUserMenu.vue";
 import WorkspaceSpaceSwitcher from "@/components/WorkspaceSpaceSwitcher.vue";
 import NotificationBell from "@/components/NotificationBell.vue";
-import AlgoTraceTerminal from "./AlgoTraceTerminal.vue";
-import Tabs from "../ui/tabs.vue";
-import TabsList from "../ui/tabsList.vue";
-import TabsTrigger from "../ui/tabsTrigger.vue";
-import TabsContent from "../ui/tabsContent.vue";
-import { parseEventDate as parseDDMMYYYY } from "../utils/dateFr";
-import { isDemoMode } from "../utils/demoMode";
-import { mergeEffectiveMenuConfig, applyAssignToExplicit } from "../utils/menuConfigSelection";
-import { resolveItemsContext, isEstimationEligible } from "../utils/estimationMode";
-import { resolveInventoryRouteName } from "../utils/inventoryRouteTarget";
-import { setLastPredictedEvent, setPredictedRecords } from "../data/localDb";
+import AlgoTraceTerminal from "@/components/space-workspace/event-predict/AlgoTraceTerminal.vue";
+import Tabs from "@/ui/tabs.vue";
+import TabsList from "@/ui/tabsList.vue";
+import TabsTrigger from "@/ui/tabsTrigger.vue";
+import TabsContent from "@/ui/tabsContent.vue";
+import { parseEventDate as parseDDMMYYYY } from "@/utils/dateFr";
+import { isDemoMode } from "@/utils/demoMode";
+import { mergeEffectiveMenuConfig, applyAssignToExplicit } from "@/utils/menuConfigSelection";
+import { resolveItemsContext, isEstimationEligible } from "@/utils/estimationMode";
+import { resolveInventoryRouteName } from "@/utils/inventoryRouteTarget";
+import { setLastPredictedEvent, setPredictedRecords } from "@/data/localDb";
 
 // PERF : les Edge Functions de mappings (shop-element / menu-item) sont lentes
 // (5-10 s) et leurs données changent rarement → cache localStorage par space,

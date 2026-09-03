@@ -21,7 +21,7 @@ import {
   splitQuantityAcrossKeys,
   estimationSliderMax,
 } from '@/utils/estimationMode'
-import EventPredictMenusSection from '@/components/EventPredictMenusSection.vue'
+import EventPredictMenusSection from '@/components/space-workspace/event-predict/sections/EventPredictMenusSection.vue'
 
 const menus = EventPredictMenusSection.methods
 

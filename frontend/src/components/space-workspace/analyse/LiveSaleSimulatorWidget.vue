@@ -105,7 +105,7 @@
 // loadActiveSimulationRun au montage), et le tirage aléatoire PDV/menu item se fait
 // côté backend (LogisticsService.getSimulableShops), plus ici.
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import LogisticSimulateSaleDialog from '@/components/LogisticSimulateSaleDialog.vue'
+import LogisticSimulateSaleDialog from '@/components/space-workspace/shared/LogisticSimulateSaleDialog.vue'
 import EventFormDrawer from '@/components/events/drawers/EventFormDrawer.vue'
 import LiveSimulationHistoryDialog from './LiveSimulationHistoryDialog.vue'
 import { useI18n } from '@/i18n/useI18n'

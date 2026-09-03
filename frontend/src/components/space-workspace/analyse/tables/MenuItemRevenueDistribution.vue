@@ -123,7 +123,7 @@ import { useI18n } from '@/i18n/useI18n'
 import { resolveItemType, resolveItemCategory } from '@/utils/analyseDimensions'
 import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
 import { useFilters } from '@/composables/useFilters'
-import AnalyseSkeletonVeil from '@/components/analyse/AnalyseSkeletonVeil.vue'
+import AnalyseSkeletonVeil from '@/components/space-workspace/analyse/AnalyseSkeletonVeil.vue'
 
 // Couleurs des buckets article (Food / Beverage / Beer / Combo) — utilisées quand
 // un nom de type catalogue coïncide ; sinon palette.

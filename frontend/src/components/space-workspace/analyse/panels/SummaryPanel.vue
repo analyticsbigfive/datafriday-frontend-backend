@@ -363,7 +363,7 @@ import {
 import { useI18n } from '@/i18n/useI18n'
 import store from '@/store'
 import { useFilters } from '@/composables/useFilters'
-import AnalyseSkeletonVeil from '@/components/analyse/AnalyseSkeletonVeil.vue'
+import AnalyseSkeletonVeil from '@/components/space-workspace/analyse/AnalyseSkeletonVeil.vue'
 
 const { t } = useI18n()
 const { filtersRecomputing } = useFilters()

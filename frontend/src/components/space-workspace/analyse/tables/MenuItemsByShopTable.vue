@@ -262,7 +262,7 @@ import {
   aggregateByItem,
   buildItemsByShopRows,
 } from '@/utils/analyseAggregations'
-import AnalyseSkeletonVeil from '@/components/analyse/AnalyseSkeletonVeil.vue'
+import AnalyseSkeletonVeil from '@/components/space-workspace/analyse/AnalyseSkeletonVeil.vue'
 
 const props = defineProps({
   // Data-driven (parité React MenuItemsByShopTable) : rows = PdV vendeurs des

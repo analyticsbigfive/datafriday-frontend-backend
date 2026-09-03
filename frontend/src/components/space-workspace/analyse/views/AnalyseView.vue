@@ -22,6 +22,8 @@
           :is-live="isLive"
           @update:toolbox="onToolboxChange"
         />
+        <!-- Mobile uniquement : backdrop de l'overlay filtres (ferme au clic hors panneau). -->
+        <div v-if="drawer" class="an-mobile-filter-backdrop" @click="drawer = false"></div>
 
         <div class="an-main">
           <!-- Bloc sticky : bandeau ROUGE (titre + période/comparaison) PUIS la
@@ -30,11 +32,32 @@
             <div class="av-header">
               <!-- Ligne 1 : [Espace] : Analyse ......... [Copier] [Partager] -->
               <div class="av-header__row1 d-flex align-center ga-2">
+                <!-- Desktop : toggle du panneau de filtres. Masqué < 560px (cf. @media),
+                     remplacé par le ☰ mobile ci-dessous (drawer d'outils). -->
                 <WorkspacePanelToggle
+                  class="av-header__toggle--desktop"
                   :open="drawer"
                   :label="t('anHeaderToggleFilters')"
                   @toggle="drawer = !drawer"
                 />
+                <!-- Mobile uniquement : ouvre WorkspaceMobileToolDrawer (nav entre outils). -->
+                <button
+                  type="button"
+                  class="av-mobile-tools-trigger"
+                  :aria-label="t('srToolsLabel')"
+                  @click="showMobileToolDrawer = true"
+                >
+                  <v-icon size="20">mdi-menu</v-icon>
+                </button>
+                <!-- Mobile uniquement : ouvre le panneau de filtres (+ config) en overlay. -->
+                <button
+                  type="button"
+                  class="av-mobile-filter-trigger"
+                  :aria-label="t('anHeaderToggleFilters')"
+                  @click="drawer = !drawer"
+                >
+                  <v-icon size="20">mdi-filter-variant</v-icon>
+                </button>
                 <h1 class="av-header__title">{{ spaceName }} : {{ toolTitle }}</h1>
                 <!-- Badge Live : basé sur la VRAIE détection (liveEventDetected, posé par
                      applyLiveScope() depuis /live-status), pas juste la route — corrigé
@@ -91,6 +114,9 @@
                   </div>
                 </v-tooltip>
                 <v-spacer />
+                <!-- Actions desktop (copier/partager/PDF/export). Sur téléphone, remplacées
+                     par un menu ⋮ unique (cf. .av-header__actions--desktop @media). -->
+                <div class="av-header__actions av-header__actions--desktop d-flex align-center">
                 <v-btn
                   icon
                   variant="text"
@@ -178,6 +204,48 @@
                       <template #prepend>
                         <v-icon size="18">mdi-file-delimited-outline</v-icon>
                       </template>
+                      <v-list-item-title>{{ t('anExportCsv') }}</v-list-item-title>
+                    </v-list-item>
+                  </v-list>
+                </v-menu>
+                </div>
+
+                <!-- Mobile uniquement : menu ⋮ regroupant les actions du bandeau. -->
+                <v-menu location="bottom end">
+                  <template #activator="{ props: moreProps }">
+                    <button
+                      v-bind="moreProps"
+                      type="button"
+                      class="av-mobile-more-trigger"
+                      :aria-label="t('anExportMenu')"
+                    >
+                      <v-icon size="20">mdi-dots-vertical</v-icon>
+                    </button>
+                  </template>
+                  <v-list density="compact">
+                    <v-list-item :disabled="copying" @click="onCopy">
+                      <template #prepend><v-icon size="18">mdi-content-copy</v-icon></template>
+                      <v-list-item-title>{{ t('anCopyImage') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item :disabled="sharing" @click="onShare">
+                      <template #prepend><v-icon size="18">mdi-share-variant-outline</v-icon></template>
+                      <v-list-item-title>{{ t('anShare') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item
+                      v-if="selectedToolbox === 'analyse' && !isLive"
+                      v-can="'stats.financial.view'"
+                      :disabled="!reportEvent || exportBusy"
+                      @click="onGenerateReportJ1"
+                    >
+                      <template #prepend><v-icon size="18">mdi-file-pdf-box</v-icon></template>
+                      <v-list-item-title>{{ t('rj1Button') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item :disabled="exportBusy" @click="onExportXlsx">
+                      <template #prepend><v-icon size="18">mdi-file-excel-outline</v-icon></template>
+                      <v-list-item-title>{{ t('anExportXlsx') }}</v-list-item-title>
+                    </v-list-item>
+                    <v-list-item :disabled="exportBusy" @click="onExportCsv">
+                      <template #prepend><v-icon size="18">mdi-file-delimited-outline</v-icon></template>
                       <v-list-item-title>{{ t('anExportCsv') }}</v-list-item-title>
                     </v-list-item>
                   </v-list>
@@ -596,6 +664,15 @@
       </div>
     </v-main>
 
+    <!-- Mobile uniquement : drawer de nav entre outils du workspace (☰ du header). -->
+    <WorkspaceMobileToolDrawer
+      v-model="showMobileToolDrawer"
+      :items="toolboxItems"
+      current-value="analyse"
+      :title="t('srToolsLabel')"
+      @select="onToolboxSelect"
+    />
+
     <!-- Predict / Event Predict overlay -->
     <EventPredictView
       v-if="showPredictOverlay && space"
@@ -655,33 +732,35 @@ import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, 
 import { useRoute, useRouter } from 'vue-router'
 import { useDisplay, useTheme } from 'vuetify'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
+import WorkspaceMobileToolDrawer from '@/components/WorkspaceMobileToolDrawer.vue'
+import { useWorkspaceToolbox } from '@/composables/useWorkspaceToolbox'
 
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
-import FilterPanel from './filters/FilterPanel.vue'
-import LiveInventoryPanel from './panels/LiveInventoryPanel.vue'
-import LiveSaleSimulatorWidget from './LiveSaleSimulatorWidget.vue'
-import FilterSummary from './filters/FilterSummary.vue'
-import FinancialMetricsGrid from './panels/FinancialMetricsGrid.vue'
-import EventRevenueByShopChart from './charts/EventRevenueByShopChart.vue'
-import EventTimelineChart from './charts/EventTimelineChart.vue'
-import ShopDistributionPieChart from './charts/ShopDistributionPieChart.vue'
-import TransactionCategoryMixChart from './charts/TransactionCategoryMixChart.vue'
-import MenuItemRevenueDistribution from './tables/MenuItemRevenueDistribution.vue'
-import MenuItemsByShopTable from './tables/MenuItemsByShopTable.vue'
-import SummaryPanel from './panels/SummaryPanel.vue'
-import FilterEditorPanel from './panels/FilterEditorPanel.vue'
-import ShopPerformanceByTransactionRate from './charts/ShopPerformanceByTransactionRate.vue'
+import FilterPanel from '../filters/FilterPanel.vue'
+import LiveInventoryPanel from '@/components/space-workspace/shared/LiveInventoryPanel.vue'
+import LiveSaleSimulatorWidget from '../LiveSaleSimulatorWidget.vue'
+import FilterSummary from '../filters/FilterSummary.vue'
+import FinancialMetricsGrid from '../panels/FinancialMetricsGrid.vue'
+import EventRevenueByShopChart from '../charts/EventRevenueByShopChart.vue'
+import EventTimelineChart from '@/components/space-workspace/shared/EventTimelineChart.vue'
+import ShopDistributionPieChart from '../charts/ShopDistributionPieChart.vue'
+import TransactionCategoryMixChart from '../charts/TransactionCategoryMixChart.vue'
+import MenuItemRevenueDistribution from '../tables/MenuItemRevenueDistribution.vue'
+import MenuItemsByShopTable from '../tables/MenuItemsByShopTable.vue'
+import SummaryPanel from '../panels/SummaryPanel.vue'
+import FilterEditorPanel from '../panels/FilterEditorPanel.vue'
+import ShopPerformanceByTransactionRate from '../charts/ShopPerformanceByTransactionRate.vue'
 import { getDateRangePresets, PRESET_I18N_KEYS } from '@/constants/dateRangePresets'
 import { getSpaceLiveStatus } from '@/api/endpoints/space.api'
 // PERF: chargé en async → le chunk de la monolithe EventPredictView (~71KB gz JS
 // + 13KB gz CSS) n'est téléchargé QUE lorsque l'overlay s'ouvre (v-if
 // showPredictOverlay), plus à chaque navigation vers space-analyse.
-const EventPredictView = defineAsyncComponent(() => import('@/components/EventPredictView.vue'))
-import GenericByEventChart from './charts/GenericByEventChart.vue'
-import ShopItemEventsDialog from './dialogs/ShopItemEventsDialog.vue'
-import UnalignedEventsDialog from './dialogs/UnalignedEventsDialog.vue'
+const EventPredictView = defineAsyncComponent(() => import('@/components/space-workspace/event-predict/views/EventPredictView.vue'))
+import GenericByEventChart from '../charts/GenericByEventChart.vue'
+import ShopItemEventsDialog from '../dialogs/ShopItemEventsDialog.vue'
+import UnalignedEventsDialog from '../dialogs/UnalignedEventsDialog.vue'
 
 import { useFilters } from '@/composables/useFilters'
 import { useMetricsCalculator } from '@/composables/useMetricsCalculator'
@@ -693,7 +772,7 @@ import { useAnalyseCapture } from '@/composables/useAnalyseCapture'
 import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
 import { useAnalyseExport } from '@/composables/useAnalyseExport'
 import { useReportJ1 } from '@/composables/useReportJ1'
-import ReportJ1Document from './ReportJ1Document.vue'
+import ReportJ1Document from '../ReportJ1Document.vue'
 import EventFormDrawer from '@/components/events/drawers/EventFormDrawer.vue'
 import store from '@/store'
 import { setAccessToken } from '@/api/client'
@@ -724,6 +803,10 @@ const router = useRouter()
 // Sur mobile / tablette, les drawers de filtre + résumé doivent être fermés
 // par défaut pour ne pas masquer le contenu (cf. version Figma responsive).
 const { mdAndDown } = useDisplay()
+
+// Nav entre outils du workspace : drawer mobile « Outils » (☰), pattern Logistic.
+const showMobileToolDrawer = ref(false)
+const { toolboxItems, onToolboxSelect } = useWorkspaceToolbox('analyse')
 
 // Dark mode : composant autonome via le thème Vuetify global (useTheme). Sert à
 // scoper les overrides CSS custom sous `.analyse-app--dark` (le thème Vuetify
@@ -2554,6 +2637,102 @@ function findTodayEventId() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* Mobile uniquement : ☰ ouvrant le drawer d'outils (pattern Logistic). Masqué en
+   desktop, activé au palier téléphone plus bas. */
+.av-mobile-tools-trigger,
+.av-mobile-filter-trigger,
+.av-mobile-more-trigger {
+  display: none;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.2);
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: #fff;
+}
+.av-mobile-tools-trigger:active,
+.av-mobile-filter-trigger:active,
+.av-mobile-more-trigger:active { transform: scale(0.94); }
+/* Backdrop de l'overlay filtres (mobile only) — masqué en desktop. */
+.an-mobile-filter-backdrop { display: none; }
+
+/* Palier téléphone (≤600px, convention parapluie) : bascule header desktop → mobile. */
+@media (max-width: 600px) {
+  .av-header__toggle--desktop { display: none; }
+  .av-header__actions--desktop { display: none !important; } /* bat le d-flex Vuetify */
+  .av-mobile-tools-trigger,
+  .av-mobile-filter-trigger,
+  .av-mobile-more-trigger { display: flex; }
+
+  /* Panneau de filtres : overlay coulissant depuis la gauche (au lieu de monopoliser le
+     haut de l'écran). Piloté par `drawer` (an-side-collapsed = fermé) ; ouvert par le bouton
+     entonnoir. Fermé au clic sur le backdrop. */
+  .an-body > :deep(.analyse-filter-panel) {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 86%;
+    max-width: 330px;
+    margin: 0;
+    border-radius: 0;
+    z-index: 3000;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
+    overflow-y: auto;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+  .an-body:not(.an-side-collapsed) > :deep(.analyse-filter-panel) {
+    transform: translateX(0);
+  }
+  /* Sélecteur « OUTILS » du panneau masqué : redondant avec le ☰ (drawer d'outils). */
+  .an-body > :deep(.analyse-filter-panel .fp-toolbox) { display: none; }
+
+  .an-mobile-filter-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 2999;
+    background: rgba(0, 0, 0, 0.4);
+  }
+
+  /* Téléphone : on abandonne le scroll indépendant par colonne (modèle desktop 3 colonnes).
+     .main-content devient LE conteneur scrollé (au lieu de overflow:hidden) → tout flue dans
+     un seul scroll, le résumé (« Analyse des données / Performance des PDV ») se place à la
+     FIN, et le bandeau rouge sticky (av-sticky, top:0) se fige juste sous l'app-bar (64px). */
+  .main-content {
+    overflow-y: auto;
+    overflow-x: hidden; /* évite une barre horizontale due au full-bleed du bandeau */
+    -webkit-overflow-scrolling: touch;
+  }
+  .an-body {
+    height: auto;
+    overflow: visible;
+    /* Padding réduit sur téléphone ; le bandeau rouge en ressort en pleine largeur. */
+    padding: 12px 12px 24px;
+  }
+  .an-main,
+  .an-body > .an-right {
+    max-height: none;
+    overflow: visible;
+  }
+  /* Bandeau rouge PLEINE LARGEUR (référence Inventaire post .si-segrow--band) : plein cadre
+     bord à bord, coins carrés, sans l'ombre de carte flottante. Full-bleed = on annule le
+     padding haut/latéral de .an-body via des marges négatives. */
+  .av-sticky {
+    margin: -12px -12px 12px;
+  }
+  .av-header {
+    border-radius: 0;
+    box-shadow: none;
+  }
 }
 /* Ligne 2 : période + comparaison, posées SUR le rouge (blanc translucide). */
 .av-header__row2 {

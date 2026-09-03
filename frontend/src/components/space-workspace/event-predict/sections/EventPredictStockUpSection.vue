@@ -146,8 +146,8 @@
  *  - selectedMenuItems : React `Map<string, Set<string>>` → Object<shopId, string[]>
  *  - quantityAdjustments : React `Map<string, number>` → Object<"shopId-menuItemId", number>
  */
-import Card from '../ui/card.vue'
-import ImageWithFallback from '../figma/ImageWithFallBack.vue'
+import Card from '@/ui/card.vue'
+import ImageWithFallback from '@/figma/ImageWithFallBack.vue'
 // BUG-291-01 : ligne d'élément PARTAGÉE par les vues « Par PDV » et « Par
 // article » — les deux lisent déjà la même source (`shopStockData`), ce
 // composant garantit qu'elles ne divergent pas non plus d'affichage.

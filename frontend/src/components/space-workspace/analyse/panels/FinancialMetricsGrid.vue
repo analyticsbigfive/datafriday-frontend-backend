@@ -45,7 +45,7 @@
 
 <script setup>
 import { computed } from 'vue'
-import KpiCard from './KpiCard.vue'
+import KpiCard from '@/components/space-workspace/shared/KpiCard.vue'
 import { KPI_CARDS } from '@/constants/analyseColors'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'

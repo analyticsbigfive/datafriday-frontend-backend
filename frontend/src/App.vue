@@ -40,7 +40,7 @@ import RouteTransitionLoader from '@/components/RouteTransitionLoader.vue'
 import GlobalConfirmDialog from '@/components/GlobalConfirmDialog.vue'
 import DemoModeBanner from '@/components/DemoModeBanner.vue'
 import SyncJobFloatingWidget from '@/components/SyncJobFloatingWidget.vue'
-import GlobalLiveIndicator from '@/components/GlobalLiveIndicator.vue'
+import GlobalLiveIndicator from '@/components/common/GlobalLiveIndicator.vue'
 import { getDigifoodCsvImportJobStatus } from '@/api/endpoints/aggregation.api.js'
 
 export default {
