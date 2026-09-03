@@ -426,8 +426,22 @@ export class WeezeventTransactionSyncService {
         // Delete existing items (cascade deletes payments)
         await this.prisma.salesTransactionItem.deleteMany({ where: { transactionId } });
 
+        // Weezevent envoie parfois, dans une même transaction, une ligne "menu/formule"
+        // au unit_price catalogue plein MAIS payments:[] vide, pendant que ses composants
+        // réels (déjà comptés) portent chacun un payments non vide — sommer unitPrice sur
+        // toutes les lignes compte alors deux fois le même argent (menu + composants).
+        // Vérifié sur données réelles de prod : quand au moins une ligne de la transaction
+        // a un payments non vide, les lignes sans payments propre ne représentent aucun
+        // encaissement réel et ne doivent pas contribuer au CA (rawData garde le prix
+        // catalogue pour référence). Transactions sans aucune ligne payée (paiement
+        // cashless non itemisé) : comportement inchangé, unitPrice catalogue conservé —
+        // c'est le seul signal fiable dont on dispose dans ce cas.
+        const anyRowHasPayment = (rows ?? []).some(r => Array.isArray((r as any).payments) && (r as any).payments.length > 0);
+
         const itemsData = (rows ?? []).map(row => {
             const totalQty = (row.payments ?? []).reduce((s: number, p: any) => s + (p.quantity ?? 0), 0);
+            const hasOwnPayment = Array.isArray((row as any).payments) && (row as any).payments.length > 0;
+            const effectiveUnitPrice = hasOwnPayment || !anyRowHasPayment ? (row.unit_price || 0) / 100 : 0;
             return {
                 transactionId,
                 externalItemId: row.id.toString(),
@@ -435,7 +449,7 @@ export class WeezeventTransactionSyncService {
                 productId: productIdMap.get(String(row.item_id)) ?? null,
                 compoundId: row.compound_id?.toString() || null,
                 quantity: totalQty || 1,
-                unitPrice: (row.unit_price || 0) / 100,
+                unitPrice: effectiveUnitPrice,
                 vat: row.vat || 0,
                 // Weezevent renvoie reduction en centimes → euros (aligné sur
                 // incremental-sync + aggregation qui la traite comme un montant €).

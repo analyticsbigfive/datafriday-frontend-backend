@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WeezeventIncrementalSyncService } from './weezevent-incremental-sync.service';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventClientService } from './weezevent-client.service';
+import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
 
 describe('WeezeventIncrementalSyncService', () => {
     let service: WeezeventIncrementalSyncService;
@@ -40,12 +41,17 @@ describe('WeezeventIncrementalSyncService', () => {
         getTransactions: jest.fn(),
     };
 
+    const mockPriceAgg = {
+        refreshForKeysSafe: jest.fn().mockResolvedValue(undefined),
+    };
+
     beforeEach(async () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 WeezeventIncrementalSyncService,
                 { provide: PrismaService, useValue: mockPrismaService },
                 { provide: WeezeventClientService, useValue: mockWeezeventClient },
+                { provide: SalesPriceAggService, useValue: mockPriceAgg },
             ],
         }).compile();
 

@@ -59,6 +59,9 @@ supabase/config.toml
 # Build info
 *.tsbuildinfo
 
+# Snapshots de rollback des scripts de backfill (données de prod, jamais commitées)
+prisma/backfill-snapshots/
+
 # Logs at root
 output.log
 .env.backup-*

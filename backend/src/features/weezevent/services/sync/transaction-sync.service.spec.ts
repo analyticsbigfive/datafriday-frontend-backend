@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WeezeventTransactionSyncService } from './transaction-sync.service';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent-client.service';
+import { SalesPriceAggService } from '../../../../shared/pricing/sales-price-agg.service';
 
 const TENANT_ID = 'tenant-001';
 const INTEGRATION_ID = 'integ-001';
@@ -71,6 +72,12 @@ function makePrismaMock() {
     };
 }
 
+function makePriceAggMock() {
+    return {
+        refreshForKeysSafe: jest.fn().mockResolvedValue(undefined),
+    };
+}
+
 function makeClientMock() {
     return {
         getTransactions: jest.fn().mockResolvedValue({
@@ -85,16 +92,19 @@ describe('WeezeventTransactionSyncService', () => {
     let service: WeezeventTransactionSyncService;
     let prisma: ReturnType<typeof makePrismaMock>;
     let client: ReturnType<typeof makeClientMock>;
+    let priceAgg: ReturnType<typeof makePriceAggMock>;
 
     beforeEach(async () => {
         prisma = makePrismaMock();
         client = makeClientMock();
+        priceAgg = makePriceAggMock();
 
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 WeezeventTransactionSyncService,
                 { provide: PrismaService, useValue: prisma },
                 { provide: WeezeventClientService, useValue: client },
+                { provide: SalesPriceAggService, useValue: priceAgg },
             ],
         }).compile();
 
@@ -213,6 +223,88 @@ describe('WeezeventTransactionSyncService', () => {
             await expect(
                 service.syncSingleTransaction(TENANT_ID, INTEGRATION_ID, 'tx-1'),
             ).rejects.toThrow(/not found/);
+        });
+    });
+
+    // ─── Phantom menu revenue (CA fantôme des lignes menu/formule) ─────────────
+
+    describe('upsertTransactionItems() — CA fantôme menu/formule', () => {
+        it('zeroes the menu line unitPrice when its components are paid in the same transaction', async () => {
+            prisma.salesTransaction.findUnique.mockResolvedValue(null);
+            client.getTransaction.mockResolvedValue({
+                ...mockApiTransaction,
+                rows: [
+                    {
+                        id: 1,
+                        item_id: 73,
+                        item_name: 'MENU BURGER BOEUF FRITE BOISSONS',
+                        compound_id: null,
+                        component: false,
+                        unit_price: 1600,
+                        vat: 0,
+                        reduction: 0,
+                        payments: [],
+                    },
+                    {
+                        id: 2,
+                        item_id: 53,
+                        item_name: 'BURGER BOEUF + FRITES',
+                        compound_id: null,
+                        component: false,
+                        unit_price: 1189,
+                        vat: 10,
+                        reduction: 0,
+                        payments: [{ id: 1, amount: 1189, quantity: 1 }],
+                    },
+                    {
+                        id: 3,
+                        item_id: 18,
+                        item_name: 'DEMI BIERE 25cl',
+                        compound_id: null,
+                        component: false,
+                        unit_price: 411,
+                        vat: 20,
+                        reduction: 0,
+                        payments: [{ id: 2, amount: 411, quantity: 1 }],
+                    },
+                ],
+            });
+
+            await service.syncSingleTransaction(TENANT_ID, INTEGRATION_ID, 'tx-1');
+
+            const itemsData = prisma.salesTransactionItem.createMany.mock.calls[0][0].data;
+            const menuItem = itemsData.find((it: any) => it.productName === 'MENU BURGER BOEUF FRITE BOISSONS');
+            const burgerItem = itemsData.find((it: any) => it.productName === 'BURGER BOEUF + FRITES');
+            const beerItem = itemsData.find((it: any) => it.productName === 'DEMI BIERE 25cl');
+
+            expect(menuItem.unitPrice).toBe(0);
+            expect(burgerItem.unitPrice).toBe(11.89);
+            expect(beerItem.unitPrice).toBe(4.11);
+        });
+
+        it('keeps unitPrice unchanged when no line in the transaction has payments (cashless)', async () => {
+            prisma.salesTransaction.findUnique.mockResolvedValue(null);
+            client.getTransaction.mockResolvedValue({
+                ...mockApiTransaction,
+                rows: [
+                    {
+                        id: 1,
+                        item_id: 73,
+                        item_name: 'MENU BURGER BOEUF FRITE BOISSONS',
+                        compound_id: null,
+                        component: false,
+                        unit_price: 1600,
+                        vat: 0,
+                        reduction: 0,
+                        payments: [],
+                    },
+                ],
+            });
+
+            await service.syncSingleTransaction(TENANT_ID, INTEGRATION_ID, 'tx-1');
+
+            const itemsData = prisma.salesTransactionItem.createMany.mock.calls[0][0].data;
+            expect(itemsData[0].unitPrice).toBe(16);
         });
     });
 });

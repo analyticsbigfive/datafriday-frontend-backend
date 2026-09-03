@@ -870,10 +870,17 @@ export class WeezeventIncrementalSyncService {
                 if (txIdsWithItems.has(tx.id)) continue;
 
                 const rows = itemsByTxWeezeventId.get(tx.externalId) ?? [];
+                // Même correction que transaction-sync.service.ts#upsertTransactionItems :
+                // une ligne "menu/formule" avec payments:[] vide, dans une transaction où
+                // d'autres lignes (ses composants réels) portent un payments non vide,
+                // double compterait le CA si on gardait son unitPrice catalogue.
+                const anyRowHasPayment = rows.some((r: any) => Array.isArray(r.payments) && r.payments.length > 0);
                 for (const row of rows) {
                     const productWid = String(row.item_id ?? '');
                     const resolvedProductId = productWid ? (productIdMap.get(productWid) ?? null) : null;
                     const qty = (row.payments ?? []).reduce((s: number, p: any) => s + (p.quantity ?? 1), 0) || 1;
+                    const hasOwnPayment = Array.isArray((row as any).payments) && (row as any).payments.length > 0;
+                    const effectiveUnitPrice = hasOwnPayment || !anyRowHasPayment ? (row.unit_price ?? 0) / 100 : 0;
                     itemsToInsert.push({
                         transactionId: tx.id,
                         externalItemId: row.id?.toString() ?? null,
@@ -881,7 +888,7 @@ export class WeezeventIncrementalSyncService {
                         productName: row.item_name ?? null,
                         compoundId: null,
                         quantity: qty,
-                        unitPrice: (row.unit_price ?? 0) / 100,
+                        unitPrice: effectiveUnitPrice,
                         vat: row.vat ?? 0,
                         reduction: (row.reduction ?? 0) / 100,
                         rawData: row,
