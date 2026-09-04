@@ -19,7 +19,6 @@
           ref="filterPanelRef"
           :events="analysableEvents"
           :shops="shopNames"
-          :is-live="isLive"
           @update:toolbox="onToolboxChange"
         />
         <!-- Mobile uniquement : backdrop de l'overlay filtres (ferme au clic hors panneau). -->
@@ -59,33 +58,6 @@
                   <v-icon size="20">mdi-filter-variant</v-icon>
                 </button>
                 <h1 class="av-header__title">{{ spaceName }} : {{ toolTitle }}</h1>
-                <!-- Badge Live : basé sur la VRAIE détection (liveEventDetected, posé par
-                     applyLiveScope() depuis /live-status), pas juste la route — corrigé
-                     2026-08-05 (BUG-305-02) : affichait "● LIVE" même sans event dans la
-                     fenêtre de 30 min, alors que le titre retombait sur "Analyse" à côté —
-                     combinaison contradictoire, mal vue par l'utilisateur à raison. -->
-                <span v-if="liveEventDetected" class="av-live-badge" :title="t('anToolLive')">
-                  <span class="av-live-badge__dot"></span>{{ t('anToolLive') }}
-                </span>
-                <!-- Voir/modifier l'event en cours (module Live, 2026-08-05) : ouvre le même
-                     drawer que /events, dates verrouillées, tous les autres champs éditables.
-                     Visible dès qu'un event est résolu pour AUJOURD'HUI (liveEventId, cf.
-                     findTodayEventId), PAS seulement pendant le pulse strict de 30 min
-                     (liveEventDetected, réservé au badge ● LIVE) — sinon le bouton disparaissait
-                     à la moindre pause de ventes alors que l'event est toujours en cours
-                     (retour utilisateur 2026-08-05). -->
-                <v-btn
-                  v-if="liveEventId"
-                  icon
-                  variant="text"
-                  size="small"
-                  :title="t('anLiveEditEvent')"
-                  :aria-label="t('anLiveEditEvent')"
-                  class="fs-icon-btn"
-                  @click="liveEventEditOpen = true"
-                >
-                  <v-icon size="18">mdi-pencil-outline</v-icon>
-                </v-btn>
                 <!-- BUG-356-01 v2/v3 (retours client + user, 24/08) : l'indicateur
                      « Non mappées » vit DANS le bandeau rouge — le bandeau dédié prenait
                      de la place. v3 : triangle warning `mdi-alert` (plus lisible que
@@ -154,13 +126,9 @@
                      Visible UNIQUEMENT en mode Analyse (décision JLH 2026-08-04 :
                      le rapport porte sur du réalisé, pas sur une projection).
                      Désactivé hors mode mono-événement passé — le title reste
-                     lisible sur bouton désactivé grâce au span englobant.
-                     ET pas en Live (trouvé 2026-08-05) : `reportEvent` vérifie
-                     seulement `date <= now`, pas que l'event soit TERMINÉ — un
-                     event daté d'aujourd'hui passe ce test dès la 1re minute,
-                     activant un bouton « réalisé » sur un event encore en cours. -->
+                     lisible sur bouton désactivé grâce au span englobant. -->
                 <span
-                  v-if="selectedToolbox === 'analyse' && !isLive"
+                  v-if="selectedToolbox === 'analyse'"
                   v-can="'stats.financial.view'"
                   :title="reportEvent ? t('rj1Button') : t('rj1ButtonHint')"
                 >
@@ -232,7 +200,7 @@
                       <v-list-item-title>{{ t('anShare') }}</v-list-item-title>
                     </v-list-item>
                     <v-list-item
-                      v-if="selectedToolbox === 'analyse' && !isLive"
+                      v-if="selectedToolbox === 'analyse'"
                       v-can="'stats.financial.view'"
                       :disabled="!reportEvent || exportBusy"
                       @click="onGenerateReportJ1"
@@ -251,14 +219,8 @@
                   </v-list>
                 </v-menu>
               </div>
-              <!-- Ligne 2 : période + comparaison. Masquée en Live (trouvé
-                   2026-08-05) : le select de période est éditable en apparence
-                   mais applyLiveScope() force timeRange='all' à chaque tick (15s) —
-                   même trappe que Dates/Configuration/Événements dans FilterPanel.
-                   « Comparer à » s'auto-masque déjà quand timeRange==='all'
-                   (FilterSummary.vue:22), mais le select de période, lui, reste
-                   affiché et cliquable pour rien. -->
-              <div v-if="!loading && !isLive" class="av-header__row2">
+              <!-- Ligne 2 : période + comparaison. -->
+              <div v-if="!loading" class="av-header__row2">
                 <FilterSummary
                   :comparison-mode="filters.comparisonMode"
                   :comparison-empty="comparisonEmpty"
@@ -271,17 +233,13 @@
               </div>
             </div>
 
-            <!-- Tags des filtres actifs — fond neutre, sous le bandeau rouge.
-                 Chip événements masqué en Live (trouvé 2026-08-05) : toujours
-                 "1 événement(s) sélectionné(s)" (l'event live, forcé par
-                 applyLiveScope), redondant avec le badge ● LIVE — et sa croix
-                 de fermeture ne fait rien de durable (re-forcé au tick suivant). -->
+            <!-- Tags des filtres actifs — fond neutre, sous le bandeau rouge. -->
             <div
-              v-if="!loading && ((!isLive && (filters.selectedEventIds || []).length) || activeFilterChips.length)"
+              v-if="!loading && ((filters.selectedEventIds || []).length || activeFilterChips.length)"
               class="av-tags d-flex align-center flex-wrap ga-2"
             >
               <v-chip
-                v-if="!isLive && (filters.selectedEventIds || []).length"
+                v-if="(filters.selectedEventIds || []).length"
                 closable
                 size="small"
                 variant="tonal"
@@ -316,31 +274,10 @@
               </v-btn>
             </div>
           </div>
-      <!-- Onglets Live (module Live v2, 11_LIVE.md §3) : bascule Analyse / Inventaire,
-           visibles uniquement sur la route space-live. -->
-      <div v-if="isLive" class="an-live-tabs">
-        <button class="an-live-tab" :class="{ 'an-live-tab--active': liveTab === 'analyse' }" @click="liveTab = 'analyse'">{{ t('anToolAnalyse') }}</button>
-        <button class="an-live-tab" :class="{ 'an-live-tab--active': liveTab === 'inventory' }" @click="liveTab = 'inventory'">{{ t('anLiveInvTitle') }}</button>
-      </div>
-
-      <LiveInventoryPanel
-        v-if="showInventory"
-        :space-id="route.params.spaceId"
-        :is-dark="isDark"
-        :active="showInventory"
-      />
-
-      <!-- Bouton flottant QA (module Live) : simuler une vraie vente Weezevent/Digifood
-           pour tester le mode Live sans attendre un vrai event. -->
-      <LiveSaleSimulatorWidget
-        v-if="isLive"
-        :space-id="route.params.spaceId"
-        @simulated="livePoll"
-      />
 
       <!-- pa-0 : les gutters viennent de la grille .an-body (18/24), le
            container ne doit pas ré-indenter le contenu vs le bandeau rouge. -->
-      <v-container v-show="!showInventory" id="analyse-capture-root" fluid class="pa-0">
+      <v-container id="analyse-capture-root" fluid class="pa-0">
         <!-- Loading : skeleton fidèle à la structure de l'écran -->
         <template v-if="loading">
           <v-skeleton-loader
@@ -590,9 +527,7 @@
             @shop-area-click="(v) => toggleArrayFilter('selectedShopAreas', v)"
           />
 
-          <!-- Combinaisons de catégories PAR TRANSACTION. Dans le conteneur
-               `v-show="!showInventory"` : couvre donc Analyse, Live ET Predict
-               (même composant, aucune garde !isLive). Son drill-down reste local
+          <!-- Combinaisons de catégories PAR TRANSACTION. Son drill-down reste local
                au composant, cf. son en-tête. -->
           <TransactionCategoryMixChart
             v-can="'stats.financial.view'"
@@ -713,17 +648,6 @@
          génération (useReportJ1), capturé par html2canvas puis démonté. -->
     <ReportJ1Document v-if="reportJ1Data" :data="reportJ1Data" />
 
-    <!-- Édition de l'event live en cours (module Live, 2026-08-05) — même drawer
-         que /events, dates verrouillées (lock-date). -->
-    <EventFormDrawer
-      v-model="liveEventEditOpen"
-      mode="edit"
-      :initial-event="liveEventObject"
-      :is-dark="isDark"
-      lock-date
-      @submitted="liveShopDetailsPoll"
-    />
-
   </v-app>
 </template>
 
@@ -739,8 +663,6 @@ import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 import FilterPanel from '../filters/FilterPanel.vue'
-import LiveInventoryPanel from '@/components/space-workspace/shared/LiveInventoryPanel.vue'
-import LiveSaleSimulatorWidget from '../LiveSaleSimulatorWidget.vue'
 import FilterSummary from '../filters/FilterSummary.vue'
 import FinancialMetricsGrid from '../panels/FinancialMetricsGrid.vue'
 import EventRevenueByShopChart from '../charts/EventRevenueByShopChart.vue'
@@ -753,7 +675,6 @@ import SummaryPanel from '../panels/SummaryPanel.vue'
 import FilterEditorPanel from '../panels/FilterEditorPanel.vue'
 import ShopPerformanceByTransactionRate from '../charts/ShopPerformanceByTransactionRate.vue'
 import { getDateRangePresets, PRESET_I18N_KEYS } from '@/constants/dateRangePresets'
-import { getSpaceLiveStatus } from '@/api/endpoints/space.api'
 // PERF: chargé en async → le chunk de la monolithe EventPredictView (~71KB gz JS
 // + 13KB gz CSS) n'est téléchargé QUE lorsque l'overlay s'ouvre (v-if
 // showPredictOverlay), plus à chaque navigation vers space-analyse.
@@ -773,7 +694,6 @@ import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
 import { useAnalyseExport } from '@/composables/useAnalyseExport'
 import { useReportJ1 } from '@/composables/useReportJ1'
 import ReportJ1Document from '../ReportJ1Document.vue'
-import EventFormDrawer from '@/components/events/drawers/EventFormDrawer.vue'
 import store from '@/store'
 import { setAccessToken } from '@/api/client'
 import { supabase } from '@/lib/supabase'
@@ -2144,133 +2064,13 @@ function onShowAverage() {
 // ---- Copier / Partager (screenshot) --------------------------------------
 // (délégué à useAnalyseCapture : copying, sharing, snackbar, snackbarText, snackbarColor, onCopy, onShare)
 
-// ── Mode flux « Live » (docs/modules/11_LIVE.md, greffe D) ──────────────────
-// Sur la route dédiée `space-live`, on rafraîchit périodiquement TOUTES les
-// sources KPI, pas seulement la timeline :
-//  - `event-timeline` (loadTimelineForEvents) ET `useAnalyseItemRecords`
-//    (Revenue/Per Cap/Margin/Avg-Tx en dépendent, cf. kpiRecords) sont repollés
-//    avec `bypassCache: true` : le cache session de `getSpaceEventTimelineBatch`
-//    (`space.api.js`) suppose un event IMMUABLE (vrai une fois l'event terminé,
-//    faux pendant un live) — sans ce bypass, tout poll après le 1er est servi
-//    depuis ce cache mémoire et n'atteint jamais le réseau.
-//  - `loadSpace` (shop-details/shopGranularData → Shop Performance, Event
-//    Revenue by Shop, Shop distribution, et `menuItemCostMap` utilisé pour le
-//    calcul de marge) : alignée sur le même intervalle que le reste (15s,
-//    2026-07-29) — un `menuItemCostMap` rafraîchi seulement toutes les 45s
-//    pendant que le CA l'était toutes les 15s faisait dériver la marge affichée
-//    jusqu'à 30s derrière le CA. Le bug historique qui remettait
-//    `selectedConfigurationId` à null est corrigé (bug 225,
-//    `resolveConfigSelectionAfterLoad`, store/modules/analyse.js), donc ce
-//    re-dispatch plus fréquent est sûr.
-// keepAlive (route space-live) → on démarre/arrête via onActivated/onDeactivated.
-const isLive = computed(() => route.name === 'space-live')
-// Relais vers le store (module Live, docs/modules/11_LIVE.md) : `optionsBaseRecords`
-// (Types de PDV/Zones/Points de vente) a besoin de savoir qu'on est en Live pour se
-// scoper au seul event live plutôt qu'à tout l'historique analysable de l'espace.
-// `watch` (pas juste un commit au montage) : suit route.name en continu, y compris
-// sous keepAlive où le composant ne démonte jamais entre Live et Analyse classique.
-watch(isLive, (v) => store.commit('analyse/SET_LIVE_ROUTE', v), { immediate: true })
-// Onglet actif du mode Live (module Live v2) : 'analyse' (défaut) | 'inventory'.
-const liveTab = ref('analyse')
-// Passe à true dès qu'applyLiveScope() a réellement modifié les filtres (donc
-// uniquement pour une instance jamais utilisée en Live, ex. l'Analyse classique, pas
-// de resetFilters() au démontage). Sans ce garde-fou, chaque démontage d'AnalyseView
-// (y compris une simple Analyse qui n'a jamais vu /live) déclenchait un reset
-// réactif inutile, travail superflu pile au moment du teardown, cf. onDeactivated/
-// onBeforeUnmount ci-dessous.
-const liveScopeApplied = ref(false)
-const showInventory = computed(() => isLive.value && liveTab.value === 'inventory')
-// Event live courant, dérivé du scope déjà posé par applyLiveScope() (pas de
-// nouvel appel réseau) — passé à LiveInventoryPanel pour l'init de stock
-// depuis l'Inventaire pré-événement (docs/modules/11_LIVE.md §15).
-const liveEventId = computed(() => (isLive.value ? (filters.value.selectedEventIds || [])[0] || '' : ''))
-const liveEventName = computed(() => {
-  if (!liveEventId.value) return ''
-  const ev = (store.state.analyse.events || []).find((e) => e.id === liveEventId.value)
-  return ev?.name || ev?.eventName || ''
-})
-// Objet event complet (module Live, 2026-08-05) — pour le drawer d'édition
-// (EventFormDrawer::initialEvent). Même liste que liveEventName ci-dessus.
-const liveEventObject = computed(() => (store.state.analyse.events || []).find((e) => e.id === liveEventId.value) || null)
-const liveEventEditOpen = ref(false)
-// Détection RÉELLE d'un event live (posée par applyLiveScope() depuis
-// /live-status), distincte de `isLive` (route seule). Corrigé 2026-08-05
-// (BUG-305-02) : le badge ● LIVE et le bouton d'édition ne doivent s'afficher
-// que si un event est VRAIMENT dans la fenêtre live, pas juste parce qu'on est
-// sur la route /live.
-const liveEventDetected = ref(false)
-const LIVE_POLL_MS = 15000
-let livePollTimer = null
-async function livePoll() {
-  // Re-résout l'event live à CHAQUE tick, sans ça un scope figé au premier appel
-  // (ex. page ouverte avant la 1re vente, ou avant qu'un Event existe) ne se
-  // corrige jamais tout seul : la timeline/KPI continuent de tourner sur l'ancien
-  // scope pendant que de vraies transactions arrivent (cause racine confirmée
-  // 2026-08-03, auparavant applyLiveScope() ne tournait qu'au mount/activate).
-  await applyLiveScope()
-  if (isTimelineActive.value) loadTimelineForEvents(filteredEvents.value, { bypassCache: true })
-  refreshItemRecords()
-  // Les paniers ont leur PROPRE cache session (`_basketCache`, space.api.js) avec
-  // la même hypothèse d'immuabilité : sans ce bypass, le donut « catégories par
-  // transaction » resterait figé pendant que tout le reste de la page tique.
-  refreshBaskets()
-  liveShopDetailsPoll()
-}
-// Module Live (docs/modules/11_LIVE.md §14) : snapshot dédié qui ne rafraîchit
-// QUE les ventes (shopGranularData/menuItemCostMap/summary), pas tout le
-// catalogue de l'espace — `loadSpace`/`fetchSpaceData` reste le chemin du
-// premier chargement (mount), pas des ticks live suivants.
-function liveShopDetailsPoll() {
-  const spaceId = route.params.spaceId
-  if (spaceId) store.dispatch('analyse/refreshLiveShopSnapshot', { spaceId })
-}
-function startLivePolling() {
-  stopLivePolling()
-  if (!isLive.value) return
-  livePollTimer = setInterval(livePoll, LIVE_POLL_MS)
-}
-function stopLivePolling() {
-  if (livePollTimer) { clearInterval(livePollTimer); livePollTimer = null }
-}
-onActivated(() => {
-  startLivePolling()
-  // Le composant reste en mémoire (keepAlive) : revenir sur /live après être
-  // passé par un autre outil ne redéclenche pas onMounted, on resynchronise
-  // quand même sur l'event réellement live à chaque retour sur l'écran.
-  // resetFilters() AVANT applyLiveScope() : neutralise tout filtre secondaire
-  // laissé par une session Analyse précédente (catégorie, recherche, plages de
-  // tickets...) qui pourrait sinon exclure silencieusement l'event live de
-  // filteredEvents malgré selectedEventIds, applyLiveScope() écrase ensuite les 3
-  // clés essentielles (config/timeRange/selectedEventIds) par-dessus ce reset.
-  if (isLive.value) resetFilters()
-  applyLiveScope()
-})
-// Redondant à dessein (comme pour stopLivePolling) : selon que /live vers /analyse
-// bascule une route keepAlive vers keepAlive (onDeactivated) ou détruit le wrapper
-// <keep-alive> lui-même (onBeforeUnmount, cf. DashboardView.vue), un seul des
-// deux hooks se déclenche réellement, jamais les deux, jamais aucun.
-// resetFilters() gardé par liveScopeApplied : sur une instance qui n'a jamais
-// scopé sur Live (Analyse classique), ce reset ne servirait à rien, évite le
-// recalcul réactif superflu pile au moment du démontage.
-function resetLiveFiltersIfNeeded() {
-  stopLivePolling()
-  if (liveScopeApplied.value) {
-    resetFilters()
-    liveScopeApplied.value = false
-  }
-  // Sinon `liveEventDetected` garderait sa dernière valeur (badge/bouton
-  // édition qui persisteraient hors de la route Live).
-  liveEventDetected.value = false
-}
-onDeactivated(resetLiveFiltersIfNeeded)
-// BUG-364-01 — purge des caches composables au VRAI démontage (pas onDeactivated :
-// la route Live keepAlive doit garder ses données). Jusqu'ici la purge n'existait
-// qu'au changement d'espace (watcher route plus bas) : quitter l'Analyse pour un
-// autre module laissait ~164 Mo de records préprocessés en mémoire pour rien.
-// Le cache session module-level de space.api.js (LRU 30, borné) n'est PAS touché —
-// revenir sur la page reste instantané pour les events encore dans le LRU.
+// BUG-364-01 — purge des caches composables au VRAI démontage (pas onDeactivated).
+// Jusqu'ici la purge n'existait qu'au changement d'espace (watcher route plus bas) :
+// quitter l'Analyse pour un autre module laissait ~164 Mo de records préprocessés en
+// mémoire pour rien. Le cache session module-level de space.api.js (LRU 30, borné)
+// n'est PAS touché — revenir sur la page reste instantané pour les events encore
+// dans le LRU.
 onBeforeUnmount(() => {
-  resetLiveFiltersIfNeeded()
   clearItemRecordsCache()
   clearComparisonCache()
   clearBasketsCache()
@@ -2280,7 +2080,6 @@ onBeforeUnmount(() => {
 
 onMounted(() => {
   ensureAuthAndLoad(route.params.spaceId)
-  startLivePolling()
   // Saisons (Rapport Saison) : alimente les presets `season:<id>` des pickers
   // de dates. Cache 15 min côté store, échec non bloquant (picker inchangé).
   store.dispatch('seasons/fetchAll').catch(() => {})
@@ -2380,7 +2179,7 @@ async function ensureAuthAndLoad(spaceId) {
     console.warn('[AnalyseView] Unable to fetch Supabase session:', e?.message)
   }
   try {
-    await store.dispatch('analyse/loadSpace', { spaceId, isLive: isLive.value })
+    await store.dispatch('analyse/loadSpace', { spaceId })
     // Prefetch market prices (catalogue global tenant, partagé Inventory/Logistic/
     // Restock) HORS chemin critique : la query coûte ~60s à froid. Le charger dès
     // l'entrée dans l'espace chauffe le cache (SWR) avant l'ouverture d'Inventory.
@@ -2394,73 +2193,11 @@ async function ensureAuthAndLoad(spaceId) {
         store.dispatch('analyse/updateFilter', { key: 'selectedConfigurationId', value: urlConfig })
       }
     }
-    // Même garde-fou qu'onActivated : neutralise les filtres secondaires résiduels
-    // d'une session Analyse avant de (re)scoper sur l'event live.
-    if (isLive.value) resetFilters()
-    await applyLiveScope()
   } finally {
     // Navigation rapide entre spaces : ancienne requête ne doit pas masquer
     // skeleton de nouvelle requête encore active.
     if (requestId === analyseLoadRequestId) initialLoadPending.value = false
   }
-}
-
-// Module Live : sans ça, /live hérite tel quel du dernier filtre actif sur Analyse
-// classique (même state.filters partagé) — un `timeRange:'all'` résiduel affiche
-// tout l'historique de l'espace au lieu du seul event en cours. Scope explicitement
-// sur l'event live (selectedEventIds + configuration remise à "Toutes" pour ne pas
-// l'exclure silencieusement, cf. filteredEvents) ; à défaut, repli sur "Aujourd'hui"
-// plutôt que "Tout l'historique". Best-effort (comme SpaceItem.vue checkLiveStatus) :
-// n'empêche jamais l'affichage si l'appel échoue.
-async function applyLiveScope() {
-  if (!isLive.value) return
-  const spaceId = route.params.spaceId
-  if (!spaceId) return
-  liveScopeApplied.value = true
-  try {
-    const res = await getSpaceLiveStatus(spaceId)
-    // `liveEventDetected` (badge ● LIVE, pulse) reste STRICT : vente réelle dans
-    // les 30 dernières minutes (getLiveStatus). Mais titre/bouton d'édition ne
-    // doivent pas disparaître à la moindre pause de ventes (>30 min sans vente =
-    // event toujours en cours, juste un creux) — trouvé le 2026-08-05 (retour
-    // utilisateur : "pourquoi Analyse alors que je suis sur Live", bouton
-    // d'édition introuvable). Repli : un event dont la fenêtre couvre AUJOURD'HUI
-    // pour cet espace (`findTodayEventId`, sur `state.events` déjà à jour, aucun
-    // appel réseau de plus) sert d'ancre stable pour le reste de l'écran.
-    liveEventDetected.value = !!(res?.isLive && res?.eventId)
-    const anchorEventId = res?.eventId || findTodayEventId()
-    if (anchorEventId) {
-      setFilterImmediate('selectedConfigurationId', null)
-      setFilterImmediate('timeRange', 'all')
-      setFilterImmediate('selectedEventIds', [anchorEventId])
-    } else {
-      setFilterImmediate('selectedEventIds', [])
-      setFilterImmediate('timeRange', 'today')
-    }
-  } catch (e) {
-    liveEventDetected.value = false
-    console.warn('[AnalyseView] applyLiveScope KO —', e?.message)
-  }
-}
-
-/**
- * Event de CET espace dont la fenêtre [eventStartDate, eventEndDate] (repli sur
- * `date`/`eventDate` seul si pas de bornes) couvre AUJOURD'HUI — repli de
- * `applyLiveScope()` quand aucune vente n'est tombée dans les 30 dernières
- * minutes mais qu'un event est bien "celui du jour". `state.events` est déjà
- * tenu à jour par le poll live (BUG-302-02) : lecture pure, pas de fetch.
- */
-function findTodayEventId() {
-  const events = store.state.analyse.events || []
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const todayEnd = new Date(today); todayEnd.setHours(23, 59, 59, 999)
-  for (const e of events) {
-    const start = parseEventDateLocal(e.eventStartDate || e.date || e.eventDate)
-    if (!start) continue
-    const end = parseEventDateLocal(e.eventEndDate || e.date || e.eventDate) || start
-    if (start <= todayEnd && end >= today) return e.id
-  }
-  return null
 }
 </script>
 
@@ -2571,58 +2308,6 @@ function findTodayEventId() {
   opacity: 0.85;
 }
 
-/* Badge Live (module Live) : pastille claire + point pulsant sur le bandeau rouge. */
-.av-live-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 11px;
-  border-radius: 100px;
-  background: rgba(255, 255, 255, 0.22);
-  color: #fff;
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  flex-shrink: 0;
-}
-.av-live-badge__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6);
-  animation: av-live-pulse 1.4s infinite;
-}
-@keyframes av-live-pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.6); }
-  70%  { box-shadow: 0 0 0 7px rgba(255, 255, 255, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
-}
-/* Onglets Live (Analyse / Inventaire) — segmented control. */
-.an-live-tabs {
-  display: inline-flex;
-  gap: 4px;
-  padding: 4px;
-  margin: 2px 0 14px;
-  border-radius: 100px;
-  background: #f3f4f6;
-}
-.an-live-tab {
-  padding: 6px 18px;
-  border: none;
-  background: transparent;
-  border-radius: 100px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #6b7280;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-.an-live-tab--active { background: #ff3131; color: #fff; }
-.analyse-app--dark .an-live-tabs { background: #0f172a; }
-.analyse-app--dark .an-live-tab { color: #94a3b8; }
-.analyse-app--dark .an-live-tab--active { background: #ff3131; color: #fff; }
 /* Ligne 1 : toggle + « Espace : Analyse » + copier/partager. */
 .av-header__row1 {
   padding: 14px 22px 8px;
