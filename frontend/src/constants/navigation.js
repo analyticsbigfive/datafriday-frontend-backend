@@ -44,7 +44,7 @@ export const SETTINGS_NAVIGATION = [
         title: 'navEditSpace',
         // Groupe déroulant DYNAMIQUE, placé en tête : ses items sont la liste des
         // spaces existants (résolue dans DashboardView via le store), chacun
-        // redirigeant vers son builder 3D `/spaces/:id/builder2`. `permission` au
+        // redirigeant vers son builder 3D `/spaces/:id/builder`. `permission` au
         // niveau groupe car il n'y a pas d'items statiques à filtrer un par un.
         dynamic: 'spaces',
         permission: 'space.edit',
