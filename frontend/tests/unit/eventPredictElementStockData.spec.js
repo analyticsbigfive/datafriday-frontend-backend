@@ -8,7 +8,7 @@
  * garantit que les deux modes de l'écran ne peuvent pas afficher des lignes
  * différentes pour le même stock.
  */
-import EventPredictStockUpSection from '@/components/EventPredictStockUpSection.vue'
+import EventPredictStockUpSection from '@/components/space-workspace/event-predict/sections/EventPredictStockUpSection.vue'
 
 const { elementStockData, totalStockCost } = EventPredictStockUpSection.computed
 

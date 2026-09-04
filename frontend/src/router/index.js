@@ -146,7 +146,7 @@ const routes = [
       {
         path: '/spaces/:spaceId',
         name: 'space-analyse',
-        component: () => import('@/components/analyse/AnalyseView.vue'),
+        component: () => import('@/components/space-workspace/analyse/views/AnalyseView.vue'),
         // Vue par défaut d'un espace : le guard fait atterrir chaque rôle sur
         // son 1er écran autorisé (Analyse sinon Inventory/Réarmement…).
         beforeEnter: spaceEntryGuard,
@@ -166,14 +166,14 @@ const routes = [
       {
         path: '/spaces/:spaceId/predict',
         name: 'space-predict',
-        component: () => import('@/views/SpacePredictView.vue'),
+        component: () => import('@/components/space-workspace/event-predict/views/SpacePredictView.vue'),
         meta: { title: 'Event Predict', keepAlive: true, permission: 'front.fb.eventPredict' }
       },
 
       {
         path: '/spaces/:spaceId/inventory',
         name: 'space-inventory',
-        component: () => import('@/views/SpaceInventoryView.vue'),
+        component: () => import('@/components/space-workspace/inventory/views/SpaceInventoryView.vue'),
         meta: { title: 'Post-event Inventory', keepAlive: true, permission: 'front.fb.spaceInventory', inventoryMode: 'post' }
       },
 
@@ -183,46 +183,35 @@ const routes = [
         // route.path). Doc : docs/modules/10_POST_EVENT_INVENTORY.md §8.
         path: '/spaces/:spaceId/pre-inventory',
         name: 'space-pre-inventory',
-        component: () => import('@/views/SpaceInventoryView.vue'),
+        component: () => import('@/components/space-workspace/inventory/views/SpaceInventoryView.vue'),
         meta: { title: 'Pre-event Inventory', keepAlive: true, permission: 'front.fb.spaceInventory', inventoryMode: 'pre' }
       },
 
       {
         path: '/spaces/:spaceId/logistic',
         name: 'space-logistic',
-        component: () => import('@/views/SpaceLogisticView.vue'),
+        component: () => import('@/components/space-workspace/logistic/views/SpaceLogisticView.vue'),
         meta: { title: 'Logistique', keepAlive: true, permission: 'front.fb.logistic' }
       },
 
       {
         path: '/spaces/:spaceId/restock',
         name: 'space-restock',
-        component: () => import('@/views/SpaceRestockView.vue'),
+        component: () => import('@/components/space-workspace/restock/views/SpaceRestockView.vue'),
         meta: { title: 'Réarmement', keepAlive: true, permission: ['front.fb.restock', 'front.fb.restockBoard'] }
       },
 
       {
-        // Live (BUG/module Live, cf. docs/modules/11_LIVE.md) : l'écran Analyse en
-        // mode flux. Route dédiée (pas ?toolbox=) car Live comprendra un onglet
-        // Inventaire (v2). `front.fb.live` déjà catalogué. `keepAlive` explicite.
-        // Remise en l'état d'origine (2026-09-01) : le chantier 379 vit sur /live2
-        // en parallèle le temps d'être validé, sans casser le bouton ◉/menu existant
-        // qui pointe ici.
+        // Live (chantier 379, frontend/docs/chantiers/379_live_standalone_backend_driven) :
+        // composant DÉDIÉ (`components/space-workspace/live/`), zéro couplage avec
+        // AnalyseView.vue — décision actée le 2026-09-01, validée par l'utilisateur le
+        // 2026-09-03 après parité complète avec l'ancien mode Live d'AnalyseView.vue
+        // (bascule finale : /live pointait vers AnalyseView.vue jusque-là, /live2 servait
+        // de route de validation en parallèle — les deux sont désormais unifiées ici).
         path: '/spaces/:spaceId/live',
         name: 'space-live',
-        component: () => import('@/components/analyse/AnalyseView.vue'),
+        component: () => import('@/components/space-workspace/live/views/LiveView.vue'),
         meta: { title: 'Live', keepAlive: true, permission: 'front.fb.live' }
-      },
-
-      {
-        // Live v2 (chantier 379, frontend/docs/chantiers/379_live_standalone_backend_driven) :
-        // composant DÉDIÉ, ne réutilise pas AnalyseView.vue (décision 2026-09-01 — zéro
-        // couplage avec Analyse, cf. PLAN.md). Route séparée de /live le temps de valider
-        // le nouveau composant — pas encore reliée à un bouton/menu, accès direct par URL.
-        path: '/spaces/:spaceId/live2',
-        name: 'space-live2',
-        component: () => import('@/components/live/LiveView.vue'),
-        meta: { title: 'Live v2', keepAlive: true, permission: 'front.fb.live' }
       },
 
       {

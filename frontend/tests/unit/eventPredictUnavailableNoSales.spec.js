@@ -9,8 +9,8 @@
  * garde son flux « réactiver » : les deux cohabitent dans le même écran et c'est
  * exactement là que le bug d'origine se logeait.
  */
-import EventPredictStockUpSection from '@/components/EventPredictStockUpSection.vue'
-import EventPredictMenusSection from '@/components/EventPredictMenusSection.vue'
+import EventPredictStockUpSection from '@/components/space-workspace/event-predict/sections/EventPredictStockUpSection.vue'
+import EventPredictMenusSection from '@/components/space-workspace/event-predict/sections/EventPredictMenusSection.vue'
 
 const stockUp = EventPredictStockUpSection.methods
 const menus = EventPredictMenusSection.methods

@@ -1,4 +1,4 @@
-import Component from '@/components/EventPredictMenusSection.vue';
+import Component from '@/components/space-workspace/event-predict/sections/EventPredictMenusSection.vue';
 import { normalizeStr } from '@/utils/predictiveAnalytics';
 
 const methods = Component.methods;
