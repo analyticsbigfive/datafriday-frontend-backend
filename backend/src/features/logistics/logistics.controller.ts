@@ -15,6 +15,7 @@ import {
 import { ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import type { FastifyReply } from 'fastify';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
+import { NotInProductionGuard } from '../../core/auth/guards/not-in-production.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { LogisticsService } from './logistics.service';
@@ -251,6 +252,7 @@ export class LogisticsController {
 
   @Post(':spaceId/simulate-sale')
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(NotInProductionGuard)
   @RequirePermissions('front.fb.logisticReconcile')
   @ApiOperation({
     summary:
@@ -263,6 +265,7 @@ export class LogisticsController {
   }
 
   @Delete(':spaceId/simulate-sale')
+  @UseGuards(NotInProductionGuard)
   @RequirePermissions('front.fb.logisticReconcile')
   @ApiOperation({ summary: "QA — purge les ventes simulées (isSimulated) d'un PDV, nettoyage post-test." })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
@@ -278,6 +281,7 @@ export class LogisticsController {
 
   @Post(':spaceId/simulation-runs')
   @HttpCode(HttpStatus.CREATED)
+  @UseGuards(NotInProductionGuard)
   @RequirePermissions('front.fb.logisticReconcile')
   @ApiOperation({
     summary:
@@ -295,6 +299,7 @@ export class LogisticsController {
 
   @Post(':spaceId/simulation-runs/:runId/stop')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(NotInProductionGuard)
   @RequirePermissions('front.fb.logisticReconcile')
   @ApiOperation({ summary: "QA — arrête un run d'auto-simulation actif (retire le Job Scheduler BullMQ)." })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
@@ -309,6 +314,7 @@ export class LogisticsController {
   }
 
   @Get(':spaceId/simulation-runs/active')
+  @UseGuards(NotInProductionGuard)
   @RequirePermissions('front.fb.logisticReconcile')
   @ApiOperation({ summary: "QA — run d'auto-simulation actif de l'espace, s'il y en a un (survit au reload/fermeture d'onglet)." })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
@@ -317,6 +323,7 @@ export class LogisticsController {
   }
 
   @Get(':spaceId/simulation-runs')
+  @UseGuards(NotInProductionGuard)
   @RequirePermissions('front.fb.logisticReconcile')
   @ApiOperation({ summary: "QA — historique des runs d'auto-simulation de l'espace (actifs, arrêtés, échoués)." })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
@@ -330,6 +337,7 @@ export class LogisticsController {
   }
 
   @Get(':spaceId/simulated-sales')
+  @UseGuards(NotInProductionGuard)
   @RequirePermissions('front.fb.logisticReconcile')
   @ApiOperation({ summary: "QA — historique paginé des ventes simulées de l'espace, tous PDV confondus." })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
@@ -346,6 +354,7 @@ export class LogisticsController {
 
   @Post(':spaceId/simulated-sales/purge')
   @HttpCode(HttpStatus.OK)
+  @UseGuards(NotInProductionGuard)
   @RequirePermissions('front.fb.logisticReconcile')
   @ApiOperation({ summary: 'QA — purge sélective de ventes simulées par id de transaction (history dialog).' })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
