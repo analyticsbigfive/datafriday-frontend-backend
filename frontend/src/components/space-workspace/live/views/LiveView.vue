@@ -427,4 +427,12 @@ onBeforeUnmount(() => liveData.stopPolling())
 .live-app--dark .an-live-tab { color: #94a3b8; }
 .an-live-tab--active { background: #ff3131; color: #fff; }
 .live-app--dark .an-live-tab--active { background: #ff3131; color: #fff; }
+/* Responsivité mobile (retour Emmanuel) : padding réduit + onglets qui passent à la
+   ligne plutôt que de déborder horizontalement sur petit écran. Adapté aux classes
+   actuelles (.an-live-tabs, pas .lv-tabs — remplacées lors de la parité v1 du
+   2026-09-03) ; le reste (grille KPI auto-fit, cartes empilées) est déjà adaptatif. */
+@media (max-width: 600px) {
+  .lv-wrap { padding: 12px; }
+  .an-live-tabs { flex-wrap: wrap; }
+}
 </style>
