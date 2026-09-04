@@ -156,9 +156,11 @@ const routes = [
       {
         // Builder v2 (refonte — docs/REFONTE_3D_BUILDER_V2.md) : autosave granulaire,
         // pas de keep-alive nécessaire (aucun état non sauvegardé à préserver). Builder v1
-        // (Config.data JSON blob) retiré — builder2 est l'unique parcours d'édition d'espace.
+        // (Config.data JSON blob) retiré — builder2 est l'unique parcours d'édition d'espace
+        // (le nom de route/composant garde le suffixe "2", historique interne ; l'URL, elle,
+        // n'a plus besoin de le porter une fois v1 disparu).
         name: 'SpaceBuilder2',
-        path: '/spaces/:spaceId/builder2',
+        path: '/spaces/:spaceId/builder',
         component: () => import('@/components/spaces/views/builder2/BuilderPage.vue'),
         meta: { title: 'Builder v2', permission: 'space.edit' }
       },

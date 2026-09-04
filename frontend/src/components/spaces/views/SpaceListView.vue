@@ -210,7 +210,7 @@
 
               <!-- Actions — RBAC space.edit -->
               <div v-if="canEditSpace" class="slv-card-row__actions" @click.stop>
-                <button class="slv-list-action-btn slv-list-action-btn--builder" title="3D Builder" @click.stop="$router.push(`/spaces/${space.id}/builder2`)">
+                <button class="slv-list-action-btn slv-list-action-btn--builder" title="3D Builder" @click.stop="$router.push(`/spaces/${space.id}/builder`)">
                   <Boxes :size="14" />
                 </button>
                 <button class="slv-list-action-btn" @click.stop="editSpace(space)" title="Modifier">
@@ -426,7 +426,7 @@ export default {
       this.$store.dispatch('spaces/addSpace', space?.data ?? space);
       this.createDialog = false;
       const id = space?.data?.id || space?.id;
-      if (id) this.$router.push(`/spaces/${id}/builder2`);
+      if (id) this.$router.push(`/spaces/${id}/builder`);
     },
 
     onSpaceUpdated(space) {
