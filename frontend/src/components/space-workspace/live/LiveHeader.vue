@@ -197,6 +197,10 @@ const { exporting, onExportXlsx, onExportCsv } = useLiveExport({ spaceName: spac
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* min-width:0 : sans lui un enfant flex ne rétrécit jamais sous sa taille de
+     contenu — l'ellipsis ne se déclenchait donc jamais sur mobile, le titre
+     débordait au lieu de se tronquer (retour Emmanuel, responsivité Live v2). */
+  min-width: 0;
 }
 .av-live-badge {
   display: inline-flex;

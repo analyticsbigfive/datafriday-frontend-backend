@@ -2402,6 +2402,11 @@ async function ensureAuthAndLoad(spaceId) {
     overflow: visible;
     /* Padding réduit sur téléphone ; le bandeau rouge en ressort en pleine largeur. */
     padding: 12px 12px 24px;
+    /* VRAIE 1 colonne : `!important` bat la règle de base 3-classes
+       `.an-body.an-side-collapsed.an-summary-collapsed { grid-template-columns: 0 1fr 0 }`.
+       Sans ça, le panneau filtres en position:fixed (hors flux) décalait an-main dans la
+       piste à 0 (bandeau/KPI écrasés à gauche) et le résumé prenait tout le 1fr. */
+    grid-template-columns: 1fr !important;
   }
   .an-main,
   .an-body > .an-right {
