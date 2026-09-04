@@ -546,7 +546,7 @@ export default {
         .filter((s) => s && s.id != null)
         .map((s) => ({
           title: s.name || s.spaceName || s.title || `Space ${s.id}`,
-          route: `/spaces/${s.id}/builder2`,
+          route: `/spaces/${s.id}/builder`,
         }));
     },
     visibleSettingsNavigation() {
