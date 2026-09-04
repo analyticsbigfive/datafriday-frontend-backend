@@ -99,4 +99,9 @@ onBeforeUnmount(() => liveData.stopPolling())
 @media (max-width: 900px) {
   .lv-grid { grid-template-columns: 1fr; }
 }
+@media (max-width: 600px) {
+  .lv-wrap { padding: 12px; }
+  /* Onglets tactiles : évite tout débordement horizontal sur petit écran. */
+  .lv-tabs { flex-wrap: wrap; }
+}
 </style>

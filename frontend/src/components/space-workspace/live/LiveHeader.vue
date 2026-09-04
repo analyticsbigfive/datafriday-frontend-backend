@@ -43,7 +43,7 @@ const sinceLabel = computed(() => {
   margin-bottom: 12px;
 }
 .lh-wrap--dark { background: #1e293b; border-color: rgba(255, 255, 255, 0.1); }
-.lh-left { display: flex; align-items: center; gap: 10px; }
+.lh-left { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
 .lh-badge {
   display: flex; align-items: center; gap: 6px;
   background: #ff3131; color: #fff;
@@ -56,8 +56,8 @@ const sinceLabel = computed(() => {
 }
 @keyframes lh-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
 @media (prefers-reduced-motion: reduce) { .lh-pulse { animation: none; } }
-.lh-title { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: #111827; }
+.lh-title { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: #111827; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lh-wrap--dark .lh-title { color: #f9fafb; }
-.lh-since { font-size: var(--fs-base); color: #6b7280; }
+.lh-since { font-size: var(--fs-base); color: #6b7280; flex-shrink: 0; margin-left: 8px; }
 .lh-wrap--dark .lh-since { color: #9ca3af; }
 </style>
