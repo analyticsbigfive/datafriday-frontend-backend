@@ -3,6 +3,11 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+  // `prisma migrate dev` a besoin de recréer l'historique complet des migrations sur une
+  // base vide pour le valider. Sans ceci, Prisma tente de le faire sur DATABASE_URL/DIRECT_URL
+  // (le pooler Supabase), qui bloque indéfiniment. Base locale dédiée — cf. 2026-09-07,
+  // README section migrations.
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 generator client {
