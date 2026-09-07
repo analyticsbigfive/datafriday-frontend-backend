@@ -1252,9 +1252,10 @@ export class LogisticsService {
     spaceId: string,
     tenantId: string,
     configId?: string,
-    opts?: { aggregateAllConfigs?: boolean },
+    opts?: { aggregateAllConfigs?: boolean; stockElementIds?: Set<string> },
   ) {
     const aggregateAllConfigs = !!opts?.aggregateAllConfigs;
+    const stockElementIds = opts?.stockElementIds;
     const rows = await this.prisma.spaceElement.findMany({
       where: this.spaceElementScopeWhere(spaceId, tenantId),
       select: {
@@ -1326,8 +1327,13 @@ export class LogisticsService {
 
     // Un PDV sans aucun menu item activé (config effective) n'est pas « configuré »
     // dans Space Menu — miroir de l'ancien gate front (isOpen || menuItemsCount > 0) :
-    // ne pas l'afficher du tout (pas juste à 0 denrée).
-    const configuredShops = shops.filter((shop) => (enabledByShop.get(shop.id) ?? []).length > 0);
+    // ne pas l'afficher du tout (pas juste à 0 denrée). Exception : un PDV avec du
+    // stock réel (StockLevel > 0) reste affiché même sans menu actif dans la config
+    // résolue — sinon du stock existant (ex. transfert vers un PDV dont la config
+    // effective a basculé sur une config sans menu assigné) devient invisible.
+    const configuredShops = shops.filter(
+      (shop) => (enabledByShop.get(shop.id) ?? []).length > 0 || stockElementIds?.has(shop.id),
+    );
 
     // Provider (Weezevent/Digifood) par PDV — dérivé de la même jointure que
     // simulateSale (LocationShopMapping → SalesLocation.provider). Purement
@@ -1727,11 +1733,14 @@ export class LogisticsService {
         configurations[0]?.id ??
         null;
 
+    const stockElementIds = new Set(
+      levels.filter((l) => l.packedUnits > 0 || l.looseUnits > 0).map((l) => l.elementId),
+    );
     const elementsWithItems = await this.getSpaceElementsWithItems(
       spaceId,
       tenantId,
       aggregateAllConfigs ? undefined : resolvedConfigId ?? undefined,
-      { aggregateAllConfigs },
+      { aggregateAllConfigs, stockElementIds },
     );
 
     // Un mouvement (ex. transfert) peut viser un élément qui ne vend pas cette

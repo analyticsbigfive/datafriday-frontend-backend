@@ -35,6 +35,12 @@ services:
         sync: false
       - key: LOG_LEVEL
         value: info
+      # BUG-144-01 : WeezeventCronService tourne aussi dans datafriday-worker (dédié). Le
+      # laisser actif ici en plus fait tourner les mêmes crons deux fois en parallèle (un
+      # process web ET un worker) et, surtout, expose la synchro live à un OOM du process
+      # web (ex. page Analyse Jean Bouin, cf. BUG-144-01) qui tue le scheduler avec lui.
+      - key: WEEZEVENT_CRON_ENABLED
+        value: "false"
 
   - type: worker
     name: datafriday-worker
