@@ -89,7 +89,10 @@
         </div>
       </div>
 
-      <LiveSaleSimulatorWidget :space-id="spaceId" @simulated="onEventUpdated" />
+      <!-- Outil QA — jamais en production (données réelles) : VUE_APP_ENVIRONMENT réglé
+           uniquement sur le déploiement Vercel production, absent ailleurs (staging/dev),
+           donc affiché par défaut (fail-open) partout sauf là où explicitement coupé. -->
+      <LiveSaleSimulatorWidget v-if="!isProdEnv" :space-id="spaceId" @simulated="onEventUpdated" />
     </v-main>
   </v-app>
 </template>
@@ -132,6 +135,12 @@ const isDark = computed(() => !!theme.global.current.value.dark)
 
 const spaceId = computed(() => route.params.spaceId)
 const tab = ref('analyse')
+// Simulateur de vente QA (LiveSaleSimulatorWidget) : jamais en production, où il
+// écrirait de fausses ventes dans des données réelles. `VUE_APP_ENVIRONMENT` est une
+// constante de build (webpack DefinePlugin, cf. vue.config.js) réglée uniquement sur
+// le déploiement Vercel de production — absente ailleurs, donc affiché par défaut
+// (fail-open) sur staging/dev/local.
+const isProdEnv = process.env.VUE_APP_ENVIRONMENT === 'production'
 const drawer = ref(true)
 const summaryDrawer = ref(true)
 
