@@ -24,8 +24,8 @@
         />
         <!-- Mobile uniquement : backdrop de l'overlay filtres (ferme au clic hors panneau). -->
         <div v-if="drawer" class="an-mobile-filter-backdrop" @click="drawer = false"></div>
-        <!-- Mobile Live uniquement : backdrop de l'overlay résumé (▶). -->
-        <div v-if="isLive && summaryDrawer" class="an-live-summary-backdrop" @click="summaryDrawer = false"></div>
+        <!-- Mobile : backdrop de l'overlay résumé (▶), en Analyse comme en Live. -->
+        <div v-if="summaryDrawer" class="an-live-summary-backdrop" @click="summaryDrawer = false"></div>
 
         <div class="an-main">
           <!-- Bloc sticky : bandeau ROUGE (titre + période/comparaison) PUIS la
@@ -51,18 +51,12 @@
                 >
                   <v-icon size="20">mdi-menu</v-icon>
                 </button>
-                <!-- Mobile uniquement (hors Live) : ouvre le panneau de filtres (+ config) en
-                     overlay. En Live, filtres gelés (timeRange=all) → remplacé par le ▶ résumé. -->
-                <button
-                  v-if="!isLive"
-                  type="button"
-                  class="av-mobile-filter-trigger"
-                  :aria-label="t('anHeaderToggleFilters')"
-                  @click="drawer = !drawer"
-                >
-                  <v-icon size="20">mdi-filter-variant</v-icon>
-                </button>
-                <h1 class="av-header__title">{{ spaceName }} : {{ toolTitle }}</h1>
+                <h1 class="av-header__title av-header__title--desktop">{{ spaceName }} : {{ toolTitle }}</h1>
+                <!-- Titre mobile (maquette Bertrand) : nom d'outil en gros + sous-titre event. -->
+                <div class="av-header__title-mobile">
+                  <span class="av-header__title-mobile__main">{{ mobileToolName }}</span>
+                  <span v-if="mobileSubtitle" class="av-header__title-mobile__sub">{{ mobileSubtitle }}</span>
+                </div>
                 <!-- Badge Live : basé sur la VRAIE détection (liveEventDetected, posé par
                      applyLiveScope() depuis /live-status), pas juste la route — corrigé
                      2026-08-05 (BUG-305-02) : affichait "● LIVE" même sans event dans la
@@ -214,14 +208,25 @@
                 </v-menu>
                 </div>
 
-                <!-- Mobile, Live uniquement : ▶ ouvre le résumé (colonne droite) en drawer
-                     (maquette Bertrand « LIVE - ANALYSE »). -->
+                <!-- Mobile (hors Live) : funnel = ouvre le panneau de filtres (config, events…)
+                     en overlay depuis la DROITE. Placé juste avant le ▶ (demande Bertrand).
+                     En Live, filtres gelés (timeRange=all) → masqué. -->
                 <button
-                  v-if="isLive"
+                  v-if="!isLive"
+                  type="button"
+                  class="av-mobile-filter-trigger"
+                  :aria-label="t('anHeaderToggleFilters')"
+                  @click="summaryDrawer = false; drawer = !drawer"
+                >
+                  <v-icon size="20">mdi-filter-variant</v-icon>
+                </button>
+                <!-- Mobile (Analyse ET Live) : ▶ ouvre le résumé (colonne droite) en drawer
+                     (maquettes Bertrand). -->
+                <button
                   type="button"
                   class="av-mobile-summary-trigger"
                   :aria-label="t('anHeaderToggleSummary')"
-                  @click="summaryDrawer = !summaryDrawer"
+                  @click="drawer = false; summaryDrawer = !summaryDrawer"
                 >
                   <v-icon size="22">mdi-play-circle-outline</v-icon>
                 </button>
@@ -335,9 +340,9 @@
       <!-- Mobile uniquement : bande des 8 stats (headerKpis) en scroll horizontal, sous le
            bandeau rouge (maquette Bertrand). En desktop elles sont dans le WorkspaceAppHeader
            (d-lg-flex) ; ici on les réaffiche sur téléphone, où elles étaient masquées. -->
-      <div v-if="headerKpis.length && !showInventory" class="av-mobile-kpi-strip">
+      <div v-if="mobileKpiStrip.length && !showInventory" class="av-mobile-kpi-strip">
         <div
-          v-for="kpi in headerKpis"
+          v-for="kpi in mobileKpiStrip"
           :key="kpi.label"
           class="av-mkpi"
           :class="{ 'av-mkpi--clickable': kpi.kind }"
@@ -487,14 +492,17 @@
             />
           </v-alert>
 
-          <v-row v-if="chartsLoading" dense class="mb-4">
+          <v-row v-if="chartsLoading" dense class="mb-4 an-fmg-desktop">
             <v-col v-for="i in 4" :key="`kpi-sk-${i}`" cols="12" sm="6" lg="3">
               <v-skeleton-loader type="article" class="an-chart-skeleton" />
             </v-col>
           </v-row>
+          <!-- Masqué sur téléphone : ses KPIs (MARGE, TX/MIN + CA/PER CAP) sont fusionnés dans
+               la bande scrollable unique au-dessus (av-mobile-kpi-strip). -->
           <FinancialMetricsGrid
             v-else
             v-can="'stats.financial.view'"
+            class="an-fmg-desktop"
             :metrics="metrics"
             :summary="itemSummary"
             :source-state="kpiSourceState"
@@ -696,6 +704,7 @@
             :events="filteredEvents"
             :shop-rates="shopPerformance.shops.value"
             :ensure-dataset="ensureAssistantDataset"
+            :show-events-perf="!mdAndDown || (!isLive && isSingleEventSelected)"
             @analyze="onAnalyzeQuery"
             @shop-click="(v) => toggleArrayFilter('selectedShopIds', v)"
             @event-click="(v) => toggleArrayFilter('selectedEventIds', v)"
@@ -837,7 +846,7 @@ import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
 // Format % localisé (« 47,0 % » fr / « 47.0% » en) — règle BUG-240.
-const { formatPercentLocale } = useNumberFormat()
+const { formatPercentLocale, formatDecimal } = useNumberFormat()
 
 const route = useRoute()
 const router = useRouter()
@@ -1708,6 +1717,33 @@ const headerKpis = computed(() => {
   ]
 })
 
+// Bande KPI MOBILE fusionnée en UNE seule ligne (demande Bertrand) : les 8 stats du header
+// + les 2 KPIs uniques du FinancialMetricsGrid (MARGE, TX/MIN) — CA/PER CAP y sont déjà, on ne
+// duplique pas. Le FMG est masqué sur mobile (cf. @media), remplacé par cette bande.
+const mobileKpiStrip = computed(() => {
+  const base = headerKpis.value
+  if (!base.length) return []
+  const marginVal = metrics.displayMargin?.value
+  const rateVal = metrics.displayTransactionRate?.value
+  return [
+    ...base,
+    {
+      label: t('anKpiCardMargin'),
+      kind: 'margin',
+      value: marginVal == null ? '—' : `${marginVal.toFixed(1)}%`,
+      color: '#3B82F6',
+      variation: headerVariation('margin'),
+    },
+    {
+      label: t('anKpiCardTransactionRate'),
+      kind: 'transaction-rate',
+      value: rateVal == null ? '—' : `${formatDecimal(rateVal, 2, { pad: true })}/min`,
+      color: '#A855F7',
+      variation: headerVariation('transferRate'),
+    },
+  ]
+})
+
 // Variation « mauvaise » (rouge) pour la bande KPI mobile — même logique que
 // WorkspaceAppHeader : une hausse est mauvaise pour un KPI `invert` (ex. Coût).
 function kpiVarBad(kpi) {
@@ -2018,6 +2054,25 @@ const toolTitle = computed(() => {
   if (singleSelectedEventLabel.value) return singleSelectedEventLabel.value
   return t('analyseTitle')
 })
+// Titre mobile (maquette Bertrand) : le NOM DE L'OUTIL pur (« ANALYSE »), sans substitution
+// par l'évènement (qui, elle, va dans le sous-titre).
+const mobileToolName = computed(() => {
+  if (selectedToolbox.value === 'predict') return t('anToolPredict')
+  if (selectedToolbox.value === 'event-predict') return t('anToolEventPredict')
+  return t('analyseTitle')
+})
+// Sous-titre mobile : « Event — date » si un seul évènement, « N événements » si plusieurs,
+// sinon le nom de l'espace.
+const mobileSubtitle = computed(() => {
+  const ids = filters.value.selectedEventIds || []
+  if (ids.length === 1) return singleSelectedEventLabel.value
+  if (ids.length > 1) return `${ids.length} ${t('anEventsSelected')}`
+  return spaceName.value || ''
+})
+// Un seul évènement sélectionné (pilote l'affichage de la section « Performance des
+// événements » du résumé : présente si 1 event, masquée si plusieurs — maquette Bertrand).
+const isSingleEventSelected = computed(() => (filters.value.selectedEventIds || []).length === 1)
+
 const predictionsGenerating = computed(() => store.state.analyse.predictionsGenerating)
 const showPredictOverlay = computed(() => selectedToolbox.value === 'event-predict')
 // Seule implémentation vivante (le getter store homonyme, jamais lu et avec une
@@ -2686,6 +2741,28 @@ function findTodayEventId() {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Titre mobile (nom d'outil + sous-titre event) — masqué en desktop. */
+.av-header__title-mobile { display: none; min-width: 0; flex: 1; }
+.av-header__title-mobile__main {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  color: #fff;
+  line-height: 1.15;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.av-header__title-mobile__sub {
+  font-size: var(--fs-xs);
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.25;
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* Mobile uniquement : ☰ ouvrant le drawer d'outils (pattern Logistic). Masqué en
    desktop, activé au palier téléphone plus bas. */
 .av-mobile-tools-trigger,
@@ -2751,6 +2828,10 @@ function findTodayEventId() {
 @media (max-width: 600px) {
   .av-header__toggle--desktop { display: none; }
   .av-header__actions--desktop { display: none !important; } /* bat le d-flex Vuetify */
+  .av-header__title--desktop { display: none; }
+  .av-header__title-mobile { display: flex; flex-direction: column; }
+  /* FMG (4 KPIs) masqué : fusionné dans la bande unique av-mobile-kpi-strip. */
+  .an-fmg-desktop { display: none !important; }
   .av-mobile-tools-trigger,
   .av-mobile-filter-trigger,
   .av-mobile-more-trigger,
@@ -2776,7 +2857,7 @@ function findTodayEventId() {
   /* LIVE : le résumé (colonne droite) devient un overlay coulissant depuis la DROITE,
      ouvert par le ▶ (summaryDrawer). Hors Live, an-right reste dans le flux (fin de page,
      règle plus bas). `.an-live` scope ce comportement au seul mode live. */
-  .an-body.an-live > .an-right {
+  .an-body > .an-right {
     position: fixed;
     top: 0;
     right: 0;
@@ -2795,7 +2876,7 @@ function findTodayEventId() {
     opacity: 1 !important;
     pointer-events: auto !important;
   }
-  .an-body.an-live:not(.an-summary-collapsed) > .an-right {
+  .an-body:not(.an-summary-collapsed) > .an-right {
     transform: translateX(0);
   }
   .an-live-summary-backdrop {
@@ -2805,24 +2886,24 @@ function findTodayEventId() {
     z-index: 2999;
     background: rgba(0, 0, 0, 0.4);
   }
-  .analyse-app--dark .an-body.an-live > .an-right { background: #0f172a; }
+  .analyse-app--dark .an-body > .an-right { background: #0f172a; }
 
-  /* Panneau de filtres : overlay coulissant depuis la gauche (au lieu de monopoliser le
-     haut de l'écran). Piloté par `drawer` (an-side-collapsed = fermé) ; ouvert par le bouton
-     entonnoir. Fermé au clic sur le backdrop. */
+  /* Panneau de filtres : overlay coulissant depuis la DROITE (demande Bertrand — bouton
+     funnel placé à droite, avant le ▶). Piloté par `drawer` (an-side-collapsed = fermé) ;
+     ouvert par le bouton entonnoir. Fermé au clic sur le backdrop. */
   .an-body > :deep(.analyse-filter-panel) {
     position: fixed;
     top: 0;
-    left: 0;
+    right: 0;
     bottom: 0;
     width: 86%;
     max-width: 330px;
     margin: 0;
     border-radius: 0;
     z-index: 3000;
-    transform: translateX(-100%);
+    transform: translateX(100%);
     transition: transform 0.25s ease;
-    box-shadow: 4px 0 24px rgba(0, 0, 0, 0.18);
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
     overflow-y: auto;
     opacity: 1 !important;
     pointer-events: auto !important;
@@ -2861,8 +2942,7 @@ function findTodayEventId() {
        piste à 0 (bandeau/KPI écrasés à gauche) et le résumé prenait tout le 1fr. */
     grid-template-columns: 1fr !important;
   }
-  .an-main,
-  .an-body > .an-right {
+  .an-main {
     max-height: none;
     overflow: visible;
     /* Empêche la colonne (grid item) de s'élargir au contenu → la bande KPI scrolle
