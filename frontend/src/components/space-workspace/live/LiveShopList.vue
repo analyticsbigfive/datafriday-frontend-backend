@@ -58,4 +58,10 @@ function barWidth(revenue) {
 .lsl-row__bar { height: 100%; border-radius: 4px; background: #5B8DEF; }
 .lsl-row__value { font-size: var(--fs-base); font-weight: var(--fw-bold); text-align: right; color: #111827; font-variant-numeric: tabular-nums; }
 .lsl-card--dark .lsl-row__value { color: #f9fafb; }
+/* Mobile : colonnes flexibles au lieu des largeurs fixes 140px/90px (qui
+   débordaient sur écran étroit). Le nom garde un plancher de 60px puis se
+   tronque, la barre et la valeur s'adaptent → jamais de scroll horizontal. */
+@media (max-width: 600px) {
+  .lsl-row { grid-template-columns: minmax(60px, 1.3fr) 1fr auto; gap: 8px; }
+}
 </style>

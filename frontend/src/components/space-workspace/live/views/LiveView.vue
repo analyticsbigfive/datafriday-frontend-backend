@@ -1,47 +1,84 @@
 <template>
-  <div class="lv-wrap" :class="{ 'lv-wrap--dark': isDark }">
-    <LiveHeader
-      :is-live="liveData.isLive.value"
-      :event-name="liveData.event.value?.name || liveData.event.value?.eventName || ''"
-      :since="liveData.liveSince.value"
-      :is-dark="isDark"
+  <!-- Chrome « espace de travail » (chantier 379 : composant DÉDIÉ, zéro import
+       d'AnalyseView) : propre <v-app> + barre blanche partagée WorkspaceAppHeader,
+       puis bandeau rouge Live, à l'image de Restock/Logistique/Inventaire. -->
+  <v-app class="lv-app" :class="{ 'lv-app--dark': isDark }">
+    <WorkspaceAppHeader :space-name="spaceName" show-home />
+
+    <v-main>
+      <div class="lv-wrap" :class="{ 'lv-wrap--dark': isDark }">
+        <LiveHeader
+          :space-name="spaceName"
+          :is-live="liveData.isLive.value"
+          :event-name="liveData.event.value?.name || liveData.event.value?.eventName || ''"
+          :since="liveData.liveSince.value"
+          :is-dark="isDark"
+          :can-edit="!!liveData.event.value"
+          @open-tools="showToolDrawer = true"
+          @edit-event="editOpen = true"
+        />
+
+        <div class="lv-tabs">
+          <button class="lv-tab" :class="{ 'lv-tab--active': tab === 'analyse' }" @click="tab = 'analyse'">
+            {{ t('anToolAnalyse') }}
+          </button>
+          <button class="lv-tab" :class="{ 'lv-tab--active': tab === 'inventory' }" @click="tab = 'inventory'">
+            {{ t('anLiveInvTitle') }}
+          </button>
+        </div>
+
+        <template v-if="tab === 'analyse'">
+          <LiveKpiRow
+            :revenue="liveData.revenue.value"
+            :transaction-count="liveData.transactionCount.value"
+            :tx-per-minute="liveData.txPerMinute.value"
+            :avg-spend-per-tx="liveData.avgSpendPerTx.value"
+            :items-count="liveData.itemsCount.value"
+            :loading="liveData.loading.value"
+          />
+          <div class="lv-grid">
+            <LiveTimelineChart :rows="liveData.timelineByMinute.value" :is-dark="isDark" />
+            <LiveCategoryBreakdown :items="liveData.categoryBreakdown.value" :is-dark="isDark" />
+          </div>
+          <LiveShopList :shops="liveData.shopTotals.value" :is-dark="isDark" />
+        </template>
+
+        <LiveInventoryPanel v-else :space-id="spaceId" :is-dark="isDark" :active="tab === 'inventory'" />
+      </div>
+    </v-main>
+
+    <!-- Nav entre outils (☰ du bandeau) — même drawer partagé que Restock/Logistique. -->
+    <WorkspaceMobileToolDrawer
+      v-model="showToolDrawer"
+      :items="toolboxItems"
+      current-value="live"
+      :title="t('srToolsLabel')"
+      @select="onToolboxSelect"
     />
 
-    <div class="lv-tabs">
-      <button class="lv-tab" :class="{ 'lv-tab--active': tab === 'analyse' }" @click="tab = 'analyse'">
-        {{ t('anToolAnalyse') }}
-      </button>
-      <button class="lv-tab" :class="{ 'lv-tab--active': tab === 'inventory' }" @click="tab = 'inventory'">
-        {{ t('anLiveInvTitle') }}
-      </button>
-    </div>
-
-    <template v-if="tab === 'analyse'">
-      <LiveKpiRow
-        :revenue="liveData.revenue.value"
-        :transaction-count="liveData.transactionCount.value"
-        :tx-per-minute="liveData.txPerMinute.value"
-        :avg-spend-per-tx="liveData.avgSpendPerTx.value"
-        :items-count="liveData.itemsCount.value"
-        :loading="liveData.loading.value"
-      />
-      <div class="lv-grid">
-        <LiveTimelineChart :rows="liveData.timelineByMinute.value" :is-dark="isDark" />
-        <LiveCategoryBreakdown :items="liveData.categoryBreakdown.value" :is-dark="isDark" />
-      </div>
-      <LiveShopList :shops="liveData.shopTotals.value" :is-dark="isDark" />
-    </template>
-
-    <LiveInventoryPanel v-else :space-id="spaceId" :is-dark="isDark" :active="tab === 'inventory'" />
-  </div>
+    <!-- Voir / modifier l'event live (✏️) — même drawer /events, dates verrouillées. -->
+    <EventFormDrawer
+      v-model="editOpen"
+      mode="edit"
+      :initial-event="liveData.event.value"
+      :is-dark="isDark"
+      lock-date
+      @submitted="liveData.refresh"
+    />
+  </v-app>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
+import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { useLiveData } from '@/composables/useLiveData'
+import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
+import WorkspaceMobileToolDrawer from '@/components/WorkspaceMobileToolDrawer.vue'
+import { useWorkspaceToolbox } from '@/composables/useWorkspaceToolbox'
+import EventFormDrawer from '@/components/events/drawers/EventFormDrawer.vue'
 import LiveHeader from '../LiveHeader.vue'
 import LiveKpiRow from '../LiveKpiRow.vue'
 import LiveTimelineChart from '../LiveTimelineChart.vue'
@@ -51,18 +88,36 @@ import LiveInventoryPanel from '@/components/space-workspace/shared/LiveInventor
 
 const { t } = useI18n()
 const route = useRoute()
+const store = useStore()
 const theme = useTheme()
 const isDark = computed(() => !!theme.global.current.value.dark)
 
 const spaceId = computed(() => route.params.spaceId)
 const tab = ref('analyse')
 
+// ☰ nav outils (drawer) + ✏️ édition d'event (drawer /events) — pilotés depuis le bandeau.
+const showToolDrawer = ref(false)
+const editOpen = ref(false)
+const { toolboxItems, onToolboxSelect } = useWorkspaceToolbox('live')
+
+// Nom d'espace pour la barre blanche + le titre du bandeau — résolu depuis le
+// store `spaces` PARTAGÉ (getter `spaces/spaces`), pas le module `analyse`
+// (chantier 379 : zéro dépendance à Analyse).
+const spaceName = computed(() => {
+  const list = store.getters['spaces/spaces'] || []
+  const s = list.find((x) => String(x.id) === String(spaceId.value))
+  return s?.name || s?.spaceName || ''
+})
+
 // Une instance de composable par montage — pas de state module-scope partagé entre
 // deux espaces (contrairement au store Vuex `analyse`, dont c'était une source de
 // bugs de fuite d'un espace à l'autre, cf. 11_LIVE.md §14/§16).
 const liveData = useLiveData(spaceId.value)
 
-onMounted(() => liveData.startPolling())
+onMounted(() => {
+  store.dispatch('spaces/fetchSpaces')
+  liveData.startPolling()
+})
 onActivated(() => liveData.startPolling())
 onDeactivated(() => liveData.stopPolling())
 onBeforeUnmount(() => liveData.stopPolling())

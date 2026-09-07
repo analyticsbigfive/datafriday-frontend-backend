@@ -44,4 +44,24 @@ const itemsConfig = computed(() => ({ ...txPerMinConfig.value, key: 'items', lab
   gap: 10px;
   margin-bottom: 14px;
 }
+/* Mobile : bande de KPIs en SCROLL HORIZONTAL (maquette Live de Bertrand, parité
+   FinancialMetricsGrid d'Analyse) au lieu d'empiler. Chaque carte garde une largeur
+   lisible, on défile latéralement. */
+@media (max-width: 600px) {
+  .lkr-grid {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    gap: 8px;
+    padding-bottom: 4px;
+  }
+  .lkr-grid > * {
+    flex: 0 0 auto;
+    width: 62%;
+    max-width: 200px;
+    scroll-snap-align: start;
+  }
+}
 </style>
