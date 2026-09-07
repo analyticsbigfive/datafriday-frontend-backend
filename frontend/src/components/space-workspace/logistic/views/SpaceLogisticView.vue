@@ -248,7 +248,7 @@
                     @click="showMobileRightPanel = true"
                     :aria-label="t('logiAggTitle')"
                   >
-                    <v-icon size="18">mdi-clipboard-alert-outline</v-icon>
+                    <v-icon size="20">mdi-play-circle-outline</v-icon>
                     <span v-if="aggregateStats.bad" class="lg-mobile-right-trigger__badge">{{ aggregateStats.bad }}</span>
                   </button>
                 </div>
