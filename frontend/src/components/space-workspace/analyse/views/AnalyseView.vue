@@ -65,25 +65,6 @@
                 <span v-if="liveEventDetected" class="av-live-badge" :title="t('anToolLive')">
                   <span class="av-live-badge__dot"></span>{{ t('anToolLive') }}
                 </span>
-                <!-- Voir/modifier l'event en cours (module Live, 2026-08-05) : ouvre le même
-                     drawer que /events, dates verrouillées, tous les autres champs éditables.
-                     Visible dès qu'un event est résolu pour AUJOURD'HUI (liveEventId, cf.
-                     findTodayEventId), PAS seulement pendant le pulse strict de 30 min
-                     (liveEventDetected, réservé au badge ● LIVE) — sinon le bouton disparaissait
-                     à la moindre pause de ventes alors que l'event est toujours en cours
-                     (retour utilisateur 2026-08-05). -->
-                <v-btn
-                  v-if="liveEventId"
-                  icon
-                  variant="text"
-                  size="small"
-                  :title="t('anLiveEditEvent')"
-                  :aria-label="t('anLiveEditEvent')"
-                  class="fs-icon-btn"
-                  @click="liveEventEditOpen = true"
-                >
-                  <v-icon size="18">mdi-pencil-outline</v-icon>
-                </v-btn>
                 <!-- BUG-356-01 v2/v3 (retours client + user, 24/08) : l'indicateur
                      « Non mappées » vit DANS le bandeau rouge — le bandeau dédié prenait
                      de la place. v3 : triangle warning `mdi-alert` (plus lisible que
@@ -220,6 +201,21 @@
                 >
                   <v-icon size="20">mdi-filter-variant</v-icon>
                 </button>
+                <!-- Voir/modifier l'event en cours (module Live) : ouvre le drawer /events,
+                     dates verrouillées. Déplacé tout à droite, juste AVANT le ▶ (demande
+                     utilisateur). Visible dès qu'un event est résolu pour AUJOURD'HUI. -->
+                <v-btn
+                  v-if="liveEventId"
+                  icon
+                  variant="text"
+                  size="small"
+                  :title="t('anLiveEditEvent')"
+                  :aria-label="t('anLiveEditEvent')"
+                  class="fs-icon-btn"
+                  @click="liveEventEditOpen = true"
+                >
+                  <v-icon size="18">mdi-pencil-outline</v-icon>
+                </v-btn>
                 <!-- Mobile (Analyse ET Live) : ▶ ouvre le résumé (colonne droite) en drawer
                      (maquettes Bertrand). -->
                 <button
@@ -340,7 +336,7 @@
       <!-- Mobile uniquement : bande des 8 stats (headerKpis) en scroll horizontal, sous le
            bandeau rouge (maquette Bertrand). En desktop elles sont dans le WorkspaceAppHeader
            (d-lg-flex) ; ici on les réaffiche sur téléphone, où elles étaient masquées. -->
-      <div v-if="mobileKpiStrip.length && !showInventory" class="av-mobile-kpi-strip">
+      <div v-if="mobileKpiStrip.length" class="av-mobile-kpi-strip">
         <div
           v-for="kpi in mobileKpiStrip"
           :key="kpi.label"
@@ -2059,6 +2055,12 @@ const toolTitle = computed(() => {
 const mobileToolName = computed(() => {
   if (selectedToolbox.value === 'predict') return t('anToolPredict')
   if (selectedToolbox.value === 'event-predict') return t('anToolEventPredict')
+  // En Live : « Live - Analyse » ou « Live - Inventaire » selon l'onglet (CSS met en
+  // majuscules → « LIVE - ANALYSE » / « LIVE - INVENTAIRE », maquette Bertrand).
+  if (isLive.value) {
+    const sub = liveTab.value === 'inventory' ? t('anLiveTitleInventory') : t('anToolAnalyse')
+    return `${t('anToolLive')} - ${sub}`
+  }
   return t('analyseTitle')
 })
 // Sous-titre mobile : « Event — date » si un seul évènement, « N événements » si plusieurs,
