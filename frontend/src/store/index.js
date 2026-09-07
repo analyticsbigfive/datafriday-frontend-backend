@@ -43,6 +43,8 @@ import hrSettings from './modules/hrSettings'
 import staffing from './modules/staffing'
 import seasons from './modules/seasons'
 import storageInventory from './modules/storageInventory'
+import guestPin from './modules/guestPin'
+import guestPinAdmin from './modules/guestPinAdmin'
 
 export default createStore({
   state: {
@@ -98,5 +100,7 @@ export default createStore({
     staffing,
     seasons,
     storageInventory,
+    guestPin,
+    guestPinAdmin,
   }
 })

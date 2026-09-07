@@ -148,6 +148,35 @@ export async function guestOnly(to, from, next) {
 }
 
 /**
+ * Guard de `/login/pin` : symétrique à `guestOnly` mais pour une session invité.
+ * Un staff déjà connecté (Supabase) n'a rien à faire sur l'écran PIN — on le
+ * renvoie vers son espace de travail habituel.
+ */
+export async function guestPinLoginOnly(to, from, next) {
+  if (!store.getters['auth/isInitialized']) {
+    await store.dispatch('auth/initialize')
+  }
+  if (store.getters['auth/isAuthenticated']) {
+    return next(store.getters['auth/hasOrganization'] ? '/dashboard' : '/onboarding')
+  }
+  next()
+}
+
+/**
+ * Guard des routes invité PIN (ex. `/guest/inventory`). Réhydrate la session
+ * depuis sessionStorage (`guestPin/restore` revalide toujours contre le
+ * backend — une fenêtre a pu être clôturée pendant que l'onglet était fermé),
+ * et renvoie vers `/login/pin` si aucune session active n'en ressort.
+ */
+export async function requireGuestPinSession(to, from, next) {
+  await store.dispatch('guestPin/restore')
+  if (!store.getters['guestPin/isActive']) {
+    return next('/login/pin')
+  }
+  next()
+}
+
+/**
  * Écrans front d'un espace, par ordre de préférence d'atterrissage.
  * Le 1er écran que le rôle de l'utilisateur autorise devient sa page d'accueil
  * quand il ouvre un espace (évite de bloquer un rôle qui n'a pas l'Analyse).

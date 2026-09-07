@@ -63,6 +63,10 @@ async function isBackendAwake(timeoutMs = 5000) {
 
 let accessToken = null
 let _explicitlyLoggedOut = false
+// Session invité PIN active (cf. store/modules/guestPin.js) : évite que l'intercepteur
+// 401 ci-dessous ne tente un refresh Supabase (qui n'a jamais existé pour cette session)
+// et ne redirige vers /login au lieu de /login/pin quand un accès invité est révoqué.
+let _isGuestSession = false
 
 /**
  * Définir le token d'accès
@@ -96,6 +100,14 @@ export function clearAccessToken() {
  * une vraie déconnexion d'un `SIGNED_OUT` émis par la rotation du refresh token.
  * @returns {boolean}
  */
+export function setGuestSessionActive(active) {
+  _isGuestSession = active
+}
+
+export function isGuestSessionActive() {
+  return _isGuestSession
+}
+
 export function isExplicitlyLoggedOut() {
   return _explicitlyLoggedOut
 }
@@ -156,7 +168,17 @@ apiClient.interceptors.response.use(
       }
 
       originalRequest._retry = true
-      
+
+      // Session invité PIN : aucun refresh Supabase possible (ce token n'en dépend
+      // pas), et une redirection vers /login serait le mauvais écran — l'invité
+      // doit revoir l'état "accès inactif" de /login/pin, pas le formulaire staff.
+      if (_isGuestSession) {
+        clearAccessToken()
+        setGuestSessionActive(false)
+        router.push('/login/pin')
+        return Promise.reject(error)
+      }
+
       // Try to get a fresh session (non-destructive)
       try {
         const { getSessionOnce } = await import('@/lib/supabase')
