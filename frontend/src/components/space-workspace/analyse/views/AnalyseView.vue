@@ -13,7 +13,7 @@
            rouge), la colonne droite par `summaryDrawer`. -->
       <div
         class="an-body"
-        :class="{ 'an-side-collapsed': !drawer, 'an-summary-collapsed': !summaryDrawer }"
+        :class="{ 'an-side-collapsed': !drawer, 'an-summary-collapsed': !summaryDrawer, 'an-live': isLive }"
       >
         <FilterPanel
           ref="filterPanelRef"
@@ -24,6 +24,8 @@
         />
         <!-- Mobile uniquement : backdrop de l'overlay filtres (ferme au clic hors panneau). -->
         <div v-if="drawer" class="an-mobile-filter-backdrop" @click="drawer = false"></div>
+        <!-- Mobile Live uniquement : backdrop de l'overlay résumé (▶). -->
+        <div v-if="isLive && summaryDrawer" class="an-live-summary-backdrop" @click="summaryDrawer = false"></div>
 
         <div class="an-main">
           <!-- Bloc sticky : bandeau ROUGE (titre + période/comparaison) PUIS la
@@ -49,8 +51,10 @@
                 >
                   <v-icon size="20">mdi-menu</v-icon>
                 </button>
-                <!-- Mobile uniquement : ouvre le panneau de filtres (+ config) en overlay. -->
+                <!-- Mobile uniquement (hors Live) : ouvre le panneau de filtres (+ config) en
+                     overlay. En Live, filtres gelés (timeRange=all) → remplacé par le ▶ résumé. -->
                 <button
+                  v-if="!isLive"
                   type="button"
                   class="av-mobile-filter-trigger"
                   :aria-label="t('anHeaderToggleFilters')"
@@ -210,8 +214,20 @@
                 </v-menu>
                 </div>
 
-                <!-- Mobile uniquement : menu ⋮ regroupant les actions du bandeau. -->
-                <v-menu location="bottom end">
+                <!-- Mobile, Live uniquement : ▶ ouvre le résumé (colonne droite) en drawer
+                     (maquette Bertrand « LIVE - ANALYSE »). -->
+                <button
+                  v-if="isLive"
+                  type="button"
+                  class="av-mobile-summary-trigger"
+                  :aria-label="t('anHeaderToggleSummary')"
+                  @click="summaryDrawer = !summaryDrawer"
+                >
+                  <v-icon size="22">mdi-play-circle-outline</v-icon>
+                </button>
+
+                <!-- Mobile uniquement (hors Live) : menu ⋮ regroupant les actions du bandeau. -->
+                <v-menu v-if="!isLive" location="bottom end">
                   <template #activator="{ props: moreProps }">
                     <button
                       v-bind="moreProps"
@@ -316,6 +332,31 @@
               </v-btn>
             </div>
           </div>
+      <!-- Mobile uniquement : bande des 8 stats (headerKpis) en scroll horizontal, sous le
+           bandeau rouge (maquette Bertrand). En desktop elles sont dans le WorkspaceAppHeader
+           (d-lg-flex) ; ici on les réaffiche sur téléphone, où elles étaient masquées. -->
+      <div v-if="headerKpis.length && !showInventory" class="av-mobile-kpi-strip">
+        <div
+          v-for="kpi in headerKpis"
+          :key="kpi.label"
+          class="av-mkpi"
+          :class="{ 'av-mkpi--clickable': kpi.kind }"
+          :style="{ '--kpi-color': kpi.color }"
+          role="button"
+          @click="kpi.kind && onOpenChart(kpi.kind)"
+        >
+          <div class="av-mkpi__label">{{ kpi.label }}</div>
+          <div class="av-mkpi__value">
+            {{ kpi.value }}
+            <span
+              v-if="kpi.variation != null"
+              class="av-mkpi__var"
+              :class="{ 'av-mkpi__var--bad': kpiVarBad(kpi) }"
+            >{{ kpi.variation >= 0 ? '▲' : '▼' }}{{ Math.abs(kpi.variation).toFixed(1) }}%</span>
+          </div>
+        </div>
+      </div>
+
       <!-- Onglets Live (module Live v2, 11_LIVE.md §3) : bascule Analyse / Inventaire,
            visibles uniquement sur la route space-live. -->
       <div v-if="isLive" class="an-live-tabs">
@@ -1667,6 +1708,13 @@ const headerKpis = computed(() => {
   ]
 })
 
+// Variation « mauvaise » (rouge) pour la bande KPI mobile — même logique que
+// WorkspaceAppHeader : une hausse est mauvaise pour un KPI `invert` (ex. Coût).
+function kpiVarBad(kpi) {
+  const up = kpi.variation >= 0
+  return kpi.invert ? up : !up
+}
+
 // ---- Shop Performance / Transaction Rate panel ----------------------------
 const showTransactionRateShops = ref(false)
 // Data-driven : tous les PdV vendeurs (records filtrés), aucun scoping config.
@@ -2642,7 +2690,8 @@ function findTodayEventId() {
    desktop, activé au palier téléphone plus bas. */
 .av-mobile-tools-trigger,
 .av-mobile-filter-trigger,
-.av-mobile-more-trigger {
+.av-mobile-more-trigger,
+.av-mobile-summary-trigger {
   display: none;
   width: 40px;
   height: 40px;
@@ -2657,9 +2706,46 @@ function findTodayEventId() {
 }
 .av-mobile-tools-trigger:active,
 .av-mobile-filter-trigger:active,
-.av-mobile-more-trigger:active { transform: scale(0.94); }
-/* Backdrop de l'overlay filtres (mobile only) — masqué en desktop. */
-.an-mobile-filter-backdrop { display: none; }
+.av-mobile-more-trigger:active,
+.av-mobile-summary-trigger:active { transform: scale(0.94); }
+/* Le ▶ résumé (Live) est placé à droite du titre. */
+.av-mobile-summary-trigger { margin-left: auto; }
+/* Backdrops des overlays mobile — masqués en desktop. */
+.an-mobile-filter-backdrop,
+.an-live-summary-backdrop { display: none; }
+
+/* Bande des 8 stats (headerKpis) mobile — masquée en desktop (elles sont dans le header). */
+.av-mobile-kpi-strip { display: none; }
+.av-mkpi {
+  flex: 0 0 auto;
+  min-width: 130px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-left: 4px solid var(--kpi-color, #64748b);
+  border-radius: 12px;
+  padding: 8px 12px;
+  scroll-snap-align: start;
+}
+.av-mkpi--clickable { cursor: pointer; }
+.av-mkpi__label {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #6b7280;
+  white-space: nowrap;
+}
+.av-mkpi__value {
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-bold);
+  color: #111827;
+  white-space: nowrap;
+}
+.av-mkpi__var { font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: #10b981; margin-left: 4px; }
+.av-mkpi__var--bad { color: #ff3131; }
+.analyse-app--dark .av-mkpi { background: #1e293b; border-color: rgba(255, 255, 255, 0.08); }
+.analyse-app--dark .av-mkpi__value { color: #f1f5f9; }
+.analyse-app--dark .av-mkpi__label { color: #94a3b8; }
 
 /* Palier téléphone (≤600px, convention parapluie) : bascule header desktop → mobile. */
 @media (max-width: 600px) {
@@ -2667,7 +2753,59 @@ function findTodayEventId() {
   .av-header__actions--desktop { display: none !important; } /* bat le d-flex Vuetify */
   .av-mobile-tools-trigger,
   .av-mobile-filter-trigger,
-  .av-mobile-more-trigger { display: flex; }
+  .av-mobile-more-trigger,
+  .av-mobile-summary-trigger { display: flex; }
+
+  /* Bande des 8 stats en scroll horizontal (maquette Bertrand), sous le bandeau rouge.
+     min-width:0 + max-width:100% : la bande reste bornée à la largeur du parent (sinon elle
+     s'élargit au lieu de scroller — piège flex/grid). */
+  .av-mobile-kpi-strip {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    padding: 0 0 8px;
+    margin-bottom: 6px;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  /* LIVE : le résumé (colonne droite) devient un overlay coulissant depuis la DROITE,
+     ouvert par le ▶ (summaryDrawer). Hors Live, an-right reste dans le flux (fin de page,
+     règle plus bas). `.an-live` scope ce comportement au seul mode live. */
+  .an-body.an-live > .an-right {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 88%;
+    max-width: 360px;
+    z-index: 3000;
+    margin: 0;
+    padding: 12px;
+    background: #f6f8fb;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
+    overflow-y: auto;
+    max-height: none;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+  }
+  .an-body.an-live:not(.an-summary-collapsed) > .an-right {
+    transform: translateX(0);
+  }
+  .an-live-summary-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 2999;
+    background: rgba(0, 0, 0, 0.4);
+  }
+  .analyse-app--dark .an-body.an-live > .an-right { background: #0f172a; }
 
   /* Panneau de filtres : overlay coulissant depuis la gauche (au lieu de monopoliser le
      haut de l'écran). Piloté par `drawer` (an-side-collapsed = fermé) ; ouvert par le bouton
@@ -2727,6 +2865,9 @@ function findTodayEventId() {
   .an-body > .an-right {
     max-height: none;
     overflow: visible;
+    /* Empêche la colonne (grid item) de s'élargir au contenu → la bande KPI scrolle
+       au lieu de pousser la largeur (piège grid min-width:auto). */
+    min-width: 0;
   }
   /* Bandeau rouge PLEINE LARGEUR (référence Inventaire post .si-segrow--band) : plein cadre
      bord à bord, coins carrés, sans l'ombre de carte flottante. Full-bleed = on annule le
