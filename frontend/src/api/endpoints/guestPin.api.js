@@ -2,13 +2,25 @@
 import api from '../client'
 
 /**
- * Tente une connexion invité par PIN. Ne lève jamais sur un PIN inconnu/fenêtre
- * inactive/appareil verrouillé — le backend répond 200 avec un `state` discriminant
- * ('ok' | 'inactive' | 'device_bound' | 'locked') pour piloter les maquettes.
+ * Résout le PDV depuis le lien scanné (slug + phase), SANS PIN — nom à afficher et
+ * fenêtre active ou non, pour distinguer immédiatement "Accès inactif" de l'écran
+ * de saisie plutôt que d'attendre une tentative de PIN.
  */
-export async function loginWithPin(pin, deviceId) {
+export async function getGuestContext(slug, phase) {
+  const response = await api.get(`/guest-pin/context/${slug}/${phase}`)
+  return response.data
+}
+
+/**
+ * Tente une connexion invité par PIN pour LE PDV+phase identifiés par le lien
+ * scanné. Ne lève jamais sur un PIN inconnu/fenêtre inactive — le backend répond
+ * 200 avec un `state` discriminant ('ok' | 'inactive' | 'not_found' | 'locked')
+ * pour piloter les maquettes. Un PIN valide mais pour un AUTRE PDV répond aussi
+ * 'not_found' (jamais de redirection silencieuse vers le bon PDV).
+ */
+export async function loginWithPin(pin, deviceId, slug, phase) {
   const response = await api.post(
-    '/guest-pin/login',
+    `/guest-pin/login/${slug}/${phase}`,
     { pin },
     { headers: deviceId ? { 'X-Guest-Device-Id': deviceId } : {} },
   )
@@ -17,6 +29,12 @@ export async function loginWithPin(pin, deviceId) {
 
 export async function getGuestSession() {
   const response = await api.get('/guest-pin/session')
+  return response.data
+}
+
+/** "J'ai terminé" : gèle ce PDV (lecture seule), sans clôturer la fenêtre. */
+export async function submitGuestCount() {
+  const response = await api.post('/guest-pin/submit')
   return response.data
 }
 

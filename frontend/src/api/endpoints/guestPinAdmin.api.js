@@ -21,11 +21,6 @@ export async function resetPin(accessId) {
   return response.data
 }
 
-export async function unbindDevice(accessId) {
-  const response = await api.post(`/inventory-windows/pins/${accessId}/unbind`)
-  return response.data
-}
-
 export async function revokeAccess(accessId) {
   const response = await api.post(`/inventory-windows/pins/${accessId}/revoke`)
   return response.data

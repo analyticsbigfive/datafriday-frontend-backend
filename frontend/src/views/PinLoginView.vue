@@ -11,6 +11,13 @@
     :subtitle="t('pinLoginSubtitle')"
   >
     <div class="pin-login__form">
+      <!-- PDV identifié par le lien scanné (slug+phase dans l'URL), résolu AVANT
+           toute saisie de PIN — confirme visuellement le bon point de vente. -->
+      <span v-if="pdvName" class="pin-login__pdv-chip">
+        <MapPin :size="12" />
+        {{ pdvName }} · {{ phaseLabel }}
+      </span>
+
       <PinInputPad :error="hasError" :disabled="submitting" @change="onPinChange" @complete="handleSubmit" />
 
       <div v-if="hasError" class="pin-login__error">
@@ -33,7 +40,7 @@
 </template>
 
 <script>
-import { Lock, AlertCircle, ArrowRight } from 'lucide-vue-next';
+import { Lock, AlertCircle, ArrowRight, MapPin } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import PinLoginShell from '@/components/guest-pin/PinLoginShell.vue';
 import PinInputPad from '@/components/guest-pin/PinInputPad.vue';
@@ -52,6 +59,7 @@ export default {
     PinRedirectingState,
     AlertCircle,
     ArrowRight,
+    MapPin,
   },
 
   setup() {
@@ -66,7 +74,34 @@ export default {
       hasError: false,
       errorMessage: '',
       submitting: false,
+      pdvName: null,
     };
+  },
+
+  computed: {
+    slug() {
+      return this.$route.params.slug;
+    },
+    phase() {
+      return this.$route.params.phase;
+    },
+    phaseLabel() {
+      return this.phase === 'post-event' ? this.t('pinLoginPhasePost') : this.t('pinLoginPhasePre');
+    },
+  },
+
+  async created() {
+    // Résout le PDV depuis le lien scanné AVANT toute saisie : nom affiché tout de
+    // suite, et bascule immédiate sur "Accès inactif" si aucune fenêtre n'est ouverte
+    // pour ce PDV+phase — pas besoin d'attendre une tentative de PIN pour le savoir.
+    try {
+      const context = await this.$store.dispatch('guestPin/getContext', { slug: this.slug, phase: this.phase });
+      this.pdvName = context?.elementName ?? null;
+      if (!context?.active) this.uiState = 'inactive';
+    } catch {
+      // Contexte indisponible (réseau) : on laisse l'écran de saisie, le login
+      // révélera la même erreur si le PDV/la fenêtre n'existe vraiment pas.
+    }
   },
 
   methods: {
@@ -79,7 +114,7 @@ export default {
       if (this.submitting || pin.length !== 6) return;
       this.submitting = true;
       try {
-        const result = await this.$store.dispatch('guestPin/login', pin);
+        const result = await this.$store.dispatch('guestPin/login', { pin, slug: this.slug, phase: this.phase });
         this.applyResult(result);
       } catch (error) {
         this.showError(this.t('pinLoginErrorIncorrect'));
@@ -90,18 +125,17 @@ export default {
 
     applyResult(result) {
       switch (result.state) {
-        case 'ok':
+        case 'ok': {
           this.uiState = 'redirecting';
-          setTimeout(() => this.$router.replace({ name: 'guest-inventory' }), 700);
+          const targetName = result.phase === 'post-event' ? 'guest-inventory' : 'guest-pre-inventory';
+          setTimeout(() => this.$router.replace({ name: targetName }), 700);
           break;
+        }
         case 'not_found': {
           const suffix = this.t('pinLoginErrorAttemptsLeft').replace('{count}', result.attemptsRemaining);
           this.showError(`${this.t('pinLoginErrorIncorrect')} — ${suffix}`);
           break;
         }
-        case 'device_bound':
-          this.showError(this.t('pinLoginDeviceBound'));
-          break;
         case 'locked':
           this.uiState = 'locked';
           break;
@@ -127,6 +161,20 @@ export default {
   align-items: center;
   gap: 22px;
   width: 100%;
+}
+
+.pin-login__pdv-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 49, 49, 0.12);
+  border: 1px solid rgba(255, 49, 49, 0.3);
+  border-radius: 100px;
+  padding: 5px 12px;
+  color: #ff3131;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  align-self: flex-start;
 }
 
 .pin-login__error {

@@ -9,7 +9,6 @@ import {
   getStatusBoard,
   setPin,
   resetPin,
-  unbindDevice,
   revokeAccess,
   closeWindow,
 } from '@/api/endpoints/guestPinAdmin.api'
@@ -65,11 +64,6 @@ const actions = {
     const result = await resetPin(accessId)
     await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
     return result
-  },
-
-  async unbindAccessDevice({ state, dispatch }, accessId) {
-    await unbindDevice(accessId)
-    await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
   },
 
   async revoke({ state, dispatch }, accessId) {

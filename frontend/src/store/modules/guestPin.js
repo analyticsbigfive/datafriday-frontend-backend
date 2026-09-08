@@ -11,7 +11,7 @@
 // de l'onglet pour que rouvrir la page ne ressemble pas à un "nouvel appareil" —
 // il vit en localStorage, séparément.
 
-import { loginWithPin, getGuestSession } from '@/api/endpoints/guestPin.api'
+import { loginWithPin, getGuestSession, getGuestContext } from '@/api/endpoints/guestPin.api'
 import { setAccessToken, clearAccessToken, setGuestSessionActive } from '@/api/client'
 
 const SESSION_STORAGE_KEY = 'datafriday:guestpin:session'
@@ -104,13 +104,13 @@ const actions = {
   },
 
   /**
-   * @returns {{state:'ok'}|{state:'inactive'}|{state:'device_bound'}|{state:'locked', retryAfter:number}}
+   * @returns {{state:'ok'}|{state:'inactive'}|{state:'not_found', attemptsRemaining:number}|{state:'locked', retryAfter:number}}
    */
-  async login({ commit }, pin) {
+  async login({ commit }, { pin, slug, phase }) {
     commit('SET_LOADING', true)
     try {
       const deviceId = getOrCreateDeviceId()
-      const result = await loginWithPin(pin, deviceId)
+      const result = await loginWithPin(pin, deviceId, slug, phase)
       if (result.state === 'ok') {
         const { token, state: _discriminant, ...session } = result
         setAccessToken(token)
@@ -122,6 +122,19 @@ const actions = {
     } finally {
       commit('SET_LOADING', false)
     }
+  },
+
+  /** Nom du PDV + fenêtre active ou non, résolus depuis le lien scanné, AVANT tout PIN. */
+  async getContext(_ctx, { slug, phase }) {
+    return getGuestContext(slug, phase)
+  },
+
+  /** Rafraîchit la session courante (ex. après "J'ai terminé", pour refléter submittedAt). */
+  async refreshSession({ commit, state }) {
+    if (!state.token) return
+    const session = await getGuestSession()
+    commit('SET_SESSION', { token: state.token, session })
+    writePersistedSession({ token: state.token, session })
   },
 
   clear({ commit }) {

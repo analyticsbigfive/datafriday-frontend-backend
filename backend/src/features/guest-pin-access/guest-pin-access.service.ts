@@ -216,6 +216,7 @@ export class GuestPinAccessService {
       elementName: element?.name ?? null,
       eventId: user.eventId,
       showExpected: user.showExpected,
+      submittedAt: user.submittedAt,
     };
   }
 

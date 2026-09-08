@@ -532,6 +532,10 @@
                   :progress="progressForCard(entry)"
                   :status-label="statusLabel(entry)"
                   :status-color="statusColor(entry)"
+                  :show-guest-pin="canManageGuestPin"
+                  :space-id="guestPinSpaceId"
+                  :event-id="guestPinEventId"
+                  :phase="guestPinPhase"
                   @start-count="startCount"
                 />
               </template>
@@ -585,6 +589,16 @@
             <span>{{ t('invCountedTooltip') }}</span>
           </v-tooltip>
         </div>
+
+        <!-- Accès PIN invité — remplace la page /spaces/:spaceId/guest-pin-access
+             (orpheline). Composant autonome : se charge lui-même, GuestPinBadge (sur
+             chaque carte) lit le même store réactivement. -->
+        <GuestPinAccessPanel
+          v-if="canManageGuestPin && activeTab === 'shops'"
+          :space-id="guestPinSpaceId"
+          :event-id="guestPinEventId"
+          :phase="guestPinPhase"
+        />
 
         <aside class="si-aggregate">
         <InventoryAggregateView
@@ -811,6 +825,7 @@ import InventoryAggregateView from '@/components/space-workspace/inventory/Inven
 import InventoryCountingInterface from '@/components/space-workspace/inventory/InventoryCountingInterface.vue'
 import LogisticMovementDialog from '@/components/space-workspace/shared/LogisticMovementDialog.vue'
 import InventoryShopCard from '@/components/space-workspace/inventory/InventoryShopCard.vue'
+import GuestPinAccessPanel from '@/components/space-workspace/inventory/GuestPinAccessPanel.vue'
 import InventoryStorageCard from '@/components/space-workspace/inventory/InventoryStorageCard.vue'
 import InventoryStorageAggregateView from '@/components/space-workspace/inventory/InventoryStorageAggregateView.vue'
 import InventoryFilterDrawer from '@/components/space-workspace/inventory/drawers/InventoryFilterDrawer.vue'
@@ -883,6 +898,7 @@ export default {
     InventoryCountingInterface,
     LogisticMovementDialog,
     InventoryShopCard,
+    GuestPinAccessPanel,
     InventoryStorageCard,
     InventoryStorageAggregateView,
     InventoryFilterDrawer,
@@ -1208,6 +1224,21 @@ export default {
     canSeePredicted() {
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.preInventoryPredicted') : false
+    },
+    /** Accès PIN invité (générer/reset/révoquer un PIN par PDV) — cf. GuestPinBadge.vue
+     *  et GuestPinAccessPanel.vue, montés uniquement si cette permission est accordée. */
+    canManageGuestPin() {
+      const can = this.store.getters['auth/can']
+      return typeof can === 'function' ? can('front.fb.guestPinManage') : false
+    },
+    guestPinSpaceId() {
+      return this.route?.params?.spaceId ?? null
+    },
+    guestPinEventId() {
+      return this.selectedEventId ?? null
+    },
+    guestPinPhase() {
+      return this.isPreMode ? 'pre-event' : 'post-event'
     },
     /** Libellé de l'indice affiché à côté du Total : « Besoin prédit », MÊME
      *  mot pre ET post depuis le 2026-08-27 (avant cette date, le post
@@ -2205,11 +2236,19 @@ export default {
       const spaceId = this.route.params.spaceId
       this.pushingToLogistic = true
       try {
-        await pushInventoryCountToLogistic(
-          spaceId,
-          this.selectedEventId,
-          this.isPreMode ? 'pre-event' : 'post-event',
-        )
+        // Une fenêtre d'accès PIN invité ouverte pour cette phase → clôture combinée
+        // (révoque tous les accès + pousse la logistique en un seul appel serveur),
+        // sinon simple push logistique (aucun accès invité créé pour cet event/phase).
+        const guestWindow = this.$store.getters['guestPinAdmin/windowByPhase']?.(this.guestPinPhase)
+        if (guestWindow?.status === 'open') {
+          await this.$store.dispatch('guestPinAdmin/close', guestWindow.id)
+        } else {
+          await pushInventoryCountToLogistic(
+            spaceId,
+            this.selectedEventId,
+            this.isPreMode ? 'pre-event' : 'post-event',
+          )
+        }
         this.successText = this.t('invUpdateLogisticSuccess')
         this.successSnackbar = true
       } catch (e) {

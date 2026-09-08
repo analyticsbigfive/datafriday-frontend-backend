@@ -68,24 +68,34 @@ const routes = [
     meta: { title: 'Connexion' }
   },
   {
-    // Accès invité PIN (managers de PDV sans compte) — lien public générique,
-    // sans segment PDV : le PIN identifie lui-même le point de vente et la phase.
-    path: '/login/pin',
+    // Accès invité PIN (managers de PDV sans compte) — le PDV et la phase sont
+    // identifiés par l'URL (slug stable, indépendant de l'événement), le PIN reste
+    // le seul secret qui change à chaque fenêtre.
+    path: '/login/pin/:slug/:phase',
     name: 'login-pin',
     component: () => import('@/views/PinLoginView.vue'),
     beforeEnter: guestPinLoginOnly,
     meta: { title: 'Accès inventaire', noindex: true }
   },
   {
-    // Écran de travail invité (post-PIN) — HORS de l'arbre `dashboard` (celui-ci
+    // Écrans de travail invité (post-PIN) — HORS de l'arbre `dashboard` (celui-ci
     // exige une session Supabase via requireOrganization, incompatible avec une
-    // session PIN). Pas de spaceId/elementId dans l'URL : tout vient de la
-    // session invité (store guestPin), elle-même dérivée du JWT invité.
+    // session PIN). Pas de spaceId/elementId dans l'URL : tout vient de la session
+    // invité (store guestPin), elle-même dérivée du JWT invité. Réutilise le MÊME
+    // composant que l'écran staff (SpaceInventoryView), en mode invité
+    // (meta.guestMode) — cf. composables/useGuestInventorySession.js.
+    path: '/guest/pre-inventory',
+    name: 'guest-pre-inventory',
+    component: () => import('@/components/space-workspace/inventory/views/SpaceInventoryView.vue'),
+    beforeEnter: requireGuestPinSession,
+    meta: { title: 'Pre-event Inventory', inventoryMode: 'pre', guestMode: true, noindex: true }
+  },
+  {
     path: '/guest/inventory',
     name: 'guest-inventory',
-    component: () => import('@/views/GuestInventoryView.vue'),
+    component: () => import('@/components/space-workspace/inventory/views/SpaceInventoryView.vue'),
     beforeEnter: requireGuestPinSession,
-    meta: { title: 'Inventaire', noindex: true }
+    meta: { title: 'Post-event Inventory', inventoryMode: 'post', guestMode: true, noindex: true }
   },
   {
     path: '/signup',
@@ -223,14 +233,9 @@ const routes = [
         meta: { title: 'Réarmement', keepAlive: true, permission: ['front.fb.restock', 'front.fb.restockBoard'] }
       },
 
-      {
-        // Back-office directeur : démarrer une fenêtre pré/post-event, définir les
-        // PIN par PDV, tableau de statut, révocation — cf. GuestPinAccessModule (backend).
-        path: '/spaces/:spaceId/guest-pin-access',
-        name: 'space-guest-pin-access',
-        component: () => import('@/components/guest-pin-manage/views/InventoryWindowStatusView.vue'),
-        meta: { title: 'Accès PIN invité', permission: 'front.fb.guestPinManage' }
-      },
+      // Accès PIN invité : plus une page à part (orpheline, jamais reliée à aucun
+      // menu) — intégré directement dans Pre-event/Post-event Inventory
+      // (GuestPinBadge par carte + GuestPinAccessPanel colonne de droite).
 
       {
         // Live (chantier 379, frontend/docs/chantiers/379_live_standalone_backend_driven) :
