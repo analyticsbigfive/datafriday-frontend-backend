@@ -11,11 +11,13 @@
     :subtitle="t('pinLoginSubtitle')"
   >
     <div class="pin-login__form">
-      <!-- PDV identifié par le lien scanné (slug+phase dans l'URL), résolu AVANT
-           toute saisie de PIN — confirme visuellement le bon point de vente. -->
+      <!-- PDV identifié par le lien scanné (slug dans l'URL, un seul lien pour les
+           deux phases), résolu AVANT toute saisie de PIN — confirme visuellement le
+           bon point de vente. La phase n'est connue qu'après le login (elle dépend
+           de la fenêtre à laquelle le PIN appartient), donc pas affichée ici. -->
       <span v-if="pdvName" class="pin-login__pdv-chip">
         <MapPin :size="12" />
-        {{ pdvName }} · {{ phaseLabel }}
+        {{ pdvName }}
       </span>
 
       <PinInputPad :error="hasError" :disabled="submitting" @change="onPinChange" @complete="handleSubmit" />
@@ -82,20 +84,14 @@ export default {
     slug() {
       return this.$route.params.slug;
     },
-    phase() {
-      return this.$route.params.phase;
-    },
-    phaseLabel() {
-      return this.phase === 'post-event' ? this.t('pinLoginPhasePost') : this.t('pinLoginPhasePre');
-    },
   },
 
   async created() {
     // Résout le PDV depuis le lien scanné AVANT toute saisie : nom affiché tout de
-    // suite, et bascule immédiate sur "Accès inactif" si aucune fenêtre n'est ouverte
-    // pour ce PDV+phase — pas besoin d'attendre une tentative de PIN pour le savoir.
+    // suite, et bascule immédiate sur "Accès inactif" si aucune fenêtre (pré ou
+    // post) n'est ouverte pour ce PDV — pas besoin d'attendre une tentative de PIN.
     try {
-      const context = await this.$store.dispatch('guestPin/getContext', { slug: this.slug, phase: this.phase });
+      const context = await this.$store.dispatch('guestPin/getContext', { slug: this.slug });
       this.pdvName = context?.elementName ?? null;
       if (!context?.active) this.uiState = 'inactive';
     } catch {
@@ -114,7 +110,7 @@ export default {
       if (this.submitting || pin.length !== 6) return;
       this.submitting = true;
       try {
-        const result = await this.$store.dispatch('guestPin/login', { pin, slug: this.slug, phase: this.phase });
+        const result = await this.$store.dispatch('guestPin/login', { pin, slug: this.slug });
         this.applyResult(result);
       } catch (error) {
         this.showError(this.t('pinLoginErrorIncorrect'));

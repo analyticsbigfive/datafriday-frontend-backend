@@ -68,10 +68,11 @@ const routes = [
     meta: { title: 'Connexion' }
   },
   {
-    // Accès invité PIN (managers de PDV sans compte) — le PDV et la phase sont
-    // identifiés par l'URL (slug stable, indépendant de l'événement), le PIN reste
-    // le seul secret qui change à chaque fenêtre.
-    path: '/login/pin/:slug/:phase',
+    // Accès invité PIN (managers de PDV sans compte) — UN SEUL lien par PDV (slug
+    // stable, indépendant de l'événement ET de la phase) : le même QR sert avant ET
+    // après l'événement, la fenêtre actuellement ouverte (pré ou post) détermine la
+    // phase côté serveur — le manager n'a jamais besoin de savoir laquelle.
+    path: '/login/pin/:slug',
     name: 'login-pin',
     component: () => import('@/views/PinLoginView.vue'),
     beforeEnter: guestPinLoginOnly,

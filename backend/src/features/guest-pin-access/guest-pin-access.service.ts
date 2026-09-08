@@ -91,26 +91,29 @@ export class GuestPinAccessService {
   // ── Invité : contexte public (avant PIN) ────────────────────────────────────
 
   /**
-   * Résout le PDV depuis l'URL scannée (/login/pin/:slug/:phase), SANS PIN : nom à
-   * afficher avant saisie, et si une fenêtre est seulement possible pour ce PDV+phase
-   * (permet d'afficher "Accès inactif" immédiatement plutôt que d'attendre une
-   * tentative de PIN). Ne révèle jamais le PIN ni son statut détaillé.
+   * Résout le PDV depuis l'URL scannée (/login/pin/:slug), SANS PIN : nom à afficher
+   * avant saisie, et si une fenêtre (pré OU post, peu importe laquelle) est active
+   * pour ce PDV (permet d'afficher "Accès inactif" immédiatement plutôt que d'attendre
+   * une tentative de PIN). Ne révèle jamais le PIN ni son statut détaillé.
+   *
+   * UN SEUL lien par PDV (décision produit 2026-09-08, revenue sur le
+   * "/login/pin/:slug/:phase" précédent) : le même QR sert avant ET après
+   * l'événement — en pratique jamais les deux fenêtres ouvertes en même temps (le
+   * directeur clôture le pré-event avant d'ouvrir le post-event), donc la phase se
+   * déduit de LA fenêtre actuellement ouverte, pas de l'URL.
    */
-  async getPublicContext(slug: string, phase: string): Promise<GuestPinPublicContext> {
+  async getPublicContext(slug: string): Promise<GuestPinPublicContext> {
     const element = await this.prisma.spaceElement.findUnique({
       where: { slug },
       select: { id: true, name: true },
     });
     if (!element) return { elementName: null, active: false };
 
-    // Le partial index InventoryWindow_one_open_per_space_phase garantit au plus une
-    // fenêtre "open" par (tenantId, spaceId, phase) — mais spaceId n'est pas connu ici
-    // sans remonter par les zones ; on cherche donc l'accès actif directement.
     const access = await this.prisma.guestPinAccess.findFirst({
       where: {
         elementId: element.id,
         status: 'active',
-        window: { phase, status: 'open' },
+        window: { status: 'open' },
       },
       select: { id: true },
     });
@@ -125,7 +128,6 @@ export class GuestPinAccessService {
     deviceId: string | undefined,
     ip: string,
     slug: string,
-    phase: string,
   ): Promise<GuestLoginResult> {
     const rlKey = this.rateLimitKey(ip);
     const attempts = await this.redis.get<number>(rlKey);
@@ -139,14 +141,16 @@ export class GuestPinAccessService {
       include: { window: true },
     });
 
-    // Pas de ligne, OU PIN valide mais pour un AUTRE PDV/phase que l'URL scannée :
-    // même réponse ('not_found') dans les deux cas — jamais indiquer "ce PIN existe
-    // mais pas ici", ça révélerait qu'un PIN valide circule ailleurs.
+    // Pas de ligne, OU PIN valide mais pour un AUTRE PDV que l'URL scannée : même
+    // réponse ('not_found') dans les deux cas — jamais indiquer "ce PIN existe mais
+    // pas ici", ça révélerait qu'un PIN valide circule ailleurs. La phase n'est PAS
+    // vérifiée contre l'URL (il n'y en a plus) : le PIN appartient à UNE fenêtre
+    // précise (pré ou post) de par sa création, c'est elle qui répond.
     const element = access ? await this.prisma.spaceElement.findUnique({
       where: { id: access.elementId },
       select: { slug: true, name: true },
     }) : null;
-    if (!access || !element || element.slug !== slug || access.window.phase !== phase) {
+    if (!access || !element || element.slug !== slug) {
       const count = await this.registerLoginFailure(rlKey);
       return { state: 'not_found', attemptsRemaining: Math.max(PIN_LOGIN_MAX_ATTEMPTS - count, 0) };
     }

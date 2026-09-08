@@ -7,21 +7,24 @@
 
 ## 1. QR code réel — NON implémenté
 
-**Ce qui existe aujourd'hui** : l'URL stable par PDV+phase (`/login/pin/:slug/:phase`,
-`SpaceElement.slug` généré à la création) et le bouton "Générer PIN" par carte. Ce qui manque :
-**aucun QR code n'est réellement généré ni imprimable** dans l'app — seule la maquette (Artifact,
-hors code) en montrait un factice.
+**Ce qui existe aujourd'hui** : UN SEUL lien stable par PDV (`/login/pin/:slug` — décision produit
+2026-09-08, revenue sur un schéma `/:slug/:phase` à deux liens : le même QR sert avant ET après
+l'événement, la fenêtre actuellement ouverte détermine la phase côté serveur), `SpaceElement.slug`
+généré à la création, et le bouton "Générer PIN" par carte. Ce qui manque : **aucun QR code n'est
+réellement généré ni imprimable** dans l'app — seule la maquette (Artifact, hors code) en montrait
+un factice (et cette maquette datait du schéma à 2 liens — la fiche imprimable n'aura plus qu'UN
+SEUL QR par PDV à mettre à jour en conséquence).
 
 **Pourquoi ce n'est pas fait** : pas un oubli de dernière minute, une vraie sous-tâche à part
 entière, mise de côté pour boucler d'abord le parcours PIN fonctionnel (générer/saisir/compter/
 geler/révoquer) :
 - Choisir et ajouter une lib de génération QR (`qrcode` est le candidat naturel — génère du
   SVG/PNG côté client sans dépendance serveur, licence MIT, très utilisé).
-- Construire l'URL complète à encoder (`${origin}/login/pin/${slug}/${phase}`) — trivial une fois
-  la lib choisie.
-- Construire la fiche imprimable par PDV (pré + post côte à côte, cf. la maquette Artifact déjà
-  validée avec l'utilisateur) — un nouveau composant/vue dédié à l'impression, pas juste le QR nu.
-- Brancher un bouton "Imprimer les QR" quelque part (retiré de `GuestPinAccessPanel.vue` en
+- Construire l'URL complète à encoder (`${origin}/login/pin/${slug}`) — trivial une fois la lib
+  choisie.
+- Construire la fiche imprimable par PDV (UN SEUL QR désormais, plus pré/post côte à côte) — un
+  nouveau composant/vue dédié à l'impression, pas juste le QR nu.
+- Brancher un bouton "Imprimer le QR" quelque part (retiré de `GuestPinAccessPanel.vue` en
   attendant, pour ne pas afficher un bouton qui ne fait rien).
 
 **Prochaine étape concrète** : ajouter `qrcode` aux dépendances frontend, écrire

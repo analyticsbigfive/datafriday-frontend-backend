@@ -34,23 +34,22 @@ import { SaveGuestCountDto } from './dto/save-guest-count.dto';
 export class GuestPinAuthController {
   constructor(private readonly service: GuestPinAccessService) {}
 
-  @Get('context/:slug/:phase')
-  @ApiOperation({ summary: "Nom du PDV + fenêtre active ou non, résolus depuis l'URL scannée (avant tout PIN)" })
-  async context(@Param('slug') slug: string, @Param('phase') phase: string) {
-    return this.service.getPublicContext(slug, phase);
+  @Get('context/:slug')
+  @ApiOperation({ summary: "Nom du PDV + fenêtre active ou non (pré ou post, peu importe), résolus depuis l'URL scannée (avant tout PIN)" })
+  async context(@Param('slug') slug: string) {
+    return this.service.getPublicContext(slug);
   }
 
-  @Post('login/:slug/:phase')
+  @Post('login/:slug')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Connexion invité par PIN (manager de PDV, sans compte)' })
+  @ApiOperation({ summary: 'Connexion invité par PIN (manager de PDV, sans compte) — un seul lien par PDV, la phase se déduit de la fenêtre ouverte' })
   async login(
     @Param('slug') slug: string,
-    @Param('phase') phase: string,
     @Body() dto: LoginPinDto,
     @Headers('x-guest-device-id') deviceId: string | undefined,
     @Ip() ip: string,
   ) {
-    return this.service.login(dto.pin, deviceId, ip, slug, phase);
+    return this.service.login(dto.pin, deviceId, ip, slug);
   }
 
   @Get('session')

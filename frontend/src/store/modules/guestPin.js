@@ -106,11 +106,11 @@ const actions = {
   /**
    * @returns {{state:'ok'}|{state:'inactive'}|{state:'not_found', attemptsRemaining:number}|{state:'locked', retryAfter:number}}
    */
-  async login({ commit }, { pin, slug, phase }) {
+  async login({ commit }, { pin, slug }) {
     commit('SET_LOADING', true)
     try {
       const deviceId = getOrCreateDeviceId()
-      const result = await loginWithPin(pin, deviceId, slug, phase)
+      const result = await loginWithPin(pin, deviceId, slug)
       if (result.state === 'ok') {
         const { token, state: _discriminant, ...session } = result
         setAccessToken(token)
@@ -125,8 +125,8 @@ const actions = {
   },
 
   /** Nom du PDV + fenêtre active ou non, résolus depuis le lien scanné, AVANT tout PIN. */
-  async getContext(_ctx, { slug, phase }) {
-    return getGuestContext(slug, phase)
+  async getContext(_ctx, { slug }) {
+    return getGuestContext(slug)
   },
 
   /** Rafraîchit la session courante (ex. après "J'ai terminé", pour refléter submittedAt). */
