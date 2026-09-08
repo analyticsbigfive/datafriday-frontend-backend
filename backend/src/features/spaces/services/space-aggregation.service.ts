@@ -1,6 +1,33 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { Decimal } from '@prisma/client/runtime/library';
+
+// BUG-352-01 : revenueHt sommait ti."unitPrice" * ti."quantity" — le prix catalogue de
+// CHAQUE ligne d'article, y compris les lignes "formule/menu" qui n'ont jamais de paiement
+// propre (Weezevent facture le paiement réel sur les lignes composants). Le montant
+// réellement payé par ligne vit dans ti."rawData"->'payments' (JSON Weezevent) — seule
+// source fiable, la table relationnelle WeezeventPayment n'étant peuplée que par le
+// webhook temps réel, pas par le sync batch historique. Les items Digifood
+// (t."provider" = 'DIGIFOOD') gardent l'ancienne formule unitPrice, déjà nette de remise.
+//
+// Affinage post-mesure (même jour) : `ti."rawData"` porte 3 formes distinctes côté
+// Weezevent, pas 2 — un COALESCE initial les confondait. Mesuré sur toute la table : clé
+// "payments" ABSENTE (20 294 lignes, 77 804 €, ex. "Tsing Tao 25cl" — produit normal, juste
+// une lacune de donnée) vs clé PRÉSENTE mais VIDE (6 417 lignes, 27 282 €, vraies lignes
+// formule/menu). Le test `?` restaure `unitPrice` uniquement quand la donnée de paiement
+// est absente, jamais quand elle est présente-et-vide. Détail complet et mesure d'impact :
+// aggregation.service.ts, même constante.
+const REVENUE_HT_EXPR = Prisma.sql`
+  CASE WHEN t."provider" = 'WEEZEVENT' AND ti."rawData" ? 'payments' THEN
+    COALESCE((
+      SELECT SUM((p->>'amount')::numeric - (p->>'amount_vat')::numeric)
+      FROM jsonb_array_elements(ti."rawData"->'payments') AS p
+    ), 0) / 100
+  ELSE
+    (ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
+  END
+`;
 
 interface AggregationJobParams {
   tenantId: string;
@@ -168,9 +195,7 @@ export class SpaceAggregationService {
         t."locationId" as "weezeventLocationId",
         t."merchantId" as "weezeventMerchantId",
         mem."spaceElementId" as "spaceElementId",
-        SUM(
-          (ti."unitPrice" * ti.quantity - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
-        ) as "revenueHt",
+        SUM(${REVENUE_HT_EXPR}) as "revenueHt",
         COUNT(DISTINCT t.id) as "transactionsCount",
         SUM(ti.quantity) as "itemsCount"
       FROM "WeezeventTransaction" t
@@ -274,9 +299,7 @@ export class SpaceAggregationService {
       SELECT 
         DATE(t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}) as day,
         ti."productId" as "weezeventProductId",
-        SUM(
-          (ti."unitPrice" * ti.quantity - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
-        ) as "revenueHt",
+        SUM(${REVENUE_HT_EXPR}) as "revenueHt",
         SUM(ti.quantity) as quantity
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
@@ -322,9 +345,10 @@ export class SpaceAggregationService {
   // sur t."locationId" — le bon champ (même convention que aggregation.service.ts, BUG-014) —
   // pour ne pas reproduire ce bug dans la nouvelle table.
   //
-  // revenueHt ne soustrait PAS ti."reduction", contrairement à aggregateProducts ci-dessus :
-  // formule historique de getEventTimelineBatch (spaces.service.ts), à préserver pour ne pas
-  // changer les chiffres déjà affichés sur Analyse/Inventory/Live.
+  // BUG-352-01 : utilise REVENUE_HT_EXPR (paiements réels) au lieu de unitPrice*quantity —
+  // supprime au passage l'ancien écart volontaire "pas de soustraction de reduction" avec
+  // aggregateProducts ci-dessus : REVENUE_HT_EXPR reflète le montant payé, déjà net de
+  // toute remise.
   private async aggregateProductsByMinute(
     tenantId: string,
     spaceId: string,
@@ -355,7 +379,7 @@ export class SpaceAggregationService {
         t."merchantId" as "weezeventMerchantId",
         lsm."spaceElementId" as "spaceElementId",
         ti."productId" as "weezeventProductId",
-        SUM(ti."unitPrice" * ti.quantity / (1 + ti."vat" / 100)) as "revenueHt",
+        SUM(${REVENUE_HT_EXPR}) as "revenueHt",
         COUNT(DISTINCT t.id) as "transactionsCount",
         SUM(ti.quantity) as "itemsCount"
       FROM "WeezeventTransaction" t

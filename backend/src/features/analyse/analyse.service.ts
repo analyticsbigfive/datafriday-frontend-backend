@@ -217,7 +217,21 @@ export class AnalyseService {
         COALESCE(mi.name, ti."productName")                                         AS "menuItemName",
         SUM(ti.quantity)::integer                                                    AS quantity,
         COUNT(DISTINCT t.id)::integer                                               AS "transactionCount",
-        SUM(ti."unitPrice" * ti.quantity / (1 + ti."vat" / 100))::numeric(12,2) AS revenue
+        -- BUG-352-01 : paiements réels via rawData au lieu de unitPrice*quantity, cf.
+        -- aggregation.service.ts pour l'explication et la mesure d'impact. Le test de clé
+        -- jsonb (affinage même jour) ne retombe sur unitPrice que si la clé est ABSENTE
+        -- (produit normal, donnée manquante) — jamais si elle est présente-et-vide
+        -- (vraie ligne formule/menu, cf. aggregation.service.ts pour la mesure des 2 cas).
+        SUM(
+          CASE WHEN t."provider" = 'WEEZEVENT' AND ti."rawData" ? 'payments' THEN
+            COALESCE((
+              SELECT SUM((p->>'amount')::numeric - (p->>'amount_vat')::numeric)
+              FROM jsonb_array_elements(ti."rawData"->'payments') AS p
+            ), 0) / 100
+          ELSE
+            (ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
+          END
+        )::numeric(12,2) AS revenue
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti
         ON ti."transactionId" = t.id

@@ -68,3 +68,6 @@ tmp-e2e/
 docs/scratch/*
 !docs/scratch/.gitkeep
 !docs/scratch/README.md
+
+# DB backups (pg_dump)
+/backups/*.dump
