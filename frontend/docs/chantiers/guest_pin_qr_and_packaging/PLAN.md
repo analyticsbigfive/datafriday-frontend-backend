@@ -1,4 +1,4 @@
-# Chantier — QR code réel + libellés de conditionnement pour l'accès PIN invité
+# Chantier — QR code réel + catalogue invité incomplet + libellés de conditionnement
 
 > Pas de numéro de ticket externe (contrairement aux autres dossiers de `docs/chantiers/`) — créé
 > le 2026-09-08 pour ne pas perdre deux TODO explicitement laissés de côté pendant l'implémentation
@@ -31,20 +31,42 @@ geler/révoquer) :
 `components/space-workspace/inventory/GuestPinQrSheet.vue` (probablement une route d'impression
 dédiée, `window.print()`), rebrancher le bouton dans `GuestPinAccessPanel.vue`.
 
-## 2. Libellés de conditionnement invité — dégradation cosmétique connue
+## 2. Catalogue invité incomplet/différent du staff — CORRIGÉ le 2026-09-08
 
-`GuestPinAccessService.getInventory()` (backend) ne remonte pas les champs de conditionnement
-(nom vu ailleurs dans le code sous `inventoryPackaging`/`inventoryQuantityPackaged` côté
-`InventoryCountingInterface.vue`, à vérifier contre le nom réel exposé par
-`SpaceMenusService.getShopInventory` avant de les ajouter — pas fait ici par prudence, cf. session
-du 2026-09-08). Conséquence : l'écran de comptage invité affiche le libellé générique "Number of
-packed units" au lieu de "Number of Cartons of 3", et le total utilise un ratio 1:1 par défaut
-(`item.inventoryQuantityPackaged || 1`) au lieu de la vraie taille de carton.
+Constaté le 2026-09-08 en test réel (Auxerre, PDV "1 A") : le STAFF voyait **15 articles** à
+compter pour ce PDV (dont "BARRE CHOCOLATEE"), l'INVITÉ en voyait **13** pour le MÊME PDV/événement,
+avec un article ("Badiane") absent côté staff. Deux causes cumulables :
 
-**Pas cassé, juste moins précis** : le comptage fonctionne, se sauvegarde, se compare — seul
-l'affichage du libellé et l'exactitude du total "unités" (vs "cartons") sont dégradés.
+**2a.** `GuestPinAccessService.getInventory()` appelait `SpaceMenusService.getShopInventory(...)`
+sans `configId` → repli arbitraire sur la première config adhérente au lieu de celle de
+l'événement réellement ouvert.
 
-**Prochaine étape concrète** : confirmer le nom exact du champ conditionnement retourné par
-`getShopInventory`, l'ajouter au mapping `items.map(...)` de `getInventory()`
-(`backend/src/features/guest-pin-access/guest-pin-access.service.ts`), puis le laisser transiter
-tel quel dans `useGuestInventorySession.js::loadGuestInventory()`.
+**2b.** `getShopInventory` ne faisait **aucune explosion BOM** (combo → constituants →
+sous-composants) — retournait les ingrédients/emballages/composants au premier niveau seulement,
+alors que le STAFF (`frontend/src/utils/inventoryUtils.js::buildConsolidatedInventory`) fait une
+explosion récursive complète (BUG-002/Q18, BUG-292-01). Deux algorithmes différents = deux
+catalogues différents pour le même PDV, irréparable en corrigeant juste le configId.
+
+**Fix retenu (option 1 du choix précédent)** : l'invité appelle désormais **la même fonction**
+`buildConsolidatedInventory` que le staff, côté client
+(`frontend/src/composables/useGuestInventorySession.js::loadGuestInventory`), nourrie par un
+nouvel endpoint `GET /guest-pin/catalog` (`GuestPinAccessService.getCatalog`,
+`backend/src/features/guest-pin-access/guest-pin-access.service.ts`) qui renvoie les MÊMES données
+brutes que le staff charge (`MenuItemsService.getRecipes` — même `buildRecipeComponents` que
+`/menu-items/recipes`, `MarketPricesService.findAll`, `MenuComponentsService.findAll`), scopées au
+PDV+config de l'événement ouvert (résolution `configId` copiée de
+`SpaceMenusService.resolveShopConfigId`, dupliquée volontairement plutôt que de toucher
+`space-menus.service.ts`). Plus aucune logique d'explosion dupliquée côté backend — un seul
+algorithme, deux appelants. `GuestPinAccessService.getInventory()` ne renvoie plus que les
+comptages déjà sauvegardés (`savedCounts`), plus le catalogue.
+
+`toRecipeDto` (`menu-items.service.ts`) a été étendu (champ additif) pour inclure
+`picture`/`inventoryNumberOfUnits`/`inventoryPackagingType`, absents du contrat recette existant
+mais nécessaires à `buildConsolidatedInventory`.
+
+## 3. Libellés de conditionnement invité — résolu par le fix #2
+
+Puisque l'invité construit désormais son `consolidatedInventory` avec la MÊME fonction que le
+staff, à partir des MÊMES catalogues (`marketPrices`/`components`), les champs
+`inventoryPackaging`/`inventoryQuantityPackaged`/`picture` sont résolus normalement — plus de
+valeurs codées en dur à `null`. Rien à faire en plus ici.

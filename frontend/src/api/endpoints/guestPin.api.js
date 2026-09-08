@@ -40,6 +40,17 @@ export async function submitGuestCount() {
   return response.data
 }
 
+/**
+ * Catalogue brut du PDV (mêmes données que le staff : menu items + composants +
+ * market prices) — l'explosion combo/BOM se fait côté client via
+ * `buildConsolidatedInventory` (même fonction que l'écran staff), pas ici.
+ */
+export async function getGuestCatalog() {
+  const response = await api.get('/guest-pin/catalog')
+  return response.data
+}
+
+/** Comptages déjà sauvegardés pour le PDV de l'invité, keyés par itemId. */
 export async function getGuestInventory() {
   const response = await api.get('/guest-pin/inventory')
   return response.data

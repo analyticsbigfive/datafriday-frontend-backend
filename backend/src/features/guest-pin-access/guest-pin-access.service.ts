@@ -13,7 +13,9 @@ import { RedisService } from '../../core/redis/redis.service';
 import { AuditService } from '../../core/audit/audit.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { InventoryService } from '../inventory/inventory.service';
-import { SpaceMenusService } from '../space-menus/space-menus.service';
+import { MenuItemsService } from '../menu-items/menu-items.service';
+import { MarketPricesService } from '../market-prices/market-prices.service';
+import { MenuComponentsService } from '../menu-components/menu-components.service';
 import { CreateWindowDto } from './dto/create-window.dto';
 import { SaveGuestCountDto } from './dto/save-guest-count.dto';
 import type { GuestPinUser } from '../../core/auth/strategies/jwt-guest-pin.strategy';
@@ -59,7 +61,9 @@ export class GuestPinAccessService {
     private readonly redis: RedisService,
     private readonly audit: AuditService,
     private readonly inventoryService: InventoryService,
-    private readonly spaceMenus: SpaceMenusService,
+    private readonly menuItems: MenuItemsService,
+    private readonly marketPrices: MarketPricesService,
+    private readonly menuComponents: MenuComponentsService,
     private readonly spaceAccess: SpaceAccessService,
     private readonly configService: ConfigService,
     private readonly jwt: JwtService,
@@ -224,46 +228,105 @@ export class GuestPinAccessService {
     };
   }
 
-  /**
-   * Catalogue du PDV (quels items compter) FUSIONNÉ avec les comptages déjà
-   * sauvegardés — sans ce catalogue, un PDV sans aucun comptage existant
-   * renverrait un blob vide et l'invité n'aurait rien à saisir. Réutilise
-   * SpaceMenusService.getShopInventory (même source que l'écran staff), pas de
-   * logique de résolution de catalogue dupliquée ici.
-   */
+  /** Comptages déjà sauvegardés pour le PDV de l'invité, keyés par itemId — le
+   *  catalogue (quels items existent) vient désormais de `getCatalog` (même
+   *  algorithme que le staff), plus de ce endpoint. */
   async getInventory(user: GuestPinUser) {
-    const guestScopedUser = { id: 'guest-pin', isSuperAdmin: true, isOwner: false, allSpacesAccess: false };
-    const [merged, catalog] = await Promise.all([
-      this.inventoryService.getBySpaceAndEvent(
-        user.spaceId,
-        user.eventId,
-        user.tenantId,
-        user.phase as 'pre-event' | 'post-event',
+    const merged = await this.inventoryService.getBySpaceAndEvent(
+      user.spaceId,
+      user.eventId,
+      user.tenantId,
+      user.phase as 'pre-event' | 'post-event',
+    );
+    const blob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
+    return { elementId: user.elementId, savedCounts: blob[user.elementId] ?? {} };
+  }
+
+  /**
+   * Config effective d'un PDV — copie volontaire de
+   * SpaceMenusService.resolveShopConfigId (privée, non exportée) : configId
+   * explicite (l'événement de l'invité) > config du parent v1 > première
+   * adhésion v2. Dupliquer ces ~5 lignes plutôt que toucher space-menus.service.ts
+   * (fichier dense, chargé d'historique de bugs staff) pour un besoin invité.
+   */
+  private resolveShopConfigId(
+    shop: { floor?: any; forecourt?: any; externalMerch?: any; configurationElements?: any[] },
+    explicitConfigId?: string | null,
+  ): string | null {
+    if (explicitConfigId) return explicitConfigId;
+    const v1Config = shop.floor?.config ?? shop.forecourt?.config ?? shop.externalMerch?.config;
+    return v1Config?.id ?? shop.configurationElements?.[0]?.configId ?? null;
+  }
+
+  /** Items menu ACTIVÉS pour ce PDV, dans la config de l'événement réellement
+   *  ouvert — même résolution que SpaceMenusService.getShopInventory (shop +
+   *  menuAssignments filtrées par configId+enabled), extraite ici pour ne
+   *  renvoyer que les ids (le catalogue complet vient de getRecipes ensuite). */
+  private async getEnabledMenuItemIds(elementId: string, explicitConfigId?: string | null) {
+    const shop = await this.prisma.spaceElement.findFirst({
+      where: { id: elementId },
+      select: {
+        name: true,
+        floor: { select: { config: { select: { id: true } } } },
+        forecourt: { select: { config: { select: { id: true } } } },
+        externalMerch: { select: { config: { select: { id: true } } } },
+        configurationElements: { select: { configId: true }, orderBy: { createdAt: 'asc' }, take: 1 },
+        menuAssignments: { select: { menuItemId: true, enabled: true, configId: true } },
+      },
+    });
+    if (!shop) return { elementName: null, enabledIds: [] as string[] };
+    const effectiveConfigId = this.resolveShopConfigId(shop as any, explicitConfigId);
+    const enabledIds = [
+      ...new Set<string>(
+        ((shop as any).menuAssignments ?? [])
+          .filter((a: any) => (a.configId ?? null) === effectiveConfigId && a.enabled)
+          .map((a: any) => String(a.menuItemId)),
       ),
-      this.spaceMenus.getShopInventory(user.elementId, user.tenantId, undefined, guestScopedUser),
+    ];
+    return { elementName: shop.name, enabledIds };
+  }
+
+  /**
+   * Catalogue du PDV de l'invité — MÊMES données brutes que le staff, pour que
+   * le front appelle la MÊME fonction `buildConsolidatedInventory` (pas de
+   * resucée de l'explosion combo/BOM côté backend) :
+   *  - `availableMenuItems` : items activés sur ce PDV dans la config de
+   *    l'événement ouvert (mêmes champs que /menu-items/recipes = `menuItem.components`
+   *    fusionné ingrédients+composants+packaging, format identique à ce que le
+   *    staff obtient de /menu-items + normalizeMenuItem, cf. buildRecipeComponents).
+   *  - `allMenuItemsData` : catalogue COMPLET du tenant (mêmes champs), nécessaire
+   *    à la récursion combo (un constituant peut ne pas être lui-même assigné à ce PDV).
+   *  - `marketPrices` / `components` : catalogues tenant bruts, mêmes endpoints que
+   *    ceux que le staff charge (aucune transformation supplémentaire).
+   */
+  async getCatalog(user: GuestPinUser) {
+    const event = await this.prisma.event.findUnique({
+      where: { id: user.eventId },
+      select: { configurationId: true },
+    });
+    const { elementName, enabledIds } = await this.getEnabledMenuItemIds(
+      user.elementId,
+      event?.configurationId,
+    );
+
+    // getRecipes([]) = catalogue ENTIER du tenant (pas de filtre `id`, cf.
+    // menu-items.service.ts::getRecipes) — jamais l'appeler avec `enabledIds` vide
+    // en pensant obtenir "aucun item", ça renverrait l'inverse.
+    const [availableRecipes, allRecipes, marketPricesPage, componentsPage] = await Promise.all([
+      enabledIds.length
+        ? this.menuItems.getRecipes(enabledIds, user.tenantId)
+        : Promise.resolve({ items: [], suppliers: [] }),
+      this.menuItems.getRecipes([], user.tenantId),
+      this.marketPrices.findAll(user.tenantId, 1, 5000),
+      this.menuComponents.findAll(user.tenantId, 1, 5000),
     ]);
 
-    const blob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
-    const savedCounts = blob[user.elementId] ?? {};
-    const catalogItems = (catalog as any)?.items ?? [];
-
-    const items = catalogItems.map((item: any) => ({
-      itemId: item.id,
-      name: item.name,
-      kind: item.kind,
-      unit: item.unit ?? null,
-      packedUnits: 0,
-      looseUnits: 0,
-      isCounted: false,
-      storageLocation: null,
-      countingStatus: 'pending',
-      ...(savedCounts[item.id] ?? {}),
-    }));
-
     return {
-      elementId: user.elementId,
-      elementName: (catalog as any)?.shopName ?? null,
-      items,
+      elementName,
+      availableMenuItems: availableRecipes.items,
+      allMenuItemsData: allRecipes.items,
+      marketPrices: marketPricesPage.data,
+      components: componentsPage.data,
     };
   }
 

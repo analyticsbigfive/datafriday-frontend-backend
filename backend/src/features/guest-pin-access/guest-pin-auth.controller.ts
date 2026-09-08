@@ -60,10 +60,18 @@ export class GuestPinAuthController {
     return this.service.getSession(user);
   }
 
+  @Get('catalog')
+  @UseGuards(JwtGuestPinGuard)
+  @ApiBearerAuth('guest-pin-jwt')
+  @ApiOperation({ summary: "Catalogue brut du PDV de l'invité (mêmes données que le staff, explosées côté client par buildConsolidatedInventory)" })
+  async catalog(@CurrentUser() user: GuestPinUser) {
+    return this.service.getCatalog(user);
+  }
+
   @Get('inventory')
   @UseGuards(JwtGuestPinGuard)
   @ApiBearerAuth('guest-pin-jwt')
-  @ApiOperation({ summary: "Inventaire filtré au PDV de l'invité" })
+  @ApiOperation({ summary: "Comptages déjà sauvegardés pour le PDV de l'invité" })
   async inventory(@CurrentUser() user: GuestPinUser) {
     return this.service.getInventory(user);
   }

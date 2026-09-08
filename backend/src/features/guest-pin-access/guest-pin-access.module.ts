@@ -3,7 +3,9 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { InventoryModule } from '../inventory/inventory.module';
-import { SpaceMenusModule } from '../space-menus/space-menus.module';
+import { MenuItemsModule } from '../menu-items/menu-items.module';
+import { MarketPricesModule } from '../market-prices/market-prices.module';
+import { MenuComponentsModule } from '../menu-components/menu-components.module';
 import { AuditModule } from '../../core/audit/audit.module';
 import { JwtGuestPinStrategy } from '../../core/auth/strategies/jwt-guest-pin.strategy';
 import { GuestPinAccessService } from './guest-pin-access.service';
@@ -13,7 +15,12 @@ import { GuestPinAdminController } from './guest-pin-admin.controller';
 @Module({
   imports: [
     InventoryModule, // réutilise InventoryService (getBySpaceAndEvent, saveInventoryCounts, pushCurrentCountToLogistic)
-    SpaceMenusModule, // réutilise SpaceMenusService.getShopInventory (catalogue d'items du PDV)
+    // Catalogue invité = MÊME algorithme que le staff (buildConsolidatedInventory, appelé
+    // côté client) nourri par les MÊMES sources — getRecipes réutilise buildRecipeComponents
+    // (menuItem.components fusionné ingrédients+composants+packaging), jamais une resucée.
+    MenuItemsModule,
+    MarketPricesModule,
+    MenuComponentsModule,
     AuditModule,
     PassportModule,
     // JwtModule DÉDIÉ, secret distinct de celui d'AuthModule (JWT_SECRET, réservé

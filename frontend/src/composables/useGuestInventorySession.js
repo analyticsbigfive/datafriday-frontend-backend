@@ -12,17 +12,21 @@
 // jamais faire basculer par erreur l'écran STAFF en mode invité.
 //
 // Pourquoi une structure parallèle à useInventoryData.js plutôt qu'une injection
-// dans ses refs : ce dernier construit `consolidatedInventory` par explosion BOM
-// (menu vendu → composants/emballages, cf. buildConsolidatedInventory) à partir du
-// catalogue STAFF (store.state.analyse.menuItems, jamais chargé côté invité). Le
-// backend invité (GuestPinAccessService.getInventory) a déjà fait ce travail
-// serveur (SpaceMenusService.getShopInventory) : les items reçus sont DÉJÀ au
-// niveau "article à compter", prêts à consommer directement.
+// dans ses refs : ce dernier lit son catalogue depuis store.state.analyse
+// (jamais chargé côté invité, tout le bootstrap analyse/loadSpace partirait en
+// 401 sous JWT invité). Mais l'EXPLOSION combo/BOM elle-même doit être identique
+// des deux côtés — décision du 2026-09-08 après un désaccord staff/invité sur le
+// nombre d'articles à compter pour un même PDV : `buildConsolidatedInventory` est
+// donc appelée ICI aussi, tel quel, nourrie par /guest-pin/catalog (mêmes données
+// brutes que le staff, cf. GuestPinAccessService.getCatalog) — jamais une resucée
+// de l'algorithme.
 
 import { ref, computed } from 'vue'
 import { useStore } from 'vuex'
 import { useRoute } from 'vue-router'
+import { buildConsolidatedInventory } from '@/utils/inventoryUtils'
 import {
+  getGuestCatalog,
   getGuestInventory,
   getGuestBaseline,
   saveGuestCount,
@@ -64,25 +68,37 @@ export function useGuestInventorySession() {
 
   /** Charge le catalogue + comptages + quantités attendues du PDV de l'invité —
    *  équivalent invité de `loadForSpace`, mais sans AUCUN des chargements staff
-   *  (analyse/loadSpace, events, logistics, prix marché...) qui partiraient en
-   *  401 sous JWT invité. */
+   *  (analyse/loadSpace, events, logistics...) qui partiraient en 401 sous JWT
+   *  invité. Le catalogue brut (/guest-pin/catalog) est explosé ICI par la MÊME
+   *  fonction que le staff (`buildConsolidatedInventory`) : mêmes articles,
+   *  mêmes images, mêmes libellés de conditionnement des deux côtés. */
   async function loadGuestInventory() {
-    const [inventory, baseline] = await Promise.all([
+    const [catalog, inventory, baseline] = await Promise.all([
+      getGuestCatalog(),
       getGuestInventory(),
       getGuestBaseline(),
     ])
-    const items = inventory?.items ?? []
     const elementId = guestElementId.value
 
+    const consolidatedInventory = buildConsolidatedInventory(
+      catalog?.availableMenuItems ?? [],
+      catalog?.allMenuItemsData ?? [],
+      catalog?.marketPrices ?? [],
+      false,
+      catalog?.components ?? [],
+    )
+
+    const savedCounts = inventory?.savedCounts ?? {}
     const counts = {}
-    for (const item of items) {
-      counts[item.itemId] = {
-        itemId: item.itemId,
-        packedUnits: item.packedUnits ?? 0,
-        looseUnits: item.looseUnits ?? 0,
-        isCounted: !!item.isCounted,
-        storageLocation: item.storageLocation ?? null,
-        countingStatus: item.countingStatus ?? 'pending',
+    for (const item of consolidatedInventory) {
+      const saved = savedCounts[item.id] ?? {}
+      counts[item.id] = {
+        itemId: item.id,
+        packedUnits: saved.packedUnits ?? 0,
+        looseUnits: saved.looseUnits ?? 0,
+        isCounted: !!saved.isCounted,
+        storageLocation: saved.storageLocation ?? null,
+        countingStatus: saved.countingStatus ?? 'pending',
       }
     }
     guestInventoryCounts.value = { [elementId]: counts }
@@ -90,21 +106,10 @@ export function useGuestInventorySession() {
     guestCards.value = [{
       element: {
         id: elementId,
-        name: inventory?.elementName ?? guestElementName.value,
+        name: catalog?.elementName ?? guestElementName.value,
         isOpen: true,
       },
-      consolidatedInventory: items.map((item) => ({
-        id: item.itemId,
-        name: item.name,
-        unit: item.unit,
-        // Absents côté invité (le backend n'expose pas encore le conditionnement
-        // packagé, cf. GuestPinAccessService.getInventory) : dégrade proprement
-        // vers le libellé générique "Number of packed units" et un ratio 1:1,
-        // jamais une erreur.
-        inventoryPackaging: null,
-        inventoryQuantityPackaged: null,
-        picture: null,
-      })),
+      consolidatedInventory,
     }]
 
     guestExpected.value = baseline?.expected?.[elementId] ?? {}
