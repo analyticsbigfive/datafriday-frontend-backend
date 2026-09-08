@@ -6,7 +6,6 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import type { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { GuestPinAccessService } from './guest-pin-access.service';
 import { CreateWindowDto } from './dto/create-window.dto';
-import { SetPinDto } from './dto/set-pin.dto';
 
 /**
  * Surface directeur — guards globaux standards (JwtDatabaseGuard/TenantGuard/
@@ -37,22 +36,18 @@ export class GuestPinAdminController {
     return this.service.getStatusBoard(spaceId, eventId, user);
   }
 
-  @Post(':windowId/pins')
+  @Post(':windowId/pin')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Génère (ou régénère) le PIN d\'un PDV pour cette fenêtre — affiché une seule fois' })
-  async setPin(
-    @Param('windowId') windowId: string,
-    @Body() dto: SetPinDto,
-    @CurrentUser() user: CurrentUserData,
-  ) {
-    return this.service.setPin(windowId, dto.elementId, user);
+  @ApiOperation({ summary: 'Génère (ou régénère) LE PIN partagé de cette fenêtre — vaut pour tous les PDV, affiché une seule fois' })
+  async setWindowPin(@Param('windowId') windowId: string, @CurrentUser() user: CurrentUserData) {
+    return this.service.setWindowPin(windowId, user);
   }
 
-  @Post('pins/:accessId/reset')
+  @Post('pins/:accessId/reactivate')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: "Régénère le PIN d'un accès existant (dégèle si soumis)" })
-  async resetPin(@Param('accessId') accessId: string, @CurrentUser() user: CurrentUserData) {
-    return this.service.resetPin(accessId, user);
+  @ApiOperation({ summary: 'Réactive un PDV précédemment révoqué (sans toucher au PIN partagé)' })
+  async reactivate(@Param('accessId') accessId: string, @CurrentUser() user: CurrentUserData) {
+    return this.service.reactivateAccess(accessId, user);
   }
 
   @Post('pins/:accessId/revoke')

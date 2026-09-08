@@ -31,11 +31,8 @@
          porte aucune logique ici : cf. GuestPinBadge.vue. -->
     <GuestPinBadge
       v-if="showGuestPin"
-      :space-id="spaceId"
-      :event-id="eventId"
       :phase="phase"
       :element-id="entry.element.id"
-      :element-name="entry.element.name"
     />
 
     <!-- Action : libellé selon l'avancement (rien / en cours / terminé) -->
@@ -70,10 +67,8 @@ const props = defineProps({
   statusLabel: { type: String, default: '' },
   statusColor: { type: String, default: 'grey' },
   // Accès PIN invité (directeur uniquement, permission front.fb.guestPinManage) —
-  // spaceId/eventId/phase transitent tels quels, aucune logique dans cette carte.
+  // phase transite tel quel, aucune logique dans cette carte.
   showGuestPin: { type: Boolean, default: false },
-  spaceId: { type: String, default: null },
-  eventId: { type: String, default: null },
   phase: { type: String, default: null },
 })
 

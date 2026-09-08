@@ -1,9 +1,20 @@
 <template>
   <div class="gpb-zone" :class="zoneClass">
-    <template v-if="!access || access.status === 'revoked'">
-      <button type="button" class="gpb-generate" :disabled="working" @click="onGenerate">
-        <KeyRound :size="14" />
-        {{ t('guestPinAdminGeneratePin') }}
+    <!-- Personne ne s'est encore connecté pour ce PDV — rien à faire ici, le PIN
+         (partagé par toute la fenêtre) se génère depuis le panneau de droite, pas
+         par carte. -->
+    <template v-if="!access">
+      <KeyRound :size="14" />
+      <span class="gpb-label">{{ t('guestPinAdminNotSeenYet') }}</span>
+    </template>
+
+    <template v-else-if="access.status === 'revoked'">
+      <Ban :size="16" />
+      <div class="gpb-sub">
+        <span class="gpb-label gpb-label--revoked">{{ t('guestPinAdminStatusRevoked') }}</span>
+      </div>
+      <button type="button" class="gpb-icon-btn gpb-icon-btn--success" :title="t('guestPinAdminReactivate')" :disabled="working" @click="onReactivate">
+        <RefreshCw :size="14" />
       </button>
     </template>
 
@@ -40,32 +51,24 @@
         </span>
         <span v-if="access.lastLoginAt" class="gpb-meta">{{ formatTime(access.lastLoginAt) }}</span>
       </div>
-      <button type="button" class="gpb-icon-btn" :title="t('guestPinAdminResetPin')" :disabled="working" @click="onReset">
-        <RefreshCw :size="14" />
-      </button>
       <button type="button" class="gpb-icon-btn gpb-icon-btn--danger" :title="t('guestPinAdminRevoke')" :disabled="working" @click="onRevoke">
         <Ban :size="14" />
       </button>
     </template>
-
-    <SetPinDialog
-      v-model="dialogOpen"
-      :window-id="windowId"
-      :element-id="elementId"
-      :element-name="elementName"
-    />
   </div>
 </template>
 
 <script>
 import { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2 } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
-import SetPinDialog from '@/components/guest-pin-manage/dialogs/SetPinDialog.vue';
 
 /**
- * Bouton/badge "Générer PIN" porté par CHAQUE carte PDV — remplace la modale
- * "Démarrer l'inventaire" avec sa liste de tous les PDV : ici le PDV est déjà
- * connu (la carte), il ne reste qu'à ouvrir la fenêtre si besoin puis générer.
+ * Badge de statut PAR PDV, porté par chaque carte — plus de génération de PIN ici
+ * (décision produit 2026-09-08 : UN SEUL PIN partagé par TOUS les PDV d'une
+ * fenêtre, généré une fois depuis GuestPinAccessPanel.vue, pas par carte). La
+ * ligne GuestPinAccess elle-même est désormais auto-créée au premier login du
+ * manager — tant que personne ne s'est connecté pour ce PDV, `access` est null
+ * ici, sans action possible (rien à révoquer/valider avant une 1ʳᵉ connexion).
  *
  * Ne fait AUCUN fetch lui-même : lit l'accès réactivement dans le store
  * `guestPinAdmin` (déjà peuplé par GuestPinAccessPanel, monté une fois dans la
@@ -73,14 +76,11 @@ import SetPinDialog from '@/components/guest-pin-manage/dialogs/SetPinDialog.vue
  */
 export default {
   name: 'GuestPinBadge',
-  components: { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2, SetPinDialog },
+  components: { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2 },
 
   props: {
-    spaceId: { type: String, required: true },
-    eventId: { type: String, required: true },
     phase: { type: String, required: true }, // 'pre-event' | 'post-event'
     elementId: { type: String, required: true },
-    elementName: { type: String, default: '' },
   },
 
   setup() {
@@ -91,8 +91,6 @@ export default {
   data() {
     return {
       working: false,
-      dialogOpen: false,
-      pendingWindowId: null,
     };
   },
 
@@ -103,11 +101,9 @@ export default {
     access() {
       return this.window?.accesses?.find((a) => a.elementId === this.elementId) ?? null;
     },
-    windowId() {
-      return this.pendingWindowId || this.window?.id || null;
-    },
     zoneClass() {
-      if (!this.access || this.access.status === 'revoked') return '';
+      if (!this.access) return '';
+      if (this.access.status === 'revoked') return 'gpb-zone--revoked';
       if (this.access.validatedAt) return 'gpb-zone--validated';
       if (this.access.submittedAt) return 'gpb-zone--submitted';
       return this.access.lastLoginAt ? 'gpb-zone--seen' : 'gpb-zone--pending';
@@ -123,43 +119,21 @@ export default {
       }
     },
 
-    async ensureOpenWindow() {
-      if (this.window?.status === 'open') return this.window.id;
-      await this.$store.dispatch('guestPinAdmin/openWindow', {
-        spaceId: this.spaceId,
-        eventId: this.eventId,
-        phase: this.phase,
-      });
-      return this.$store.getters['guestPinAdmin/windowByPhase'](this.phase)?.id ?? null;
-    },
-
-    async onGenerate() {
-      this.working = true;
-      try {
-        this.pendingWindowId = await this.ensureOpenWindow();
-        this.dialogOpen = true;
-      } finally {
-        this.working = false;
-      }
-    },
-
-    async onReset() {
-      if (!this.access) return;
-      this.working = true;
-      try {
-        this.pendingWindowId = this.window?.id ?? null;
-        await this.$store.dispatch('guestPinAdmin/regeneratePin', this.access.id);
-        this.dialogOpen = true;
-      } finally {
-        this.working = false;
-      }
-    },
-
     async onRevoke() {
       if (!this.access) return;
       this.working = true;
       try {
         await this.$store.dispatch('guestPinAdmin/revoke', this.access.id);
+      } finally {
+        this.working = false;
+      }
+    },
+
+    async onReactivate() {
+      if (!this.access) return;
+      this.working = true;
+      try {
+        await this.$store.dispatch('guestPinAdmin/reactivate', this.access.id);
       } finally {
         this.working = false;
       }
@@ -176,7 +150,7 @@ export default {
       }
     },
 
-    /** Renvoie ce PDV pour correction : réouvre l'écriture, même PIN (pas de régénération). */
+    /** Renvoie ce PDV pour correction : réouvre l'écriture. */
     async onRequestCorrection() {
       if (!this.access) return;
       this.working = true;
@@ -207,28 +181,15 @@ export default {
 .gpb-zone--seen { background: #f0fdf4; border-style: solid; border-color: #bbf7d0; color: #15803d; }
 .gpb-zone--submitted { background: #f5f3ff; border-style: solid; border-color: #ddd6fe; color: #6d28d9; }
 .gpb-zone--validated { background: #f0fdf4; border-style: solid; border-color: #86efac; color: #166534; }
+.gpb-zone--revoked { background: #fef2f2; border-style: solid; border-color: #fecaca; color: #b91c1c; }
 
 .gpb-sub { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .gpb-label { font-size: 11.5px; font-weight: 700; }
 .gpb-label--seen { color: #15803d; }
 .gpb-label--submitted { color: #6d28d9; }
 .gpb-label--validated { color: #166534; }
+.gpb-label--revoked { color: #b91c1c; }
 .gpb-meta { font-size: 10.5px; color: inherit; opacity: 0.8; }
-
-.gpb-generate {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1.5px solid #ff3131;
-  color: #ff3131;
-  background: #fff;
-  font-size: 12.5px;
-  font-weight: 700;
-  cursor: pointer;
-}
-.gpb-generate:disabled { opacity: 0.6; cursor: default; }
 
 .gpb-icon-btn {
   width: 26px;

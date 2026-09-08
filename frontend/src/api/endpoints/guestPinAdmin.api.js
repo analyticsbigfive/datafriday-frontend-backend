@@ -11,18 +11,21 @@ export async function getStatusBoard(spaceId, eventId) {
   return response.data
 }
 
-export async function setPin(windowId, elementId) {
-  const response = await api.post(`/inventory-windows/${windowId}/pins`, { elementId })
-  return response.data
-}
-
-export async function resetPin(accessId) {
-  const response = await api.post(`/inventory-windows/pins/${accessId}/reset`)
+/** Génère (ou régénère) LE PIN partagé de cette fenêtre — vaut pour TOUS les PDV,
+ *  pas un par PDV (décision produit 2026-09-08). */
+export async function setWindowPin(windowId) {
+  const response = await api.post(`/inventory-windows/${windowId}/pin`)
   return response.data
 }
 
 export async function revokeAccess(accessId) {
   const response = await api.post(`/inventory-windows/pins/${accessId}/revoke`)
+  return response.data
+}
+
+/** Réactive un PDV précédemment révoqué, sans toucher au PIN partagé de la fenêtre. */
+export async function reactivateAccess(accessId) {
+  const response = await api.post(`/inventory-windows/pins/${accessId}/reactivate`)
   return response.data
 }
 

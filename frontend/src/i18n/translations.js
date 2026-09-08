@@ -88,6 +88,10 @@ export const translations = {
     guestPinAdminStatsSubmitted: 'Submitted',
     guestPinAdminStatsRevoked: 'Revoked',
     guestPinAdminPanelHint: 'The PIN is shown only once — write it down or copy it before closing the dialog.',
+    guestPinAdminWindowPinSet: 'Shared PIN set',
+    guestPinAdminWindowPinNotSet: 'No PIN generated yet',
+    guestPinAdminWindowPinHint: 'This PIN works for every point of sale in this window — one single code to share.',
+    guestPinAdminReactivate: 'Reactivate',
     // Common
     cancel: 'Cancel',
     save: 'Save',
@@ -4815,6 +4819,10 @@ export const translations = {
     guestPinAdminStatsSubmitted: 'Soumis',
     guestPinAdminStatsRevoked: 'Révoqués',
     guestPinAdminPanelHint: "Le PIN ne s'affiche qu'une fois — note-le ou copie-le avant de fermer la fenêtre.",
+    guestPinAdminWindowPinSet: 'PIN partagé défini',
+    guestPinAdminWindowPinNotSet: 'Aucun PIN généré pour le moment',
+    guestPinAdminWindowPinHint: 'Ce PIN fonctionne pour tous les PDV de cette fenêtre — un seul code à communiquer.',
+    guestPinAdminReactivate: 'Réactiver',
     // Common
     cancel: 'Annuler',
     save: 'Enregistrer',

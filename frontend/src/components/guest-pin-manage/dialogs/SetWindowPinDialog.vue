@@ -7,7 +7,7 @@
       </v-card-title>
 
       <v-card-text>
-        <p class="spd-element">{{ elementName }}</p>
+        <p class="spd-hint">{{ t('guestPinAdminWindowPinHint') }}</p>
 
         <template v-if="pin">
           <p class="spd-pin">{{ pin }}</p>
@@ -43,19 +43,18 @@ import { KeyRound, Copy, Check } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 
 /**
- * Génère un PIN pour UN PDV déjà connu (contexte porté par la carte qui ouvre ce
- * dialog) — pas de sélecteur de PDV : c'est ce qui remplace la modale
- * "Démarrer l'inventaire" avec sa liste de tous les PDV de l'espace.
+ * Génère LE PIN partagé d'une fenêtre — vaut pour TOUS les PDV de cette fenêtre
+ * (décision produit 2026-09-08, revenue sur "un PIN par PDV"). Un seul dialog par
+ * fenêtre (pré/post-event), déclenché depuis GuestPinAccessPanel.vue — plus depuis
+ * chaque carte PDV (GuestPinBadge.vue ne génère plus rien, juste le statut par PDV).
  */
 export default {
-  name: 'SetPinDialog',
+  name: 'SetWindowPinDialog',
   components: { KeyRound, Copy, Check },
 
   props: {
     modelValue: { type: Boolean, default: false },
     windowId: { type: String, required: true },
-    elementId: { type: String, required: true },
-    elementName: { type: String, default: '' },
   },
 
   emits: ['update:modelValue', 'generated'],
@@ -89,10 +88,7 @@ export default {
     async generate() {
       this.generating = true;
       try {
-        const result = await this.$store.dispatch('guestPinAdmin/generatePin', {
-          windowId: this.windowId,
-          elementId: this.elementId,
-        });
+        const result = await this.$store.dispatch('guestPinAdmin/generateWindowPin', this.windowId);
         this.pin = result.pin;
         this.$emit('generated', result);
       } catch (e) {
@@ -120,10 +116,10 @@ export default {
 </script>
 
 <style scoped>
-.spd-element {
+.spd-hint {
   margin: 0 0 12px 0;
-  font-size: 0.875rem;
-  font-weight: 600;
+  font-size: 0.8125rem;
+  color: #6b7280;
 }
 
 .spd-pin {
