@@ -145,16 +145,29 @@
           <div class="sr-header__inner">
             <div class="sr-header__left">
               <!-- Flèche back retirée : retour via l'icône Accueil du header. -->
-              <!-- Toggle STANDARD du panneau latéral (composant partagé). -->
+              <!-- Toggle STANDARD du panneau latéral (composant partagé) — desktop only :
+                   l'aside filtres est masquée < 760px (config déportée dans le bottom-sheet). -->
               <WorkspacePanelToggle
+                class="sr-panel-toggle--desktop"
                 :open="showFilters"
                 :label="t('srToggleFilters')"
                 @toggle="showFilters = !showFilters"
               />
+              <!-- Mobile uniquement : ouvre WorkspaceMobileToolDrawer (nav entre outils),
+                   à l'image de Logistique/Analyse/Inventaire. -->
+              <button
+                type="button"
+                class="sr-mobile-tools-trigger"
+                :aria-label="t('srToolsLabel')"
+                @click="showMobileToolDrawer = true"
+              >
+                <v-icon size="20">mdi-menu</v-icon>
+              </button>
               <div class="sr-header__text">
                 <h1 class="sr-header__title">{{ t('srTitle') }}</h1>
                 <p class="sr-header__subtitle">
-                  {{ spaceLabel }}
+                  <!-- Nom d'espace : masqué en mobile (déjà dans l'app-bar). -->
+                  <span class="sr-subtitle-space">{{ spaceLabel }}</span>
                   <span v-if="objectiveSource === 'sales' && referenceEvent">
                     · {{ t('srObjectiveSalesPrefix') }} {{ eventLabel(referenceEvent) }}
                   </span>
@@ -166,7 +179,9 @@
                        est un piège de stacking (cf. bug kebab/EventDrawerShell).
                        Repli libellé seul quand aucun inventaire sauvegardé. -->
                   <span v-if="sourceInventoryOptions.length > 1" class="sr-source-inventory">
-                    · {{ t('srSourceInventoryPrefix') }}
+                    <!-- Libellé verbeux masqué en mobile ; icône compacte à la place. -->
+                    <span class="sr-source-inventory__label">· {{ t('srSourceInventoryPrefix') }}</span>
+                    <v-icon size="14" class="sr-source-inventory__icon">mdi-history</v-icon>
                     <select
                       class="sr-source-inventory-select"
                       :value="sourceInventoryEventId || ''"
@@ -188,50 +203,98 @@
             </div>
 
             <div class="sr-header__right">
-              <!-- Sauvegarde EXPLICITE d'un plan nommé (jamais d'auto-save). -->
-              <v-btn
-                v-if="plansAvailable && !loadedPlanId"
-                variant="outlined"
-                size="small"
-                class="sr-hbtn"
-                :disabled="!canWritePlans || !restockGenerated"
-                :title="canWritePlans ? undefined : t('srPlanReadOnlyHint')"
-                @click="openSavePlanDialog"
-              >
-                <v-icon size="16" class="mr-1">mdi-content-save-outline</v-icon>
-                {{ t('srSavePlan') }}
-              </v-btn>
-              <v-btn
-                v-else-if="plansAvailable && loadedPlanId"
-                variant="outlined"
-                size="small"
-                class="sr-hbtn"
-                :disabled="!canWritePlans || !planDirty"
-                :title="canWritePlans ? undefined : t('srPlanReadOnlyHint')"
-                @click="updateLoadedPlan"
-              >
-                <v-icon size="16" class="mr-1">mdi-content-save-outline</v-icon>
-                {{ t('srUpdatePlan') }}
-              </v-btn>
-              <v-btn
-                variant="outlined"
-                size="small"
-                class="sr-hbtn sr-mobile-config-btn"
-                @click="mobileConfigSheet = true"
-              >
-                <v-icon size="16" class="mr-1">mdi-tune-variant</v-icon>
-                {{ t('srSettings') }}
-              </v-btn>
-              <v-btn
-                variant="flat"
-                size="small"
-                class="sr-cta-btn"
-                :disabled="!canGenerate"
-                @click="generateShoppingList"
-              >
-                <v-icon size="16" class="mr-1">mdi-cart-outline</v-icon>
-                {{ t('srShoppingList') }}
-              </v-btn>
+              <!-- Actions inline (desktop). Sur mobile elles sont regroupées dans le
+                   menu ⋮ ci-dessous pour dégager le bandeau. -->
+              <div class="sr-actions-inline">
+                <!-- Sauvegarde EXPLICITE d'un plan nommé (jamais d'auto-save). -->
+                <v-btn
+                  v-if="plansAvailable && !loadedPlanId"
+                  variant="outlined"
+                  size="small"
+                  class="sr-hbtn"
+                  :disabled="!canWritePlans || !restockGenerated"
+                  :title="canWritePlans ? undefined : t('srPlanReadOnlyHint')"
+                  @click="openSavePlanDialog"
+                >
+                  <v-icon size="16" class="mr-1">mdi-content-save-outline</v-icon>
+                  {{ t('srSavePlan') }}
+                </v-btn>
+                <v-btn
+                  v-else-if="plansAvailable && loadedPlanId"
+                  variant="outlined"
+                  size="small"
+                  class="sr-hbtn"
+                  :disabled="!canWritePlans || !planDirty"
+                  :title="canWritePlans ? undefined : t('srPlanReadOnlyHint')"
+                  @click="updateLoadedPlan"
+                >
+                  <v-icon size="16" class="mr-1">mdi-content-save-outline</v-icon>
+                  {{ t('srUpdatePlan') }}
+                </v-btn>
+                <v-btn
+                  variant="outlined"
+                  size="small"
+                  class="sr-hbtn sr-mobile-config-btn"
+                  @click="mobileConfigSheet = true"
+                >
+                  <v-icon size="16" class="mr-1">mdi-tune-variant</v-icon>
+                  {{ t('srSettings') }}
+                </v-btn>
+                <v-btn
+                  variant="flat"
+                  size="small"
+                  class="sr-cta-btn"
+                  :disabled="!canGenerate"
+                  @click="generateShoppingList"
+                >
+                  <v-icon size="16" class="mr-1">mdi-cart-outline</v-icon>
+                  {{ t('srShoppingList') }}
+                </v-btn>
+              </div>
+
+              <!-- Mobile uniquement : ⋮ regroupant les actions du bandeau (Paramètres,
+                   sauvegardes, feuille de course) — à l'image du ⋮ d'Analyse. -->
+              <v-menu location="bottom end">
+                <template #activator="{ props: moreProps }">
+                  <button
+                    v-bind="moreProps"
+                    type="button"
+                    class="sr-mobile-more-trigger"
+                    :aria-label="t('srSettings')"
+                  >
+                    <v-icon size="20">mdi-dots-vertical</v-icon>
+                  </button>
+                </template>
+                <v-list density="compact">
+                  <v-list-item @click="mobileConfigSheet = true">
+                    <template #prepend><v-icon size="18">mdi-tune-variant</v-icon></template>
+                    <v-list-item-title>{{ t('srSettings') }}</v-list-item-title>
+                  </v-list-item>
+                  <v-list-item
+                    v-if="plansAvailable && !loadedPlanId"
+                    :disabled="!canWritePlans || !restockGenerated"
+                    @click="openSavePlanDialog"
+                  >
+                    <template #prepend><v-icon size="18">mdi-content-save-outline</v-icon></template>
+                    <v-list-item-title>{{ t('srSavePlan') }}</v-list-item-title>
+                  </v-list-item>
+                  <v-list-item
+                    v-else-if="plansAvailable && loadedPlanId"
+                    :disabled="!canWritePlans || !planDirty"
+                    @click="updateLoadedPlan"
+                  >
+                    <template #prepend><v-icon size="18">mdi-content-save-outline</v-icon></template>
+                    <v-list-item-title>{{ t('srUpdatePlan') }}</v-list-item-title>
+                  </v-list-item>
+                  <v-list-item
+                    :disabled="!canGenerate"
+                    @click="generateShoppingList"
+                  >
+                    <template #prepend><v-icon size="18">mdi-cart-outline</v-icon></template>
+                    <v-list-item-title>{{ t('srShoppingList') }}</v-list-item-title>
+                  </v-list-item>
+                </v-list>
+              </v-menu>
             </div>
           </div>
           <p v-if="!canGenerate" class="sr-generate-hint">
@@ -1435,6 +1498,16 @@
       </v-card>
     </v-dialog>
 
+    <!-- Nav entre outils (mobile) — même drawer ☰ que Logistique/Analyse/Inventaire.
+         Le bottom-sheet « Settings » ci-dessous ne gère plus que les filtres/événements. -->
+    <WorkspaceMobileToolDrawer
+      v-model="showMobileToolDrawer"
+      :items="toolboxSelectItems"
+      current-value="restock"
+      :title="t('srToolsLabel')"
+      @select="onToolboxSelect"
+    />
+
     <v-bottom-sheet v-model="mobileConfigSheet" inset>
       <v-card class="sr-mobile-config-sheet">
         <v-card-title class="d-flex align-center ga-2">
@@ -1442,16 +1515,6 @@
           {{ t('srSettingsSheetTitle') }}
         </v-card-title>
         <v-card-text class="sr-mobile-config-content">
-          <div class="sr-mobile-sheet-block">
-            <span class="sr-mobile-sheet-label">{{ t('srToolsLabel') }}</span>
-            <WorkspaceToolSelect
-              model-value="restock"
-              :items="toolboxSelectItems"
-              :aria-label="t('srToolboxNavLabel')"
-              @update:model-value="mobileConfigSheet = false; onToolboxSelect($event)"
-            />
-          </div>
-
           <v-card variant="outlined" class="sr-panel sr-mobile-config-panel">
             <header class="sr-panel-head">
               <div>
@@ -1605,6 +1668,7 @@ import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
 import AppSearchBar from '@/components/common/AppSearchBar.vue'
 import RestockEventScenarioPicker from '@/components/space-workspace/restock/RestockEventScenarioPicker.vue'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
+import WorkspaceMobileToolDrawer from '@/components/WorkspaceMobileToolDrawer.vue'
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import { generatePredictionsForEvent } from '@/utils/predictiveAnalytics'
 import { parseEventDate, formatDateMedium } from '@/utils/dateFr'
@@ -1744,7 +1808,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -1839,6 +1903,8 @@ export default {
       restockSearch: '',
       shoppingSearch: '',
       mobileConfigSheet: false,
+      // Drawer nav outils (mobile uniquement, cf. .sr-mobile-tools-trigger).
+      showMobileToolDrawer: false,
       stockAdjustments: {},
       stockExcluded: {}, // itemKeys décochés → exclus de la génération du réarmement
       // fiche 314-01 — étape 1 : onglet actif ('shops' | 'storage') et overrides
@@ -8223,6 +8289,8 @@ export default {
     display: inline-flex;
   }
 
+  /* ☰ nav outils + full-bleed du bandeau : cf. bloc @media 760 autoritaire en fin de feuille. */
+
   .sr-toolbox-nav,
   .sr-sidebar {
     display: none;
@@ -8687,6 +8755,10 @@ export default {
   border-radius: 18px !important;
   box-shadow: 0 8px 24px rgba(255, 49, 49, .28) !important;
   flex-shrink: 0;
+  /* Épinglé au scroll sous le header blanc (miroir Logistique .lg-header). */
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 .sr-header__inner {
   display: flex;
@@ -8726,6 +8798,30 @@ export default {
 .sr-header__toggle:hover { background: rgba(255, 255, 255, .32); }
 .sr-header__toggle:active { transform: scale(.94); }
 .sr-header__toggle:focus-visible { outline: 2px solid rgba(255, 255, 255, .85); outline-offset: 2px; }
+/* ☰ Nav outils + ⋮ actions — mobile uniquement (pastille blanche translucide, cf.
+   Logistique/Analyse). Affichés < 760px via @media plus bas. Le ☰ remplace le toggle
+   filtres (aside masquée) ; le ⋮ regroupe les actions du bandeau (Paramètres, saves…). */
+.sr-mobile-tools-trigger,
+.sr-mobile-more-trigger {
+  display: none;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .2);
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  color: #fff;
+  transition: background .15s ease, transform .15s ease;
+}
+.sr-mobile-tools-trigger:hover,
+.sr-mobile-more-trigger:hover { background: rgba(255, 255, 255, .32); }
+.sr-mobile-tools-trigger:active,
+.sr-mobile-more-trigger:active { transform: scale(.94); }
+.sr-mobile-tools-trigger:focus-visible,
+.sr-mobile-more-trigger:focus-visible { outline: 2px solid rgba(255, 255, 255, .85); outline-offset: 2px; }
 /* Sélecteur d'espace dans le bandeau : texte en blanc sur le rouge. */
 .sr-header__switcher { flex-shrink: 0; }
 .sr-header__switcher :deep(.wsh-space-trigger) { color: #fff; }
@@ -8738,6 +8834,8 @@ export default {
 /* Sélecteur « Inventaire source » — select natif fondu dans le bandeau rouge
    (pas d'overlay Vuetify sous le sticky). */
 .sr-source-inventory { display: inline-flex; align-items: center; gap: 4px; }
+/* Icône compacte : cachée en desktop (le libellé texte suffit), montrée en mobile. */
+.sr-source-inventory__icon { display: none; color: rgba(255, 255, 255, .85); }
 .sr-source-inventory-select {
   max-width: 260px;
   padding: 1px 4px;
@@ -8750,6 +8848,8 @@ export default {
 }
 .sr-source-inventory-select option { color: #111827; }
 .sr-header__right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+/* Groupe des actions inline (desktop). Masqué en mobile (regroupé dans le ⋮). */
+.sr-actions-inline { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* Retour (blanc sur rouge) */
 .sr-back { background: transparent !important; border: none !important; }
@@ -8995,5 +9095,55 @@ export default {
 .sr-plan-guard-actions {
   flex-wrap: wrap;
   gap: 4px;
+}
+
+/* ── Responsive mobile — placé en FIN de feuille pour l'emporter en ordre-source
+   sur les bases (.sr-mobile-tools-trigger:display:none @8754, .sr-header @8680).
+   À l'image d'Analyse/Inventaire/Logistique : ☰ nav outils + bandeau rouge
+   full-bleed épinglé sous le header principal. ── */
+@media (max-width: 760px) {
+  /* ☰ nav outils visible ; toggle filtres desktop masqué (aside filtres cachée). */
+  .sr-mobile-tools-trigger { display: flex !important; }
+  .sr-panel-toggle--desktop { display: none !important; }
+
+  /* Actions du bandeau regroupées dans le ⋮ : boutons inline masqués, ⋮ affiché. */
+  .sr-actions-inline { display: none !important; }
+  .sr-mobile-more-trigger { display: flex !important; }
+
+  /* Sous-titre compacté : nom d'espace (déjà dans l'app-bar) et libellé verbeux
+     « Inventaire source : » masqués ; une icône 🕐 + le select compact suffisent. */
+  .sr-subtitle-space { display: none; }
+  .sr-source-inventory__label { display: none; }
+  .sr-source-inventory__icon { display: inline-flex; }
+  .sr-source-inventory-select { max-width: 58vw; }
+
+  /* ── Anti-débordement horizontal (écrans très étroits) ──
+     1) La grille passe à 1 colonne rétrécissable : sans min-width:0 un enfant à
+        contenu large (bouton, tabs) élargit la piste et pousse toute la page.
+     2) On annule la marge latérale de .sr-body : il ne reste qu'UNE gouttière
+        (.sr-content padding 16px), donc le bandeau bleede avec un simple -16px —
+        plus de breakout 100vw (qui débordait de la largeur de la scrollbar).
+     3) overflow-x: clip sur la racine coupe tout résidu SANS casser le sticky
+        (clip n'établit pas de conteneur de scroll, contrairement à hidden). */
+  .space-restock-view { overflow-x: clip; }
+  .sr-body { margin-left: 0 !important; margin-right: 0 !important; }
+  .sr-body > * { min-width: 0 !important; }
+
+  /* ⋮ épinglé en haut à droite du bandeau (hors flux) : il ne passe plus sous le ☰.
+     padding-right réserve la place pour qu'aucun texte ne passe dessous. */
+  .sr-header__inner { position: relative; padding-right: 62px; }
+  .sr-header__right { position: absolute; top: 12px; right: 14px; margin: 0; }
+  .sr-header__left { min-width: 0; }
+  .sr-header__text { min-width: 0; }
+
+  .sr-content { padding: 16px !important; }
+
+  /* Bandeau collé aux bords + épinglé sous le header principal. Une seule gouttière
+     restante (.sr-body margin remis à 0) → -16px suffit. */
+  .sr-header {
+    margin: -16px -16px 16px !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
 }
 </style>
