@@ -92,6 +92,9 @@ export const translations = {
     guestPinAdminWindowPinNotSet: 'No PIN generated yet',
     guestPinAdminWindowPinHint: 'This PIN works for every point of sale in this window — one single code to share.',
     guestPinAdminReactivate: 'Reactivate',
+    guestPinQrTitle: 'Connection QR code',
+    guestPinQrCopyLink: 'Copy link',
+    guestPinQrHint: 'Print it at the point of sale — scanning it always opens this exact PDV.',
     // Common
     cancel: 'Cancel',
     save: 'Save',
@@ -4823,6 +4826,9 @@ export const translations = {
     guestPinAdminWindowPinNotSet: 'Aucun PIN généré pour le moment',
     guestPinAdminWindowPinHint: 'Ce PIN fonctionne pour tous les PDV de cette fenêtre — un seul code à communiquer.',
     guestPinAdminReactivate: 'Réactiver',
+    guestPinQrTitle: 'QR code de connexion',
+    guestPinQrCopyLink: 'Copier le lien',
+    guestPinQrHint: "À imprimer sur le point de vente — scanné, il ouvre toujours ce PDV précis.",
     // Common
     cancel: 'Annuler',
     save: 'Enregistrer',

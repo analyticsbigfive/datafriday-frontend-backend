@@ -1040,7 +1040,7 @@ export class SpacesService {
         ${configFilter}
       ),
       floor_shops AS (
-        SELECT se.id, se.name, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
+        SELECT se.id, se.name, se.slug, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
                f."configId" AS "configId", tc.name AS "configName",
                f.id AS "locationId", f.name AS "locationName", f.level::text AS "floorLevel"
         FROM "SpaceElement" se
@@ -1050,7 +1050,7 @@ export class SpacesService {
         WHERE se.type::text = ANY(${shopTypes}) AND se."zoneId" IS NULL
       ),
       forecourt_shops AS (
-        SELECT se.id, se.name, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
+        SELECT se.id, se.name, se.slug, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
                fc."configId" AS "configId", tc.name AS "configName",
                fc.id AS "locationId", fc.name AS "locationName", 'forecourt' AS "floorLevel"
         FROM "SpaceElement" se
@@ -1059,7 +1059,7 @@ export class SpacesService {
         WHERE se.type::text = ANY(${shopTypes}) AND se."zoneId" IS NULL
       ),
       externalmerch_shops AS (
-        SELECT se.id, se.name, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
+        SELECT se.id, se.name, se.slug, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
                em."configId" AS "configId", tc.name AS "configName",
                em.id AS "locationId", em.name AS "locationName", 'externalmerch' AS "floorLevel"
         FROM "SpaceElement" se
@@ -1086,7 +1086,7 @@ export class SpacesService {
       -- plus ancienne.
       zone_shops AS (
         SELECT DISTINCT ON (se.id, ce."configId")
-               se.id, se.name, se.type::text AS type,
+               se.id, se.name, se.slug, se.type::text AS type,
                CASE WHEN cardinality(se.subtypes) > 0 THEN se.subtypes ELSE se."shopTypes" END AS "shopTypes",
                se.attributes, se.image, se.notes,
                ce."configId" AS "configId", tc.name AS "configName",
@@ -1171,6 +1171,9 @@ export class SpacesService {
       return {
         id: s.id,
         name: s.name,
+        // Slug stable (/login/pin/:slug) — exposé au staff pour le QR code de
+        // connexion invité (GuestPinBadge.vue), sans autre usage aujourd'hui.
+        slug: s.slug ?? null,
         type: s.type,
         shopTypes: s.shopTypes,
         attributes: s.attributes,

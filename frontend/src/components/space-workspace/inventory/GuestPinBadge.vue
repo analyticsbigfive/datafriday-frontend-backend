@@ -1,5 +1,17 @@
 <template>
   <div class="gpb-zone" :class="zoneClass">
+    <!-- QR du lien de connexion — toujours dispo, indépendant du statut PIN
+         (le lien/slug ne change jamais, contrairement au PIN partagé). -->
+    <button
+      v-if="slug"
+      type="button"
+      class="gpb-icon-btn"
+      :title="t('guestPinQrTitle')"
+      @click="qrDialogOpen = true"
+    >
+      <QrCode :size="14" />
+    </button>
+
     <!-- Personne ne s'est encore connecté pour ce PDV — rien à faire ici, le PIN
          (partagé par toute la fenêtre) se génère depuis le panneau de droite, pas
          par carte. -->
@@ -55,12 +67,15 @@
         <Ban :size="14" />
       </button>
     </template>
+
+    <GuestPinQrDialog v-if="slug" v-model="qrDialogOpen" :slug="slug" :element-name="elementName" />
   </div>
 </template>
 
 <script>
-import { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2 } from 'lucide-vue-next';
+import { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2, QrCode } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
+import GuestPinQrDialog from '@/components/guest-pin-manage/dialogs/GuestPinQrDialog.vue';
 
 /**
  * Badge de statut PAR PDV, porté par chaque carte — plus de génération de PIN ici
@@ -76,11 +91,13 @@ import { useI18n } from '@/i18n/useI18n';
  */
 export default {
   name: 'GuestPinBadge',
-  components: { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2 },
+  components: { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2, QrCode, GuestPinQrDialog },
 
   props: {
     phase: { type: String, required: true }, // 'pre-event' | 'post-event'
     elementId: { type: String, required: true },
+    slug: { type: String, default: null },
+    elementName: { type: String, default: '' },
   },
 
   setup() {
@@ -91,6 +108,7 @@ export default {
   data() {
     return {
       working: false,
+      qrDialogOpen: false,
     };
   },
 

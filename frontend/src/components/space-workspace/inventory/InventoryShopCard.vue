@@ -33,6 +33,8 @@
       v-if="showGuestPin"
       :phase="phase"
       :element-id="entry.element.id"
+      :slug="entry.element.slug"
+      :element-name="entry.element.name"
     />
 
     <!-- Action : libellé selon l'avancement (rien / en cours / terminé) -->
