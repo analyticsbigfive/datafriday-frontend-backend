@@ -214,8 +214,10 @@
           </v-expansion-panel-text>
         </v-expansion-panel>
 
-        <!-- 3. Performance des évènements (ouvert par défaut) -->
-        <v-expansion-panel value="events" elevation="0">
+        <!-- 3. Performance des évènements (ouvert par défaut).
+             Masquée quand plusieurs évènements sont sélectionnés ou en Live (maquette
+             Bertrand : présente uniquement avec 1 seul évènement, hors Live). -->
+        <v-expansion-panel v-if="showEventsPerf" value="events" elevation="0">
           <v-expansion-panel-title class="px-2 py-2">
             <span class="section-title">{{ t('anEventsPerformance') }}</span>
           </v-expansion-panel-title>
@@ -387,6 +389,9 @@ const props = defineProps({
   // idempotent) pour que l'assistant lise les mêmes chiffres que le bandeau
   // KPI sans attendre la construction en idle.
   ensureDataset: { type: Function, default: null },
+  // Section « Performance des événements » : affichée uniquement quand 1 seul évènement est
+  // sélectionné et hors Live (maquette Bertrand). Défaut true = rétro-compat desktop.
+  showEventsPerf: { type: Boolean, default: true },
 })
 defineEmits(['update:modelValue', 'analyze', 'shop-click', 'event-click', 'item-click'])
 
