@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Headers,
   Ip,
+  Param,
   Post,
   UseGuards,
 } from '@nestjs/common';
@@ -33,15 +34,23 @@ import { SaveGuestCountDto } from './dto/save-guest-count.dto';
 export class GuestPinAuthController {
   constructor(private readonly service: GuestPinAccessService) {}
 
-  @Post('login')
+  @Get('context/:slug/:phase')
+  @ApiOperation({ summary: "Nom du PDV + fenêtre active ou non, résolus depuis l'URL scannée (avant tout PIN)" })
+  async context(@Param('slug') slug: string, @Param('phase') phase: string) {
+    return this.service.getPublicContext(slug, phase);
+  }
+
+  @Post('login/:slug/:phase')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Connexion invité par PIN (manager de PDV, sans compte)' })
   async login(
+    @Param('slug') slug: string,
+    @Param('phase') phase: string,
     @Body() dto: LoginPinDto,
     @Headers('x-guest-device-id') deviceId: string | undefined,
     @Ip() ip: string,
   ) {
-    return this.service.login(dto.pin, deviceId, ip);
+    return this.service.login(dto.pin, deviceId, ip, slug, phase);
   }
 
   @Get('session')
@@ -75,5 +84,14 @@ export class GuestPinAuthController {
   @ApiOperation({ summary: 'Sauvegarde un comptage pour le PDV de l\'invité' })
   async saveCount(@CurrentUser() user: GuestPinUser, @Body() dto: SaveGuestCountDto) {
     return this.service.saveCount(user, dto);
+  }
+
+  @Post('submit')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtGuestPinGuard)
+  @ApiBearerAuth('guest-pin-jwt')
+  @ApiOperation({ summary: '"J\'ai terminé" — gèle ce PDV (lecture seule), sans clôturer la fenêtre' })
+  async submit(@CurrentUser() user: GuestPinUser) {
+    return this.service.submitCount(user);
   }
 }

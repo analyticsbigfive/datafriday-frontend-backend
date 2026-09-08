@@ -18,6 +18,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpacesService } from '../spaces/spaces.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { createSpaceElementWithUniqueSlug } from '../../shared/utils/generate-space-element-slug';
 import { StaffingCalculatorService } from '../staffing/staffing-calculator.service';
 import { detectFnbTags } from '../staffing/fnb-tags.util';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
@@ -468,42 +469,40 @@ export class BuilderV2Service {
       });
 
       const memberships: Array<{ elementId: string; configIds: string[] }> = [];
-      const elements = await Promise.all(
-        source.elements.map(async (el) => {
-          const copy = await tx.spaceElement.create({
-            data: {
-              zoneId: zone.id,
-              name: el.name,
-              type: el.type,
-              subtypes: el.subtypes,
-              x: el.x,
-              y: el.y,
-              width: el.width ?? 2,
-              depth: el.depth ?? 2,
-              height3d: el.height3d ?? 2,
-              rotation: el.rotation ?? 0,
-              capacity: el.capacity,
-              image: el.image,
-              notes: el.notes,
-              area: el.area,
-              attributes: el.attributes ?? undefined,
-              cornerRadiusTL: el.cornerRadiusTL ?? 0,
-              cornerRadiusTR: el.cornerRadiusTR ?? 0,
-              cornerRadiusBL: el.cornerRadiusBL ?? 0,
-              cornerRadiusBR: el.cornerRadiusBR ?? 0,
-            },
+      const elements = [];
+      for (const el of source.elements) {
+        const copy = await createSpaceElementWithUniqueSlug(tx, el.name, (slug) => ({
+          zoneId: zone.id,
+          slug,
+          name: el.name,
+          type: el.type,
+          subtypes: el.subtypes,
+          x: el.x,
+          y: el.y,
+          width: el.width ?? 2,
+          depth: el.depth ?? 2,
+          height3d: el.height3d ?? 2,
+          rotation: el.rotation ?? 0,
+          capacity: el.capacity,
+          image: el.image,
+          notes: el.notes,
+          area: el.area,
+          attributes: el.attributes ?? undefined,
+          cornerRadiusTL: el.cornerRadiusTL ?? 0,
+          cornerRadiusTR: el.cornerRadiusTR ?? 0,
+          cornerRadiusBL: el.cornerRadiusBL ?? 0,
+          cornerRadiusBR: el.cornerRadiusBR ?? 0,
+        }));
+        const configIds = el.configurationElements.map((m) => m.configId);
+        if (configIds.length > 0) {
+          await tx.configurationElement.createMany({
+            data: configIds.map((configId) => ({ configId, elementId: copy.id })),
+            skipDuplicates: true,
           });
-          const configIds = el.configurationElements.map((m) => m.configId);
-          if (configIds.length > 0) {
-            await tx.configurationElement.createMany({
-              data: configIds.map((configId) => ({ configId, elementId: copy.id })),
-              skipDuplicates: true,
-            });
-          }
-          memberships.push({ elementId: copy.id, configIds });
-          return copy;
-        }),
-      );
+        }
+        memberships.push({ elementId: copy.id, configIds });
+        elements.push(copy);
+      }
 
       return { zone, elements, memberships };
     }, { timeout: 20_000 });
@@ -635,11 +634,15 @@ export class BuilderV2Service {
     }
 
     const image = (await this.storage.resolveImage(dto.image, 'space-elements')) ?? null;
-    const element = await this.prisma.spaceElement.create({
-      data: {
+    const mappedType = await this.mapType(dto.type);
+    const element = await createSpaceElementWithUniqueSlug(
+      this.prisma,
+      dto.name,
+      (slug) => ({
         zoneId,
+        slug,
         name: dto.name,
-        type: await this.mapType(dto.type),
+        type: mappedType,
         subtypes: dto.subtypes || [],
         x: dto.x,
         y: dto.y,
@@ -656,9 +659,9 @@ export class BuilderV2Service {
         cornerRadiusTR: dto.cornerRadius?.topRight ?? 0,
         cornerRadiusBL: dto.cornerRadius?.bottomLeft ?? 0,
         cornerRadiusBR: dto.cornerRadius?.bottomRight ?? 0,
-      },
-      include: this.elementInclude,
-    });
+      }),
+      { include: this.elementInclude },
+    );
 
     if (configIds.length > 0) {
       await this.prisma.configurationElement.createMany({
@@ -800,10 +803,11 @@ export class BuilderV2Service {
     if (!source) throw new NotFoundException(`Element ${elementId} not found`);
     await this.assertSpaceAccess(source.zone?.spaceId, user);
 
-    const copy = await this.prisma.spaceElement.create({
-      data: {
+    const copyName = `${source.name} (Copy)`;
+    const copy = await createSpaceElementWithUniqueSlug(this.prisma, copyName, (slug) => ({
         zoneId: source.zoneId,
-        name: `${source.name} (Copy)`,
+        slug,
+        name: copyName,
         type: source.type,
         subtypes: source.subtypes,
         x: source.x + (dto.offsetX ?? 1),
@@ -858,9 +862,7 @@ export class BuilderV2Service {
               },
             }
           : undefined,
-      },
-      include: this.elementInclude,
-    });
+      }), { include: this.elementInclude });
 
     const configIds = source.configurationElements.map((m) => m.configId);
     if (configIds.length > 0) {

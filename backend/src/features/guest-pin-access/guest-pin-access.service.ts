@@ -22,8 +22,6 @@ import type { CurrentUserData } from '../../core/auth/decorators/current-user.de
 const PIN_LOGIN_MAX_ATTEMPTS = 8;
 const PIN_LOGIN_WINDOW_SECONDS = 15 * 60;
 const PIN_GENERATION_MAX_RETRIES = 5;
-const DEVICE_CONFLICT_LOCK_THRESHOLD = 5;
-const DEVICE_CONFLICT_LOCK_MINUTES = 15;
 
 export type GuestLoginResult =
   | {
@@ -39,10 +37,18 @@ export type GuestLoginResult =
   // PIN syntaxiquement valide mais qui ne correspond à aucun accès actif — l'écran
   // "Code PIN incorrect" des maquettes (distinct de 'inactive' : ce dernier suppose
   // un PIN CORRECT dont la fenêtre est fermée, ex. lien réutilisé après l'événement).
+  // Aussi renvoyé si le PIN est valide mais appartient à un AUTRE PDV que celui de
+  // l'URL scannée (/login/pin/:slug/:phase) — jamais de redirection silencieuse vers
+  // le "bon" PDV, ça ressemblerait à un bug plus qu'à une protection.
   | { state: 'not_found'; attemptsRemaining: number }
   | { state: 'inactive' }
-  | { state: 'device_bound' }
   | { state: 'locked'; retryAfter: number };
+
+export interface GuestPinPublicContext {
+  elementName: string | null;
+  /** Une fenêtre "open" a une ligne GuestPinAccess active pour ce PDV+phase. */
+  active: boolean;
+}
 
 @Injectable()
 export class GuestPinAccessService {
@@ -82,9 +88,45 @@ export class GuestPinAccessService {
     return `guestpin:login-fail:${ip}`;
   }
 
+  // ── Invité : contexte public (avant PIN) ────────────────────────────────────
+
+  /**
+   * Résout le PDV depuis l'URL scannée (/login/pin/:slug/:phase), SANS PIN : nom à
+   * afficher avant saisie, et si une fenêtre est seulement possible pour ce PDV+phase
+   * (permet d'afficher "Accès inactif" immédiatement plutôt que d'attendre une
+   * tentative de PIN). Ne révèle jamais le PIN ni son statut détaillé.
+   */
+  async getPublicContext(slug: string, phase: string): Promise<GuestPinPublicContext> {
+    const element = await this.prisma.spaceElement.findUnique({
+      where: { slug },
+      select: { id: true, name: true },
+    });
+    if (!element) return { elementName: null, active: false };
+
+    // Le partial index InventoryWindow_one_open_per_space_phase garantit au plus une
+    // fenêtre "open" par (tenantId, spaceId, phase) — mais spaceId n'est pas connu ici
+    // sans remonter par les zones ; on cherche donc l'accès actif directement.
+    const access = await this.prisma.guestPinAccess.findFirst({
+      where: {
+        elementId: element.id,
+        status: 'active',
+        window: { phase, status: 'open' },
+      },
+      select: { id: true },
+    });
+
+    return { elementName: element.name, active: !!access };
+  }
+
   // ── Invité : login ───────────────────────────────────────────────────────────
 
-  async login(pin: string, deviceId: string | undefined, ip: string): Promise<GuestLoginResult> {
+  async login(
+    pin: string,
+    deviceId: string | undefined,
+    ip: string,
+    slug: string,
+    phase: string,
+  ): Promise<GuestLoginResult> {
     const rlKey = this.rateLimitKey(ip);
     const attempts = await this.redis.get<number>(rlKey);
     if ((attempts ?? 0) >= PIN_LOGIN_MAX_ATTEMPTS) {
@@ -97,7 +139,14 @@ export class GuestPinAccessService {
       include: { window: true },
     });
 
-    if (!access) {
+    // Pas de ligne, OU PIN valide mais pour un AUTRE PDV/phase que l'URL scannée :
+    // même réponse ('not_found') dans les deux cas — jamais indiquer "ce PIN existe
+    // mais pas ici", ça révélerait qu'un PIN valide circule ailleurs.
+    const element = access ? await this.prisma.spaceElement.findUnique({
+      where: { id: access.elementId },
+      select: { slug: true, name: true },
+    }) : null;
+    if (!access || !element || element.slug !== slug || access.window.phase !== phase) {
       const count = await this.registerLoginFailure(rlKey);
       return { state: 'not_found', attemptsRemaining: Math.max(PIN_LOGIN_MAX_ATTEMPTS - count, 0) };
     }
@@ -106,25 +155,20 @@ export class GuestPinAccessService {
       return { state: 'inactive' };
     }
 
-    const deviceHash = deviceId ? this.hashDeviceId(deviceId) : null;
-    if (access.boundDeviceHash && access.boundDeviceHash !== deviceHash) {
-      await this.registerDeviceConflict(access.id);
-      return { state: 'device_bound' };
-    }
-
-    const [space, element, event] = await Promise.all([
+    const [space, event] = await Promise.all([
       this.prisma.space.findUnique({ where: { id: access.spaceId }, select: { name: true } }),
-      this.prisma.spaceElement.findUnique({ where: { id: access.elementId }, select: { name: true } }),
       this.prisma.event.findUnique({ where: { id: access.window.eventId }, select: { id: true } }),
     ]);
 
+    // Décision produit 2026-09-08 : le PIN seul donne l'accès, pas de restriction à un
+    // seul appareil. boundDeviceHash/boundAt sont écrasés à CHAQUE login réussi
+    // ("dernière connexion vue"), diagnostic uniquement — jamais comparés/rejetés.
+    const deviceHash = deviceId ? this.hashDeviceId(deviceId) : null;
     await this.prisma.guestPinAccess.update({
       where: { id: access.id },
       data: {
-        boundDeviceHash: access.boundDeviceHash ?? deviceHash,
-        boundAt: access.boundAt ?? new Date(),
-        failedAttempts: 0,
-        lockedUntil: null,
+        boundDeviceHash: deviceHash,
+        boundAt: new Date(),
         lastLoginAt: new Date(),
       },
     });
@@ -144,7 +188,7 @@ export class GuestPinAccessService {
       spaceId: access.spaceId,
       spaceName: space?.name ?? null,
       elementId: access.elementId,
-      elementName: element?.name ?? null,
+      elementName: element.name,
       eventId: event?.id ?? access.window.eventId,
     };
   }
@@ -155,21 +199,6 @@ export class GuestPinAccessService {
       await this.redis.expire(rlKey, PIN_LOGIN_WINDOW_SECONDS);
     }
     return count;
-  }
-
-  /** Conflit de device attribuable à un PDV précis (contrairement à un PIN inconnu,
-   *  ce cas identifie la ligne) — utile au tableau de statut directeur. */
-  private async registerDeviceConflict(accessId: string): Promise<void> {
-    const access = await this.prisma.guestPinAccess.update({
-      where: { id: accessId },
-      data: { failedAttempts: { increment: 1 } },
-    });
-    if (access.failedAttempts >= DEVICE_CONFLICT_LOCK_THRESHOLD) {
-      await this.prisma.guestPinAccess.update({
-        where: { id: accessId },
-        data: { lockedUntil: new Date(Date.now() + DEVICE_CONFLICT_LOCK_MINUTES * 60_000) },
-      });
-    }
   }
 
   // ── Invité : session / inventaire ───────────────────────────────────────────
@@ -249,6 +278,11 @@ export class GuestPinAccessService {
   }
 
   async saveCount(user: GuestPinUser, dto: SaveGuestCountDto) {
+    if (user.submittedAt) {
+      throw new ForbiddenException(
+        'Comptage déjà envoyé ("J\'ai terminé") — lecture seule. Contacte le directeur de site pour corriger.',
+      );
+    }
     return this.inventoryService.saveInventoryCounts(
       {
         spaceId: user.spaceId,
@@ -264,6 +298,21 @@ export class GuestPinAccessService {
       user.tenantId,
       undefined,
     );
+  }
+
+  /**
+   * "J'ai terminé" : gèle CET accès (lecture seule) sans toucher à la fenêtre ni aux
+   * autres PDV — distinct de `closeWindow` (clôture globale par le directeur).
+   * Idempotent (submittedAt déjà posé → no-op).
+   */
+  async submitCount(user: GuestPinUser) {
+    if (user.submittedAt) return { submittedAt: user.submittedAt };
+    const access = await this.prisma.guestPinAccess.update({
+      where: { id: user.id },
+      data: { submittedAt: new Date() },
+      select: { submittedAt: true },
+    });
+    return access;
   }
 
   // ── Directeur : gestion des fenêtres et des PIN ─────────────────────────────
@@ -341,9 +390,9 @@ export class GuestPinAccessService {
         elementName: elementNameById.get(a.elementId) ?? null,
         status: a.status,
         hasPin: !!a.pinLookupHash,
-        bound: !!a.boundDeviceHash,
-        lockedUntil: a.lockedUntil,
         lastLoginAt: a.lastLoginAt,
+        // "Soumis · gelé" (J'ai terminé) — distinct de `status: 'revoked'`.
+        submittedAt: a.submittedAt,
       })),
     }));
   }
@@ -386,6 +435,9 @@ export class GuestPinAccessService {
             boundAt: null,
             revokedAt: null,
             revokedBy: null,
+            // Un nouveau PIN dégèle : "J'ai terminé" ne devrait pas survivre à un reset
+            // explicite du directeur (support : "je me suis trompé, je recompte").
+            submittedAt: null,
           },
         });
 
@@ -415,27 +467,6 @@ export class GuestPinAccessService {
     if (!access) throw new NotFoundException('Accès introuvable');
     await this.assertSpaceAccess(user, access.spaceId);
     return this.setPin(access.windowId, access.elementId, user);
-  }
-
-  async unbindDevice(accessId: string, user: CurrentUserData) {
-    const tenantId = user.tenantId!;
-    const access = await this.prisma.guestPinAccess.findFirst({ where: { id: accessId, tenantId } });
-    if (!access) throw new NotFoundException('Accès introuvable');
-    await this.assertSpaceAccess(user, access.spaceId);
-
-    await this.prisma.guestPinAccess.update({
-      where: { id: accessId },
-      data: { boundDeviceHash: null, boundAt: null, failedAttempts: 0, lockedUntil: null },
-    });
-
-    await this.audit.log({
-      tenantId,
-      userId: user.id,
-      action: 'UPDATE',
-      entity: 'GuestPinAccess',
-      entityId: accessId,
-      metadata: { action: 'unbind-device' },
-    });
   }
 
   async revokeAccess(accessId: string, user: CurrentUserData) {

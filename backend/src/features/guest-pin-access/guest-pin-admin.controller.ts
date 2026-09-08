@@ -50,17 +50,9 @@ export class GuestPinAdminController {
 
   @Post('pins/:accessId/reset')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: "Régénère le PIN d'un accès existant (et délie l'appareil)" })
+  @ApiOperation({ summary: "Régénère le PIN d'un accès existant (dégèle si soumis)" })
   async resetPin(@Param('accessId') accessId: string, @CurrentUser() user: CurrentUserData) {
     return this.service.resetPin(accessId, user);
-  }
-
-  @Post('pins/:accessId/unbind')
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: "Délie l'appareil actuellement lié à cet accès" })
-  async unbindDevice(@Param('accessId') accessId: string, @CurrentUser() user: CurrentUserData) {
-    await this.service.unbindDevice(accessId, user);
-    return { ok: true };
   }
 
   @Post('pins/:accessId/revoke')

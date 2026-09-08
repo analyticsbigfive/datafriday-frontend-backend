@@ -8,6 +8,7 @@ import { QuerySpaceDto } from './dto/query-space.dto';
 import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
+import { createSpaceElementWithUniqueSlug } from '../../shared/utils/generate-space-element-slug';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { LogisticsService } from '../logistics/logistics.service';
 import { resolveEventTransactionWindow } from '../../shared/utils/event-window.util';
@@ -2495,9 +2496,11 @@ export class SpacesService {
     // UPDATE en place UNIQUEMENT si l'id appartient déjà à CETTE config (id immuable → mappings
     // préservés). Un id absent (nouvel élément) ou étranger à la config → CREATE avec un id frais,
     // pour ne jamais déplacer par erreur l'élément d'une autre config (l'id client est ignoré).
+    // Le slug (accès invité PIN) n'est généré qu'à la création — jamais recalculé sur un
+    // renommage, un lien/QR déjà imprimé doit rester valable.
     const createdElement = element.id && existingElementIds.has(element.id)
       ? await tx.spaceElement.update({ where: { id: element.id }, data })
-      : await tx.spaceElement.create({ data });
+      : await createSpaceElementWithUniqueSlug(tx, data.name, (slug) => ({ ...data, slug }));
     element.id = createdElement.id;
     seenElementIds.add(createdElement.id);
 
@@ -3782,9 +3785,9 @@ export class SpacesService {
       const v2Type = this.mapElementType(dto.type || 'shop');
       const v2Tags = this.mapShopTypeTags(dto.type);
       const pos = this.gridPosition(count, zone.width ?? 200);
-      const created = await this.prisma.spaceElement.create({
-        data: {
+      const created = await createSpaceElementWithUniqueSlug(this.prisma, dto.name, (slug) => ({
           zoneId: zone.id,
+          slug,
           name: dto.name,
           type: v2Type,
           subtypes: v2Tags,
@@ -3797,8 +3800,7 @@ export class SpacesService {
           height3d: 2,
           area: (dto as any).area ?? null,
           attributes: { originalType: dto.type || 'shop', importedFromWeezevent: true },
-        } as any,
-      });
+        } as any));
       await this.prisma.configurationElement.createMany({
         data: [{ configId: config.id, elementId: created.id }],
         skipDuplicates: true,
@@ -3875,13 +3877,21 @@ export class SpacesService {
       if (!zone) {
         zone = await this.ensureZone(spaceId, 'FLOOR', 0, { name: 'RDC', width: 100, length: 100, height: 4 });
       }
-      created = await this.prisma.$transaction(
-        toCreate.map((item, idx) => {
+      // Transaction interactive (pas un tableau d'opérations préparées) : le slug doit
+      // être généré avec retry-si-collision (createSpaceElementWithUniqueSlug), donc
+      // séquentiel dans le lot plutôt que parallélisé au niveau SQL.
+      created = await this.prisma.$transaction(async (tx) => {
+        const rows: Array<{ id: string; name: string }> = [];
+        for (let idx = 0; idx < toCreate.length; idx++) {
+          const item = toCreate[idx];
           const pos = this.gridPosition(baseCount + idx, zone!.width ?? 200);
           const v2Tags = this.mapShopTypeTags(item.type);
-          return this.prisma.spaceElement.create({
-            data: {
+          const row = await createSpaceElementWithUniqueSlug(
+            tx,
+            item.name,
+            (slug) => ({
               zoneId: zone!.id,
+              slug,
               name: item.name,
               type: this.mapElementType(item.type || 'shop'),
               subtypes: v2Tags,
@@ -3893,11 +3903,13 @@ export class SpacesService {
               depth: 2,
               height3d: 2,
               attributes: { originalType: item.type || 'shop', importedFromWeezevent: true },
-            } as any,
-            select: { id: true, name: true },
-          });
-        }),
-      );
+            } as any),
+            { select: { id: true, name: true } },
+          );
+          rows.push(row as { id: string; name: string });
+        }
+        return rows;
+      }, { timeout: 30000 }); // séquentiel (retry slug) sur un lot potentiellement gros → délai du défaut (5s) trop court
     }
 
     // 3. Adhésions + upserts des mappings dans UNE transaction (un seul pipeline réseau).

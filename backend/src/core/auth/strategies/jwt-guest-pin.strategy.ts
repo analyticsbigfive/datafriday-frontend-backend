@@ -20,6 +20,9 @@ export interface GuestPinUser {
   eventId: string;
   phase: string;
   showExpected: boolean;
+  // "J'ai terminé" (gel) : lecture toujours permise, écriture à refuser côté service
+  // si non-null. La fenêtre reste "open" — seul CET accès est gelé.
+  submittedAt: Date | null;
 }
 
 /**
@@ -69,6 +72,7 @@ export class JwtGuestPinStrategy extends PassportStrategy(Strategy, 'jwt-guest-p
       eventId: access.window.eventId,
       phase: access.window.phase,
       showExpected: access.window.showExpected,
+      submittedAt: access.submittedAt,
     };
   }
 }

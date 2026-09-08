@@ -924,7 +924,11 @@ model Floor {
 // Polymorphic: belongs to either a Floor or a Forecourt (one must be set)
 
 model SpaceElement {
-  id              String  @id @default(cuid())
+  id String @id @default(cuid())
+  // Identifiant stable et opaque pour les URLs publiques d'accès invité PIN
+  // (/login/pin/:slug/:phase). Généré à la création (slugify(name) + suffixe si collision),
+  // jamais recalculé au renommage — un lien/QR déjà imprimé doit rester valable.
+  slug            String  @unique
   floorId         String? // FK to Floor (if element is inside a floor)
   forecourtId     String? // FK to Forecourt (if element is in forecourt)
   externalMerchId String? // FK to ExternalMerch (if element is in the external merch zone)
@@ -3248,12 +3252,19 @@ model GuestPinAccess {
   // ailleurs sans collision sur la contrainte unique.
   pinLookupHash String? @unique
 
-  status          String    @default("active") // 'active' | 'revoked'
-  failedAttempts  Int       @default(0)
-  lockedUntil     DateTime?
-  lastLoginAt     DateTime?
-  boundDeviceHash String? // SHA-256 d'un device id client, capturé au 1er login (binding dur)
+  status         String    @default("active") // 'active' | 'revoked'
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  lastLoginAt    DateTime?
+  // Diagnostic uniquement — PAS un verrou : n'importe qui a le PIN peut se connecter,
+  // potentiellement plusieurs personnes en même temps. Ces deux champs sont écrasés à
+  // CHAQUE login réussi ("dernière connexion vue"), pas figés au premier (décision produit
+  // 2026-09-08 : pas de restriction à un seul appareil).
+  boundDeviceHash String?
   boundAt         DateTime?
+  // "J'ai terminé" (gel) : distinct de `status='revoked'` — la fenêtre reste ouverte et les
+  // autres PDV restent modifiables, seul CET accès passe en lecture seule.
+  submittedAt DateTime?
   revokedAt       DateTime?
   revokedBy       String?
   createdBy       String // userId du directeur qui a défini/régénéré ce PIN
