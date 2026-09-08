@@ -7,9 +7,9 @@
 import {
   createOrReopenWindow,
   getStatusBoard,
-  setPin,
-  resetPin,
+  setWindowPin,
   revokeAccess,
+  reactivateAccess,
   validateAccess,
   requestCorrection,
   closeWindow,
@@ -55,15 +55,10 @@ const actions = {
     return dispatch('fetchStatusBoard', { spaceId, eventId })
   },
 
-  /** Retourne { accessId, elementId, pin } — le PIN en clair, affiché une seule fois. */
-  async generatePin({ state, dispatch }, { windowId, elementId }) {
-    const result = await setPin(windowId, elementId)
-    await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
-    return result
-  },
-
-  async regeneratePin({ state, dispatch }, accessId) {
-    const result = await resetPin(accessId)
+  /** Retourne { windowId, pin } — le PIN en clair (PARTAGÉ par tous les PDV de la
+   *  fenêtre), affiché une seule fois. */
+  async generateWindowPin({ state, dispatch }, windowId) {
+    const result = await setWindowPin(windowId)
     await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
     return result
   },
@@ -71,6 +66,13 @@ const actions = {
   async revoke({ state, dispatch }, accessId) {
     await revokeAccess(accessId)
     await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
+  },
+
+  /** Réactive un PDV précédemment révoqué, sans toucher au PIN partagé. */
+  async reactivate({ state, dispatch }, accessId) {
+    const result = await reactivateAccess(accessId)
+    await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
+    return result
   },
 
   /** Verrouille l'écriture invité pour ce PDV (relecture directeur terminée). */

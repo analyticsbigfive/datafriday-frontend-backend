@@ -1,71 +1,85 @@
 <template>
-  <div class="gpb-zone" :class="zoneClass">
-    <template v-if="!access || access.status === 'revoked'">
-      <button type="button" class="gpb-generate" :disabled="working" @click="onGenerate">
-        <KeyRound :size="14" />
-        {{ t('guestPinAdminGeneratePin') }}
-      </button>
-    </template>
+  <div class="gpb-zone">
+    <!-- QR du lien de connexion — toujours dispo, indépendant du statut PIN
+         (le lien/slug ne change jamais, contrairement au PIN partagé). -->
+    <button
+      v-if="slug"
+      type="button"
+      class="gpb-icon-btn"
+      :title="t('guestPinQrTitle')"
+      @click="qrDialogOpen = true"
+    >
+      <QrCode :size="14" />
+    </button>
 
-    <!-- Validé par le directeur = SEUL état verrouillé (écriture invité refusée
-         côté service). "Soumis" (ci-dessous) ne l'est pas : le manager reste
-         modifiable tant que ce badge n'est pas passé ici. -->
-    <template v-else-if="access.validatedAt">
-      <Lock :size="16" />
-      <div class="gpb-sub">
-        <span class="gpb-label gpb-label--validated">{{ t('guestPinAdminStatusValidated') }}</span>
-      </div>
-    </template>
+    <!-- Statut PAR PDV réduit à une pastille — le détail (horodatage, actions) ne
+         s'affiche qu'au clic (v-menu), au lieu d'un bandeau texte toujours déployé
+         (retour utilisateur 2026-09-08 : "trop gaspillé... des icônes avec des
+         pastilles si nécessaire, pas des infos inutiles"). -->
+    <v-menu location="bottom start" :close-on-content-click="false">
+      <template #activator="{ props: menuProps }">
+        <button
+          type="button"
+          class="gpb-pastille"
+          :class="'gpb-pastille--' + status"
+          :title="t(statusLabelKey)"
+          v-bind="menuProps"
+        >
+          <component :is="statusIcon" :size="15" />
+          <span v-if="status === 'submitted'" class="gpb-flag" />
+        </button>
+      </template>
 
-    <template v-else-if="access.submittedAt">
-      <FileCheck :size="16" />
-      <div class="gpb-sub">
-        <span class="gpb-label gpb-label--submitted">{{ t('guestPinAdminStatusSubmitted') }}</span>
-        <span class="gpb-meta">{{ t('guestPinAdminSubmittedAt') }} {{ formatTime(access.submittedAt) }}</span>
-      </div>
-      <button type="button" class="gpb-icon-btn gpb-icon-btn--success" :title="t('guestPinAdminValidate')" :disabled="working" @click="onValidate">
-        <Check :size="14" />
-      </button>
-      <button type="button" class="gpb-icon-btn" :title="t('guestPinAdminRequestCorrection')" :disabled="working" @click="onRequestCorrection">
-        <Undo2 :size="14" />
-      </button>
-    </template>
+      <v-card rounded="lg" class="gpb-pop">
+        <v-card-text>
+          <div class="gpb-pop-head">
+            <div class="gpb-pop-head-tx">
+              <p class="gpb-pop-title">{{ t(statusLabelKey) }}</p>
+              <p v-if="popMeta" class="gpb-pop-meta">{{ popMeta }}</p>
+            </div>
 
-    <template v-else>
-      <UserCheck v-if="access.lastLoginAt" :size="16" />
-      <KeyRound v-else :size="16" />
-      <div class="gpb-sub">
-        <span class="gpb-label" :class="{ 'gpb-label--seen': access.lastLoginAt }">
-          {{ access.lastLoginAt ? t('guestPinAdminSeen') : t('guestPinAdminNotSeenYet') }}
-        </span>
-        <span v-if="access.lastLoginAt" class="gpb-meta">{{ formatTime(access.lastLoginAt) }}</span>
-      </div>
-      <button type="button" class="gpb-icon-btn" :title="t('guestPinAdminResetPin')" :disabled="working" @click="onReset">
-        <RefreshCw :size="14" />
-      </button>
-      <button type="button" class="gpb-icon-btn gpb-icon-btn--danger" :title="t('guestPinAdminRevoke')" :disabled="working" @click="onRevoke">
-        <Ban :size="14" />
-      </button>
-    </template>
+            <!-- Icône seule + info-bulle native (title) : un libellé complet en
+                 toutes lettres ("Send back for correction"…) débordait de son
+                 bouton dans un popover volontairement étroit. -->
+            <div v-if="status === 'submitted'" class="gpb-pop-actions">
+              <button type="button" class="gpb-pop-btn gpb-pop-btn--pri" :title="t('guestPinAdminValidate')" :disabled="working" @click="onValidate">
+                <Check :size="15" />
+              </button>
+              <button type="button" class="gpb-pop-btn" :title="t('guestPinAdminRequestCorrection')" :disabled="working" @click="onRequestCorrection">
+                <Undo2 :size="15" />
+              </button>
+            </div>
+            <div v-else-if="status === 'revoked'" class="gpb-pop-actions">
+              <button type="button" class="gpb-pop-btn gpb-pop-btn--pri" :title="t('guestPinAdminReactivate')" :disabled="working" @click="onReactivate">
+                <RefreshCw :size="15" />
+              </button>
+            </div>
+            <div v-else-if="status === 'seen'" class="gpb-pop-actions">
+              <button type="button" class="gpb-pop-btn gpb-pop-btn--danger" :title="t('guestPinAdminRevoke')" :disabled="working" @click="onRevoke">
+                <Ban :size="15" />
+              </button>
+            </div>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-menu>
 
-    <SetPinDialog
-      v-model="dialogOpen"
-      :window-id="windowId"
-      :element-id="elementId"
-      :element-name="elementName"
-    />
+    <GuestPinQrDialog v-if="slug" v-model="qrDialogOpen" :slug="slug" :element-name="elementName" />
   </div>
 </template>
 
 <script>
-import { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2 } from 'lucide-vue-next';
+import { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2, QrCode } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
-import SetPinDialog from '@/components/guest-pin-manage/dialogs/SetPinDialog.vue';
+import GuestPinQrDialog from '@/components/guest-pin-manage/dialogs/GuestPinQrDialog.vue';
 
 /**
- * Bouton/badge "Générer PIN" porté par CHAQUE carte PDV — remplace la modale
- * "Démarrer l'inventaire" avec sa liste de tous les PDV : ici le PDV est déjà
- * connu (la carte), il ne reste qu'à ouvrir la fenêtre si besoin puis générer.
+ * Statut PAR PDV, porté par chaque carte — une pastille (couleur + icône),
+ * jamais de PIN généré ici (décision produit 2026-09-08 : UN SEUL PIN partagé
+ * par TOUTE la fenêtre, généré depuis GuestPinAccessPanel.vue). La ligne
+ * GuestPinAccess est auto-créée au premier login du manager — tant que
+ * personne ne s'est connecté pour ce PDV, `access` est null ici (statut
+ * "waiting", aucune action possible).
  *
  * Ne fait AUCUN fetch lui-même : lit l'accès réactivement dans le store
  * `guestPinAdmin` (déjà peuplé par GuestPinAccessPanel, monté une fois dans la
@@ -73,13 +87,12 @@ import SetPinDialog from '@/components/guest-pin-manage/dialogs/SetPinDialog.vue
  */
 export default {
   name: 'GuestPinBadge',
-  components: { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2, SetPinDialog },
+  components: { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2, QrCode, GuestPinQrDialog },
 
   props: {
-    spaceId: { type: String, required: true },
-    eventId: { type: String, required: true },
     phase: { type: String, required: true }, // 'pre-event' | 'post-event'
     elementId: { type: String, required: true },
+    slug: { type: String, default: null },
     elementName: { type: String, default: '' },
   },
 
@@ -91,8 +104,7 @@ export default {
   data() {
     return {
       working: false,
-      dialogOpen: false,
-      pendingWindowId: null,
+      qrDialogOpen: false,
     };
   },
 
@@ -103,14 +115,40 @@ export default {
     access() {
       return this.window?.accesses?.find((a) => a.elementId === this.elementId) ?? null;
     },
-    windowId() {
-      return this.pendingWindowId || this.window?.id || null;
+    /** 'waiting' | 'seen' | 'submitted' | 'validated' | 'revoked' */
+    status() {
+      if (!this.access) return 'waiting';
+      if (this.access.status === 'revoked') return 'revoked';
+      if (this.access.validatedAt) return 'validated';
+      if (this.access.submittedAt) return 'submitted';
+      return 'seen';
     },
-    zoneClass() {
-      if (!this.access || this.access.status === 'revoked') return '';
-      if (this.access.validatedAt) return 'gpb-zone--validated';
-      if (this.access.submittedAt) return 'gpb-zone--submitted';
-      return this.access.lastLoginAt ? 'gpb-zone--seen' : 'gpb-zone--pending';
+    statusIcon() {
+      return {
+        waiting: 'KeyRound',
+        seen: 'UserCheck',
+        submitted: 'FileCheck',
+        validated: 'Lock',
+        revoked: 'Ban',
+      }[this.status];
+    },
+    statusLabelKey() {
+      return {
+        waiting: 'guestPinAdminNotSeenYet',
+        seen: 'guestPinAdminSeen',
+        submitted: 'guestPinAdminStatusSubmitted',
+        validated: 'guestPinAdminStatusValidated',
+        revoked: 'guestPinAdminStatusRevoked',
+      }[this.status];
+    },
+    popMeta() {
+      if (this.status === 'seen' && this.access?.lastLoginAt) {
+        return this.formatTime(this.access.lastLoginAt);
+      }
+      if (this.status === 'submitted' && this.access?.submittedAt) {
+        return `${this.t('guestPinAdminSubmittedAt')} ${this.formatTime(this.access.submittedAt)}`;
+      }
+      return '';
     },
   },
 
@@ -123,43 +161,21 @@ export default {
       }
     },
 
-    async ensureOpenWindow() {
-      if (this.window?.status === 'open') return this.window.id;
-      await this.$store.dispatch('guestPinAdmin/openWindow', {
-        spaceId: this.spaceId,
-        eventId: this.eventId,
-        phase: this.phase,
-      });
-      return this.$store.getters['guestPinAdmin/windowByPhase'](this.phase)?.id ?? null;
-    },
-
-    async onGenerate() {
-      this.working = true;
-      try {
-        this.pendingWindowId = await this.ensureOpenWindow();
-        this.dialogOpen = true;
-      } finally {
-        this.working = false;
-      }
-    },
-
-    async onReset() {
-      if (!this.access) return;
-      this.working = true;
-      try {
-        this.pendingWindowId = this.window?.id ?? null;
-        await this.$store.dispatch('guestPinAdmin/regeneratePin', this.access.id);
-        this.dialogOpen = true;
-      } finally {
-        this.working = false;
-      }
-    },
-
     async onRevoke() {
       if (!this.access) return;
       this.working = true;
       try {
         await this.$store.dispatch('guestPinAdmin/revoke', this.access.id);
+      } finally {
+        this.working = false;
+      }
+    },
+
+    async onReactivate() {
+      if (!this.access) return;
+      this.working = true;
+      try {
+        await this.$store.dispatch('guestPinAdmin/reactivate', this.access.id);
       } finally {
         this.working = false;
       }
@@ -176,7 +192,7 @@ export default {
       }
     },
 
-    /** Renvoie ce PDV pour correction : réouvre l'écriture, même PIN (pas de régénération). */
+    /** Renvoie ce PDV pour correction : réouvre l'écriture. */
     async onRequestCorrection() {
       if (!this.access) return;
       this.working = true;
@@ -194,47 +210,15 @@ export default {
 .gpb-zone {
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-  min-width: 190px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--fb-subtle, #fafafa);
-  border: 1px dashed var(--fb-border, #e5e7eb);
-  color: #6b7280;
-}
-.gpb-zone--pending { background: #fff7ed; border-style: solid; border-color: #fde68a; color: #92400e; }
-.gpb-zone--seen { background: #f0fdf4; border-style: solid; border-color: #bbf7d0; color: #15803d; }
-.gpb-zone--submitted { background: #f5f3ff; border-style: solid; border-color: #ddd6fe; color: #6d28d9; }
-.gpb-zone--validated { background: #f0fdf4; border-style: solid; border-color: #86efac; color: #166534; }
-
-.gpb-sub { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.gpb-label { font-size: 11.5px; font-weight: 700; }
-.gpb-label--seen { color: #15803d; }
-.gpb-label--submitted { color: #6d28d9; }
-.gpb-label--validated { color: #166534; }
-.gpb-meta { font-size: 10.5px; color: inherit; opacity: 0.8; }
-
-.gpb-generate {
-  display: flex;
-  align-items: center;
   gap: 6px;
-  padding: 6px 12px;
-  border-radius: 8px;
-  border: 1.5px solid #ff3131;
-  color: #ff3131;
-  background: #fff;
-  font-size: 12.5px;
-  font-weight: 700;
-  cursor: pointer;
+  flex-shrink: 0;
 }
-.gpb-generate:disabled { opacity: 0.6; cursor: default; }
 
 .gpb-icon-btn {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  border: 1px solid var(--fb-border, #e5e7eb);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fb-border, #e5e7eb);
   background: #fff;
   display: flex;
   align-items: center;
@@ -244,7 +228,59 @@ export default {
   flex-shrink: 0;
 }
 .gpb-icon-btn:hover { border-color: #ff3131; color: #ff3131; }
-.gpb-icon-btn--danger:hover { border-color: #dc2626; color: #dc2626; }
-.gpb-icon-btn--success:hover { border-color: #15803d; color: #15803d; }
-.gpb-icon-btn:disabled { opacity: 0.5; cursor: default; }
+
+.gpb-pastille {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fb-border, #e5e7eb);
+  background: #fafbfc;
+  color: #9aa1ac;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.gpb-pastille:hover { border-color: #9aa1ac; }
+.gpb-pastille--seen { background: #fef3e2; color: #d97706; border-color: transparent; }
+.gpb-pastille--submitted { background: #f2ebfd; color: #7c3aed; border-color: transparent; }
+.gpb-pastille--validated { background: #e3f6ee; color: #059669; border-color: transparent; }
+.gpb-pastille--revoked { background: #eceef1; color: #4b5563; border-color: transparent; }
+
+.gpb-flag {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #7c3aed;
+  border: 2px solid #fff;
+}
+
+.gpb-pop-head { display: flex; align-items: flex-start; gap: 14px; }
+.gpb-pop-head-tx { flex: 1 1 auto; min-width: 0; }
+.gpb-pop-title { margin: 0; font-size: 0.8125rem; font-weight: 700; white-space: nowrap; }
+.gpb-pop-meta { margin: 2px 0 0; font-size: 0.75rem; color: #6b7280; white-space: nowrap; }
+.gpb-pop-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.gpb-pop-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--fb-border, #e5e7eb);
+  background: #fff;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.gpb-pop-btn:hover { border-color: #9aa1ac; }
+.gpb-pop-btn:disabled { opacity: 0.5; cursor: default; }
+.gpb-pop-btn--pri { background: #059669; border-color: #059669; color: #fff; }
+.gpb-pop-btn--pri:hover { background: #047857; border-color: #047857; }
+.gpb-pop-btn--danger:hover { border-color: #dc2626; color: #dc2626; }
 </style>

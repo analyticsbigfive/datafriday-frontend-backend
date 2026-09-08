@@ -569,8 +569,6 @@
                   :status-label="statusLabel(entry)"
                   :status-color="statusColor(entry)"
                   :show-guest-pin="canManageGuestPin"
-                  :space-id="guestPinSpaceId"
-                  :event-id="guestPinEventId"
                   :phase="guestPinPhase"
                   @start-count="startCount"
                 />
