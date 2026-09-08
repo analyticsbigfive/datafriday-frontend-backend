@@ -94,8 +94,6 @@
            donc affiché par défaut (fail-open) partout sauf là où explicitement coupé. -->
       <LiveSaleSimulatorWidget v-if="!isProdEnv" :space-id="spaceId" @simulated="onEventUpdated" />
     </v-main>
-  </v-app>
-    </v-main>
 
     <!-- Nav entre outils (☰ du bandeau) — même drawer partagé que Restock/Logistique. -->
     <WorkspaceMobileToolDrawer
@@ -134,7 +132,6 @@ import { resolveShopType } from '@/utils/analyseDimensions'
 import { normalizeShopType } from '@/constants/shopTypes'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
-import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import WorkspaceMobileToolDrawer from '@/components/WorkspaceMobileToolDrawer.vue'
 import { useWorkspaceToolbox } from '@/composables/useWorkspaceToolbox'
@@ -208,15 +205,6 @@ async function ensureSpaceLoaded() {
 const showToolDrawer = ref(false)
 const editOpen = ref(false)
 const { toolboxItems, onToolboxSelect } = useWorkspaceToolbox('live')
-
-// Nom d'espace pour la barre blanche + le titre du bandeau — résolu depuis le
-// store `spaces` PARTAGÉ (getter `spaces/spaces`), pas le module `analyse`
-// (chantier 379 : zéro dépendance à Analyse).
-const spaceName = computed(() => {
-  const list = store.getters['spaces/spaces'] || []
-  const s = list.find((x) => String(x.id) === String(spaceId.value))
-  return s?.name || s?.spaceName || ''
-})
 
 // Une instance de composable par montage — pas de state module-scope partagé entre
 // deux espaces (contrairement au store Vuex `analyse`, dont c'était une source de

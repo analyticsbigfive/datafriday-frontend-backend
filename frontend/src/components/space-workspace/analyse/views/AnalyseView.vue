@@ -827,6 +827,18 @@ const drawer = ref(!mdAndDown.value)
 // Panneau « Analyse des données » : ouvert par défaut sur desktop, fermé
 // sur mobile/tablette. Les sections internes sont repliables via accordéon.
 const summaryDrawer = ref(!mdAndDown.value)
+
+// ── Mode Live retiré d'AnalyseView à la bascule finale (/live rend désormais
+// LiveView.vue, cf. router). AnalyseView ne sert plus QUE la route Analyse, donc
+// le mode Live y est inerte. Ces stubs neutralisent les références Live restées
+// dans le template/script après la bascule : isLive=false → aucun bloc Live
+// (an-live-tabs, badge…) ne se rend, l'UI Analyse s'affiche toujours. ──
+const isLive = computed(() => false)
+const liveTab = ref('analyse')
+const liveEventDetected = computed(() => false)
+const liveEventId = computed(() => '')
+const liveEventEditOpen = ref(false)
+
 const inlineChartVisible = ref(false)
 const inlineChartAccent = ref('#64748b')
 const byEventMetric = ref('revenue')
