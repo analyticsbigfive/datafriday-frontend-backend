@@ -699,7 +699,13 @@ export class MenuItemsService {
           data: items.map(i => this.serializeItem(i, tenantVatRate)),
           meta: { total, page, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) },
         };
-      }, { ttl: 60 });
+      // 3600 (pas 60) : le catalogue menu items change rarement (édition manuelle),
+      // et `invalidateCache()` purge déjà cette clé à chaque écriture (:73-78, bug de
+      // double-préfixe corrigé le 2026-08-14) — le TTL n'est qu'un filet de sécurité,
+      // pas le mécanisme de fraîcheur. 60s ne protégeait qu'un pic de charge, au prix
+      // d'un cache-miss quasi systématique pour des écrans qui rechargent le catalogue
+      // à chaque montage (ex. Live v2) sans jamais rien y avoir changé entre-temps.
+      }, { ttl: 3600 });
     } catch (error) {
       this.logger.error(`Failed to fetch menu items: ${error.message}`, error.stack);
       throw error;
@@ -863,6 +869,13 @@ export class MenuItemsService {
       numberOfPiecesRecipe: this.toNumber(item.numberOfPiecesRecipe, 1) || 1,
       cost: this.toNumber(item.totalCost, 0),
       components,
+      // Ajoutés pour le portage backend de buildConsolidatedInventory (accès invité
+      // PIN, 2026-09-08) : ces 3 champs scalaires existent déjà sur `item` (recipeInclude
+      // ne restreint pas les colonnes top-level), juste jamais renvoyés jusqu'ici — champ
+      // additif, aucun consommateur existant du contrat recette n'est affecté.
+      picture: item.picture ?? null,
+      inventoryNumberOfUnits: item.inventoryNumberOfUnits ?? null,
+      inventoryPackagingType: item.inventoryPackagingType ?? null,
     };
   }
 

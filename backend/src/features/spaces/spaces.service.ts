@@ -8,6 +8,7 @@ import { QuerySpaceDto } from './dto/query-space.dto';
 import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
+import { createSpaceElementWithUniqueSlug } from '../../shared/utils/generate-space-element-slug';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { LogisticsService } from '../logistics/logistics.service';
 import { resolveEventTransactionWindow } from '../../shared/utils/event-window.util';
@@ -1039,7 +1040,7 @@ export class SpacesService {
         ${configFilter}
       ),
       floor_shops AS (
-        SELECT se.id, se.name, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
+        SELECT se.id, se.name, se.slug, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
                f."configId" AS "configId", tc.name AS "configName",
                f.id AS "locationId", f.name AS "locationName", f.level::text AS "floorLevel"
         FROM "SpaceElement" se
@@ -1049,7 +1050,7 @@ export class SpacesService {
         WHERE se.type::text = ANY(${shopTypes}) AND se."zoneId" IS NULL
       ),
       forecourt_shops AS (
-        SELECT se.id, se.name, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
+        SELECT se.id, se.name, se.slug, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
                fc."configId" AS "configId", tc.name AS "configName",
                fc.id AS "locationId", fc.name AS "locationName", 'forecourt' AS "floorLevel"
         FROM "SpaceElement" se
@@ -1058,7 +1059,7 @@ export class SpacesService {
         WHERE se.type::text = ANY(${shopTypes}) AND se."zoneId" IS NULL
       ),
       externalmerch_shops AS (
-        SELECT se.id, se.name, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
+        SELECT se.id, se.name, se.slug, se.type::text AS type, se."shopTypes", se.attributes, se.image, se.notes,
                em."configId" AS "configId", tc.name AS "configName",
                em.id AS "locationId", em.name AS "locationName", 'externalmerch' AS "floorLevel"
         FROM "SpaceElement" se
@@ -1085,7 +1086,7 @@ export class SpacesService {
       -- plus ancienne.
       zone_shops AS (
         SELECT DISTINCT ON (se.id, ce."configId")
-               se.id, se.name, se.type::text AS type,
+               se.id, se.name, se.slug, se.type::text AS type,
                CASE WHEN cardinality(se.subtypes) > 0 THEN se.subtypes ELSE se."shopTypes" END AS "shopTypes",
                se.attributes, se.image, se.notes,
                ce."configId" AS "configId", tc.name AS "configName",
@@ -1170,6 +1171,9 @@ export class SpacesService {
       return {
         id: s.id,
         name: s.name,
+        // Slug stable (/login/pin/:slug) — exposé au staff pour le QR code de
+        // connexion invité (GuestPinBadge.vue), sans autre usage aujourd'hui.
+        slug: s.slug ?? null,
         type: s.type,
         shopTypes: s.shopTypes,
         attributes: s.attributes,
@@ -2495,9 +2499,11 @@ export class SpacesService {
     // UPDATE en place UNIQUEMENT si l'id appartient déjà à CETTE config (id immuable → mappings
     // préservés). Un id absent (nouvel élément) ou étranger à la config → CREATE avec un id frais,
     // pour ne jamais déplacer par erreur l'élément d'une autre config (l'id client est ignoré).
+    // Le slug (accès invité PIN) n'est généré qu'à la création — jamais recalculé sur un
+    // renommage, un lien/QR déjà imprimé doit rester valable.
     const createdElement = element.id && existingElementIds.has(element.id)
       ? await tx.spaceElement.update({ where: { id: element.id }, data })
-      : await tx.spaceElement.create({ data });
+      : await createSpaceElementWithUniqueSlug(tx, data.name, (slug) => ({ ...data, slug }));
     element.id = createdElement.id;
     seenElementIds.add(createdElement.id);
 
@@ -3782,9 +3788,9 @@ export class SpacesService {
       const v2Type = this.mapElementType(dto.type || 'shop');
       const v2Tags = this.mapShopTypeTags(dto.type);
       const pos = this.gridPosition(count, zone.width ?? 200);
-      const created = await this.prisma.spaceElement.create({
-        data: {
+      const created = await createSpaceElementWithUniqueSlug(this.prisma, dto.name, (slug) => ({
           zoneId: zone.id,
+          slug,
           name: dto.name,
           type: v2Type,
           subtypes: v2Tags,
@@ -3797,8 +3803,7 @@ export class SpacesService {
           height3d: 2,
           area: (dto as any).area ?? null,
           attributes: { originalType: dto.type || 'shop', importedFromWeezevent: true },
-        } as any,
-      });
+        } as any));
       await this.prisma.configurationElement.createMany({
         data: [{ configId: config.id, elementId: created.id }],
         skipDuplicates: true,
@@ -3875,13 +3880,21 @@ export class SpacesService {
       if (!zone) {
         zone = await this.ensureZone(spaceId, 'FLOOR', 0, { name: 'RDC', width: 100, length: 100, height: 4 });
       }
-      created = await this.prisma.$transaction(
-        toCreate.map((item, idx) => {
+      // Transaction interactive (pas un tableau d'opérations préparées) : le slug doit
+      // être généré avec retry-si-collision (createSpaceElementWithUniqueSlug), donc
+      // séquentiel dans le lot plutôt que parallélisé au niveau SQL.
+      created = await this.prisma.$transaction(async (tx) => {
+        const rows: Array<{ id: string; name: string }> = [];
+        for (let idx = 0; idx < toCreate.length; idx++) {
+          const item = toCreate[idx];
           const pos = this.gridPosition(baseCount + idx, zone!.width ?? 200);
           const v2Tags = this.mapShopTypeTags(item.type);
-          return this.prisma.spaceElement.create({
-            data: {
+          const row = await createSpaceElementWithUniqueSlug(
+            tx,
+            item.name,
+            (slug) => ({
               zoneId: zone!.id,
+              slug,
               name: item.name,
               type: this.mapElementType(item.type || 'shop'),
               subtypes: v2Tags,
@@ -3893,11 +3906,13 @@ export class SpacesService {
               depth: 2,
               height3d: 2,
               attributes: { originalType: item.type || 'shop', importedFromWeezevent: true },
-            } as any,
-            select: { id: true, name: true },
-          });
-        }),
-      );
+            } as any),
+            { select: { id: true, name: true } },
+          );
+          rows.push(row as { id: string; name: string });
+        }
+        return rows;
+      }, { timeout: 30000 }); // séquentiel (retry slug) sur un lot potentiellement gros → délai du défaut (5s) trop court
     }
 
     // 3. Adhésions + upserts des mappings dans UNE transaction (un seul pipeline réseau).

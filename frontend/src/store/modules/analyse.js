@@ -579,13 +579,6 @@ const state = () => ({
   cumulativeRevenue: false,
   selectedToolbox: 'analyse',   // analyse | predict | inventory
   activeMobilePanel: 'middle',  // left | middle | right
-  // Module Live (docs/modules/11_LIVE.md) : posé par AnalyseView (route
-  // space-live), pas dérivé de selectedToolbox (Live est une route dédiée,
-  // pas un onglet du toolbox). Bascule `optionsBaseRecords` sur les seuls
-  // events filtrés (l'event live) au lieu de tous les events analysables —
-  // sinon Types de PDV/Zones/Points de vente affichent des compteurs agrégés
-  // sur TOUT l'historique de l'espace plutôt que sur l'event en cours.
-  isLiveRoute: false,
 
   // Assistant : requête injectée depuis l'extérieur (ex. clic sur une alerte du header)
   pendingAssistantQuery: null,
@@ -1032,14 +1025,7 @@ const getters = {
   // options se réduiraient à la sélection courante. Garde hasEvents : pendant le
   // loading, state.events est vide → on ne masque pas le skeleton.
   optionsBaseRecords(state, g) {
-    // Module Live (docs/modules/11_LIVE.md) : `analysableEvents` couvre TOUT
-    // l'historique analysable de l'espace — le raisonnement « options = scope
-    // large pour pouvoir élargir la sélection » (cf. commentaire ci-dessous)
-    // ne tient pas en Live, où il n'y a jamais qu'UN SEUL event (`filteredEvents`,
-    // déjà réduit par applyLiveScope). Sans ce cas, Types de PDV/Zones/Points de
-    // vente affichaient des compteurs agrégés sur tout l'historique de l'espace
-    // au lieu du seul event en cours — trouvé le 2026-08-05.
-    const base = state.isLiveRoute ? (g.filteredEvents || []) : (g.analysableEvents || [])
+    const base = g.analysableEvents || []
     const ids = new Set(base.map((e) => e.id))
     const hasEvents = (state.events || []).length > 0
     if (!hasEvents) return g.reconciledShopGranularData || []
@@ -1383,12 +1369,7 @@ const getters = {
     // que le preset diffère du défaut, sinon le filtre est invisible dans le
     // bandeau et « Tout effacer » semble ne pas agir dessus. clearValue = défaut.
     const defaultTimeRange = DEFAULT_FILTERS().timeRange
-    // isLiveRoute : timeRange vaut TOUJOURS 'all' en Live (forcé par
-    // applyLiveScope() à chaque tick, AnalyseView.vue) — un chip « Période :
-    // Tout l'historique » en permanence, sur un filtre déjà masqué côté
-    // FilterPanel/FilterSummary (§16, 11_LIVE.md), n'est que du bruit.
-    // Trouvé le 2026-08-05.
-    if (!state.isLiveRoute && filters.timeRange && filters.timeRange !== defaultTimeRange) {
+    if (filters.timeRange && filters.timeRange !== defaultTimeRange) {
       // Saison (`season:<id>`) : libellé = nom de la saison (store seasons).
       const seasonId = String(filters.timeRange).startsWith('season:')
         ? String(filters.timeRange).slice('season:'.length)
@@ -1741,7 +1722,6 @@ const mutations = {
   },
   SET_MENU_ITEM_COST_MAP(state, m) { state.menuItemCostMap = m },
   SET_SUMMARY(state, s) { state.summary = s },
-  SET_LIVE_ROUTE(state, v) { state.isLiveRoute = !!v },
   SET_FROM_MOCK(state, v) { state.fromMock = v },
   SET_WEEZEVENT_SETUP_INCOMPLETE(state, v) { state.weezeventSetupIncomplete = v },
 
@@ -1903,6 +1883,10 @@ const actions = {
     // Écran Live (AnalyseView.vue::isLive) : inclut les events QA « simulés » dans le
     // chargement — voir useSpaceDataFetch/fetchSpaceData ci-dessous.
     const isLive = typeof payload === 'object' && payload !== null ? !!payload.isLive : false
+    // Live v2 (`components/live/LiveView.vue`) : n'a besoin que du catalogue vague 2a
+    // (menuItemCostMap, taxonomie) — jamais de la recette composée (Restock uniquement,
+    // cf. useSpaceData.js). Évite le fan-out /menu-components/:id (audit perf 2026-09-03).
+    const skipRecipeCatalog = typeof payload === 'object' && payload !== null ? !!payload.skipRecipeCatalog : false
     const CACHE_TTL = 15 * 60 * 1000
     const fresh =
       !force &&
@@ -1938,7 +1922,7 @@ const actions = {
       // Rendu immédiat depuis le store ; revalidation silencieuse en fond (les
       // données fraîches remplaceront réactivement celles affichées, sans skeleton).
       commit('SET_ERROR', null)
-      dispatch('useSpaceDataFetch', { spaceId, isLive }).catch((err) => {
+      dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog }).catch((err) => {
         console.warn('[analyse] revalidation arrière-plan échouée:', err?.message)
       })
       return
@@ -1948,7 +1932,7 @@ const actions = {
     commit('SET_ENRICHING', true)
     commit('SET_ERROR', null)
     try {
-      await dispatch('useSpaceDataFetch', { spaceId, isLive })
+      await dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog })
     } catch (err) {
       commit('SET_ERROR', err.message || 'Erreur de chargement du space')
       // Phase 2 ne sera jamais appelée si la phase 1 jette → on lève le skeleton.
@@ -1961,6 +1945,7 @@ const actions = {
   async useSpaceDataFetch({ commit, dispatch, getters, state }, payload) {
     const spaceId = typeof payload === 'object' && payload !== null ? payload.spaceId : payload
     const isLive = typeof payload === 'object' && payload !== null ? !!payload.isLive : false
+    const skipRecipeCatalog = typeof payload === 'object' && payload !== null ? !!payload.skipRecipeCatalog : false
     // Délégué au composable useSpaceData (two-phase load).
     // Phase 1 (critique) est attendue → loading=false dès qu'elle complète.
     // Phase 2 (enrichissement) rappelle onEnrichment en arrière-plan.
@@ -2005,7 +1990,7 @@ const actions = {
       if (enrichment.events?.length) commit('SET_EVENTS', enrichment.events)
       // Phase 2 terminée → on retire les skeletons des graphiques.
       commit('SET_ENRICHING', false)
-    }, { excludeSimulated: !isLive })
+    }, { excludeSimulated: !isLive, skipRecipeCatalog })
     commit('SET_SPACE', data.space)
     commit('SET_CONFIGURATIONS', data.configurations || [])
     commit('SET_SHOP_GRANULAR', data.shopGranularData || [])

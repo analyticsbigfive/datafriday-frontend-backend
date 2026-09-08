@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import store from '@/store'
-import { requireOrganization, guestOnly, spaceEntryGuard, spacesListEntryGuard, onboardingGuard, requireSuperAdmin, requireOwner } from './guards'
+import { requireOrganization, guestOnly, spaceEntryGuard, spacesListEntryGuard, onboardingGuard, requireSuperAdmin, requireOwner, guestPinLoginOnly, requireGuestPinSession } from './guards'
 
 // Views — PERF: imports LAZY (`() => import(...)`) au lieu de statiques. En
 // statique, ces ~31 vues étaient inlinées dans le chunk eager `app.js` (953KB),
@@ -66,6 +66,41 @@ const routes = [
     component: LoginView,
     beforeEnter: guestOnly,
     meta: { title: 'Connexion' }
+  },
+  {
+    // Accès invité PIN (managers de PDV sans compte) — UN SEUL lien par PDV (slug
+    // stable, indépendant de l'événement ET de la phase) : le même QR sert avant ET
+    // après l'événement, la fenêtre actuellement ouverte (pré ou post) détermine la
+    // phase côté serveur — le manager n'a jamais besoin de savoir laquelle.
+    path: '/login/pin/:slug',
+    name: 'login-pin',
+    component: () => import('@/views/PinLoginView.vue'),
+    beforeEnter: guestPinLoginOnly,
+    meta: { title: 'Accès inventaire', noindex: true }
+  },
+  {
+    // Écrans de travail invité (post-PIN) — HORS de l'arbre `dashboard` (celui-ci
+    // exige une session Supabase via requireOrganization, incompatible avec une
+    // session PIN). Pas de spaceId/elementId dans l'URL : tout vient de la session
+    // invité (store guestPin), elle-même dérivée du JWT invité. Réutilise le MÊME
+    // composant que l'écran staff (SpaceInventoryView), en mode invité
+    // (meta.guestMode) — cf. composables/useGuestInventorySession.js.
+    // URL visible par le responsable PDV : "pdv", pas "guest" (2026-09-08, retour
+    // manager — "guest" prêtait à confusion avec le garde `guestOnly` existant,
+    // sans rapport). Nom de route interne INCHANGÉ (guest-pre-inventory) : c'est
+    // le périmètre de renommage choisi (URL + libellés visibles uniquement).
+    path: '/pdv/pre-inventory',
+    name: 'guest-pre-inventory',
+    component: () => import('@/components/space-workspace/inventory/views/SpaceInventoryView.vue'),
+    beforeEnter: requireGuestPinSession,
+    meta: { title: 'Pre-event Inventory', inventoryMode: 'pre', guestMode: true, noindex: true }
+  },
+  {
+    path: '/pdv/inventory',
+    name: 'guest-inventory',
+    component: () => import('@/components/space-workspace/inventory/views/SpaceInventoryView.vue'),
+    beforeEnter: requireGuestPinSession,
+    meta: { title: 'Post-event Inventory', inventoryMode: 'post', guestMode: true, noindex: true }
   },
   {
     path: '/signup',
@@ -156,9 +191,11 @@ const routes = [
       {
         // Builder v2 (refonte — docs/REFONTE_3D_BUILDER_V2.md) : autosave granulaire,
         // pas de keep-alive nécessaire (aucun état non sauvegardé à préserver). Builder v1
-        // (Config.data JSON blob) retiré — builder2 est l'unique parcours d'édition d'espace.
+        // (Config.data JSON blob) retiré — builder2 est l'unique parcours d'édition d'espace
+        // (le nom de route/composant garde le suffixe "2", historique interne ; l'URL, elle,
+        // n'a plus besoin de le porter une fois v1 disparu).
         name: 'SpaceBuilder2',
-        path: '/spaces/:spaceId/builder2',
+        path: '/spaces/:spaceId/builder',
         component: () => import('@/components/spaces/views/builder2/BuilderPage.vue'),
         meta: { title: 'Builder v2', permission: 'space.edit' }
       },
@@ -201,28 +238,21 @@ const routes = [
         meta: { title: 'Réarmement', keepAlive: true, permission: ['front.fb.restock', 'front.fb.restockBoard'] }
       },
 
-      {
-        // Live (BUG/module Live, cf. docs/modules/11_LIVE.md) : l'écran Analyse en
-        // mode flux. Route dédiée (pas ?toolbox=) car Live comprendra un onglet
-        // Inventaire (v2). `front.fb.live` déjà catalogué. `keepAlive` explicite.
-        // Remise en l'état d'origine (2026-09-01) : le chantier 379 vit sur /live2
-        // en parallèle le temps d'être validé, sans casser le bouton ◉/menu existant
-        // qui pointe ici.
-        path: '/spaces/:spaceId/live',
-        name: 'space-live',
-        component: () => import('@/components/space-workspace/analyse/views/AnalyseView.vue'),
-        meta: { title: 'Live', keepAlive: true, permission: 'front.fb.live' }
-      },
+      // Accès PIN invité : plus une page à part (orpheline, jamais reliée à aucun
+      // menu) — intégré directement dans Pre-event/Post-event Inventory
+      // (GuestPinBadge par carte + GuestPinAccessPanel colonne de droite).
 
       {
-        // Live v2 (chantier 379, frontend/docs/chantiers/379_live_standalone_backend_driven) :
-        // composant DÉDIÉ, ne réutilise pas AnalyseView.vue (décision 2026-09-01 — zéro
-        // couplage avec Analyse, cf. PLAN.md). Route séparée de /live le temps de valider
-        // le nouveau composant — pas encore reliée à un bouton/menu, accès direct par URL.
-        path: '/spaces/:spaceId/live2',
-        name: 'space-live2',
+        // Live (chantier 379, frontend/docs/chantiers/379_live_standalone_backend_driven) :
+        // composant DÉDIÉ (`components/space-workspace/live/`), zéro couplage avec
+        // AnalyseView.vue — décision actée le 2026-09-01, validée par l'utilisateur le
+        // 2026-09-03 après parité complète avec l'ancien mode Live d'AnalyseView.vue
+        // (bascule finale : /live pointait vers AnalyseView.vue jusque-là, /live2 servait
+        // de route de validation en parallèle — les deux sont désormais unifiées ici).
+        path: '/spaces/:spaceId/live',
+        name: 'space-live',
         component: () => import('@/components/space-workspace/live/views/LiveView.vue'),
-        meta: { title: 'Live v2', keepAlive: true, permission: 'front.fb.live' }
+        meta: { title: 'Live', keepAlive: true, permission: 'front.fb.live' }
       },
 
       {
@@ -558,6 +588,24 @@ router.afterEach((to) => {
   document.title = to.meta.title
     ? `${to.meta.title} | DataFriday`
     : 'DataFriday'
+})
+
+// Pages invité (ex. /login/pin) : URL non listée, pas indexée. Pose/retire la
+// balise selon `meta.noindex` — aucun mécanisme équivalent n'existait avant.
+router.afterEach((to) => {
+  const ROBOTS_TAG_ID = 'df-robots-meta'
+  const existing = document.getElementById(ROBOTS_TAG_ID)
+  if (to.meta?.noindex) {
+    if (!existing) {
+      const meta = document.createElement('meta')
+      meta.id = ROBOTS_TAG_ID
+      meta.name = 'robots'
+      meta.content = 'noindex, nofollow'
+      document.head.appendChild(meta)
+    }
+  } else if (existing) {
+    existing.remove()
+  }
 })
 
 // Rechargement automatique en cas de ChunkLoadError (chunks obsolètes après un redéploiement)

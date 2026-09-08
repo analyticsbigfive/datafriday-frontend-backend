@@ -146,7 +146,7 @@ const allSpaces = computed(() => vuex.getters['spaces/spaces'] || [])
 
 function switchSpace(spaceId) {
   if (spaceId === store.state.spaceId) return
-  router.push(`/spaces/${spaceId}/builder2`)
+  router.push(`/spaces/${spaceId}/builder`)
 }
 
 // Teleport de la barre vers le header du Dashboard : activé après montage (la

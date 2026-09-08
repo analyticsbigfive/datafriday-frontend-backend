@@ -7,8 +7,10 @@ import { sanitizeOklchColors } from '@/utils/oklchFallback'
  *
  * @param {object} options
  * @param {import('vue').ComputedRef<string>} options.spaceName  nom du space pour nommer le fichier
+ * @param {string} [options.rootId]  id DOM de la zone à capturer (défaut : la page Analyse ;
+ *   Live passe son propre id pour ne pas dépendre d'AnalyseView.vue)
  */
-export function useAnalyseCapture({ spaceName }) {
+export function useAnalyseCapture({ spaceName, rootId = 'analyse-capture-root' }) {
   const copying = ref(false)
   const sharing = ref(false)
   const snackbar = ref(false)
@@ -22,7 +24,7 @@ export function useAnalyseCapture({ spaceName }) {
   }
 
   async function captureAnalyse() {
-    const target = document.getElementById('analyse-capture-root') || document.body
+    const target = document.getElementById(rootId) || document.body
     const html2canvas = (await import('html2canvas')).default
     const canvas = await html2canvas(target, {
       backgroundColor: '#ffffff',

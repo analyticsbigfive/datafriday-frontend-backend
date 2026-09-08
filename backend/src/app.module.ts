@@ -44,6 +44,7 @@ import { BrandsModule } from './features/brands/brands.module';
 import { DisplayNamesModule } from './features/display-names/display-names.module';
 import { IndustrialsModule } from './features/industrials/industrials.module';
 import { InventoryModule } from './features/inventory/inventory.module';
+import { GuestPinAccessModule } from './features/guest-pin-access/guest-pin-access.module';
 import { LogisticsModule } from './features/logistics/logistics.module';
 import { LogisticTasksModule } from './features/logistic-tasks/logistic-tasks.module';
 import { NotificationsModule } from './features/notifications/notifications.module';
@@ -89,6 +90,11 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
           .default('development'),
         DATABASE_URL: Joi.string().required(),
         JWT_SECRET: Joi.string().required(),
+        // Accès invité PIN (managers PDV sans compte, cf. GuestPinAccessModule) — secrets
+        // DÉDIÉS, jamais partagés avec JWT_SECRET (celui-ci vérifie les tokens Supabase).
+        GUEST_PIN_JWT_SECRET: Joi.string().required(),
+        GUEST_PIN_HMAC_SECRET: Joi.string().required(),
+        GUEST_PIN_JWT_TTL: Joi.string().default('1d'),
         PORT: Joi.number().default(3000),
         // Rate limiting (par tenant, cf. TenantThrottlerGuard) — 3 paliers indépendants,
         // chacun surchargeable via env sans redéploiement de code.
@@ -123,6 +129,8 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
           'req.headers.authorization',
           'req.headers.cookie',
           'req.headers["x-api-key"]',
+          // Accès invité PIN : jamais de PIN en clair dans les logs.
+          'req.body.pin',
         ],
         customProps: (req: any) => ({
           tenantId: req.user?.tenantId ?? undefined,
@@ -193,6 +201,7 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     // ⚠ Requiert la table MenuItemHistoryAlias : appliquer la migration
     // 20260811090000_add_menu_item_history_alias AVANT de déployer (ADR-0002)
     // — sinon 500 P2021 au premier appel.
+    GuestPinAccessModule,
     HistoryAliasesModule,
     HrSettingsModule,
     SeasonsModule,

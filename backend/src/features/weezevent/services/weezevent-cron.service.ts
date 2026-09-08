@@ -25,7 +25,12 @@ export class WeezeventCronService implements OnModuleInit {
     ) {}
 
     onModuleInit() {
-        // Check if CRON is enabled via env variable
+        // BUG-144-01 : ce service est instancié à la fois dans le process web
+        // (app.module.ts, pour ses controllers webhook/manual-trigger) et dans le worker
+        // dédié (worker.module.ts). WEEZEVENT_CRON_ENABLED=false est positionné côté web
+        // (render.yaml) pour que les crons ne tournent QUE dans le worker — sinon un OOM du
+        // process web (ex. page Analyse Jean Bouin) tue le scheduler de synchro live avec
+        // lui, et les deux process exécutent les mêmes jobs en double.
         this.isEnabled = process.env.WEEZEVENT_CRON_ENABLED !== 'false';
         this.logger.log(`Weezevent CRON jobs ${this.isEnabled ? 'ENABLED' : 'DISABLED'}`);
     }

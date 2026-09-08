@@ -186,26 +186,7 @@ describe('analyse store — getters data-driven (options depuis les ventes)', ()
     expect(getters.optionsBaseRecords).toHaveLength(3)
   })
 
-  // Module Live (docs/modules/11_LIVE.md), bug trouvé le 2026-08-05 : Types de
-  // PDV/Zones/Points de vente affichaient des compteurs sur TOUT l'historique
-  // analysable de l'espace au lieu du seul event live. isLiveRoute bascule la
-  // base sur filteredEvents (déjà réduit au seul event live par applyLiveScope).
-  it('optionsBaseRecords se scope à filteredEvents (pas analysableEvents) quand isLiveRoute', () => {
-    const { getters } = makeGetters({
-      // analysable inclut e1 ET un event historique e2 ; filteredEvents (le
-      // scope live réel) ne contient QUE l'event live e1.
-      analysable: [{ id: 'e1' }, { id: 'e2' }],
-      filtered: [{ id: 'e1' }],
-      stateOverrides: { isLiveRoute: true },
-      records: [
-        ...RECORDS,
-        { eventId: 'e2', shopName: 'Ancien Event', shopArea: 'N2', shopType: 'beer' },
-      ],
-    })
-    expect(getters.optionsBaseRecords.map((r) => r.shopName)).toEqual(['Bar Nord', 'Food Court'])
-  })
-
-  it('optionsBaseRecords reste sur analysableEvents quand isLiveRoute est false (comportement Analyse inchangé)', () => {
+  it('optionsBaseRecords reste sur analysableEvents (pas filteredEvents)', () => {
     const { getters } = makeGetters({
       analysable: [{ id: 'e1' }, { id: 'e2' }],
       filtered: [{ id: 'e1' }],
@@ -488,32 +469,19 @@ describe('bornes de comparaison Précédent / N-1 (parité versionReact)', () =>
   })
 })
 
-// Module Live (docs/modules/11_LIVE.md §16), bug trouvé le 2026-08-05 : sur la
-// route Live tant que l'event live n'est pas encore détecté, applyLiveScope()
-// bascule sciemment timeRange sur 'today' (≠ défaut 'all') — un chip « Période :
-// Aujourd'hui » apparaissait alors que Dates/FilterSummary sont déjà masqués
-// pour toute la route Live. isLiveRoute supprime ce chip précis sans toucher
-// aux autres (shops/zones/menu items restent des chips légitimes).
-describe('analyse store — activeFilterChips (chip Période masqué en Live)', () => {
+describe('analyse store — activeFilterChips', () => {
   const g = analyse.getters
 
-  it("affiche le chip Période quand timeRange diffère du défaut et qu'on n'est pas en Live", () => {
-    const state = { ...analyse.state(), filters: { ...analyse.state().filters, timeRange: 'today' }, isLiveRoute: false }
+  it('affiche le chip Période quand timeRange diffère du défaut', () => {
+    const state = { ...analyse.state(), filters: { ...analyse.state().filters, timeRange: 'today' } }
     const chips = g.activeFilterChips(state, {}, { seasons: { seasons: [] } })
     expect(chips.some((c) => c.key === 'timeRange')).toBe(true)
   })
 
-  it('masque le chip Période quand isLiveRoute est vrai (ex. fallback "today" avant détection live)', () => {
-    const state = { ...analyse.state(), filters: { ...analyse.state().filters, timeRange: 'today' }, isLiveRoute: true }
-    const chips = g.activeFilterChips(state, {}, { seasons: { seasons: [] } })
-    expect(chips.some((c) => c.key === 'timeRange')).toBe(false)
-  })
-
-  it('un filtre PDV légitime reste un chip en Live (pas de sur-suppression)', () => {
+  it('un filtre PDV produit son propre chip', () => {
     const state = {
       ...analyse.state(),
       filters: { ...analyse.state().filters, timeRange: 'today', selectedShopTypes: ['beverages'] },
-      isLiveRoute: true,
     }
     const chips = g.activeFilterChips(state, {}, { seasons: { seasons: [] } })
     expect(chips.some((c) => c.key === 'selectedShopTypes')).toBe(true)
