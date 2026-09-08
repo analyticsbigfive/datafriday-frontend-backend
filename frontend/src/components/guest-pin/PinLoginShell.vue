@@ -1,7 +1,7 @@
 <template>
   <div class="pin-shell">
     <div class="pin-shell__header">
-      <img src="@/assets/datafriday.png" alt="Data Friday" class="pin-shell__logo" />
+      <img :src="require('@/assets/datafriday.png')" alt="Data Friday" class="pin-shell__logo" />
       <div>
         <p class="pin-shell__brand">Data Friday</p>
         <p class="pin-shell__tagline">{{ t('pinLoginTitle') }}</p>

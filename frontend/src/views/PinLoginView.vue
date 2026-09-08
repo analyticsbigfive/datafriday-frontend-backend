@@ -163,14 +163,15 @@ export default {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  align-self: center;
+  margin: -6px 0 4px;
   background: rgba(255, 49, 49, 0.12);
   border: 1px solid rgba(255, 49, 49, 0.3);
   border-radius: 100px;
   padding: 5px 12px;
   color: #ff3131;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-weight: 700;
-  align-self: flex-start;
 }
 
 .pin-login__error {
