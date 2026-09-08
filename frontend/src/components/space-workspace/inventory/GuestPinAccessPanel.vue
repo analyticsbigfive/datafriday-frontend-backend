@@ -103,6 +103,13 @@ export default {
   border: 1px solid var(--fb-border, #e5e7eb);
   border-radius: 12px;
   overflow: hidden;
+  /* Ce panneau est un enfant flex de .si-aggregate-col (colonne à hauteur
+     contrainte, cf. SpaceInventoryView.vue) où seul .si-aggregate est censé
+     grandir/rétrécir (flex: 1 1 auto + son propre scroll interne). Sans
+     flex-shrink: 0 ici, le flex par défaut (shrink: 1) compresse ce panneau en
+     dessous de sa hauteur naturelle dès que la colonne manque de place, et
+     overflow: hidden coupait alors le contenu au lieu de l'afficher. */
+  flex-shrink: 0;
 }
 .gpp-head { padding: 14px; }
 .gpp-title-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
