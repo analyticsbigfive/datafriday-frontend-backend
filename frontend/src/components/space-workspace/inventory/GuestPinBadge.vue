@@ -1,5 +1,5 @@
 <template>
-  <div class="gpb-zone" :class="zoneClass">
+  <div class="gpb-zone">
     <!-- QR du lien de connexion — toujours dispo, indépendant du statut PIN
          (le lien/slug ne change jamais, contrairement au PIN partagé). -->
     <button
@@ -12,61 +12,57 @@
       <QrCode :size="14" />
     </button>
 
-    <!-- Personne ne s'est encore connecté pour ce PDV — rien à faire ici, le PIN
-         (partagé par toute la fenêtre) se génère depuis le panneau de droite, pas
-         par carte. -->
-    <template v-if="!access">
-      <KeyRound :size="14" />
-      <span class="gpb-label">{{ t('guestPinAdminNotSeenYet') }}</span>
-    </template>
+    <!-- Statut PAR PDV réduit à une pastille — le détail (horodatage, actions) ne
+         s'affiche qu'au clic (v-menu), au lieu d'un bandeau texte toujours déployé
+         (retour utilisateur 2026-09-08 : "trop gaspillé... des icônes avec des
+         pastilles si nécessaire, pas des infos inutiles"). -->
+    <v-menu location="bottom start" :close-on-content-click="false">
+      <template #activator="{ props: menuProps }">
+        <button
+          type="button"
+          class="gpb-pastille"
+          :class="'gpb-pastille--' + status"
+          :title="t(statusLabelKey)"
+          v-bind="menuProps"
+        >
+          <component :is="statusIcon" :size="15" />
+          <span v-if="status === 'submitted'" class="gpb-flag" />
+        </button>
+      </template>
 
-    <template v-else-if="access.status === 'revoked'">
-      <Ban :size="16" />
-      <div class="gpb-sub">
-        <span class="gpb-label gpb-label--revoked">{{ t('guestPinAdminStatusRevoked') }}</span>
-      </div>
-      <button type="button" class="gpb-icon-btn gpb-icon-btn--success" :title="t('guestPinAdminReactivate')" :disabled="working" @click="onReactivate">
-        <RefreshCw :size="14" />
-      </button>
-    </template>
+      <v-card rounded="lg" class="gpb-pop">
+        <v-card-text>
+          <div class="gpb-pop-head">
+            <div class="gpb-pop-head-tx">
+              <p class="gpb-pop-title">{{ t(statusLabelKey) }}</p>
+              <p v-if="popMeta" class="gpb-pop-meta">{{ popMeta }}</p>
+            </div>
 
-    <!-- Validé par le directeur = SEUL état verrouillé (écriture invité refusée
-         côté service). "Soumis" (ci-dessous) ne l'est pas : le manager reste
-         modifiable tant que ce badge n'est pas passé ici. -->
-    <template v-else-if="access.validatedAt">
-      <Lock :size="16" />
-      <div class="gpb-sub">
-        <span class="gpb-label gpb-label--validated">{{ t('guestPinAdminStatusValidated') }}</span>
-      </div>
-    </template>
-
-    <template v-else-if="access.submittedAt">
-      <FileCheck :size="16" />
-      <div class="gpb-sub">
-        <span class="gpb-label gpb-label--submitted">{{ t('guestPinAdminStatusSubmitted') }}</span>
-        <span class="gpb-meta">{{ t('guestPinAdminSubmittedAt') }} {{ formatTime(access.submittedAt) }}</span>
-      </div>
-      <button type="button" class="gpb-icon-btn gpb-icon-btn--success" :title="t('guestPinAdminValidate')" :disabled="working" @click="onValidate">
-        <Check :size="14" />
-      </button>
-      <button type="button" class="gpb-icon-btn" :title="t('guestPinAdminRequestCorrection')" :disabled="working" @click="onRequestCorrection">
-        <Undo2 :size="14" />
-      </button>
-    </template>
-
-    <template v-else>
-      <UserCheck v-if="access.lastLoginAt" :size="16" />
-      <KeyRound v-else :size="16" />
-      <div class="gpb-sub">
-        <span class="gpb-label" :class="{ 'gpb-label--seen': access.lastLoginAt }">
-          {{ access.lastLoginAt ? t('guestPinAdminSeen') : t('guestPinAdminNotSeenYet') }}
-        </span>
-        <span v-if="access.lastLoginAt" class="gpb-meta">{{ formatTime(access.lastLoginAt) }}</span>
-      </div>
-      <button type="button" class="gpb-icon-btn gpb-icon-btn--danger" :title="t('guestPinAdminRevoke')" :disabled="working" @click="onRevoke">
-        <Ban :size="14" />
-      </button>
-    </template>
+            <!-- Icône seule + info-bulle native (title) : un libellé complet en
+                 toutes lettres ("Send back for correction"…) débordait de son
+                 bouton dans un popover volontairement étroit. -->
+            <div v-if="status === 'submitted'" class="gpb-pop-actions">
+              <button type="button" class="gpb-pop-btn gpb-pop-btn--pri" :title="t('guestPinAdminValidate')" :disabled="working" @click="onValidate">
+                <Check :size="15" />
+              </button>
+              <button type="button" class="gpb-pop-btn" :title="t('guestPinAdminRequestCorrection')" :disabled="working" @click="onRequestCorrection">
+                <Undo2 :size="15" />
+              </button>
+            </div>
+            <div v-else-if="status === 'revoked'" class="gpb-pop-actions">
+              <button type="button" class="gpb-pop-btn gpb-pop-btn--pri" :title="t('guestPinAdminReactivate')" :disabled="working" @click="onReactivate">
+                <RefreshCw :size="15" />
+              </button>
+            </div>
+            <div v-else-if="status === 'seen'" class="gpb-pop-actions">
+              <button type="button" class="gpb-pop-btn gpb-pop-btn--danger" :title="t('guestPinAdminRevoke')" :disabled="working" @click="onRevoke">
+                <Ban :size="15" />
+              </button>
+            </div>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-menu>
 
     <GuestPinQrDialog v-if="slug" v-model="qrDialogOpen" :slug="slug" :element-name="elementName" />
   </div>
@@ -78,12 +74,12 @@ import { useI18n } from '@/i18n/useI18n';
 import GuestPinQrDialog from '@/components/guest-pin-manage/dialogs/GuestPinQrDialog.vue';
 
 /**
- * Badge de statut PAR PDV, porté par chaque carte — plus de génération de PIN ici
- * (décision produit 2026-09-08 : UN SEUL PIN partagé par TOUS les PDV d'une
- * fenêtre, généré une fois depuis GuestPinAccessPanel.vue, pas par carte). La
- * ligne GuestPinAccess elle-même est désormais auto-créée au premier login du
- * manager — tant que personne ne s'est connecté pour ce PDV, `access` est null
- * ici, sans action possible (rien à révoquer/valider avant une 1ʳᵉ connexion).
+ * Statut PAR PDV, porté par chaque carte — une pastille (couleur + icône),
+ * jamais de PIN généré ici (décision produit 2026-09-08 : UN SEUL PIN partagé
+ * par TOUTE la fenêtre, généré depuis GuestPinAccessPanel.vue). La ligne
+ * GuestPinAccess est auto-créée au premier login du manager — tant que
+ * personne ne s'est connecté pour ce PDV, `access` est null ici (statut
+ * "waiting", aucune action possible).
  *
  * Ne fait AUCUN fetch lui-même : lit l'accès réactivement dans le store
  * `guestPinAdmin` (déjà peuplé par GuestPinAccessPanel, monté une fois dans la
@@ -119,12 +115,40 @@ export default {
     access() {
       return this.window?.accesses?.find((a) => a.elementId === this.elementId) ?? null;
     },
-    zoneClass() {
-      if (!this.access) return '';
-      if (this.access.status === 'revoked') return 'gpb-zone--revoked';
-      if (this.access.validatedAt) return 'gpb-zone--validated';
-      if (this.access.submittedAt) return 'gpb-zone--submitted';
-      return this.access.lastLoginAt ? 'gpb-zone--seen' : 'gpb-zone--pending';
+    /** 'waiting' | 'seen' | 'submitted' | 'validated' | 'revoked' */
+    status() {
+      if (!this.access) return 'waiting';
+      if (this.access.status === 'revoked') return 'revoked';
+      if (this.access.validatedAt) return 'validated';
+      if (this.access.submittedAt) return 'submitted';
+      return 'seen';
+    },
+    statusIcon() {
+      return {
+        waiting: 'KeyRound',
+        seen: 'UserCheck',
+        submitted: 'FileCheck',
+        validated: 'Lock',
+        revoked: 'Ban',
+      }[this.status];
+    },
+    statusLabelKey() {
+      return {
+        waiting: 'guestPinAdminNotSeenYet',
+        seen: 'guestPinAdminSeen',
+        submitted: 'guestPinAdminStatusSubmitted',
+        validated: 'guestPinAdminStatusValidated',
+        revoked: 'guestPinAdminStatusRevoked',
+      }[this.status];
+    },
+    popMeta() {
+      if (this.status === 'seen' && this.access?.lastLoginAt) {
+        return this.formatTime(this.access.lastLoginAt);
+      }
+      if (this.status === 'submitted' && this.access?.submittedAt) {
+        return `${this.t('guestPinAdminSubmittedAt')} ${this.formatTime(this.access.submittedAt)}`;
+      }
+      return '';
     },
   },
 
@@ -186,34 +210,15 @@ export default {
 .gpb-zone {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
-  min-width: 190px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--fb-subtle, #fafafa);
-  border: 1px dashed var(--fb-border, #e5e7eb);
-  color: #6b7280;
 }
-.gpb-zone--pending { background: #fff7ed; border-style: solid; border-color: #fde68a; color: #92400e; }
-.gpb-zone--seen { background: #f0fdf4; border-style: solid; border-color: #bbf7d0; color: #15803d; }
-.gpb-zone--submitted { background: #f5f3ff; border-style: solid; border-color: #ddd6fe; color: #6d28d9; }
-.gpb-zone--validated { background: #f0fdf4; border-style: solid; border-color: #86efac; color: #166534; }
-.gpb-zone--revoked { background: #fef2f2; border-style: solid; border-color: #fecaca; color: #b91c1c; }
-
-.gpb-sub { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.gpb-label { font-size: 11.5px; font-weight: 700; }
-.gpb-label--seen { color: #15803d; }
-.gpb-label--submitted { color: #6d28d9; }
-.gpb-label--validated { color: #166534; }
-.gpb-label--revoked { color: #b91c1c; }
-.gpb-meta { font-size: 10.5px; color: inherit; opacity: 0.8; }
 
 .gpb-icon-btn {
-  width: 26px;
-  height: 26px;
-  border-radius: 6px;
-  border: 1px solid var(--fb-border, #e5e7eb);
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fb-border, #e5e7eb);
   background: #fff;
   display: flex;
   align-items: center;
@@ -223,7 +228,59 @@ export default {
   flex-shrink: 0;
 }
 .gpb-icon-btn:hover { border-color: #ff3131; color: #ff3131; }
-.gpb-icon-btn--danger:hover { border-color: #dc2626; color: #dc2626; }
-.gpb-icon-btn--success:hover { border-color: #15803d; color: #15803d; }
-.gpb-icon-btn:disabled { opacity: 0.5; cursor: default; }
+
+.gpb-pastille {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--fb-border, #e5e7eb);
+  background: #fafbfc;
+  color: #9aa1ac;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.gpb-pastille:hover { border-color: #9aa1ac; }
+.gpb-pastille--seen { background: #fef3e2; color: #d97706; border-color: transparent; }
+.gpb-pastille--submitted { background: #f2ebfd; color: #7c3aed; border-color: transparent; }
+.gpb-pastille--validated { background: #e3f6ee; color: #059669; border-color: transparent; }
+.gpb-pastille--revoked { background: #eceef1; color: #4b5563; border-color: transparent; }
+
+.gpb-flag {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #7c3aed;
+  border: 2px solid #fff;
+}
+
+.gpb-pop-head { display: flex; align-items: flex-start; gap: 14px; }
+.gpb-pop-head-tx { flex: 1 1 auto; min-width: 0; }
+.gpb-pop-title { margin: 0; font-size: 0.8125rem; font-weight: 700; white-space: nowrap; }
+.gpb-pop-meta { margin: 2px 0 0; font-size: 0.75rem; color: #6b7280; white-space: nowrap; }
+.gpb-pop-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+.gpb-pop-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--fb-border, #e5e7eb);
+  background: #fff;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.gpb-pop-btn:hover { border-color: #9aa1ac; }
+.gpb-pop-btn:disabled { opacity: 0.5; cursor: default; }
+.gpb-pop-btn--pri { background: #059669; border-color: #059669; color: #fff; }
+.gpb-pop-btn--pri:hover { background: #047857; border-color: #047857; }
+.gpb-pop-btn--danger:hover { border-color: #dc2626; color: #dc2626; }
 </style>

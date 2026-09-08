@@ -7,19 +7,30 @@
       </v-card-title>
 
       <v-card-text>
-        <p class="gqd-element">{{ elementName }}</p>
+        <!-- Seule cette zone reste visible à l'impression (cf. bloc <style> non
+             scopé plus bas) — le reste du dialog (boutons, indice) n'a rien à
+             faire sur la fiche imprimée. -->
+        <div class="gqd-print-area">
+          <p class="gqd-element">{{ elementName }}</p>
 
-        <div class="gqd-canvas-wrap">
-          <canvas ref="canvasEl" class="gqd-canvas" width="240" height="240" />
+          <div class="gqd-canvas-wrap">
+            <canvas ref="canvasEl" class="gqd-canvas" width="240" height="240" />
+          </div>
+
+          <p class="gqd-link">{{ loginUrl }}</p>
         </div>
 
-        <p class="gqd-link">{{ loginUrl }}</p>
-
-        <v-btn variant="tonal" color="#ff3131" size="small" rounded="lg" block @click="copyLink">
-          <Check v-if="copied" :size="15" class="mr-1" />
-          <Copy v-else :size="15" class="mr-1" />
-          {{ copied ? t('guestPinAdminCopied') : t('guestPinQrCopyLink') }}
-        </v-btn>
+        <div class="gqd-btn-row">
+          <v-btn variant="tonal" color="#ff3131" size="small" rounded="lg" @click="copyLink">
+            <Check v-if="copied" :size="15" class="mr-1" />
+            <Copy v-else :size="15" class="mr-1" />
+            {{ copied ? t('guestPinAdminCopied') : t('guestPinQrCopyLink') }}
+          </v-btn>
+          <v-btn variant="outlined" color="#ff3131" size="small" rounded="lg" @click="printQr">
+            <Printer :size="15" class="mr-1" />
+            {{ t('guestPinQrPrint') }}
+          </v-btn>
+        </div>
 
         <p class="gqd-hint">{{ t('guestPinQrHint') }}</p>
       </v-card-text>
@@ -36,7 +47,7 @@
 
 <script>
 import QRCode from 'qrcode';
-import { QrCode, Copy, Check } from 'lucide-vue-next';
+import { QrCode, Copy, Check, Printer } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import datafridayMark from '@/assets/datafriday.png';
 
@@ -49,7 +60,7 @@ import datafridayMark from '@/assets/datafriday.png';
  */
 export default {
   name: 'GuestPinQrDialog',
-  components: { QrCode, Copy, Check },
+  components: { QrCode, Copy, Check, Printer },
 
   props: {
     modelValue: { type: Boolean, default: false },
@@ -135,6 +146,12 @@ export default {
     onClose(value) {
       this.$emit('update:modelValue', value === true);
     },
+
+    /** Imprime UNIQUEMENT le QR + nom du PDV (cf. .gqd-print-area / @media print
+     *  non scopé plus bas) — pas le reste de l'app derrière le dialog. */
+    printQr() {
+      window.print();
+    },
   },
 };
 </script>
@@ -171,10 +188,36 @@ export default {
   word-break: break-all;
 }
 
+.gqd-btn-row {
+  display: flex;
+  gap: 8px;
+}
+.gqd-btn-row .v-btn { flex: 1 1 0; }
+
 .gqd-hint {
   margin: 10px 0 0 0;
   font-size: 0.6875rem;
   color: #9aa1ac;
   text-align: center;
+}
+</style>
+
+<!-- Non scopé DÉLIBÉRÉMENT : @media print doit atteindre TOUT le body (masquer
+     le reste de l'app), pas seulement les éléments de ce composant — une règle
+     scopée (attribut data-v-*) ne pourrait jamais cibler `body *`. -->
+<style>
+@media print {
+  body * { visibility: hidden !important; }
+  .gqd-print-area, .gqd-print-area * { visibility: visible !important; }
+  .gqd-print-area {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 14px;
+  }
 }
 </style>

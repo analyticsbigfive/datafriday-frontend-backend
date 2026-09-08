@@ -94,6 +94,7 @@ export const translations = {
     guestPinAdminReactivate: 'Reactivate',
     guestPinQrTitle: 'Connection QR code',
     guestPinQrCopyLink: 'Copy link',
+    guestPinQrPrint: 'Print',
     guestPinQrHint: 'Print it at the point of sale — scanning it always opens this exact PDV.',
     // Common
     cancel: 'Cancel',
@@ -4828,6 +4829,7 @@ export const translations = {
     guestPinAdminReactivate: 'Réactiver',
     guestPinQrTitle: 'QR code de connexion',
     guestPinQrCopyLink: 'Copier le lien',
+    guestPinQrPrint: 'Imprimer',
     guestPinQrHint: "À imprimer sur le point de vente — scanné, il ouvre toujours ce PDV précis.",
     // Common
     cancel: 'Annuler',
