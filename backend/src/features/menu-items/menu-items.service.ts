@@ -869,6 +869,13 @@ export class MenuItemsService {
       numberOfPiecesRecipe: this.toNumber(item.numberOfPiecesRecipe, 1) || 1,
       cost: this.toNumber(item.totalCost, 0),
       components,
+      // Ajoutés pour le portage backend de buildConsolidatedInventory (accès invité
+      // PIN, 2026-09-08) : ces 3 champs scalaires existent déjà sur `item` (recipeInclude
+      // ne restreint pas les colonnes top-level), juste jamais renvoyés jusqu'ici — champ
+      // additif, aucun consommateur existant du contrat recette n'est affecté.
+      picture: item.picture ?? null,
+      inventoryNumberOfUnits: item.inventoryNumberOfUnits ?? null,
+      inventoryPackagingType: item.inventoryPackagingType ?? null,
     };
   }
 

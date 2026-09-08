@@ -115,7 +115,6 @@ export function useInventoryData(selectedConfigId) {
   const components = computed(() => store.state.analyse?.components || [])
   const marketPrices = computed(() => store.state.inventory?.marketPrices || [])
   const storageTypes = computed(() => store.getters['storageTypes/storageTypes'] || [])
-  store.dispatch('storageTypes/fetchStorageTypes')
 
   const catalogById = computed(() => {
     const m = new Map()
@@ -147,6 +146,11 @@ export function useInventoryData(selectedConfigId) {
       resetContext()
       return
     }
+    // Endpoint staff (401 sous JWT invité) : déplacé ici (plutôt qu'au niveau module,
+    // exécuté à CHAQUE instanciation du composable) pour ne partir que quand un
+    // chargement staff réel a lieu — ce composable est aussi instancié en mode
+    // invité (SpaceInventoryView.vue), qui n'appelle jamais loadContext.
+    store.dispatch('storageTypes/fetchStorageTypes')
     const key = `${spaceId}::${configId}`
     if (inflight.has(key)) return inflight.get(key)
     const myReq = ++reqSeq

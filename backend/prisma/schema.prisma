@@ -3,6 +3,11 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+  // `prisma migrate dev` a besoin de recréer l'historique complet des migrations sur une
+  // base vide pour le valider. Sans ceci, Prisma tente de le faire sur DATABASE_URL/DIRECT_URL
+  // (le pooler Supabase), qui bloque indéfiniment. Base locale dédiée — cf. 2026-09-07,
+  // README section migrations.
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
 
 generator client {
@@ -919,7 +924,11 @@ model Floor {
 // Polymorphic: belongs to either a Floor or a Forecourt (one must be set)
 
 model SpaceElement {
-  id              String  @id @default(cuid())
+  id String @id @default(cuid())
+  // Identifiant stable et opaque pour les URLs publiques d'accès invité PIN
+  // (/login/pin/:slug/:phase). Généré à la création (slugify(name) + suffixe si collision),
+  // jamais recalculé au renommage — un lien/QR déjà imprimé doit rester valable.
+  slug            String  @unique
   floorId         String? // FK to Floor (if element is inside a floor)
   forecourtId     String? // FK to Forecourt (if element is in forecourt)
   externalMerchId String? // FK to ExternalMerch (if element is in the external merch zone)
@@ -3195,6 +3204,85 @@ model InventoryCount {
   // Couvre getLatestBySpace : findFirst({ where: { tenantId, spaceId }, orderBy: { updatedAt: desc } })
   // — sans lui : scan + tri par appel (cf. inventory.service.ts).
   @@index([tenantId, spaceId, updatedAt(sort: Desc)])
+}
+
+// ==================== GUEST PIN ACCESS (managers PDV sans compte) ====================
+
+// Une fenêtre d'inventaire = un space+event+phase ouvert par le directeur de site.
+// Fermer la fenêtre (status='closed') révoque EN BLOC tous les GuestPinAccess qui lui
+// sont rattachés — vérifié à chaque requête invité (JwtGuestPinStrategy.validate),
+// pas besoin d'un update en masse sur GuestPinAccess.
+model InventoryWindow {
+  id                 String    @id @default(cuid())
+  tenantId           String
+  spaceId            String
+  eventId            String
+  phase              String // 'pre-event' | 'post-event' — même convention que InventorySnapshot.kind
+  status             String    @default("open") // 'open' | 'closed'
+  showExpected       Boolean   @default(false) // le manager PDV voit-il les quantités attendues ?
+  openedAt           DateTime  @default(now())
+  openedBy           String
+  closedAt           DateTime?
+  closedBy           String?
+  pushedToLogisticAt DateTime? // horodatage de l'appel pushCurrentCountToLogistic déclenché à la clôture
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  guestAccesses GuestPinAccess[]
+
+  @@unique([tenantId, spaceId, eventId, phase], name: "uniq_inventory_window")
+  @@index([tenantId, spaceId, status])
+}
+
+// Un PIN par PDV (SpaceElement) pour une fenêtre donnée. elementId = InventoryCount.shopId
+// = SpaceElement.id : pas de mapping supplémentaire nécessaire pour filtrer l'inventaire
+// d'un manager par son PDV.
+model GuestPinAccess {
+  id        String @id @default(cuid())
+  tenantId  String
+  windowId  String
+  spaceId   String // dénormalisé (pattern InventoryCount) — évite un join pour les requêtes fréquentes
+  elementId String // = InventoryCount.shopId = SpaceElement.id
+
+  // HMAC-SHA256(pin, GUEST_PIN_HMAC_SECRET) — jamais le PIN en clair. Recherche en O(1)
+  // par index unique (pas de comparaison lente type Argon2id en boucle : un PIN à 6
+  // chiffres est une trop faible entropie pour qu'un KDF lent apporte quoi que ce soit,
+  // la sécurité repose sur le secret serveur + le rate-limiting du login). NULL = valeur
+  // libérée (accès révoqué/fenêtre fermée) : un futur PIN identique peut être réattribué
+  // ailleurs sans collision sur la contrainte unique.
+  pinLookupHash String? @unique
+
+  status         String    @default("active") // 'active' | 'revoked'
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+  lastLoginAt    DateTime?
+  // Diagnostic uniquement — PAS un verrou : n'importe qui a le PIN peut se connecter,
+  // potentiellement plusieurs personnes en même temps. Ces deux champs sont écrasés à
+  // CHAQUE login réussi ("dernière connexion vue"), pas figés au premier (décision produit
+  // 2026-09-08 : pas de restriction à un seul appareil).
+  boundDeviceHash String?
+  boundAt         DateTime?
+  // "J'ai terminé" : le manager signale qu'il a fini, PAS un verrou — il reste
+  // modifiable (toute nouvelle écriture réarme `submittedAt=null`, cf.
+  // GuestPinAccessService.saveCount) tant que le DIRECTEUR n'a pas validé (décision
+  // produit 2026-09-08, revenue sur le gel immédiat initial : c'est le directeur qui
+  // doit vérifier et valider, pas le manager qui se verrouille lui-même).
+  submittedAt DateTime?
+  // Verrou RÉEL (lecture seule) : posé uniquement par le directeur (validateAccess),
+  // jamais par le manager. `resetPin` le remet à null (nouveau PIN → repart à zéro).
+  validatedAt DateTime?
+  validatedBy String?
+  revokedAt       DateTime?
+  revokedBy       String?
+  createdBy       String // userId du directeur qui a défini/régénéré ce PIN
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  window InventoryWindow @relation(fields: [windowId], references: [id], onDelete: Cascade)
+
+  @@unique([windowId, elementId], name: "uniq_guest_pin_access_per_element")
+  @@index([tenantId, status])
+  @@index([spaceId, elementId])
 }
 
 // ==================== LOGISTICS (stock movements ledger) ====================

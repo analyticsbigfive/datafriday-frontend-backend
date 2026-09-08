@@ -1,7 +1,9 @@
 <template>
   <v-app class="si-app">
-    <!-- Header type Analyse (propre <v-app>, pas de teleport → robuste). -->
+    <!-- Header type Analyse (propre <v-app>, pas de teleport → robuste). Masqué en
+         mode invité : chrome staff (switcher d'espace, KPIs) sans rapport. -->
     <WorkspaceAppHeader
+      v-if="!guestSession.isGuestMode"
       :space-name="spaceLabel"
       :kpis="overviewMetrics"
       show-home
@@ -73,7 +75,7 @@
 
 
     <!-- Body: 3-col desktop (filtres gauche / cartes / résumé droite), stacked mobile -->
-    <div class="si-body" :class="{ 'si-body-with-filters': showLeftFilters }">
+    <div class="si-body" :class="{ 'si-body-with-filters': showLeftFilters, 'si-body-guest': guestSession.isGuestMode }">
       <!-- Colonne GAUCHE (pattern EventPredict .ep-side) : toolbox hors carte sur
            le fond gris, puis le panneau de filtres (carte blanche).
            Sur mobile → InventoryFilterDrawer. -->
@@ -135,15 +137,17 @@
            uniquement — cf. .si-mobile-tools-trigger ci-dessous pour le mobile
            (ouvre le drawer de nav outils au lieu du panneau de filtres). -->
       <WorkspacePanelToggle
-        v-if="canToggleFilters"
+        v-if="canToggleFilters && !guestSession.isGuestMode"
         class="si-toggle--desktop"
         :open="!filtersCollapsed"
         :label="t('invToggleFilters')"
         @toggle="filtersCollapsed = !filtersCollapsed"
       />
       <!-- Mobile uniquement (< 900px) : drawer de nav entre outils F&B, même
-           pattern que Logistique (WorkspaceMobileToolDrawer + toolboxSelectItems). -->
+           pattern que Logistique (WorkspaceMobileToolDrawer + toolboxSelectItems).
+           Masqué en mode invité : rien à naviguer, un seul PDV. -->
       <button
+        v-if="!guestSession.isGuestMode"
         type="button"
         class="si-mobile-tools-trigger"
         @click="showMobileToolDrawer = true"
@@ -154,10 +158,18 @@
       <!-- Titre du bandeau (parité Analyse / Réarmement / Logistique). -->
       <div class="si-band-title">
         <h1 class="si-band-title__main">{{ t(isPreMode ? 'preInvPageTitle' : 'invPageTitle') }}</h1>
+        <!-- Invité : nom du PDV + statut de session, pas le contexte événement staff. -->
+        <p v-if="guestSession.isGuestMode" class="si-band-title__sub">
+          {{ guestSession.guestElementName }}
+          <!-- Validé (directeur) = verrouillé. Soumis (manager) ne l'est pas — le
+               manager reste modifiable tant que le directeur n'a pas validé. -->
+          <span v-if="guestSession.isReadonly"> · {{ t('guestPinAdminStatusValidated') }}</span>
+          <span v-else-if="guestSession.isSubmitted"> · {{ t('guestPinAdminStatusSubmitted') }}</span>
+        </p>
         <!-- Vue réconciliation active → sous-titre « Réconciliation : {event} » (parité capture).
              Inchangé : le document nomme DÉJÀ son propre event, empiler un second
              nom ici recréerait la confusion qu'on corrige juste en dessous. -->
-        <p v-if="activeReconciliation" class="si-band-title__sub">
+        <p v-else-if="activeReconciliation" class="si-band-title__sub">
           {{ t('invRecoSection') }} : {{ activeReconciliation.eventName || t('invRecoUnknownEvent') }}
         </p>
         <!-- Contexte évènement (lecture seule) : nom · date · pourquoi ce match ·
@@ -190,7 +202,27 @@
         </p>
       </div>
 
-      <div class="si-band-right justify-content-end d-flex align-center">
+      <!-- Invité : "J'ai terminé" à la place de tout le bloc staff (Print/QR/
+           Update Logistic/Save) — rien d'autre n'a de sens pour un seul PDV. -->
+      <div v-if="guestSession.isGuestMode" class="si-band-right justify-content-end d-flex align-center">
+        <v-btn
+          v-if="!guestSession.isReadonly"
+          class="si-band-btn si-band-btn--save"
+          :loading="guestSubmitting"
+          @click="onGuestSubmit"
+        >
+          <v-icon size="16" class="mr-1">mdi-check-circle-outline</v-icon>
+          {{ t('invGuestSubmit') }}
+        </v-btn>
+        <v-btn
+          class="si-band-btn si-band-btn--logout"
+          @click="onGuestLogout"
+        >
+          <v-icon size="16" class="mr-1">mdi-logout</v-icon>
+          {{ t('invGuestLogout') }}
+        </v-btn>
+      </div>
+      <div v-else class="si-band-right justify-content-end d-flex align-center">
         <!-- Onglets Boutiques/Stockages déplacés sous la recherche (parité
              Logistique). Sous-statuts À compter/Comptés → colonne droite. -->
 
@@ -329,8 +361,9 @@
          vivent maintenant dans l'infobulle de chaque attendu (expectedDetailFor).
          Les cartouches ci-dessus restent : elles ne s'affichent qu'en ANOMALIE
          (403, serveur non à jour, comptage reporté du pre-event). -->
-    <!-- Recherche PdV/articles — collée sous le bandeau rouge, même largeur. -->
-    <div class="si-search-wrap">
+    <!-- Recherche PdV/articles — collée sous le bandeau rouge, même largeur.
+         Masqué en mode invité : un seul PDV, rien à chercher ni à trier. -->
+    <div v-if="!guestSession.isGuestMode" class="si-search-wrap">
       <AppSearchBar
         v-model="search"
         :placeholder="t('invSearchShopsItems')"
@@ -338,8 +371,9 @@
       />
     </div>
 
-        <!-- Onglets Boutiques/Stockages sous la recherche (parité Logistique). -->
-        <div class="si-subnav">
+        <!-- Onglets Boutiques/Stockages sous la recherche (parité Logistique).
+             Masqué en mode invité : un seul PDV, rien à basculer ni à trier. -->
+        <div v-if="!guestSession.isGuestMode" class="si-subnav">
           <div class="si-tabs">
             <button
               v-for="tab in visibleTopTabs"
@@ -415,8 +449,10 @@
           :is-item-counted="isItemCounted"
           :expected-total-for="canSeePredicted ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
-          :logistic-stock-for="canSeeExpected ? logisticStockFor : null"
-          :can-transfer="!demo"
+          :logistic-stock-for="guestSession.isGuestMode ? guestSession.guestExpectedFor : (canSeeExpected ? logisticStockFor : null)"
+          :can-transfer="!demo && !guestSession.isGuestMode"
+          :readonly="guestSession.isReadonly"
+          :hide-close="guestSession.isGuestMode"
           @close="countingShop = null"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -532,6 +568,10 @@
                   :progress="progressForCard(entry)"
                   :status-label="statusLabel(entry)"
                   :status-color="statusColor(entry)"
+                  :show-guest-pin="canManageGuestPin"
+                  :space-id="guestPinSpaceId"
+                  :event-id="guestPinEventId"
+                  :phase="guestPinPhase"
                   @start-count="startCount"
                 />
               </template>
@@ -562,7 +602,7 @@
 
       <!-- Colonne DROITE : sous-statuts de comptage (segmented) AU-DESSUS du
            résumé inventaire, puis la carte agrégat. -->
-      <div v-if="activeTab === 'shops' || activeTab === 'storage'" class="si-aggregate-col wsl-side">
+      <div v-if="!guestSession.isGuestMode && (activeTab === 'shops' || activeTab === 'storage')" class="si-aggregate-col wsl-side">
         <!-- À compter / Comptés — segmented, filtrent la liste. -->
         <div class="si-substatus si-substatus--side">
           <button
@@ -585,6 +625,16 @@
             <span>{{ t('invCountedTooltip') }}</span>
           </v-tooltip>
         </div>
+
+        <!-- Accès PIN invité — remplace la page /spaces/:spaceId/guest-pin-access
+             (orpheline). Composant autonome : se charge lui-même, GuestPinBadge (sur
+             chaque carte) lit le même store réactivement. -->
+        <GuestPinAccessPanel
+          v-if="canManageGuestPin && activeTab === 'shops'"
+          :space-id="guestPinSpaceId"
+          :event-id="guestPinEventId"
+          :phase="guestPinPhase"
+        />
 
         <aside class="si-aggregate">
         <InventoryAggregateView
@@ -707,8 +757,10 @@
           :is-item-counted="isItemCounted"
           :expected-total-for="canSeePredicted ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
-          :logistic-stock-for="canSeeExpected ? logisticStockFor : null"
-          :can-transfer="!demo"
+          :logistic-stock-for="guestSession.isGuestMode ? guestSession.guestExpectedFor : (canSeeExpected ? logisticStockFor : null)"
+          :can-transfer="!demo && !guestSession.isGuestMode"
+          :readonly="guestSession.isReadonly"
+          :hide-close="guestSession.isGuestMode"
           @close="closeMobileCounting"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -796,12 +848,13 @@
 </template>
 
 <script>
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import { useStore } from 'vuex'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from '@/i18n/useI18n'
 import { COUNTING_STATUS, COUNTING_TABS as RAW_TABS, emptyInventoryCount } from '@/types/inventoryCount'
 import { useInventoryData } from '@/composables/useInventoryData'
+import { useGuestInventorySession } from '@/composables/useGuestInventorySession'
 import { formatUnits } from '@/composables/useFormatters'
 import { buildSpaceInventoryMock, buildInventoryCountsMock } from '@/data/spaceInventoryMock'
 import * as localDb from '@/data/localDb'
@@ -811,6 +864,7 @@ import InventoryAggregateView from '@/components/space-workspace/inventory/Inven
 import InventoryCountingInterface from '@/components/space-workspace/inventory/InventoryCountingInterface.vue'
 import LogisticMovementDialog from '@/components/space-workspace/shared/LogisticMovementDialog.vue'
 import InventoryShopCard from '@/components/space-workspace/inventory/InventoryShopCard.vue'
+import GuestPinAccessPanel from '@/components/space-workspace/inventory/GuestPinAccessPanel.vue'
 import InventoryStorageCard from '@/components/space-workspace/inventory/InventoryStorageCard.vue'
 import InventoryStorageAggregateView from '@/components/space-workspace/inventory/InventoryStorageAggregateView.vue'
 import InventoryFilterDrawer from '@/components/space-workspace/inventory/drawers/InventoryFilterDrawer.vue'
@@ -883,6 +937,7 @@ export default {
     InventoryCountingInterface,
     LogisticMovementDialog,
     InventoryShopCard,
+    GuestPinAccessPanel,
     InventoryStorageCard,
     InventoryStorageAggregateView,
     InventoryFilterDrawer,
@@ -917,6 +972,9 @@ export default {
       contextError,
       contextWarning,
     } = useInventoryData(selectedConfigId)
+    // reactive() (pas l'objet brut) : auto-unwrap des refs imbriquées, en template
+    // COMME en JS (`guestSession.isGuestMode` partout, jamais `.value` à la main).
+    const guestSession = reactive(useGuestInventorySession())
     return {
       t,
       intlLocale,
@@ -932,11 +990,13 @@ export default {
       contextLoading,
       contextError,
       contextWarning,
+      guestSession,
     }
   },
   data() {
     return {
       activeTab: 'shops',
+      guestSubmitting: false,
       // Toast affiché quand tous les articles d'un PDV / stockage sont comptés.
       snackbar: false,
       snackbarText: '',
@@ -1155,11 +1215,15 @@ export default {
         })
         .sort((a, b) => new Date(a.eventDate || a.date) - new Date(b.eventDate || b.date))
     },
-    inventoryCounts() { return this.store.state.inventory?.inventoryCounts || {} },
+    inventoryCounts() {
+      if (this.guestSession.isGuestMode) return this.guestSession.guestInventoryCounts
+      return this.store.state.inventory?.inventoryCounts || {}
+    },
     demo() { return isDemoMode() },
     /** Données réelles uniquement (API). Plus de fallback mock : si vide,
      *  l'empty-state s'affiche au lieu de données factices. */
     realShops() {
+      if (this.guestSession.isGuestMode) return this.guestSession.guestCards
       return this.shopsWithInventory || []
     },
     realStorages() {
@@ -1208,6 +1272,21 @@ export default {
     canSeePredicted() {
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.preInventoryPredicted') : false
+    },
+    /** Accès PIN invité (générer/reset/révoquer un PIN par PDV) — cf. GuestPinBadge.vue
+     *  et GuestPinAccessPanel.vue, montés uniquement si cette permission est accordée. */
+    canManageGuestPin() {
+      const can = this.store.getters['auth/can']
+      return typeof can === 'function' ? can('front.fb.guestPinManage') : false
+    },
+    guestPinSpaceId() {
+      return this.route?.params?.spaceId ?? null
+    },
+    guestPinEventId() {
+      return this.selectedEventId ?? null
+    },
+    guestPinPhase() {
+      return this.isPreMode ? 'pre-event' : 'post-event'
     },
     /** Libellé de l'indice affiché à côté du Total : « Besoin prédit », MÊME
      *  mot pre ET post depuis le 2026-08-27 (avant cette date, le post
@@ -1499,6 +1578,7 @@ export default {
     /** Contexte où le panneau de filtres gauche est pertinent (desktop, onglets
      *  Boutiques/Stockages) → conditionne l'affichage de l'icône de bascule. */
     canToggleFilters() {
+      if (this.guestSession.isGuestMode) return false
       return (this.activeTab === 'shops' || this.activeTab === 'storage') && !this.isMobile
     },
     /** Panneau de filtres GAUCHE : pertinent ET non replié par l'utilisateur. */
@@ -1858,6 +1938,63 @@ export default {
       if (this.loading) return
       this.loadForSpace(this.route?.params?.spaceId)
     },
+    /** Équivalent invité de `loadForSpace` : UN SEUL PDV, aucun des chargements
+     *  staff (analyse/loadSpace, events, logistics, prix marché...) qui partiraient
+     *  en 401 sous JWT invité et boucleraient vers /login/pin (intercepteur Axios,
+     *  cf. api/client.js). Atterrit directement dans l'interface de comptage —
+     *  jamais la grille de cartes (un invité n'a qu'un PDV à voir). */
+    async loadForGuest() {
+      this.loading = true
+      try {
+        await this.guestSession.loadGuestInventory()
+        const card = this.realShops[0]
+        if (card) this.countingShop = this.normalizeCountingEntry(card)
+      } catch (e) {
+        this.errorText = e?.userMessage || e?.response?.data?.message || this.t('invGuestLoadError')
+        this.errorSnackbar = true
+      } finally {
+        this.loading = false
+      }
+    },
+    /** "J'ai terminé" (invité) : gèle CE PDV, la fenêtre reste ouverte pour les
+     *  autres — distinct de la clôture globale (Update Logistic, côté directeur). */
+    async onGuestSubmit() {
+      const ok = await confirmDialog({
+        title: this.t('invGuestSubmitConfirmTitle'),
+        message: this.t('invGuestSubmitConfirmMessage'),
+        confirmText: this.t('invGuestSubmit'),
+        cancelText: this.t('cancel') || 'Cancel',
+        confirmColor: 'primary',
+        icon: 'mdi-check-circle-outline',
+        iconColor: 'success',
+      })
+      if (!ok) return
+      this.guestSubmitting = true
+      try {
+        await this.guestSession.submitGuestInventory()
+      } catch (e) {
+        this.errorText = e?.userMessage || e?.response?.data?.message || this.t('invGuestSubmitError')
+        this.errorSnackbar = true
+      } finally {
+        this.guestSubmitting = false
+      }
+    },
+    /** Déconnexion explicite du responsable PDV — redirige vers le même lien PIN
+     *  scanné (slug conservé côté client) pour se reconnecter sans re-scanner. */
+    async onGuestLogout() {
+      const ok = await confirmDialog({
+        title: this.t('invGuestLogoutConfirmTitle'),
+        message: this.t('invGuestLogoutConfirmMessage'),
+        confirmText: this.t('invGuestLogout'),
+        cancelText: this.t('cancel') || 'Cancel',
+        confirmColor: 'primary',
+        icon: 'mdi-logout',
+      })
+      if (!ok) return
+      const slug = this.guestSession.guestSlug
+      await this.guestSession.logout()
+      this.router.push(slug ? { name: 'login-pin', params: { slug } } : '/login')
+    },
     /** Charge toutes les données pour un space donné (mount + changement d'espace/event). */
     async loadForSpace(spaceId) {
       this.loading = true
@@ -2123,19 +2260,21 @@ export default {
       this.store.dispatch('inventory/upsertCount', { shopId, itemId, patch })
     },
     onCountValue(shopId, itemId, field, rawValue) {
-      this.store.dispatch('inventory/upsertCount', {
-        shopId,
-        itemId,
-        patch: { [field]: this.normalizeCountValue(field, rawValue) },
-      })
+      const patch = { [field]: this.normalizeCountValue(field, rawValue) }
+      if (this.guestSession.isGuestMode) {
+        this.guestSession.upsertGuestCount({ itemId, patch })
+        return
+      }
+      this.store.dispatch('inventory/upsertCount', { shopId, itemId, patch })
     },
     markCounted(shopId, itemId, counted) {
       const status = counted ? COUNTING_STATUS.COUNTED : COUNTING_STATUS.PENDING
-      this.store.dispatch('inventory/upsertCount', {
-        shopId,
-        itemId,
-        patch: { isCounted: counted, countingStatus: status },
-      })
+      const patch = { isCounted: counted, countingStatus: status }
+      if (this.guestSession.isGuestMode) {
+        this.guestSession.upsertGuestCount({ itemId, patch })
+        return
+      }
+      this.store.dispatch('inventory/upsertCount', { shopId, itemId, patch })
       // La mutation UPSERT_COUNT est synchrone (avant l'await API) : l'état reflète
       // déjà le nouveau isCounted ici. On notifie si le PDV/stockage est complet.
       if (counted) this.notifyIfElementComplete(shopId)
@@ -2205,11 +2344,19 @@ export default {
       const spaceId = this.route.params.spaceId
       this.pushingToLogistic = true
       try {
-        await pushInventoryCountToLogistic(
-          spaceId,
-          this.selectedEventId,
-          this.isPreMode ? 'pre-event' : 'post-event',
-        )
+        // Une fenêtre d'accès PIN invité ouverte pour cette phase → clôture combinée
+        // (révoque tous les accès + pousse la logistique en un seul appel serveur),
+        // sinon simple push logistique (aucun accès invité créé pour cet event/phase).
+        const guestWindow = this.$store.getters['guestPinAdmin/windowByPhase']?.(this.guestPinPhase)
+        if (guestWindow?.status === 'open') {
+          await this.$store.dispatch('guestPinAdmin/close', guestWindow.id)
+        } else {
+          await pushInventoryCountToLogistic(
+            spaceId,
+            this.selectedEventId,
+            this.isPreMode ? 'pre-event' : 'post-event',
+          )
+        }
         this.successText = this.t('invUpdateLogisticSuccess')
         this.successSnackbar = true
       } catch (e) {
@@ -3001,6 +3148,10 @@ export default {
       async handler() {
         this.countingShop = null
         this.search = ''
+        if (this.guestSession.isGuestMode) {
+          await this.loadForGuest()
+          return
+        }
         await this.loadForSpace(this.route?.params?.spaceId)
       },
     },
@@ -3463,6 +3614,9 @@ export default {
 .si-band-btn--save { background: #fff !important; color: #ff3131 !important; }
 .si-band-btn--save :deep(.v-icon) { color: #ff3131 !important; }
 .si-band-btn--save:hover { background: rgba(255, 255, 255, 0.9) !important; color: #ff3131 !important; }
+/* Moins prégnant que "J'ai terminé" (action fréquente vs déconnexion, rare et
+   sans conséquence sur les données — pas de raison de leur donner le même poids). */
+.si-band-btn--logout { background: transparent !important; border-color: rgba(255, 255, 255, 0.4) !important; margin-left: 8px; }
 
 /* Équivalent mobile (< 900px, cf. isMobile JS) du toggle filtres / des boutons
    Update Logistic + Save — masqués par défaut, activés dans le bloc @media
@@ -3648,6 +3802,12 @@ export default {
      Dimensions alignées sur la grille de référence EventPredict (292/1fr/340). */
   .si-body.si-body-with-filters {
     grid-template-columns: 292px minmax(0, 1fr) 340px;
+  }
+  /* Invité : ni filtres gauche ni colonne droite (chrome staff) — sans ce
+     correctif, les 340px de la colonne droite restaient réservés (vides) alors
+     que son <div> est retiré du DOM (v-if), laissant une large bande blanche. */
+  .si-body.si-body-guest {
+    grid-template-columns: 1fr;
   }
   .si-left-filters {
     max-height: 100%;

@@ -87,6 +87,14 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
     category: 'F&B Front',
     description: "Reset d'inventaire et accès à la section Réconciliation de l'écran Logistic.",
   },
+  {
+    code: 'front.fb.guestPinManage',
+    name: 'Gestion des accès PIN invité',
+    category: 'F&B Front',
+    description:
+      'Démarrer/clôturer une fenêtre pré/post-event, définir et révoquer les PIN par PDV pour ' +
+      "les managers invités (sans compte), consulter leur tableau de statut.",
+  },
 
   // Edit F&B Menu (écrans de configuration back)
   { code: 'menu.fb.suppliers', name: 'Suppliers', category: 'Edit F&B Menu' },
@@ -217,6 +225,9 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'front.fb.spaceInventory',
       'front.fb.preInventoryExpected',
       'front.fb.preInventoryPredicted',
+      // Accès invité PIN (managers PDV sans compte) ajouté 2026-09-07 : seul le
+      // Directeur de site démarre/clôture les fenêtres et gère les PIN pour l'instant.
+      'front.fb.guestPinManage',
       'stats.financial.view',
     ],
   },
