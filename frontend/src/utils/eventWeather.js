@@ -30,6 +30,26 @@ function weatherIcon(code) {
   return '🌡️'
 }
 
+/** Clé i18n de libellé par code WMO — parité groupes WMO_ICONS. */
+const WMO_LABEL_KEYS = [
+  [[0], 'weatherClear'],
+  [[1, 2], 'weatherPartlyCloudy'],
+  [[3], 'weatherCloudy'],
+  [[45, 48], 'weatherFog'],
+  [[51, 53, 55, 56, 57], 'weatherDrizzle'],
+  [[61, 63, 65, 66, 67, 80, 81, 82], 'weatherRain'],
+  [[71, 73, 75, 77, 85, 86], 'weatherSnow'],
+  [[95, 96, 99], 'weatherStorm'],
+]
+
+/** Clé i18n du libellé météo, ou null si code inconnu (rendu = icône + temp seuls). */
+export function weatherLabelKey(code) {
+  for (const [codes, key] of WMO_LABEL_KEYS) {
+    if (codes.includes(code)) return key
+  }
+  return null
+}
+
 function readGeoCache() {
   try {
     return JSON.parse(localStorage.getItem(GEO_CACHE_KEY)) || {}

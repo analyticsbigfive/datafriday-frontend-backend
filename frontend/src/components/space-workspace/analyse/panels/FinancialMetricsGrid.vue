@@ -1,5 +1,5 @@
 <template>
-  <v-row class="mb-4" dense>
+  <v-row class="mb-4 fmg-row" dense>
     <v-col cols="12" sm="6" lg="3">
       <KpiCard
         :config="cards[0]"
@@ -126,3 +126,24 @@ const transactionRateLabel = computed(() => {
 // les transactions, pas le taux, et laissait croire à un rythme global.
 const transactionRateSubtext = computed(() => t('anKpiTxRateScope'))
 </script>
+
+<style scoped>
+/* Téléphone : KPIs en scroll horizontal (maquette Live de Bertrand) au lieu d'empiler en
+   4 cartes pleine largeur. Chaque KPI garde une largeur lisible, on défile latéralement. */
+@media (max-width: 600px) {
+  .fmg-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-snap-type: x proximity;
+    /* fine barre / marge de respiration */
+    padding-bottom: 4px;
+  }
+  .fmg-row > :deep(.v-col) {
+    flex: 0 0 auto;
+    width: 62%;
+    max-width: 210px;
+    scroll-snap-align: start;
+  }
+}
+</style>

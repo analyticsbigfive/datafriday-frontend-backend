@@ -1,22 +1,21 @@
 <template>
   <!-- Document hors écran capturé par html2canvas (useReportJ1). Position fixe
-       hors viewport et NON display:none : un élément non rendu produit un
-       canvas vide. Largeur figée au ratio A4 portrait (794×1123).
+       hors viewport et NON display:none : un élément non rendu produit un canvas
+       vide. Largeur figée au ratio A4 portrait (794×1123).
 
-       Style : décliné de la charte écran (tokens --fs-*/--fw-*/--font-ui de
-       style.css, qui cascadent depuis :root), gris slate d'Analyse, liseré
-       coloré à GAUCHE des cartes (pattern KpiCard::before), bandeau photo au
-       radius 18px du bandeau rouge. Couleurs en hex uniquement (html2canvas),
-       séparateurs #e2e8f0 (les hairlines #f1f5f9 fondent en JPEG). -->
+       Refonte template Bertrand (2026-09) : 6 KPIs réels, deux camemberts
+       (par type / par catégorie), top 5 en cartes classées. Couleurs en hex
+       (html2canvas ne lit pas oklch), séparateurs #e2e8f0. -->
   <div id="report-j1-root" class="rj1-offscreen" aria-hidden="true">
-    <!-- ─── PAGE 1 : marque + photo + widgets + familles + camembert ─── -->
     <div class="rj1-page">
+      <!-- ── Marque ── -->
       <div class="rj1-brand">
         <img :src="logo" class="rj1-brand__logo" alt="" />
         <span class="rj1-brand__name">DataFriday</span>
-        <span class="rj1-brand__space">{{ data.space?.name || '—' }}</span>
+        <span class="rj1-brand__space">{{ spaceLabel }}</span>
       </div>
 
+      <!-- ── Hero photo ── -->
       <div class="rj1-hero">
         <img
           v-if="data.space?.image && !imageFailed"
@@ -27,159 +26,99 @@
           @error="imageFailed = true"
         />
         <div class="rj1-hero__overlay">
-          <div class="rj1-hero__space">{{ data.space?.name || '—' }}</div>
           <div class="rj1-hero__event">{{ eventName }}</div>
           <div class="rj1-hero__meta">
             <span>{{ eventDateLabel }}</span>
-            <span v-if="data.weather" class="rj1-hero__weather">
-              {{ data.weather.icon }} {{ data.weather.temperature }}°C
-            </span>
+            <span v-if="weatherLabel" class="rj1-hero__weather">{{ weatherLabel }}</span>
           </div>
         </div>
       </div>
 
-      <div class="rj1-section">
-        <div class="rj1-section__title">{{ t('rj1Real') }}</div>
-        <div class="rj1-widgets">
-          <div v-for="w in actualWidgets" :key="w.label" class="rj1-widget" :style="{ '--rail': w.color }">
-            <div class="rj1-widget__value">{{ w.value }}</div>
-            <div class="rj1-widget__label">{{ w.label }}</div>
-          </div>
+      <!-- ── 6 KPIs réels ── -->
+      <div class="rj1-kpis">
+        <div v-for="k in kpiWidgets" :key="k.label" class="rj1-kpi" :style="{ '--rail': k.color }">
+          <div class="rj1-kpi__label">{{ k.label }}</div>
+          <div class="rj1-kpi__value">{{ k.value }}</div>
         </div>
       </div>
 
-      <div class="rj1-section">
-        <div class="rj1-section__title">{{ t('rj1Predicted') }}</div>
-        <template v-if="data.predicted">
-          <div class="rj1-widgets">
-            <div v-for="w in predictedWidgets" :key="w.label" class="rj1-widget rj1-widget--muted" :style="{ '--rail': '#cbd5e1' }">
-              <div class="rj1-widget__value">{{ w.value }}</div>
-              <div class="rj1-widget__label">{{ w.label }}</div>
+      <!-- ── Catégories de vente : 2 camemberts ── -->
+      <div class="rj1-card rj1-cats">
+        <div class="rj1-card__title">{{ t('rj1SalesCategories') }}</div>
+        <div class="rj1-cats__grid">
+          <div class="rj1-cats__col">
+            <div class="rj1-cats__sub">{{ t('rj1ByType') }}</div>
+            <div class="rj1-mini-cards">
+              <div v-for="c in typeCards" :key="c.label" class="rj1-mini" :style="{ '--rail': c.color }">
+                <div class="rj1-mini__label">{{ truncate(c.label, 14) }}</div>
+                <div class="rj1-mini__value">{{ formatCurrency(c.value) }}</div>
+              </div>
+            </div>
+            <div class="rj1-donut">
+              <canvas ref="typeCanvas" width="300" height="300"></canvas>
+              <ul class="rj1-legend">
+                <li v-for="s in typeSlices" :key="s.label" class="rj1-legend__item">
+                  <span class="rj1-legend__label"><span class="rj1-legend__bullet" :style="{ color: s.color }">●</span>{{ truncate(s.label, 12) }}</span>
+                  <span class="rj1-legend__pct">{{ s.pctLabel }}</span>
+                </li>
+              </ul>
             </div>
           </div>
-          <!-- Provenance : un PDF se transfère, la source du prévisionnel doit s'y lire —
-               surtout quand le scénario vient d'un AUTRE event (appariement nom/date). -->
-          <div v-if="predictedSourceLabel" class="rj1-source">{{ predictedSourceLabel }}</div>
-        </template>
-        <div v-else class="rj1-empty">{{ t('rj1NoPredict') }}</div>
-      </div>
 
-      <div v-if="data.diff" class="rj1-section">
-        <div class="rj1-section__title">{{ t('rj1Diff') }}</div>
-        <div class="rj1-widgets">
-          <div
-            v-for="w in diffWidgets"
-            :key="w.label"
-            class="rj1-widget"
-            :class="{ 'rj1-widget--up': w.raw != null && w.raw >= 0, 'rj1-widget--down': w.raw != null && w.raw < 0 }"
-            :style="{ '--rail': w.raw == null ? '#cbd5e1' : (w.raw >= 0 ? '#10b981' : '#ef4444') }"
-          >
-            <div class="rj1-widget__value">{{ w.value }}</div>
-            <div class="rj1-widget__label">{{ w.label }}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="rj1-section">
-        <div class="rj1-widgets rj1-widgets--3">
-          <div class="rj1-widget" :style="{ '--rail': BUCKET_COLORS.Beverage }">
-            <div class="rj1-widget__value">{{ formatCurrency(data.buckets.caBeverage) }}</div>
-            <div class="rj1-widget__label">{{ t('rj1CaBeverage') }}</div>
-          </div>
-          <div class="rj1-widget" :style="{ '--rail': BUCKET_COLORS.Food }">
-            <div class="rj1-widget__value">{{ formatCurrency(data.buckets.caFood) }}</div>
-            <div class="rj1-widget__label">{{ t('rj1CaFood') }}</div>
-          </div>
-          <div class="rj1-widget" :style="{ '--rail': BUCKET_COLORS.Beer }">
-            <div class="rj1-widget__value">{{ formatCurrency(data.buckets.caBeer) }}</div>
-            <div class="rj1-widget__label">{{ t('rj1CaBeer') }}</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="rj1-section rj1-section--grow">
-        <div class="rj1-section__title">{{ t('rj1CategorySplit') }}</div>
-        <div class="rj1-pie">
-          <canvas ref="pieCanvas" width="300" height="300"></canvas>
-          <div class="rj1-pie__legend">
-            <div v-for="slice in pieSlices" :key="slice.label" class="rj1-pie__legend-item">
-              <span class="rj1-pie__dot" :style="{ background: slice.color }"></span>
-              <span class="rj1-pie__label">{{ slice.label }}</span>
-              <span class="rj1-pie__value">{{ formatCurrency(slice.value) }}</span>
-              <span class="rj1-pie__pct">{{ slice.pctLabel }}</span>
+          <div class="rj1-cats__col">
+            <div class="rj1-cats__sub">{{ t('rj1ByCategory') }}</div>
+            <div class="rj1-mini-cards">
+              <div v-for="c in categoryCards" :key="c.label" class="rj1-mini" :style="{ '--rail': c.color }">
+                <div class="rj1-mini__label">{{ truncate(c.label, 14) }}</div>
+                <div class="rj1-mini__value">{{ formatCurrency(c.value) }}</div>
+              </div>
+            </div>
+            <div class="rj1-donut">
+              <canvas ref="categoryCanvas" width="300" height="300"></canvas>
+              <ul class="rj1-legend">
+                <li v-for="s in categorySlices" :key="s.label" class="rj1-legend__item">
+                  <span class="rj1-legend__label"><span class="rj1-legend__bullet" :style="{ color: s.color }">●</span>{{ truncate(s.label, 14) }}</span>
+                  <span class="rj1-legend__pct">{{ s.pctLabel }}</span>
+                </li>
+              </ul>
             </div>
           </div>
         </div>
       </div>
 
-      <div class="rj1-footer">{{ t('rj1GeneratedAt') }} {{ generatedAtLabel }} — DataFriday</div>
-    </div>
-
-    <!-- ─── PAGE 2 : top 5 par famille ─── -->
-    <div class="rj1-page">
-      <div class="rj1-brand">
-        <img :src="logo" class="rj1-brand__logo" alt="" />
-        <span class="rj1-brand__name">DataFriday</span>
-        <span class="rj1-brand__space">{{ eventName }}</span>
-      </div>
-
-      <div class="rj1-section rj1-tables">
-        <div class="rj1-table">
-          <div class="rj1-table__title" :style="{ '--rail': BUCKET_COLORS.Beverage }">
-            <span class="rj1-table__dot" :style="{ background: BUCKET_COLORS.Beverage }"></span>
-            {{ t('rj1TopBeverage') }}
+      <!-- ── Top 5 en cartes classées ── -->
+      <div class="rj1-tops">
+        <div class="rj1-top">
+          <div class="rj1-top__title">{{ t('rj1TopBeverage') }}</div>
+          <div v-for="(item, idx) in data.buckets.topBeverage" :key="item.name" class="rj1-rank">
+            <img class="rj1-rank__num" :src="rankBadge(idx)" width="20" height="20" alt="" />
+            <div class="rj1-rank__body">
+              <div class="rj1-rank__row">
+                <span class="rj1-rank__name">{{ truncate(item.name, 24) }}</span>
+                <span class="rj1-rank__val">{{ formatCurrencyDetailed(item.revenue) }}</span>
+              </div>
+              <div class="rj1-rank__units">{{ formatNumber(Math.round(item.quantity)) }} {{ t('anUnits') }}</div>
+              <div class="rj1-rank__bar"><i :style="{ width: barWidth(item.revenue, maxBeverage) }"></i></div>
+            </div>
           </div>
-          <table>
-            <thead>
-              <tr>
-                <th>{{ t('rj1Product') }}</th>
-                <th class="num">{{ t('anQuantity') }}</th>
-                <th class="num">{{ t('anRevenue') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in data.buckets.topBeverage" :key="item.name">
-                <td class="rj1-table__name">{{ item.name }}</td>
-                <td class="num">{{ formatNumber(Math.round(item.quantity)) }}</td>
-                <td class="num">{{ formatCurrencyDetailed(item.revenue) }}</td>
-              </tr>
-              <tr v-if="!data.buckets.topBeverage.length">
-                <td colspan="3" class="rj1-empty">—</td>
-              </tr>
-            </tbody>
-          </table>
+          <div v-if="!data.buckets.topBeverage.length" class="rj1-empty">—</div>
         </div>
-        <div class="rj1-table">
-          <div class="rj1-table__title">
-            <span class="rj1-table__dot" :style="{ background: BUCKET_COLORS.Food }"></span>
-            {{ t('rj1TopFood') }}
-          </div>
-          <table>
-            <thead>
-              <tr>
-                <th>{{ t('rj1Product') }}</th>
-                <th class="num">{{ t('anQuantity') }}</th>
-                <th class="num">{{ t('anRevenue') }}</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="item in data.buckets.topFood" :key="item.name">
-                <td class="rj1-table__name">{{ item.name }}</td>
-                <td class="num">{{ formatNumber(Math.round(item.quantity)) }}</td>
-                <td class="num">{{ formatCurrencyDetailed(item.revenue) }}</td>
-              </tr>
-              <tr v-if="!data.buckets.topFood.length">
-                <td colspan="3" class="rj1-empty">—</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
 
-      <!-- Contexte de génération : un PDF détaché de l'app doit dire d'où il sort. -->
-      <div class="rj1-meta">
-        <div><span class="rj1-meta__label">{{ t('anExportFilterSpace') }}</span>{{ data.space?.name || '—' }}</div>
-        <div><span class="rj1-meta__label">{{ t('anEvents') }}</span>{{ eventName }} — {{ eventDateLabel }}</div>
+        <div class="rj1-top">
+          <div class="rj1-top__title">{{ t('rj1TopFood') }}</div>
+          <div v-for="(item, idx) in data.buckets.topFood" :key="item.name" class="rj1-rank">
+            <img class="rj1-rank__num" :src="rankBadge(idx)" width="20" height="20" alt="" />
+            <div class="rj1-rank__body">
+              <div class="rj1-rank__row">
+                <span class="rj1-rank__name">{{ truncate(item.name, 24) }}</span>
+                <span class="rj1-rank__val">{{ formatCurrencyDetailed(item.revenue) }}</span>
+              </div>
+              <div class="rj1-rank__units">{{ formatNumber(Math.round(item.quantity)) }} {{ t('anUnits') }}</div>
+              <div class="rj1-rank__bar"><i :style="{ width: barWidth(item.revenue, maxFood) }"></i></div>
+            </div>
+          </div>
+          <div v-if="!data.buckets.topFood.length" class="rj1-empty">—</div>
+        </div>
       </div>
 
       <div class="rj1-footer">{{ t('rj1GeneratedAt') }} {{ generatedAtLabel }} — DataFriday</div>
@@ -190,27 +129,43 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
-import { formatCurrency, formatCurrencyDetailed, formatNumber, formatVariation } from '@/composables/useFormatters'
+import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
+import { weatherLabelKey } from '@/utils/eventWeather'
 import logo from '@/assets/datafriday.png'
 
 const props = defineProps({
-  /** Objet construit par useReportJ1 (space, event, actual, predicted, diff, buckets…). */
+  /** Objet construit par useReportJ1 (space, event, actual, buckets…). */
   data: { type: Object, required: true },
 })
 
 const { t } = useI18n()
-// Tout le document suit la locale de l'app (règle BUG-240 : jamais de fr-FR en
-// dur) — montants, pourcentages ET dates via intlLocale.
+// Locale de l'app (règle BUG-240 : jamais de fr-FR en dur) — montants, % ET dates.
 const { intlLocale, formatPrice, formatPercentLocale } = useNumberFormat()
 
 const imageFailed = ref(false)
-const pieCanvas = ref(null)
+const typeCanvas = ref(null)
+const categoryCanvas = ref(null)
 
-// Mêmes couleurs que MenuItemRevenueDistribution (donuts de l'écran Analyse) —
-// le PDF doit se lire comme une sortie du même outil.
-const BUCKET_COLORS = { Food: '#FF8A65', Beverage: '#5B8DEF', Beer: '#FFB74D', Combo: '#66BB6A' }
+// Palette de tranches — hex uniquement (html2canvas). Couleurs fixes pour les
+// familles connues, cycle déterministe pour le reste (index de tri stable).
+const KNOWN_COLORS = {
+  BEVERAGE: '#5B8DEF', BEVERAGES: '#5B8DEF',
+  NOURRITURE: '#FF8A65', FOOD: '#FF8A65',
+  PACKAGING: '#66BB6A', COMBO: '#66BB6A',
+  BEER: '#FFB74D', SOFT: '#0EA5E9',
+}
+const PALETTE = [
+  '#5B8DEF', '#FF8A65', '#66BB6A', '#FFB74D', '#A855F7',
+  '#0EA5E9', '#EC4899', '#14B8A6', '#F59E0B', '#EF4444',
+  '#8B5CF6', '#10B981', '#6366F1', '#F97316', '#06B6D4',
+  '#D946EF', '#84CC16', '#F43F5E', '#3B82F6', '#22C55E',
+]
+function colorFor(label, i) {
+  return KNOWN_COLORS[String(label || '').toUpperCase()] || PALETTE[i % PALETTE.length]
+}
 
+const spaceLabel = computed(() => (props.data.space?.name || '—').toUpperCase())
 const eventName = computed(() => props.data.event?.name || props.data.event?.eventName || '—')
 
 const dateFmt = computed(() =>
@@ -219,7 +174,6 @@ const dateFmt = computed(() =>
 const timeFmt = computed(() =>
   new Intl.DateTimeFormat(intlLocale.value, { hour: '2-digit', minute: '2-digit' }),
 )
-
 const eventDateLabel = computed(() => {
   const parts = []
   if (props.data.eventDate) parts.push(dateFmt.value.format(props.data.eventDate))
@@ -227,85 +181,118 @@ const eventDateLabel = computed(() => {
   if (show) parts.push(`@ ${show}`)
   return parts.join(' ')
 })
-
 const generatedAtLabel = computed(() =>
   props.data.generatedAt
     ? `${dateFmt.value.format(props.data.generatedAt)} ${timeFmt.value.format(props.data.generatedAt)}`
     : '',
 )
 
-const predictedSourceLabel = computed(() => {
-  const src = props.data.predictedSource
-  if (!src) return ''
-  const parts = []
-  if (src.scenarioName) parts.push(`${t('rj1Scenario')} « ${src.scenarioName} »`)
-  if (src.linkedEventName) parts.push(`(${src.linkedEventName})`)
-  return parts.join(' ')
+// Météo : icône + libellé texte (table code WMO → i18n) + température.
+const weatherLabel = computed(() => {
+  const w = props.data.weather
+  if (!w) return ''
+  const key = weatherLabelKey(w.code)
+  const desc = key ? t(key) : ''
+  return `${w.icon || ''} ${desc} · ${w.temperature}°`.replace(/\s+/g, ' ').trim()
 })
 
 const DASH = '—'
 const fmtOr = (value, fmt) => (value == null ? DASH : fmt(value))
 
-// Mêmes couleurs d'accent que la bande KPI du bandeau (WorkspaceAppHeader).
-function widgetRow(src) {
-  return [
-    { key: 'revenue', label: t('anHeaderKpiRevenue'), color: '#10B981', value: fmtOr(src.revenue, formatCurrency) },
-    { key: 'tickets', label: t('rj1Tickets'), color: '#0EA5E9', value: fmtOr(src.tickets, (v) => formatNumber(Math.round(v))) },
-    { key: 'perCapita', label: t('anHeaderKpiPerCap'), color: '#EC4899', value: fmtOr(src.perCapita, (v) => formatPrice(v)) },
-    { key: 'transformation', label: t('anHeaderKpiTransformation'), color: '#14B8A6', value: fmtOr(src.transformation, (v) => formatPercentLocale(v, 1)) },
-    { key: 'basket', label: t('anHeaderKpiBasket'), color: '#A855F7', value: fmtOr(src.basket, (v) => formatPrice(v)) },
-  ]
+// Troncature CÔTÉ JS (ajout « … ») plutôt que CSS text-overflow:ellipsis :
+// html2canvas rogne le haut des glyphes de tout élément `overflow:hidden`, quel
+// que soit le padding. On coupe donc la chaîne en amont et on supprime tout
+// overflow:hidden du rendu — le bug ne peut plus se produire.
+function truncate(str, max) {
+  const s = String(str ?? '')
+  return s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s
 }
 
-const actualWidgets = computed(() => widgetRow(props.data.actual || {}))
-const predictedWidgets = computed(() => widgetRow(props.data.predicted || {}))
-
-const diffWidgets = computed(() => {
-  const d = props.data.diff || {}
-  return actualWidgets.value.map((w) => {
-    const raw = d[w.key]
-    return {
-      label: w.label,
-      raw,
-      value: raw == null ? DASH : `${formatVariation(raw, 1)}`,
-    }
-  })
+// 6 KPIs réels — ordre et libellés de la maquette Bertrand.
+const kpiWidgets = computed(() => {
+  const a = props.data.actual || {}
+  return [
+    { label: t('anHeaderKpiRevenue'), color: '#10B981', value: fmtOr(a.revenue, formatCurrency) },
+    { label: t('anHeaderKpiTransactions'), color: '#3B82F6', value: fmtOr(a.transactions, (v) => formatNumber(Math.round(v))) },
+    { label: t('anHeaderKpiBasket'), color: '#A855F7', value: fmtOr(a.basket, (v) => formatPrice(v)) },
+    { label: t('anHeaderKpiAttendees'), color: '#0EA5E9', value: fmtOr(a.tickets, (v) => formatNumber(Math.round(v))) },
+    { label: t('anHeaderKpiTransformation'), color: '#14B8A6', value: fmtOr(a.transformation, (v) => formatPercentLocale(v, 1)) },
+    { label: t('anHeaderKpiPerCap'), color: '#EC4899', value: fmtOr(a.perCapita, (v) => formatPrice(v)) },
+  ]
 })
 
-// Camembert type Food / Beverage (+ Combo si présent). « Beverage » inclut la
-// bière (même règle que les totaux — cf. useReportJ1.computeBucketData).
-const pieSlices = computed(() => {
-  const b = props.data.buckets || {}
-  const raw = [
-    { label: t('rj1CaBeverage'), value: b.caBeverage || 0, color: BUCKET_COLORS.Beverage },
-    { label: t('rj1CaFood'), value: b.caFood || 0, color: BUCKET_COLORS.Food },
-    { label: 'Combo', value: b.caCombo || 0, color: BUCKET_COLORS.Combo },
-  ].filter((s) => s.value > 0)
-  const total = raw.reduce((a, s) => a + s.value, 0)
-  return raw.map((s) => ({
-    ...s,
-    pct: total ? (s.value / total) * 100 : 0,
-    pctLabel: formatPercentLocale(total ? (s.value / total) * 100 : 0, 1),
+// Tranches (déjà triées desc par le composable) + couleur + %.
+const UNATTACHED_COLOR = '#B0BEC5' // gris « Non rattaché » (parité écran Analyse).
+function toSlices(rows) {
+  const list = rows || []
+  const total = list.reduce((a, s) => a + (s.value || 0), 0) || 1
+  return list.map((s, i) => ({
+    // « Non rattaché » relibellé + gris (sentinelle des ventes non mappées).
+    label: s.unattached ? t('rj1Unattached') : s.label,
+    unattached: !!s.unattached,
+    value: s.value,
+    color: s.unattached ? UNATTACHED_COLOR : colorFor(s.label, i),
+    pctLabel: formatPercentLocale((s.value / total) * 100, 1),
   }))
-})
+}
+const typeSlices = computed(() => toSlices(props.data.buckets?.byType))
+const categorySlices = computed(() => toSlices(props.data.buckets?.byCategory))
+// 3 cartes CA au-dessus de chaque camembert (les plus gros postes).
+const typeCards = computed(() => typeSlices.value.slice(0, 3))
+const categoryCards = computed(() => categorySlices.value.slice(0, 3))
 
-// Dessin manuel (arcs 2D) et non Chart.js : rendu synchrone et déterministe —
-// html2canvas capture le canvas tel quel, sans dépendre d'une animation ou d'un
-// cycle de layout de la lib.
-function drawPie() {
-  const canvas = pieCanvas.value
+// Barres des tops : part relative au 1er (= plus gros CA de la famille).
+const maxBeverage = computed(() =>
+  (props.data.buckets?.topBeverage || []).reduce((m, s) => Math.max(m, s.revenue || 0), 0) || 1,
+)
+const maxFood = computed(() =>
+  (props.data.buckets?.topFood || []).reduce((m, s) => Math.max(m, s.revenue || 0), 0) || 1,
+)
+function barWidth(value, max) {
+  return `${Math.max(3, Math.min(100, ((Number(value) || 0) / max) * 100))}%`
+}
+
+// Rang 1 doré, 2/3 argentés, reste gris (parité leaderboard écran).
+function rankColor(idx) {
+  if (idx === 0) return '#F5C518'
+  if (idx === 1 || idx === 2) return '#94A3B8'
+  return '#CBD5E1'
+}
+
+// Badge de rang en SVG (rasterisé par html2canvas → numéro PARFAITEMENT centré,
+// contrairement au centrage CSS d'un texte que html2canvas décale).
+function rankBadge(idx) {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">`
+    + `<circle cx="10" cy="10" r="10" fill="${rankColor(idx)}"/>`
+    + `<text x="10" y="10" text-anchor="middle" dominant-baseline="central" `
+    + `font-family="Arial, Helvetica, sans-serif" font-size="11" font-weight="700" fill="#ffffff">${idx + 1}</text>`
+    + `</svg>`
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`
+}
+
+// Texte lisible sur une part : sombre sur couleur claire, blanc sinon (luminance).
+function textColorOn(hex) {
+  const h = String(hex || '').replace('#', '')
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const n = parseInt(full, 16)
+  if (Number.isNaN(n)) return '#0f172a'
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255
+  return lum > 0.62 ? '#0f172a' : '#ffffff'
+}
+
+// Donut : dessin manuel (arcs 2D), rendu synchrone → html2canvas capture net.
+// showLabels → % écrits sur les parts (donut « fin » sans légende texte).
+function drawDonut(canvas, slices, showLabels = false) {
   if (!canvas) return
   const ctx = canvas.getContext('2d')
   const cx = canvas.width / 2
   const cy = canvas.height / 2
-  const r = Math.min(cx, cy) - 8
+  const r = Math.min(cx, cy) - 6
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-  const slices = pieSlices.value
-  const total = slices.reduce((a, s) => a + s.pct, 0) || 1
+  const total = slices.reduce((a, s) => a + (s.value || 0), 0) || 1
   let angle = -Math.PI / 2
   for (const slice of slices) {
-    const span = (slice.pct / total) * Math.PI * 2
+    const span = ((slice.value || 0) / total) * Math.PI * 2
     ctx.beginPath()
     ctx.moveTo(cx, cy)
     ctx.arc(cx, cy, r, angle, angle + span)
@@ -317,9 +304,36 @@ function drawPie() {
     ctx.stroke()
     angle += span
   }
+  // Trou central → anneau (donut).
+  ctx.beginPath()
+  ctx.arc(cx, cy, r * 0.58, 0, Math.PI * 2)
+  ctx.fillStyle = '#ffffff'
+  ctx.fill()
+
+  // % sur les parts assez grandes (≥ 4 %) pour rester lisible.
+  if (showLabels) {
+    const labelR = r * 0.79
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.font = '700 22px sans-serif'
+    let a = -Math.PI / 2
+    for (const slice of slices) {
+      const span = ((slice.value || 0) / total) * Math.PI * 2
+      const pct = ((slice.value || 0) / total) * 100
+      if (pct >= 4) {
+        const mid = a + span / 2
+        ctx.fillStyle = textColorOn(slice.color)
+        ctx.fillText(slice.pctLabel, cx + Math.cos(mid) * labelR, cy + Math.sin(mid) * labelR)
+      }
+      a += span
+    }
+  }
 }
 
-onMounted(drawPie)
+onMounted(() => {
+  drawDonut(typeCanvas.value, typeSlices.value)
+  drawDonut(categoryCanvas.value, categorySlices.value)
+})
 </script>
 
 <style scoped>
@@ -331,10 +345,6 @@ onMounted(drawPie)
   z-index: -1;
   pointer-events: none;
 }
-
-/* Ratio A4 portrait : 794 × 1123 px. Fond blanc plein pour la capture.
-   Police et échelle typographique = tokens de la charte (style.css :root),
-   qui cascadent jusque dans ce sous-arbre monté dans le DOM de l'app. */
 .rj1-page {
   width: 794px;
   height: 1123px;
@@ -344,303 +354,113 @@ onMounted(drawPie)
   font-family: var(--font-ui);
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 24px 30px;
+  gap: 12px;
+  padding: 22px 26px;
   box-sizing: border-box;
-  /* Lot 5 (JLH) — document entièrement centré, texte compris. */
-  text-align: center;
+  /* html2canvas rogne le haut des glyphes sur du texte `overflow:hidden` au
+     line-height serré : on aère la base (1.4) — la page a de la marge en bas. */
+  line-height: 1.4;
 }
 
-/* ── Barre de marque (lockup des pages auth, sans le fond rosé) ── */
+/* ── Marque ── */
 .rj1-brand {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 8px;
 }
-.rj1-brand__logo {
-  width: 26px;
-  height: 26px;
-  object-fit: contain;
-}
-.rj1-brand__name {
-  font-size: var(--fs-md);
-  font-weight: var(--fw-bold);
-  color: #0f172a;
-}
-.rj1-brand__space {
-  margin-left: auto;
-  font-size: var(--fs-sm);
-  color: #64748b;
-}
+.rj1-brand__logo { width: 24px; height: 24px; object-fit: contain; }
+.rj1-brand__name { font-size: var(--fs-md); font-weight: var(--fw-bold); color: #0f172a; }
+.rj1-brand__space { margin-left: auto; font-size: var(--fs-sm); font-weight: var(--fw-semibold); letter-spacing: 0.06em; color: #64748b; }
 
-/* ── Bandeau photo — radius 18px du bandeau rouge Analyse ── */
+/* ── Hero ── */
 .rj1-hero {
   position: relative;
-  /* Lot 5 (JLH) — photo réduite : à 230px elle mangeait un cinquième de la page. */
   height: 150px;
-  border-radius: 18px;
+  border-radius: 16px;
   overflow: hidden;
-  background: #ff3131;
+  background: #1e293b;
   flex-shrink: 0;
 }
-.rj1-hero__img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
+.rj1-hero__img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .rj1-hero__overlay {
   position: absolute;
   inset: 0;
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: center;
   align-items: center;
+  text-align: center;
   padding: 14px 22px;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0) 35%, rgba(0, 0, 0, 0.65) 100%);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.35) 0%, rgba(0, 0, 0, 0.55) 100%);
   color: #ffffff;
 }
-.rj1-hero__space {
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  opacity: 0.9;
-}
-.rj1-hero__event {
-  font-size: var(--fs-xxl);
-  font-weight: var(--fw-bold);
-  line-height: 1.15;
-}
-.rj1-hero__meta {
-  display: flex;
-  justify-content: center;
-  gap: 14px;
-  align-items: center;
-  font-size: var(--fs-base);
-  margin-top: 5px;
-}
-.rj1-hero__weather {
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-semibold);
-}
+.rj1-hero__event { font-size: var(--fs-xxl); font-weight: var(--fw-bold); line-height: 1.15; }
+/* Date puis météo EN DESSOUS (colonne), pas côte à côte. */
+.rj1-hero__meta { display: flex; flex-direction: column; justify-content: center; gap: 4px; align-items: center; font-size: var(--fs-base); margin-top: 6px; }
+.rj1-hero__weather { font-weight: var(--fw-semibold); }
 
-/* ── Sections — titre uppercase + trait rouge (signature du liseré) ── */
-.rj1-section {
-  flex-shrink: 0;
-}
-.rj1-section--grow {
-  flex: 1;
-  min-height: 0;
-}
-.rj1-section__title {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #64748b;
-  margin: 0 0 7px;
-}
-.rj1-section__title::before {
-  content: '';
-  width: 20px;
-  height: 3px;
-  border-radius: 2px;
-  background: #ff3131;
-}
-
-/* ── Widgets KPI — liseré coloré à GAUCHE (pattern KpiCard::before) ── */
-.rj1-widgets {
+/* ── KPIs ── */
+.rj1-kpis {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 8px;
 }
-.rj1-widgets--3 {
-  grid-template-columns: repeat(3, 1fr);
-}
-.rj1-widget {
+.rj1-kpi {
   position: relative;
   overflow: hidden;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  /* Padding symétrique : le contenu est centré, le rail reste collé à gauche. */
-  padding: 9px 12px;
+  padding: 9px 10px 9px 12px;
   background: #ffffff;
 }
-.rj1-widget::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 0;
-  width: 3px;
-  background: var(--rail, #64748b);
-}
-.rj1-widget--muted {
-  background: #f8fafc;
-}
-.rj1-widget--up .rj1-widget__value {
-  color: #059669;
-}
-.rj1-widget--down .rj1-widget__value {
-  color: #dc2626;
-}
-.rj1-widget__value {
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-bold);
-  color: #0f172a;
-  letter-spacing: -0.2px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.rj1-widget__label {
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: #64748b;
-  margin-top: 2px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+.rj1-kpi::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--rail, #64748b); }
+/* AUCUN overflow:hidden ici (html2canvas rognerait le haut des glyphes) : la
+   troncature est faite en JS via truncate(). white-space:nowrap suffit. */
+.rj1-kpi__label { font-size: var(--fs-xs); font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: 0.4px; color: #64748b; white-space: nowrap; line-height: 1.3; }
+.rj1-kpi__value { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: #0f172a; letter-spacing: -0.2px; font-variant-numeric: tabular-nums; white-space: nowrap; margin-top: 2px; }
 
-.rj1-source {
-  font-size: var(--fs-xs);
-  color: #94a3b8;
-  margin-top: 5px;
-}
+/* ── Carte générique ── */
+.rj1-card { border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; }
+.rj1-card__title { text-align: center; font-size: var(--fs-sm); font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; margin-bottom: 12px; }
 
-.rj1-empty {
-  font-size: var(--fs-sm);
-  color: #94a3b8;
-  font-style: italic;
-  padding: 6px 0;
-  text-align: center;
-}
+/* ── Catégories : 2 colonnes ── */
+.rj1-cats__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+.rj1-cats__col { display: flex; flex-direction: column; gap: 8px; }
+.rj1-cats__sub { text-align: center; font-size: var(--fs-xs); font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: 0.08em; color: #94a3b8; }
+.rj1-mini-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.rj1-mini { position: relative; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 9px; padding: 6px 7px; background: #ffffff; }
+.rj1-mini::before { content: ''; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--rail, #64748b); }
+.rj1-mini__label { font-size: 8px; font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: 0.3px; color: #64748b; white-space: nowrap; line-height: 1.3; }
+.rj1-mini__value { font-size: var(--fs-sm); font-weight: var(--fw-bold); color: #0f172a; font-variant-numeric: tabular-nums; margin-top: 1px; }
 
-/* ── Camembert ── */
-.rj1-pie {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 28px;
-  padding: 6px 0;
-}
-.rj1-pie canvas {
-  /* Lot 5 — affiché en 150px, buffer canvas laissé à 300 : html2canvas capture
-     alors un bitmap 2× plus dense, donc net à l'impression. */
-  width: 150px;
-  height: 150px;
-}
-.rj1-pie__legend {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  font-size: var(--fs-base);
-}
-.rj1-pie__legend-item {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto;
-  align-items: center;
-  gap: 8px;
-  min-width: 280px;
-}
-.rj1-pie__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-}
-.rj1-pie__label {
-  color: #1e293b;
-}
-.rj1-pie__value {
-  color: #64748b;
-  font-variant-numeric: tabular-nums;
-}
-.rj1-pie__pct {
-  font-weight: var(--fw-bold);
-  color: #0f172a;
-  font-variant-numeric: tabular-nums;
-}
+.rj1-donut { display: flex; align-items: center; gap: 14px; }
+.rj1-donut canvas { width: 132px; height: 132px; flex-shrink: 0; }
+.rj1-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; font-size: var(--fs-xs); }
+/* nom | %  (le dot est un glyphe « ● » DANS le nom, plus une colonne). */
+.rj1-legend__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+/* Puce « ● » : un GLYPHE (pas une boîte) dans le flux du nom → même baseline que le
+   texte, donc aligné par construction sous html2canvas. */
+.rj1-legend__bullet { margin-right: 4px; font-size: 10px; line-height: 1; }
+.rj1-legend__label { color: #334155; white-space: nowrap; line-height: 1.3; }
+.rj1-legend__pct { font-weight: var(--fw-bold); color: #0f172a; font-variant-numeric: tabular-nums; }
 
-/* ── Tables Top 5 — en-tête bande #F9FAFB (pattern MenuItemsByShopTable) ── */
-.rj1-tables {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 18px;
-  align-items: start;
-}
-.rj1-table__title {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  font-size: var(--fs-md);
-  font-weight: var(--fw-semibold);
-  color: #0f172a;
-  margin-bottom: 7px;
-}
-.rj1-table__dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
-}
-.rj1-table table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--fs-sm);
-}
-.rj1-table th {
-  text-align: center;
-  font-weight: var(--fw-medium);
-  color: #6b7280;
-  background: #f9fafb;
-  padding: 7px 9px;
-}
-.rj1-table td {
-  border-bottom: 1px solid #e2e8f0;
-  padding: 7px 9px;
-  color: #1e293b;
-}
-.rj1-table__name {
-  font-weight: var(--fw-medium);
-}
-.rj1-table .num {
-  text-align: center;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
+/* ── Tops en cartes classées ── */
+.rj1-tops { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; flex: 1; min-height: 0; }
+.rj1-top { display: flex; flex-direction: column; gap: 7px; }
+.rj1-top__title { text-align: center; font-size: var(--fs-sm); font-weight: var(--fw-bold); text-transform: uppercase; letter-spacing: 0.1em; color: #64748b; }
+.rj1-rank { display: flex; align-items: flex-start; gap: 9px; border: 1px solid #e2e8f0; border-radius: 11px; padding: 8px 10px; }
+/* Badge = <img> SVG (cercle + numéro centrés dans le SVG) : html2canvas le
+   rasterise → centrage parfait, sans dépendre de son rendu de texte. */
+.rj1-rank__num { flex-shrink: 0; width: 20px; height: 20px; display: block; }
+.rj1-rank__body { flex: 1; min-width: 0; }
+.rj1-rank__row { display: flex; align-items: center; gap: 8px; }
+.rj1-rank__name { flex: 1; min-width: 0; font-size: var(--fs-base); font-weight: var(--fw-semibold); color: #1e293b; white-space: nowrap; line-height: 1.3; }
+.rj1-rank__val { flex-shrink: 0; font-size: var(--fs-base); font-weight: var(--fw-bold); color: #0f172a; font-variant-numeric: tabular-nums; }
+.rj1-rank__units { font-size: var(--fs-xs); color: #94a3b8; margin: 1px 0 5px; }
+.rj1-rank__bar { height: 5px; border-radius: 4px; background: #eef2f7; overflow: hidden; }
+.rj1-rank__bar > i { display: block; height: 100%; min-width: 3px; border-radius: 4px; background: #F59E0B; }
 
-/* ── Métadonnées + pied ── */
-.rj1-meta {
-  margin-top: auto;
-  border-top: 1px solid #e2e8f0;
-  padding-top: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: var(--fs-sm);
-  color: #1e293b;
-}
-.rj1-meta__label {
-  display: inline-block;
-  min-width: 90px;
-  text-align: center;
-  color: #64748b;
-  font-weight: var(--fw-semibold);
-}
+.rj1-empty { font-size: var(--fs-sm); color: #94a3b8; font-style: italic; text-align: center; padding: 6px 0; }
 
-.rj1-footer {
-  flex-shrink: 0;
-  font-size: var(--fs-xs);
-  color: #94a3b8;
-  text-align: center;
-  padding-top: 6px;
-}
+.rj1-footer { flex-shrink: 0; font-size: var(--fs-xs); color: #94a3b8; text-align: center; padding-top: 4px; }
 </style>

@@ -205,11 +205,67 @@ const { exporting, onExportXlsx, onExportCsv } = useLiveExport({ spaceName: spac
 .av-live-badge {
   display: inline-flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 22px;
+  flex-wrap: wrap;
+}
+.lh-band__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+/* ☰ nav outils — pastille blanche translucide cliquable (parité pastilles des
+   autres bandeaux). */
+.lh-tools-trigger {
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.lh-tools-trigger:hover { background: rgba(255, 255, 255, 0.32); }
+.lh-tools-trigger:active { transform: scale(0.94); }
+.lh-tools-trigger:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.85); outline-offset: 2px; }
+.lh-band__text { min-width: 0; }
+.lh-band__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: #fff;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lh-band__title-sep { opacity: 0.7; }
+.lh-band__subtitle {
+  margin: 3px 0 0;
+  font-size: 12.5px;
+  color: rgba(255, 255, 255, 0.82);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Badge LIVE pulsant (repris de l'ancien LiveHeader, adapté au fond rouge :
+   pastille blanche translucide au lieu de rouge sur blanc). */
+.lh-badge {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
   background: rgba(255, 255, 255, 0.22);
   color: #fff;
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-bold);
+  font-size: var(--fs-xs, 11px);
+  font-weight: var(--fw-bold, 700);
   letter-spacing: 0.4px;
   padding: 4px 10px;
   border-radius: 999px;
@@ -217,8 +273,11 @@ const { exporting, onExportXlsx, onExportCsv } = useLiveExport({ spaceName: spac
 }
 .av-live-badge__dot {
   width: 7px;
+ 
   height: 7px;
+ 
   border-radius: 50%;
+ 
   background: #fff;
   animation: av-live-pulse 1.4s ease-in-out infinite;
 }

@@ -1,7 +1,7 @@
 <template>
   <div class="si-counting" :class="{ 'si-counting-mobile': mobile }">
     <div class="si-counting-head">
-      <v-btn icon variant="outlined" size="small" class="si-back" @click="$emit('close')">
+      <v-btn v-if="!hideClose" icon variant="outlined" size="small" class="si-back" @click="$emit('close')">
         <v-icon size="18">mdi-arrow-left</v-icon>
       </v-btn>
 
@@ -50,7 +50,7 @@
           </v-list>
         </v-menu>
         <div class="si-counting-meta">
-          <span>{{ currentUncounted }} item{{ currentUncounted > 1 ? 's' : '' }} non compté{{ currentUncounted > 1 ? 's' : '' }}</span>
+          <span>{{ currentUncounted }} {{ currentUncounted > 1 ? t('invCountItemsUncountedPlural') : t('invCountItemsUncountedSingular') }}</span>
           <span v-if="shops.length > 1">{{ shopIndex + 1 }}/{{ shops.length }} boutiques</span>
         </div>
         <v-progress-linear :model-value="progress" color="success" height="7" rounded />
@@ -191,22 +191,23 @@
           </ul>
         </div>
 
-        <div v-show="!mobile || isExpanded(item.id)" class="si-count-inputs">
+        <div v-show="!mobile || isExpanded(item.id)" class="si-count-inputs" :class="{ 'si-count-inputs--readonly': readonly }">
           <div class="si-count-field">
             <label class="si-count-label">{{ packedUnitsLabel(item) }}</label>
             <div class="si-count-stepper">
-              <button type="button" class="si-step" aria-label="-" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', -1)">
+              <button type="button" class="si-step" aria-label="-" :disabled="readonly" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', -1)">
                 <v-icon size="16">mdi-minus</v-icon>
               </button>
               <input
                 class="form-control si-count-input"
                 type="text"
                 inputmode="numeric"
+                :disabled="readonly"
                 :value="fieldDisplay(shop.element.id, item.id, 'packedUnits')"
                 @input="onFieldInput(shop.element.id, item.id, 'packedUnits', $event.target.value)"
                 @blur="onFieldBlur(shop.element.id, item.id, 'packedUnits')"
               />
-              <button type="button" class="si-step" aria-label="+" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', 1)">
+              <button type="button" class="si-step" aria-label="+" :disabled="readonly" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', 1)">
                 <v-icon size="16">mdi-plus</v-icon>
               </button>
             </div>
@@ -214,18 +215,19 @@
           <div class="si-count-field">
             <label class="si-count-label">{{ t('invCountLooseUnits') }}</label>
             <div class="si-count-stepper">
-              <button type="button" class="si-step" aria-label="-" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', -1)">
+              <button type="button" class="si-step" aria-label="-" :disabled="readonly" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', -1)">
                 <v-icon size="16">mdi-minus</v-icon>
               </button>
               <input
                 class="form-control si-count-input"
                 type="text"
                 inputmode="decimal"
+                :disabled="readonly"
                 :value="fieldDisplay(shop.element.id, item.id, 'looseUnits')"
                 @input="onFieldInput(shop.element.id, item.id, 'looseUnits', $event.target.value)"
                 @blur="onFieldBlur(shop.element.id, item.id, 'looseUnits')"
               />
-              <button type="button" class="si-step" aria-label="+" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', 1)">
+              <button type="button" class="si-step" aria-label="+" :disabled="readonly" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', 1)">
                 <v-icon size="16">mdi-plus</v-icon>
               </button>
             </div>
@@ -250,7 +252,7 @@
           </div>
         </div>
 
-        <div v-show="!mobile || isExpanded(item.id)" class="si-count-actions">
+        <div v-if="!readonly" v-show="!mobile || isExpanded(item.id)" class="si-count-actions">
           <button v-if="canTransfer" type="button" class="si-act si-act--ghost" @click="emit('transfer', shop.element, item)">
             <v-icon size="15" class="mr-1">mdi-swap-horizontal</v-icon>
             {{ mobile ? t('invCountTransferShort') : t('invCountTransfer') }}
@@ -300,6 +302,12 @@ const props = defineProps({
   // Transfert Logistic depuis le comptage — le parent monte le drawer et fait
   // l'appel API ; false (démo, module absent) = bouton masqué, rendu inchangé.
   canTransfer: { type: Boolean, default: false },
+  // Lecture seule (invité qui a soumis son comptage, ou fenêtre clôturée) : steppers
+  // et champs désactivés, actions masquées. Généralisation du pattern canTransfer.
+  readonly: { type: Boolean, default: false },
+  // Invité : pas de bouton retour — il n'y a nulle part d'utile où revenir (un
+  // seul PDV, pas de grille à montrer derrière).
+  hideClose: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['close', 'change-value', 'mark-counted', 'change-shop', 'transfer'])
@@ -689,6 +697,9 @@ function stepValue(shopId, itemId, field, delta) {
 }
 .si-step:hover { background: #ffe9e9; color: #ff3131; }
 .si-step:active { background: #ffd6d6; }
+.si-step:disabled { cursor: default; opacity: 0.5; background: var(--fb-subtle, #F7F8FA); color: var(--fb-muted, #6B7280); }
+.si-count-inputs--readonly { opacity: 0.65; }
+.si-count-inputs--readonly .si-count-input:disabled { color: var(--fb-muted, #6B7280); }
 .si-count-input.form-control {
   border: none;
   border-radius: 0;

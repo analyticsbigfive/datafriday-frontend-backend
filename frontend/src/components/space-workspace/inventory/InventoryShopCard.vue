@@ -27,6 +27,16 @@
       {{ statusLabel }}
     </span>
 
+    <!-- Accès PIN invité (directeur uniquement) — composant à part entière, ne
+         porte aucune logique ici : cf. GuestPinBadge.vue. -->
+    <GuestPinBadge
+      v-if="showGuestPin"
+      :phase="phase"
+      :element-id="entry.element.id"
+      :slug="entry.element.slug"
+      :element-name="entry.element.name"
+    />
+
     <!-- Action : libellé selon l'avancement (rien / en cours / terminé) -->
     <v-btn
       :color="isCounted ? 'grey-darken-2' : 'primary'"
@@ -45,6 +55,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
+import GuestPinBadge from './GuestPinBadge.vue'
 
 const { t } = useI18n()
 
@@ -57,6 +68,10 @@ const props = defineProps({
   progress: { type: Number, default: 0 },
   statusLabel: { type: String, default: '' },
   statusColor: { type: String, default: 'grey' },
+  // Accès PIN invité (directeur uniquement, permission front.fb.guestPinManage) —
+  // phase transite tel quel, aucune logique dans cette carte.
+  showGuestPin: { type: Boolean, default: false },
+  phase: { type: String, default: null },
 })
 
 defineEmits(['start-count'])

@@ -106,7 +106,8 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     // If-Match : verrou optimiste des éléments Builder v2 (PATCH /builder-v2/elements/:id) —
     // sans lui le preflight échoue et le navigateur n'envoie jamais la requête.
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'If-Match'],
+    // X-Guest-Device-Id : binding d'appareil de l'accès invité PIN (POST /guest-pin/login).
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'If-Match', 'X-Guest-Device-Id'],
     // Access-Control-Max-Age : sans lui le navigateur rejoue un preflight OPTIONS
     // (~180-380 ms mesurés, Lighthouse 24/08) sur CHAQUE requête API — la page Analyse
     // en émet des dizaines. 86400 s = plafond pratique des navigateurs (Chrome cape à 2 h,

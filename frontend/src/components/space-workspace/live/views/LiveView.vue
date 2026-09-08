@@ -69,8 +69,8 @@
               <MenuItemRevenueDistribution v-can="'stats.financial.view'" :records="filteredItemRecords" :loading="liveData.loading.value" />
             </template>
 
-            <LiveInventoryPanel v-else :space-id="spaceId" :is-dark="isDark" :active="tab === 'inventory'" />
-          </div>
+                <LiveInventoryPanel v-else :space-id="spaceId" :is-dark="isDark" :active="tab === 'inventory'" />
+              </div>
         </div>
 
         <div v-can="'stats.financial.view'" class="an-right">
@@ -94,6 +94,25 @@
            donc affiché par défaut (fail-open) partout sauf là où explicitement coupé. -->
       <LiveSaleSimulatorWidget v-if="!isProdEnv" :space-id="spaceId" @simulated="onEventUpdated" />
     </v-main>
+
+    <!-- Nav entre outils (☰ du bandeau) — même drawer partagé que Restock/Logistique. -->
+    <WorkspaceMobileToolDrawer
+      v-model="showToolDrawer"
+      :items="toolboxItems"
+      current-value="live"
+      :title="t('srToolsLabel')"
+      @select="onToolboxSelect"
+    />
+
+    <!-- Voir / modifier l'event live (✏️) — même drawer /events, dates verrouillées. -->
+    <EventFormDrawer
+      v-model="editOpen"
+      mode="edit"
+      :initial-event="liveData.event.value"
+      :is-dark="isDark"
+      lock-date
+      @submitted="liveData.refresh"
+    />
   </v-app>
 </template>
 
@@ -114,6 +133,9 @@ import { normalizeShopType } from '@/constants/shopTypes'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
+import WorkspaceMobileToolDrawer from '@/components/WorkspaceMobileToolDrawer.vue'
+import { useWorkspaceToolbox } from '@/composables/useWorkspaceToolbox'
+import EventFormDrawer from '@/components/events/drawers/EventFormDrawer.vue'
 import LiveHeader from '../LiveHeader.vue'
 import LiveFilterPanel from '../LiveFilterPanel.vue'
 import LiveKpiRow from '../LiveKpiRow.vue'
@@ -178,6 +200,11 @@ async function ensureSpaceLoaded() {
   }
   requestAllConfigsContext()
 }
+
+// ☰ nav outils (drawer) + ✏️ édition d'event (drawer /events) — pilotés depuis le bandeau.
+const showToolDrawer = ref(false)
+const editOpen = ref(false)
+const { toolboxItems, onToolboxSelect } = useWorkspaceToolbox('live')
 
 // Une instance de composable par montage — pas de state module-scope partagé entre
 // deux espaces (contrairement au store Vuex `analyse`, dont c'était une source de

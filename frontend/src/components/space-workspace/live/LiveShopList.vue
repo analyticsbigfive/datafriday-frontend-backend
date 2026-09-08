@@ -131,4 +131,10 @@ function shareWidth(value, max) {
 .item-units-below { font-size: var(--fs-xs); color: #9E9E9E; margin-top: 2px; }
 .show-all-btn { font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.02em; color: #5B8DEF; margin-top: 4px; text-transform: none; }
 .fp-check-empty { padding: 12px; text-align: center; font-size: var(--fs-base); color: #9ca3af; }
+/* Mobile : colonnes flexibles au lieu des largeurs fixes 140px/90px (qui
+   débordaient sur écran étroit). Le nom garde un plancher de 60px puis se
+   tronque, la barre et la valeur s'adaptent → jamais de scroll horizontal. */
+@media (max-width: 600px) {
+  .lsl-row { grid-template-columns: minmax(60px, 1.3fr) 1fr auto; gap: 8px; }
+}
 </style>

@@ -46,6 +46,10 @@ export function buildConfigShopList(rows, floors) {
     const entry = {
       shopId,
       name: name || shopId,
+      // Slug stable (/login/pin/:slug) — pour le QR code de connexion invité
+      // (GuestPinBadge.vue). Vient uniquement de /spaces/:id/shops (source 'api') ;
+      // absent pour les entrées 'config' plus bas (getConfiguration ne l'expose pas).
+      slug: r?.slug ?? null,
       isOpen: r?.isOpen === true,
       floorName: null,
       shopType: r?.shopType ?? null,
@@ -115,7 +119,6 @@ export function useInventoryData(selectedConfigId) {
   const components = computed(() => store.state.analyse?.components || [])
   const marketPrices = computed(() => store.state.inventory?.marketPrices || [])
   const storageTypes = computed(() => store.getters['storageTypes/storageTypes'] || [])
-  store.dispatch('storageTypes/fetchStorageTypes')
 
   const catalogById = computed(() => {
     const m = new Map()
@@ -147,6 +150,11 @@ export function useInventoryData(selectedConfigId) {
       resetContext()
       return
     }
+    // Endpoint staff (401 sous JWT invité) : déplacé ici (plutôt qu'au niveau module,
+    // exécuté à CHAQUE instanciation du composable) pour ne partir que quand un
+    // chargement staff réel a lieu — ce composable est aussi instancié en mode
+    // invité (SpaceInventoryView.vue), qui n'appelle jamais loadContext.
+    store.dispatch('storageTypes/fetchStorageTypes')
     const key = `${spaceId}::${configId}`
     if (inflight.has(key)) return inflight.get(key)
     const myReq = ++reqSeq
@@ -308,6 +316,7 @@ export function useInventoryData(selectedConfigId) {
         const shop = {
           shopId: entry.shopId,
           name: entry.name,
+          slug: entry.slug ?? null,
           isOpen: entry.isOpen, // statut d'affichage uniquement (true/false/null)
           floorName: entry.floorName,
           shopType: entry.shopType,
@@ -401,6 +410,7 @@ export function useInventoryData(selectedConfigId) {
         element: {
           id: shop.shopId,
           name: shop.name,
+          slug: shop.slug ?? null,
           shopType: shop.shopType ?? null,
           shopArea: shop.shopArea ?? null,
           floorName: shop.floorName ?? null,
