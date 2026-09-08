@@ -63,6 +63,20 @@ export class GuestPinAdminController {
     return { ok: true };
   }
 
+  @Post('pins/:accessId/validate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Valide le comptage soumis par ce PDV (verrouille — seule action qui le fait)' })
+  async validate(@Param('accessId') accessId: string, @CurrentUser() user: CurrentUserData) {
+    return this.service.validateAccess(accessId, user);
+  }
+
+  @Post('pins/:accessId/request-correction')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Renvoie ce PDV pour correction (réouvre l\'écriture, même PIN)' })
+  async requestCorrection(@Param('accessId') accessId: string, @CurrentUser() user: CurrentUserData) {
+    return this.service.requestCorrection(accessId, user);
+  }
+
   @Post(':windowId/close')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({

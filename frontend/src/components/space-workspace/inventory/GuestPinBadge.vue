@@ -7,12 +7,28 @@
       </button>
     </template>
 
+    <!-- Validé par le directeur = SEUL état verrouillé (écriture invité refusée
+         côté service). "Soumis" (ci-dessous) ne l'est pas : le manager reste
+         modifiable tant que ce badge n'est pas passé ici. -->
+    <template v-else-if="access.validatedAt">
+      <Lock :size="16" />
+      <div class="gpb-sub">
+        <span class="gpb-label gpb-label--validated">{{ t('guestPinAdminStatusValidated') }}</span>
+      </div>
+    </template>
+
     <template v-else-if="access.submittedAt">
       <FileCheck :size="16" />
       <div class="gpb-sub">
         <span class="gpb-label gpb-label--submitted">{{ t('guestPinAdminStatusSubmitted') }}</span>
         <span class="gpb-meta">{{ t('guestPinAdminSubmittedAt') }} {{ formatTime(access.submittedAt) }}</span>
       </div>
+      <button type="button" class="gpb-icon-btn gpb-icon-btn--success" :title="t('guestPinAdminValidate')" :disabled="working" @click="onValidate">
+        <Check :size="14" />
+      </button>
+      <button type="button" class="gpb-icon-btn" :title="t('guestPinAdminRequestCorrection')" :disabled="working" @click="onRequestCorrection">
+        <Undo2 :size="14" />
+      </button>
     </template>
 
     <template v-else>
@@ -42,7 +58,7 @@
 </template>
 
 <script>
-import { KeyRound, RefreshCw, Ban, UserCheck, FileCheck } from 'lucide-vue-next';
+import { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2 } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import SetPinDialog from '@/components/guest-pin-manage/dialogs/SetPinDialog.vue';
 
@@ -57,7 +73,7 @@ import SetPinDialog from '@/components/guest-pin-manage/dialogs/SetPinDialog.vue
  */
 export default {
   name: 'GuestPinBadge',
-  components: { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, SetPinDialog },
+  components: { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2, SetPinDialog },
 
   props: {
     spaceId: { type: String, required: true },
@@ -92,6 +108,7 @@ export default {
     },
     zoneClass() {
       if (!this.access || this.access.status === 'revoked') return '';
+      if (this.access.validatedAt) return 'gpb-zone--validated';
       if (this.access.submittedAt) return 'gpb-zone--submitted';
       return this.access.lastLoginAt ? 'gpb-zone--seen' : 'gpb-zone--pending';
     },
@@ -147,6 +164,28 @@ export default {
         this.working = false;
       }
     },
+
+    /** Verrouille l'écriture invité pour ce PDV — seule action qui le fait. */
+    async onValidate() {
+      if (!this.access) return;
+      this.working = true;
+      try {
+        await this.$store.dispatch('guestPinAdmin/validate', this.access.id);
+      } finally {
+        this.working = false;
+      }
+    },
+
+    /** Renvoie ce PDV pour correction : réouvre l'écriture, même PIN (pas de régénération). */
+    async onRequestCorrection() {
+      if (!this.access) return;
+      this.working = true;
+      try {
+        await this.$store.dispatch('guestPinAdmin/requestCorrection', this.access.id);
+      } finally {
+        this.working = false;
+      }
+    },
   },
 };
 </script>
@@ -167,11 +206,13 @@ export default {
 .gpb-zone--pending { background: #fff7ed; border-style: solid; border-color: #fde68a; color: #92400e; }
 .gpb-zone--seen { background: #f0fdf4; border-style: solid; border-color: #bbf7d0; color: #15803d; }
 .gpb-zone--submitted { background: #f5f3ff; border-style: solid; border-color: #ddd6fe; color: #6d28d9; }
+.gpb-zone--validated { background: #f0fdf4; border-style: solid; border-color: #86efac; color: #166534; }
 
 .gpb-sub { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .gpb-label { font-size: 11.5px; font-weight: 700; }
 .gpb-label--seen { color: #15803d; }
 .gpb-label--submitted { color: #6d28d9; }
+.gpb-label--validated { color: #166534; }
 .gpb-meta { font-size: 10.5px; color: inherit; opacity: 0.8; }
 
 .gpb-generate {
@@ -204,5 +245,6 @@ export default {
 }
 .gpb-icon-btn:hover { border-color: #ff3131; color: #ff3131; }
 .gpb-icon-btn--danger:hover { border-color: #dc2626; color: #dc2626; }
+.gpb-icon-btn--success:hover { border-color: #15803d; color: #15803d; }
 .gpb-icon-btn:disabled { opacity: 0.5; cursor: default; }
 </style>

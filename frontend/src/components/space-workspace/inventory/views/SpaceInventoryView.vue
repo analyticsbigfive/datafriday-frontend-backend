@@ -161,7 +161,10 @@
         <!-- Invité : nom du PDV + statut de session, pas le contexte événement staff. -->
         <p v-if="guestSession.isGuestMode" class="si-band-title__sub">
           {{ guestSession.guestElementName }}
-          <span v-if="guestSession.isReadonly"> · {{ t('guestPinAdminStatusSubmitted') }}</span>
+          <!-- Validé (directeur) = verrouillé. Soumis (manager) ne l'est pas — le
+               manager reste modifiable tant que le directeur n'a pas validé. -->
+          <span v-if="guestSession.isReadonly"> · {{ t('guestPinAdminStatusValidated') }}</span>
+          <span v-else-if="guestSession.isSubmitted"> · {{ t('guestPinAdminStatusSubmitted') }}</span>
         </p>
         <!-- Vue réconciliation active → sous-titre « Réconciliation : {event} » (parité capture).
              Inchangé : le document nomme DÉJÀ son propre event, empiler un second
@@ -210,6 +213,13 @@
         >
           <v-icon size="16" class="mr-1">mdi-check-circle-outline</v-icon>
           {{ t('invGuestSubmit') }}
+        </v-btn>
+        <v-btn
+          class="si-band-btn si-band-btn--logout"
+          @click="onGuestLogout"
+        >
+          <v-icon size="16" class="mr-1">mdi-logout</v-icon>
+          {{ t('invGuestLogout') }}
         </v-btn>
       </div>
       <div v-else class="si-band-right justify-content-end d-flex align-center">
@@ -1969,6 +1979,22 @@ export default {
         this.guestSubmitting = false
       }
     },
+    /** Déconnexion explicite du responsable PDV — redirige vers le même lien PIN
+     *  scanné (slug conservé côté client) pour se reconnecter sans re-scanner. */
+    async onGuestLogout() {
+      const ok = await confirmDialog({
+        title: this.t('invGuestLogoutConfirmTitle'),
+        message: this.t('invGuestLogoutConfirmMessage'),
+        confirmText: this.t('invGuestLogout'),
+        cancelText: this.t('cancel') || 'Cancel',
+        confirmColor: 'primary',
+        icon: 'mdi-logout',
+      })
+      if (!ok) return
+      const slug = this.guestSession.guestSlug
+      await this.guestSession.logout()
+      this.router.push(slug ? { name: 'login-pin', params: { slug } } : '/login')
+    },
     /** Charge toutes les données pour un space donné (mount + changement d'espace/event). */
     async loadForSpace(spaceId) {
       this.loading = true
@@ -3588,6 +3614,9 @@ export default {
 .si-band-btn--save { background: #fff !important; color: #ff3131 !important; }
 .si-band-btn--save :deep(.v-icon) { color: #ff3131 !important; }
 .si-band-btn--save:hover { background: rgba(255, 255, 255, 0.9) !important; color: #ff3131 !important; }
+/* Moins prégnant que "J'ai terminé" (action fréquente vs déconnexion, rare et
+   sans conséquence sur les données — pas de raison de leur donner le même poids). */
+.si-band-btn--logout { background: transparent !important; border-color: rgba(255, 255, 255, 0.4) !important; margin-left: 8px; }
 
 /* Équivalent mobile (< 900px, cf. isMobile JS) du toggle filtres / des boutons
    Update Logistic + Save — masqués par défaut, activés dans le bloc @media

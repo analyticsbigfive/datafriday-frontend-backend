@@ -20,9 +20,11 @@ export interface GuestPinUser {
   eventId: string;
   phase: string;
   showExpected: boolean;
-  // "J'ai terminé" (gel) : lecture toujours permise, écriture à refuser côté service
-  // si non-null. La fenêtre reste "open" — seul CET accès est gelé.
+  // "J'ai terminé" : signal informatif (PDV prêt à vérifier), PAS un verrou — cf.
+  // validatedAt ci-dessous, le seul champ qui bloque l'écriture côté service.
   submittedAt: Date | null;
+  // Verrou réel (lecture seule), posé uniquement par le directeur (validateAccess).
+  validatedAt: Date | null;
 }
 
 /**
@@ -73,6 +75,7 @@ export class JwtGuestPinStrategy extends PassportStrategy(Strategy, 'jwt-guest-p
       phase: access.window.phase,
       showExpected: access.window.showExpected,
       submittedAt: access.submittedAt,
+      validatedAt: access.validatedAt,
     };
   }
 }

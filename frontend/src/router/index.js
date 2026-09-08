@@ -85,14 +85,18 @@ const routes = [
     // invité (store guestPin), elle-même dérivée du JWT invité. Réutilise le MÊME
     // composant que l'écran staff (SpaceInventoryView), en mode invité
     // (meta.guestMode) — cf. composables/useGuestInventorySession.js.
-    path: '/guest/pre-inventory',
+    // URL visible par le responsable PDV : "pdv", pas "guest" (2026-09-08, retour
+    // manager — "guest" prêtait à confusion avec le garde `guestOnly` existant,
+    // sans rapport). Nom de route interne INCHANGÉ (guest-pre-inventory) : c'est
+    // le périmètre de renommage choisi (URL + libellés visibles uniquement).
+    path: '/pdv/pre-inventory',
     name: 'guest-pre-inventory',
     component: () => import('@/components/space-workspace/inventory/views/SpaceInventoryView.vue'),
     beforeEnter: requireGuestPinSession,
     meta: { title: 'Pre-event Inventory', inventoryMode: 'pre', guestMode: true, noindex: true }
   },
   {
-    path: '/guest/inventory',
+    path: '/pdv/inventory',
     name: 'guest-inventory',
     component: () => import('@/components/space-workspace/inventory/views/SpaceInventoryView.vue'),
     beforeEnter: requireGuestPinSession,

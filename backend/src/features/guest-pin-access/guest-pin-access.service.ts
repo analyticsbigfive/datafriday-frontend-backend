@@ -225,6 +225,7 @@ export class GuestPinAccessService {
       eventId: user.eventId,
       showExpected: user.showExpected,
       submittedAt: user.submittedAt,
+      validatedAt: user.validatedAt,
     };
   }
 
@@ -345,12 +346,15 @@ export class GuestPinAccessService {
   }
 
   async saveCount(user: GuestPinUser, dto: SaveGuestCountDto) {
-    if (user.submittedAt) {
+    // Seul le DIRECTEUR verrouille (validateAccess) — `submittedAt` n'est qu'un
+    // signal ("prêt à vérifier"), pas un verrou (décision produit 2026-09-08,
+    // revenue sur le gel immédiat initial).
+    if (user.validatedAt) {
       throw new ForbiddenException(
-        'Comptage déjà envoyé ("J\'ai terminé") — lecture seule. Contacte le directeur de site pour corriger.',
+        'Comptage validé par le directeur de site — lecture seule. Contacte-le pour une correction.',
       );
     }
-    return this.inventoryService.saveInventoryCounts(
+    const result = await this.inventoryService.saveInventoryCounts(
       {
         spaceId: user.spaceId,
         eventId: user.eventId,
@@ -365,19 +369,32 @@ export class GuestPinAccessService {
       user.tenantId,
       undefined,
     );
+    // Modifier après avoir dit "J'ai terminé" mais AVANT validation directeur =
+    // ce n'était pas fini : on réarme le signal pour ne pas laisser le directeur
+    // valider des chiffres que le manager est justement en train de changer.
+    if (user.submittedAt) {
+      await this.prisma.guestPinAccess.update({
+        where: { id: user.id },
+        data: { submittedAt: null },
+      });
+    }
+    return result;
   }
 
   /**
-   * "J'ai terminé" : gèle CET accès (lecture seule) sans toucher à la fenêtre ni aux
-   * autres PDV — distinct de `closeWindow` (clôture globale par le directeur).
-   * Idempotent (submittedAt déjà posé → no-op).
+   * "J'ai terminé" : signale au directeur que ce PDV est prêt à être vérifié —
+   * NE verrouille PAS (le manager reste modifiable, cf. saveCount qui réarme ce
+   * flag sur toute nouvelle écriture). Le vrai verrou est `validateAccess`
+   * (directeur). Idempotent (submittedAt déjà posé → no-op) ; no-op aussi si déjà
+   * validé (rien à re-signaler, `saveCount` refuse déjà l'écriture dans ce cas).
    */
   async submitCount(user: GuestPinUser) {
-    if (user.submittedAt) return { submittedAt: user.submittedAt };
+    if (user.validatedAt) return { submittedAt: user.submittedAt, validatedAt: user.validatedAt };
+    if (user.submittedAt) return { submittedAt: user.submittedAt, validatedAt: null };
     const access = await this.prisma.guestPinAccess.update({
       where: { id: user.id },
       data: { submittedAt: new Date() },
-      select: { submittedAt: true },
+      select: { submittedAt: true, validatedAt: true },
     });
     return access;
   }
@@ -458,8 +475,12 @@ export class GuestPinAccessService {
         status: a.status,
         hasPin: !!a.pinLookupHash,
         lastLoginAt: a.lastLoginAt,
-        // "Soumis · gelé" (J'ai terminé) — distinct de `status: 'revoked'`.
+        // "Soumis" (J'ai terminé, signal seulement) / "Validé" (verrou réel,
+        // posé par le directeur via validateAccess) — deux états distincts,
+        // cf. commentaires sur GuestPinAccess.submittedAt/validatedAt (schema.prisma).
         submittedAt: a.submittedAt,
+        validatedAt: a.validatedAt,
+        reviewStatus: a.validatedAt ? 'validated' : a.submittedAt ? 'submitted' : 'in_progress',
       })),
     }));
   }
@@ -502,9 +523,12 @@ export class GuestPinAccessService {
             boundAt: null,
             revokedAt: null,
             revokedBy: null,
-            // Un nouveau PIN dégèle : "J'ai terminé" ne devrait pas survivre à un reset
-            // explicite du directeur (support : "je me suis trompé, je recompte").
+            // Un nouveau PIN dégèle : ni le signal "J'ai terminé" ni une validation
+            // directeur ne devraient survivre à un reset explicite (support : "je me
+            // suis trompé, je recompte").
             submittedAt: null,
+            validatedAt: null,
+            validatedBy: null,
           },
         });
 
@@ -560,6 +584,68 @@ export class GuestPinAccessService {
       entityId: accessId,
       metadata: { action: 'revoke' },
     });
+  }
+
+  /**
+   * Le DIRECTEUR valide ce PDV après relecture — c'est CE moment, et lui seul, qui
+   * verrouille l'écriture invité (cf. saveCount). Exige `submittedAt` posé (rien à
+   * valider tant que le manager n'a pas dit "J'ai terminé") ; no-op si déjà validé.
+   */
+  async validateAccess(accessId: string, user: CurrentUserData) {
+    const tenantId = user.tenantId!;
+    const access = await this.prisma.guestPinAccess.findFirst({ where: { id: accessId, tenantId } });
+    if (!access) throw new NotFoundException('Accès introuvable');
+    await this.assertSpaceAccess(user, access.spaceId);
+    if (access.validatedAt) return { validatedAt: access.validatedAt };
+    if (!access.submittedAt) {
+      throw new ForbiddenException("Ce PDV n'a pas encore été soumis par le manager (\"J'ai terminé\").");
+    }
+
+    const updated = await this.prisma.guestPinAccess.update({
+      where: { id: accessId },
+      data: { validatedAt: new Date(), validatedBy: user.id },
+      select: { validatedAt: true },
+    });
+
+    await this.audit.log({
+      tenantId,
+      userId: user.id,
+      action: 'UPDATE',
+      entity: 'GuestPinAccess',
+      entityId: accessId,
+      metadata: { action: 'validate' },
+    });
+
+    return updated;
+  }
+
+  /**
+   * Le directeur renvoie ce PDV pour correction : réouvre l'écriture (efface le
+   * signal "J'ai terminé") sans régénérer de PIN — contrairement à `resetPin`, le
+   * manager garde le même code, il continue juste sur la même session.
+   */
+  async requestCorrection(accessId: string, user: CurrentUserData) {
+    const tenantId = user.tenantId!;
+    const access = await this.prisma.guestPinAccess.findFirst({ where: { id: accessId, tenantId } });
+    if (!access) throw new NotFoundException('Accès introuvable');
+    await this.assertSpaceAccess(user, access.spaceId);
+    if (!access.submittedAt && !access.validatedAt) return { submittedAt: null };
+
+    await this.prisma.guestPinAccess.update({
+      where: { id: accessId },
+      data: { submittedAt: null, validatedAt: null, validatedBy: null },
+    });
+
+    await this.audit.log({
+      tenantId,
+      userId: user.id,
+      action: 'UPDATE',
+      entity: 'GuestPinAccess',
+      entityId: accessId,
+      metadata: { action: 'request-correction' },
+    });
+
+    return { submittedAt: null };
   }
 
   async closeWindow(windowId: string, user: CurrentUserData) {

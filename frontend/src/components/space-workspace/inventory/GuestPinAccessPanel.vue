@@ -17,6 +17,10 @@
           <strong>{{ submittedCount }}</strong>
         </div>
         <div>
+          <span>{{ t('guestPinAdminStatusValidated') }}</span>
+          <strong>{{ validatedCount }}</strong>
+        </div>
+        <div>
           <span>{{ t('guestPinAdminStatsRevoked') }}</span>
           <strong>{{ revokedCount }}</strong>
         </div>
@@ -68,10 +72,15 @@ export default {
       return this.accesses.length;
     },
     activeCount() {
-      return this.accesses.filter((a) => a.status === 'active' && !a.submittedAt).length;
+      return this.accesses.filter((a) => a.status === 'active' && !a.submittedAt && !a.validatedAt).length;
     },
+    // "Soumis" = en attente de relecture directeur (submittedAt posé, PAS ENCORE
+    // validé) — un accès validé ne compte plus ici, cf. validatedCount.
     submittedCount() {
-      return this.accesses.filter((a) => !!a.submittedAt).length;
+      return this.accesses.filter((a) => !!a.submittedAt && !a.validatedAt).length;
+    },
+    validatedCount() {
+      return this.accesses.filter((a) => !!a.validatedAt).length;
     },
     revokedCount() {
       return this.accesses.filter((a) => a.status === 'revoked').length;
@@ -125,7 +134,7 @@ export default {
 
 .gpp-stats {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 1px;
   margin-top: 12px;
   border: 1px solid var(--fb-border, #e5e7eb);

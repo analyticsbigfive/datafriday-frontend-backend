@@ -59,6 +59,10 @@ const getters = {
   isActive: (state) => !!state.token,
   session: (state) => state.session,
   phase: (state) => state.session?.phase ?? null,
+  // Slug de l'URL scannée (/login/pin/:slug) — jamais renvoyé par /guest-pin/session
+  // (dérivé de request.user, pas de l'URL) : posé côté client au login pour pouvoir
+  // rediriger vers le MÊME lien après une déconnexion explicite, sans re-scanner le QR.
+  slug: (state) => state.session?.slug ?? null,
 }
 
 const mutations = {
@@ -89,7 +93,7 @@ const actions = {
       setAccessToken(persisted.token)
       setGuestSessionActive(true)
       try {
-        const session = await getGuestSession()
+        const session = { ...(await getGuestSession()), slug: persisted.session?.slug ?? null }
         commit('SET_SESSION', { token: persisted.token, session })
         writePersistedSession({ token: persisted.token, session })
       } catch {
@@ -113,6 +117,7 @@ const actions = {
       const result = await loginWithPin(pin, deviceId, slug)
       if (result.state === 'ok') {
         const { token, state: _discriminant, ...session } = result
+        session.slug = slug
         setAccessToken(token)
         setGuestSessionActive(true)
         commit('SET_SESSION', { token, session })
@@ -132,7 +137,7 @@ const actions = {
   /** Rafraîchit la session courante (ex. après "J'ai terminé", pour refléter submittedAt). */
   async refreshSession({ commit, state }) {
     if (!state.token) return
-    const session = await getGuestSession()
+    const session = { ...(await getGuestSession()), slug: state.session?.slug ?? null }
     commit('SET_SESSION', { token: state.token, session })
     writePersistedSession({ token: state.token, session })
   },

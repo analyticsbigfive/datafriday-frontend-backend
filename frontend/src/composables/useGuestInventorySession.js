@@ -39,12 +39,15 @@ export function useGuestInventorySession() {
 
   const isGuestMode = computed(() => !!route.meta?.guestMode)
   const session = computed(() => store.getters['guestPin/session'])
+  const guestSlug = computed(() => store.getters['guestPin/slug'])
   const submittedAt = computed(() => session.value?.submittedAt ?? null)
-  // Gelé (a cliqué "J'ai terminé") — la fenêtre elle-même reste ouverte pour les
-  // autres PDV, seul CET accès passe en lecture seule. La clôture globale (window
-  // fermée) se traduit par une session invalidée ailleurs (401 → redirection
-  // /login/pin par l'intercepteur Axios), pas par ce flag.
-  const isReadonly = computed(() => !!submittedAt.value)
+  const validatedAt = computed(() => session.value?.validatedAt ?? null)
+  // "J'ai terminé" est un SIGNAL (le manager reste modifiable), PAS un verrou —
+  // décision produit 2026-09-08, revenue sur le gel immédiat initial ("c'est le
+  // directeur qui doit vérifier et valider, pas le manager qui se verrouille
+  // lui-même"). Seule une validation directeur (validatedAt) verrouille vraiment.
+  const isSubmitted = computed(() => !!submittedAt.value && !validatedAt.value)
+  const isReadonly = computed(() => !!validatedAt.value)
 
   const guestSpaceId = computed(() => session.value?.spaceId ?? null)
   const guestElementId = computed(() => session.value?.elementId ?? null)
@@ -147,18 +150,34 @@ export function useGuestInventorySession() {
       storageLocation: next.storageLocation,
       countingStatus: next.countingStatus,
     })
+    // Le backend réarme submittedAt=null si on écrit après "J'ai terminé" (pas
+    // encore validé) — sans ce refresh, le badge "Soumis" resterait affiché à tort
+    // pendant que le manager modifie déjà ses chiffres.
+    if (isSubmitted.value) {
+      await store.dispatch('guestPin/refreshSession')
+    }
   }
 
-  /** "J'ai terminé" : gèle ce PDV, revalide la session pour refléter `submittedAt`. */
+  /** "J'ai terminé" : signale au directeur que ce PDV est prêt à vérifier — NE
+   *  verrouille pas (cf. isReadonly, basé sur validatedAt, pas submittedAt). */
   async function submitGuestInventory() {
     await submitGuestCount()
     await store.dispatch('guestPin/refreshSession')
   }
 
+  /** Déconnexion explicite du responsable PDV — purge la session invité. Ne fait
+   *  QUE ça (pas de navigation ici) : c'est à l'appelant (vue) de rediriger. */
+  async function logout() {
+    await store.dispatch('guestPin/clear')
+  }
+
   return {
     isGuestMode,
     isReadonly,
+    isSubmitted,
     submittedAt,
+    validatedAt,
+    guestSlug,
     guestSpaceId,
     guestElementId,
     guestElementName,
@@ -169,5 +188,6 @@ export function useGuestInventorySession() {
     loadGuestInventory,
     upsertGuestCount,
     submitGuestInventory,
+    logout,
   }
 }

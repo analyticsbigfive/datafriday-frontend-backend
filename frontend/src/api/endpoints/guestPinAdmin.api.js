@@ -26,6 +26,18 @@ export async function revokeAccess(accessId) {
   return response.data
 }
 
+/** Verrouille l'écriture invité pour ce PDV — seule action qui le fait. */
+export async function validateAccess(accessId) {
+  const response = await api.post(`/inventory-windows/pins/${accessId}/validate`)
+  return response.data
+}
+
+/** Réouvre l'écriture (efface "J'ai terminé"), même PIN, pas de régénération. */
+export async function requestCorrection(accessId) {
+  const response = await api.post(`/inventory-windows/pins/${accessId}/request-correction`)
+  return response.data
+}
+
 export async function closeWindow(windowId) {
   const response = await api.post(`/inventory-windows/${windowId}/close`)
   return response.data

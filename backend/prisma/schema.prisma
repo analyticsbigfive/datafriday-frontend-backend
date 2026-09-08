@@ -3262,9 +3262,16 @@ model GuestPinAccess {
   // 2026-09-08 : pas de restriction à un seul appareil).
   boundDeviceHash String?
   boundAt         DateTime?
-  // "J'ai terminé" (gel) : distinct de `status='revoked'` — la fenêtre reste ouverte et les
-  // autres PDV restent modifiables, seul CET accès passe en lecture seule.
+  // "J'ai terminé" : le manager signale qu'il a fini, PAS un verrou — il reste
+  // modifiable (toute nouvelle écriture réarme `submittedAt=null`, cf.
+  // GuestPinAccessService.saveCount) tant que le DIRECTEUR n'a pas validé (décision
+  // produit 2026-09-08, revenue sur le gel immédiat initial : c'est le directeur qui
+  // doit vérifier et valider, pas le manager qui se verrouille lui-même).
   submittedAt DateTime?
+  // Verrou RÉEL (lecture seule) : posé uniquement par le directeur (validateAccess),
+  // jamais par le manager. `resetPin` le remet à null (nouveau PIN → repart à zéro).
+  validatedAt DateTime?
+  validatedBy String?
   revokedAt       DateTime?
   revokedBy       String?
   createdBy       String // userId du directeur qui a défini/régénéré ce PIN

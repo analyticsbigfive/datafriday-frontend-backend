@@ -10,6 +10,8 @@ import {
   setPin,
   resetPin,
   revokeAccess,
+  validateAccess,
+  requestCorrection,
   closeWindow,
 } from '@/api/endpoints/guestPinAdmin.api'
 
@@ -69,6 +71,20 @@ const actions = {
   async revoke({ state, dispatch }, accessId) {
     await revokeAccess(accessId)
     await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
+  },
+
+  /** Verrouille l'écriture invité pour ce PDV (relecture directeur terminée). */
+  async validate({ state, dispatch }, accessId) {
+    const result = await validateAccess(accessId)
+    await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
+    return result
+  },
+
+  /** Renvoie ce PDV pour correction : réouvre l'écriture, même PIN. */
+  async requestCorrection({ state, dispatch }, accessId) {
+    const result = await requestCorrection(accessId)
+    await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
+    return result
   },
 
   /** Clôture : révoque TOUS les accès invité de la fenêtre et pousse la logistique
