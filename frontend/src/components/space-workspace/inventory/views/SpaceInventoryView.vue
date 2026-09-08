@@ -75,7 +75,7 @@
 
 
     <!-- Body: 3-col desktop (filtres gauche / cartes / résumé droite), stacked mobile -->
-    <div class="si-body" :class="{ 'si-body-with-filters': showLeftFilters }">
+    <div class="si-body" :class="{ 'si-body-with-filters': showLeftFilters, 'si-body-guest': guestSession.isGuestMode }">
       <!-- Colonne GAUCHE (pattern EventPredict .ep-side) : toolbox hors carte sur
            le fond gris, puis le panneau de filtres (carte blanche).
            Sur mobile → InventoryFilterDrawer. -->
@@ -361,8 +361,9 @@
       />
     </div>
 
-        <!-- Onglets Boutiques/Stockages sous la recherche (parité Logistique). -->
-        <div class="si-subnav">
+        <!-- Onglets Boutiques/Stockages sous la recherche (parité Logistique).
+             Masqué en mode invité : un seul PDV, rien à basculer ni à trier. -->
+        <div v-if="!guestSession.isGuestMode" class="si-subnav">
           <div class="si-tabs">
             <button
               v-for="tab in visibleTopTabs"
@@ -438,9 +439,10 @@
           :is-item-counted="isItemCounted"
           :expected-total-for="canSeePredicted ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
-          :logistic-stock-for="canSeeExpected ? logisticStockFor : null"
+          :logistic-stock-for="guestSession.isGuestMode ? guestSession.guestExpectedFor : (canSeeExpected ? logisticStockFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
           :readonly="guestSession.isReadonly"
+          :hide-close="guestSession.isGuestMode"
           @close="countingShop = null"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -745,9 +747,10 @@
           :is-item-counted="isItemCounted"
           :expected-total-for="canSeePredicted ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
-          :logistic-stock-for="canSeeExpected ? logisticStockFor : null"
+          :logistic-stock-for="guestSession.isGuestMode ? guestSession.guestExpectedFor : (canSeeExpected ? logisticStockFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
           :readonly="guestSession.isReadonly"
+          :hide-close="guestSession.isGuestMode"
           @close="closeMobileCounting"
           @change-shop="startCount"
           @change-value="onCountValue"
@@ -3770,6 +3773,12 @@ export default {
      Dimensions alignées sur la grille de référence EventPredict (292/1fr/340). */
   .si-body.si-body-with-filters {
     grid-template-columns: 292px minmax(0, 1fr) 340px;
+  }
+  /* Invité : ni filtres gauche ni colonne droite (chrome staff) — sans ce
+     correctif, les 340px de la colonne droite restaient réservés (vides) alors
+     que son <div> est retiré du DOM (v-if), laissant une large bande blanche. */
+  .si-body.si-body-guest {
+    grid-template-columns: 1fr;
   }
   .si-left-filters {
     max-height: 100%;

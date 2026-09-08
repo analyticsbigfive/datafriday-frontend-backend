@@ -1,7 +1,7 @@
 <template>
   <div class="si-counting" :class="{ 'si-counting-mobile': mobile }">
     <div class="si-counting-head">
-      <v-btn icon variant="outlined" size="small" class="si-back" @click="$emit('close')">
+      <v-btn v-if="!hideClose" icon variant="outlined" size="small" class="si-back" @click="$emit('close')">
         <v-icon size="18">mdi-arrow-left</v-icon>
       </v-btn>
 
@@ -50,7 +50,7 @@
           </v-list>
         </v-menu>
         <div class="si-counting-meta">
-          <span>{{ currentUncounted }} item{{ currentUncounted > 1 ? 's' : '' }} non compté{{ currentUncounted > 1 ? 's' : '' }}</span>
+          <span>{{ currentUncounted }} {{ currentUncounted > 1 ? t('invCountItemsUncountedPlural') : t('invCountItemsUncountedSingular') }}</span>
           <span v-if="shops.length > 1">{{ shopIndex + 1 }}/{{ shops.length }} boutiques</span>
         </div>
         <v-progress-linear :model-value="progress" color="success" height="7" rounded />
@@ -305,6 +305,9 @@ const props = defineProps({
   // Lecture seule (invité qui a soumis son comptage, ou fenêtre clôturée) : steppers
   // et champs désactivés, actions masquées. Généralisation du pattern canTransfer.
   readonly: { type: Boolean, default: false },
+  // Invité : pas de bouton retour — il n'y a nulle part d'utile où revenir (un
+  // seul PDV, pas de grille à montrer derrière).
+  hideClose: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['close', 'change-value', 'mark-counted', 'change-shop', 'transfer'])

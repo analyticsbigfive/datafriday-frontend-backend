@@ -267,10 +267,9 @@ export class GuestPinAccessService {
     };
   }
 
+  // Décision produit 2026-09-08 : toujours montré, pas d'option — `showExpected`
+  // (InventoryWindow) n'est plus lu ici (le champ reste en base, juste plus vérifié).
   async getBaseline(user: GuestPinUser) {
-    if (!user.showExpected) {
-      return { expected: {}, unjoinedItemKeys: [] };
-    }
     const baseline =
       user.phase === 'pre-event'
         ? await this.inventoryService.getPreEventBaseline(user.spaceId, user.eventId, user.tenantId)

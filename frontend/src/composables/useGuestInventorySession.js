@@ -46,7 +46,6 @@ export function useGuestInventorySession() {
   const guestElementId = computed(() => session.value?.elementId ?? null)
   const guestElementName = computed(() => session.value?.elementName ?? null)
   const guestEventId = computed(() => session.value?.eventId ?? null)
-  const guestShowExpected = computed(() => session.value?.showExpected ?? false)
 
   // { [elementId]: { [itemId]: { packedUnits, looseUnits, isCounted, storageLocation, countingStatus } } }
   // Même forme que store.state.inventory.inventoryCounts (staff) — c'est ce qui
@@ -56,15 +55,21 @@ export function useGuestInventorySession() {
   // [{ element: {id, name, isOpen}, consolidatedInventory: [{id, name, unit, picture}] }]
   // Toujours 0 ou 1 entrée — un manager invité ne voit jamais qu'un seul PDV.
   const guestCards = ref([])
+  // { [itemId]: { packed, loose, units, unitsPerPack } } — état Logistic réel pour
+  // le PDV de l'invité. Toujours chargé et affiché (décision produit 2026-09-08 :
+  // pas d'option, le manager voit systématiquement le stock Logistic). Même
+  // donnée que le chip staff "État Logistic" (logisticStockFor), pas le "Besoin
+  // prédit" (source Restock/Event Predict, sans rapport).
+  const guestExpected = ref({})
 
-  /** Charge le catalogue + comptages du PDV de l'invité (et les quantités attendues
-   *  si autorisées) — équivalent invité de `loadForSpace`, mais sans AUCUN des
-   *  chargements staff (analyse/loadSpace, events, logistics, market prices...) qui
-   *  partiraient en 401 sous JWT invité. */
+  /** Charge le catalogue + comptages + quantités attendues du PDV de l'invité —
+   *  équivalent invité de `loadForSpace`, mais sans AUCUN des chargements staff
+   *  (analyse/loadSpace, events, logistics, prix marché...) qui partiraient en
+   *  401 sous JWT invité. */
   async function loadGuestInventory() {
     const [inventory, baseline] = await Promise.all([
       getGuestInventory(),
-      guestShowExpected.value ? getGuestBaseline() : Promise.resolve({ expected: {} }),
+      getGuestBaseline(),
     ])
     const items = inventory?.items ?? []
     const elementId = guestElementId.value
@@ -102,7 +107,18 @@ export function useGuestInventorySession() {
       })),
     }]
 
-    return { expected: baseline?.expected?.[elementId] ?? {} }
+    guestExpected.value = baseline?.expected?.[elementId] ?? {}
+  }
+
+  /** Équivalent invité de `logisticStockFor(elementId, item)` (staff) — même
+   *  contrat d'appel (élément ignoré, un seul PDV possible côté invité), même
+   *  calcul (packed × conditionnement + loose). null = article absent du registre
+   *  Logistic (jamais compté ici, distinct de "pas encore de mouvement" → 0). */
+  function guestExpectedFor(elementId, item) {
+    const exp = guestExpected.value[item?.id]
+    if (!exp) return null
+    const upp = Number(exp.unitsPerPack) > 0 ? Number(exp.unitsPerPack) : 1
+    return (Number(exp.packed) || 0) * upp + (Number(exp.loose) || 0)
   }
 
   /** Écriture optimiste locale + sauvegarde serveur — équivalent invité de
@@ -142,9 +158,9 @@ export function useGuestInventorySession() {
     guestElementId,
     guestElementName,
     guestEventId,
-    guestShowExpected,
     guestInventoryCounts,
     guestCards,
+    guestExpectedFor,
     loadGuestInventory,
     upsertGuestCount,
     submitGuestInventory,
