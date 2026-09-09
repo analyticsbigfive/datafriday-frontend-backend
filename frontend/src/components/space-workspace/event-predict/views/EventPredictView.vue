@@ -5177,12 +5177,19 @@ export default {
       // Items à quantité MANUELLE (prédiction 0) : absents d'activeTimelineData,
       // mais à transmettre au réarmement. On ne les ajoute que s'ils ne sont pas
       // déjà couverts par un record prédit (clé shop|item).
+      // BUG : `shop` restait à `null` ici (aucun record prédit pour ce shop → pas
+      // de nom timeline à reprendre), et Réarmement retombe alors sur l'id brut
+      // en guise de nom (buildSyntheticConfig, name || key) — repéré sur un PDV
+      // sans historique de vente sous le club de l'event mais avec des quantités
+      // saisies à la main. `configShopElements` porte déjà id+nom vivants pour la
+      // config de l'event, même source que `seed(el.id, el.name)` plus haut.
+      const shopNameById = new Map(this.configShopElements.map((el) => [String(el.id), el.name]));
       for (const m of (this.manualQuantityRecords || [])) {
         const k = `${m.shopId}|${m.menuItemId}`;
         if (agg.has(k)) continue;
         agg.set(k, {
           shopId: m.shopId,
-          shop: null,
+          shop: shopNameById.get(String(m.shopId)) || null,
           menuItemId: m.menuItemId,
           mappedMenuItemId: null,
           itemName: m.itemName || null,
