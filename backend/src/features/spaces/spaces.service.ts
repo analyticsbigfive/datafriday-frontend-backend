@@ -1890,8 +1890,12 @@ export class SpacesService {
          AND t."transactionDate" <  ev."windowEnd"
          -- BUG-146-01 (legacy) : tag du conteneur du club quand l'event y est lié — les jours
          -- à double affiche, la fenêtre seule mélangeait les caisses des deux clubs. tagId
-         -- NULL (event non lié, source CSV sans tag) → fenêtre seule, comme avant.
-         AND (ev."tagId" IS NULL OR t."eventId" = ev."tagId")
+         -- NULL (event non lié, source CSV sans tag) → fenêtre seule, comme avant. Ignoré dès
+         -- que eventIntegrationId est posé (ci-dessous) : ce tag n'est alors plus rafraîchi
+         -- par aucun pipeline et devient périmé à chaque rollover de saison (le conteneur
+         -- change), ce qui viderait le paniers/timeline sans que rien d'autre à l'écran ne
+         -- le signale (constaté sur SFP-Perpignan, tag encore sur la saison 25-26).
+         AND (ev."eventIntegrationId" IS NOT NULL OR ev."tagId" IS NULL OR t."eventId" = ev."tagId")
          -- BUG-368-02 : eventIntegrationId explicite, prioritaire et robuste — même rôle que
          -- tagId ci-dessus mais sans dépendre d'un conteneur de saison Weezevent.
          AND (ev."eventIntegrationId" IS NULL OR t."integrationId" = ev."eventIntegrationId")
@@ -2033,8 +2037,10 @@ export class SpacesService {
         ON t."transactionDate" >= ev."windowStart"
        AND t."transactionDate" <  ev."windowEnd"
        -- BUG-146-01 (legacy) / BUG-368-02 : mêmes clauses tag conteneur + integrationId que
-       -- event-timeline/transaction-baskets.
-       AND (ev."tagId" IS NULL OR t."eventId" = ev."tagId")
+       -- event-timeline/transaction-baskets, y compris le bypass du tag dès que
+       -- eventIntegrationId est posé (tag non rafraîchi au rollover de saison, cf. commentaire
+       -- détaillé sur getTransactionBasketsBatchRaw).
+       AND (ev."eventIntegrationId" IS NOT NULL OR ev."tagId" IS NULL OR t."eventId" = ev."tagId")
        AND (ev."eventIntegrationId" IS NULL OR t."integrationId" = ev."eventIntegrationId")
        AND t."tenantId" = ${tenantId}
        ${integrationClause}

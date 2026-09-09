@@ -1223,6 +1223,8 @@ export const translations = {
     eventsListLabelSpace: 'Space',
     eventsListSelectSpace: 'Select a space',
     eventsListLabelStartDate: 'Start Date',
+    eventsListLabelNumberOfTpe: 'Number of POS terminals',
+    eventsListLabelNumberOfCollaborators: 'Number of staff',
     // EventFormDrawer — sections, placeholders et messages de validation
     eventsListSectionGeneral: 'General information',
     eventsListSectionDates: 'Dates & times',
@@ -5972,6 +5974,8 @@ export const translations = {
     eventsListLabelSpace: 'Espace',
     eventsListSelectSpace: 'Sélectionner un espace',
     eventsListLabelStartDate: 'Date de début',
+    eventsListLabelNumberOfTpe: 'Nombre de TPE',
+    eventsListLabelNumberOfCollaborators: 'Nombre de collaborateurs',
     // EventFormDrawer — sections, placeholders et messages de validation
     eventsListSectionGeneral: 'Informations générales',
     eventsListSectionDates: 'Dates & horaires',

@@ -299,6 +299,39 @@
         </v-autocomplete>
       </div>
 
+      <!-- Compteurs opérationnels (obligatoires) — TPE & collaborateurs, sur une
+           ligne comme date de début / date de fin. -->
+      <div class="efd-row mb-4">
+        <div class="efd-select-wrap">
+          <label class="efd-select-label">{{ t('eventsList.labelNumberOfTpe') }} <span class="efd-star">*</span></label>
+          <v-text-field
+            v-model.number="newEvent.numberOfTpe"
+            type="number"
+            min="0"
+            step="1"
+            variant="outlined"
+            density="comfortable"
+            hide-details
+            placeholder="0"
+            class="efd-input"
+          />
+        </div>
+        <div class="efd-select-wrap">
+          <label class="efd-select-label">{{ t('eventsList.labelNumberOfCollaborators') }} <span class="efd-star">*</span></label>
+          <v-text-field
+            v-model.number="newEvent.numberOfCollaborators"
+            type="number"
+            min="0"
+            step="1"
+            variant="outlined"
+            density="comfortable"
+            hide-details
+            placeholder="0"
+            class="efd-input"
+          />
+        </div>
+      </div>
+
       <!-- ── Section: Séances ── -->
       <div class="efd-section-label">
         <List :size="12" />
@@ -429,19 +462,19 @@
       <div class="efd-fin-grid mb-4">
         <div class="efd-select-wrap">
           <label class="efd-select-label">Revenue (€)</label>
-          <NumberField v-model="newEvent.revenue" :decimals="2" :min="0" pad grouping :empty-value="0" />
+          <NumberField v-model="newEvent.revenue" class="efd-numfield" :decimals="2" :min="0" pad grouping :empty-value="0" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Transactions</label>
-          <NumberField v-model="newEvent.transactionCount" :decimals="0" :step="1" :min="0" :empty-value="0" />
+          <NumberField v-model="newEvent.transactionCount" class="efd-numfield" :decimals="0" :step="1" :min="0" :empty-value="0" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Avg Spend / Tx</label>
-          <NumberField v-model="newEvent.avgSpendPerTx" :decimals="2" :min="0" pad grouping :empty-value="0" />
+          <NumberField v-model="newEvent.avgSpendPerTx" class="efd-numfield" :decimals="2" :min="0" pad grouping :empty-value="0" />
         </div>
         <div class="efd-select-wrap">
           <label class="efd-select-label">Per Capita</label>
-          <NumberField v-model="newEvent.perCapita" :decimals="2" :min="0" pad grouping :empty-value="0" />
+          <NumberField v-model="newEvent.perCapita" class="efd-numfield" :decimals="2" :min="0" pad grouping :empty-value="0" />
         </div>
       </div>
     </div>
@@ -543,6 +576,8 @@ const EMPTY_EVENT = () => ({
   transactionCount: null,
   avgSpendPerTx: null,
   perCapita: null,
+  numberOfTpe: null,
+  numberOfCollaborators: null,
 });
 
 export default {
@@ -852,6 +887,8 @@ export default {
         transactionCount: e?.transactionCount ?? null,
         avgSpendPerTx: e?.avgSpendPerTx ?? null,
         perCapita: e?.perCapita ?? null,
+        numberOfTpe: e?.numberOfTpe ?? null,
+        numberOfCollaborators: e?.numberOfCollaborators ?? null,
       };
 
       const targetCount = this.newEvent.numberOfSessions;
@@ -876,6 +913,8 @@ export default {
         { value: this.newEvent.numberOfSessions != null && this.newEvent.numberOfSessions !== '' ? String(this.newEvent.numberOfSessions) : '', label: 'Number of sessions' },
         { value: this.newEvent.ticketsSold != null && this.newEvent.ticketsSold !== '' ? String(this.newEvent.ticketsSold) : '', label: 'Tickets sold' },
         { value: this.newEvent.ticketsScanned != null && this.newEvent.ticketsScanned !== '' ? String(this.newEvent.ticketsScanned) : '', label: 'Tickets scanned' },
+        { value: this.newEvent.numberOfTpe != null && this.newEvent.numberOfTpe !== '' ? String(this.newEvent.numberOfTpe) : '', label: this.t('eventsList.labelNumberOfTpe') },
+        { value: this.newEvent.numberOfCollaborators != null && this.newEvent.numberOfCollaborators !== '' ? String(this.newEvent.numberOfCollaborators) : '', label: this.t('eventsList.labelNumberOfCollaborators') },
       ];
       for (const c of requiredChecks) {
         if (!c.value) {
@@ -889,6 +928,8 @@ export default {
         { key: 'ticketsScanned', label: 'Tickets scanned' },
         { key: 'transactionCount', label: 'Transactions' },
         { key: 'numberOfSessions', label: 'Number of sessions' },
+        { key: 'numberOfTpe', label: this.t('eventsList.labelNumberOfTpe') },
+        { key: 'numberOfCollaborators', label: this.t('eventsList.labelNumberOfCollaborators') },
       ];
       for (const f of intFields) {
         const v = this.newEvent[f.key];
@@ -964,6 +1005,8 @@ export default {
           transactionCount: this.newEvent.transactionCount != null ? Number(this.newEvent.transactionCount) : undefined,
           avgSpendPerTx: this.newEvent.avgSpendPerTx != null ? Number(this.newEvent.avgSpendPerTx) : undefined,
           perCapita: this.newEvent.perCapita != null ? Number(this.newEvent.perCapita) : undefined,
+          numberOfTpe: this.newEvent.numberOfTpe != null ? Math.trunc(Number(this.newEvent.numberOfTpe)) : undefined,
+          numberOfCollaborators: this.newEvent.numberOfCollaborators != null ? Math.trunc(Number(this.newEvent.numberOfCollaborators)) : undefined,
         };
 
         if (this.mode === 'edit') {
@@ -1248,6 +1291,31 @@ export default {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
+}
+
+/* Champs numériques (NumberField) de la section financière : pleine largeur +
+   mêmes bordure/rayon/focus que .efd-input. Sans classe, NumberField s'auto-limitait
+   à une largeur `ch` (petites boîtes) avec un style gris/bleu incohérent. */
+.efd-numfield {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 11px 14px;
+  border: 1.5px solid #e5e7eb;
+  border-radius: 11px;
+  background: #fff;
+  color: #111827;
+  font: inherit;
+  transition: border-color .15s, box-shadow .15s;
+}
+.efd-numfield:focus {
+  outline: none;
+  border-color: #ff3131;
+  box-shadow: 0 0 0 3px rgba(255, 49, 49, .10);
+}
+.efd--dark .efd-numfield {
+  background: #1f2937;
+  border-color: #4b5563;
+  color: #f3f4f6;
 }
 
 /* Footer buttons (le conteneur lui-même vient désormais de EventDrawerShell) */
