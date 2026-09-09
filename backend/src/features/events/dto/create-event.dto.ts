@@ -34,6 +34,9 @@ export class CreateEventDto {
   @ApiPropertyOptional() @IsOptional() @IsString() eventEndTime?: string;
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) ticketsSold?: number;
   @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) ticketsScanned?: number;
+  // Opérationnel — saisis manuellement dans EventFormDrawer (obligatoires côté form).
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) numberOfTpe?: number;
+  @ApiPropertyOptional() @IsOptional() @Type(() => Number) @IsInt() @Min(0) numberOfCollaborators?: number;
   // Teams (events sport) — null explicite = désassigner
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() homeTeamName?: string | null;
   @ApiPropertyOptional({ nullable: true }) @IsOptional() @IsString() visitingTeamId?: string | null;

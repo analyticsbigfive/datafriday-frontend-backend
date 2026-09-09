@@ -450,6 +450,8 @@ export class EventsService {
           ...(dto.transactionCount !== undefined && { transactionCount: dto.transactionCount }),
           ...(dto.avgSpendPerTx !== undefined && { avgSpendPerTx: dto.avgSpendPerTx }),
           ...(dto.perCapita !== undefined && { perCapita: dto.perCapita }),
+          ...(dto.numberOfTpe !== undefined && { numberOfTpe: dto.numberOfTpe }),
+          ...(dto.numberOfCollaborators !== undefined && { numberOfCollaborators: dto.numberOfCollaborators }),
           ...(await this.resolveEventSpaceFields(dto, tenantId)),
           ...(await this.resolveEventTaxonomyFields(dto, tenantId)),
           ...(await this.resolveEventTeamFields(dto, tenantId)),
@@ -581,6 +583,8 @@ export class EventsService {
           ...(dto.transactionCount !== undefined && { transactionCount: dto.transactionCount }),
           ...(dto.avgSpendPerTx !== undefined && { avgSpendPerTx: dto.avgSpendPerTx }),
           ...(dto.perCapita !== undefined && { perCapita: dto.perCapita }),
+          ...(dto.numberOfTpe !== undefined && { numberOfTpe: dto.numberOfTpe }),
+          ...(dto.numberOfCollaborators !== undefined && { numberOfCollaborators: dto.numberOfCollaborators }),
           ...(await this.resolveEventSpaceFields(dto, tenantId)),
           ...(await this.resolveEventTaxonomyFields(dto, tenantId)),
           ...(await this.resolveEventTeamFields(dto, tenantId, {

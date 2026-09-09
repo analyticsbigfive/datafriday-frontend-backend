@@ -31,6 +31,9 @@
             <span>{{ eventDateLabel }}</span>
             <span v-if="weatherLabel" class="rj1-hero__weather">{{ weatherLabel }}</span>
           </div>
+          <div class="rj1-hero__staff">
+            {{ t('eventsList.labelNumberOfCollaborators') }} : {{ collaboratorsDisplay }} — {{ t('eventsList.labelNumberOfTpe') }} : {{ tpeDisplay }}
+          </div>
         </div>
       </div>
 
@@ -76,7 +79,7 @@
             <div class="rj1-donut">
               <canvas ref="categoryCanvas" width="300" height="300"></canvas>
               <ul class="rj1-legend">
-                <li v-for="s in categorySlices" :key="s.label" class="rj1-legend__item">
+                <li v-for="s in categoryLegend" :key="s.label" class="rj1-legend__item">
                   <span class="rj1-legend__label"><span class="rj1-legend__bullet" :style="{ color: s.color }">●</span>{{ truncate(s.label, 14) }}</span>
                   <span class="rj1-legend__pct">{{ s.pctLabel }}</span>
                 </li>
@@ -168,6 +171,16 @@ function colorFor(label, i) {
 const spaceLabel = computed(() => (props.data.space?.name || '—').toUpperCase())
 const eventName = computed(() => props.data.event?.name || props.data.event?.eventName || '—')
 
+// Effectifs opérationnels de l'event (nouveaux champs) — « — » tant que non saisis.
+const collaboratorsDisplay = computed(() => {
+  const v = props.data.event?.numberOfCollaborators
+  return v == null ? '—' : formatNumber(v)
+})
+const tpeDisplay = computed(() => {
+  const v = props.data.event?.numberOfTpe
+  return v == null ? '—' : formatNumber(v)
+})
+
 const dateFmt = computed(() =>
   new Intl.DateTimeFormat(intlLocale.value, { day: 'numeric', month: 'long', year: 'numeric' }),
 )
@@ -237,6 +250,9 @@ function toSlices(rows) {
 }
 const typeSlices = computed(() => toSlices(props.data.buckets?.byType))
 const categorySlices = computed(() => toSlices(props.data.buckets?.byCategory))
+// Légende catégorie limitée au TOP 5 (remarque Bertrand) — le donut, lui, garde
+// TOUTES les parts (drawDonut reçoit toujours categorySlices complet).
+const categoryLegend = computed(() => categorySlices.value.slice(0, 5))
 // 3 cartes CA au-dessus de chaque camembert (les plus gros postes).
 const typeCards = computed(() => typeSlices.value.slice(0, 3))
 const categoryCards = computed(() => categorySlices.value.slice(0, 3))
@@ -398,6 +414,7 @@ onMounted(() => {
 /* Date puis météo EN DESSOUS (colonne), pas côte à côte. */
 .rj1-hero__meta { display: flex; flex-direction: column; justify-content: center; gap: 4px; align-items: center; font-size: var(--fs-base); margin-top: 6px; }
 .rj1-hero__weather { font-weight: var(--fw-semibold); }
+.rj1-hero__staff { font-size: var(--fs-sm); margin-top: 5px; opacity: 0.95; }
 
 /* ── KPIs ── */
 .rj1-kpis {
@@ -436,8 +453,9 @@ onMounted(() => {
 .rj1-donut { display: flex; align-items: center; gap: 14px; }
 .rj1-donut canvas { width: 132px; height: 132px; flex-shrink: 0; }
 .rj1-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; font-size: var(--fs-xs); }
-/* nom | %  (le dot est un glyphe « ● » DANS le nom, plus une colonne). */
-.rj1-legend__item { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+/* nom | %  collés (espace minimal, remarque Bertrand) : colonnes au contenu,
+   packées à gauche — le % suit le nom au lieu d'être poussé au bord droit. */
+.rj1-legend__item { display: grid; grid-template-columns: auto auto; justify-content: start; align-items: center; gap: 8px; }
 /* Puce « ● » : un GLYPHE (pas une boîte) dans le flux du nom → même baseline que le
    texte, donc aligné par construction sous html2canvas. */
 .rj1-legend__bullet { margin-right: 4px; font-size: 10px; line-height: 1; }

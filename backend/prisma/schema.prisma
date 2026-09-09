@@ -2792,6 +2792,10 @@ model Event {
   ticketsSold    Int?
   ticketsScanned Int?
 
+  // Opérationnel — saisis manuellement dans EventFormDrawer (obligatoires côté form).
+  numberOfTpe           Int? // nombre de TPE (terminaux de paiement)
+  numberOfCollaborators Int? // nombre de collaborateurs
+
   // Revenue tracking (calculated)
   revenue          Decimal? @db.Decimal(12, 2)
   transactionCount Int?
