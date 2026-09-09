@@ -553,6 +553,45 @@ export class AggregationService {
               ? Prisma.sql`AND t."integrationId" = ${integrationId}`
               : Prisma.sql``;
 
+          // BUG-352-01 : revenueHt sommait ti."unitPrice" * ti."quantity" — le prix catalogue
+          // de CHAQUE ligne d'article, y compris les lignes "formule/menu" (ex: FORMULE
+          // BURGER + FRITES à 15€) qui n'ont jamais de paiement propre : Weezevent facture
+          // le paiement réel sur les lignes composants (SMASH BURGER + FRITES FRAICHES ici),
+          // jamais sur la ligne formule elle-même. Résultat : le CA de la formule ET de ses
+          // composants étaient comptés deux fois (+2,6% mesuré sur un tenant réel, tenant
+          // cmpbej24f01jtix69z8o727vs, +10 363€ sur 399 086€).
+          //
+          // Le montant réellement payé par ligne vit dans ti."rawData"->'payments' (JSON
+          // Weezevent embarqué à l'écriture, vide [] sur une ligne formule) — c'est la seule
+          // source fiable : la table relationnelle WeezeventPayment n'est peuplée que par le
+          // webhook temps réel (transaction-sync.service.ts), pas par le sync batch
+          // historique (weezevent-incremental-sync.service.ts) qui a écrit la majorité des
+          // lignes — vérifié : 0 ligne WeezeventPayment pour 6 tenants sur 7.
+          //
+          // Les items Digifood (t."provider" = 'DIGIFOOD') n'ont pas cette structure de
+          // paiements dans leur rawData (digifood-ingestion.service.ts y stocke item.raw,
+          // pas un tableau payments) — on garde pour eux l'ancienne formule unitPrice, déjà
+          // nette de remise côté Digifood (price_pu envoyé après remise, reduction toujours
+          // à 0 — cf. digifood-ingestion.service.ts).
+          // Affinage post-mesure (même jour) : `ti."rawData"` porte 3 formes distinctes côté
+          // Weezevent, pas 2 — le COALESCE initial les confondait. Mesuré sur toute la table :
+          // clé "payments" ABSENTE (20 294 lignes, 77 804 €, ex. "Tsing Tao 25cl" — produit
+          // normal, juste une lacune de donnée) vs clé PRÉSENTE mais VIDE (6 417 lignes,
+          // 27 282 €, vraies lignes formule/menu). Sans le test `?` ci-dessous, les deux
+          // tombaient à 0€ : la formule sous-comptait les vrais produits en croyant corriger
+          // des formules. Le test de clé restaure `unitPrice` uniquement quand la donnée de
+          // paiement est absente, jamais quand elle est présente-et-vide.
+          const revenueHtExpr = Prisma.sql`
+            CASE WHEN t."provider" = 'WEEZEVENT' AND ti."rawData" ? 'payments' THEN
+              COALESCE((
+                SELECT SUM((p->>'amount')::numeric - (p->>'amount_vat')::numeric)
+                FROM jsonb_array_elements(ti."rawData"->'payments') AS p
+              ), 0) / 100
+            ELSE
+              (ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
+            END
+          `;
+
           // Agrégation DB-level : JOIN + GROUP BY + INSERT en une seule requête
           // Aucune donnée chargée en mémoire Node.js — élimination du findMany + JS loop
           //
@@ -587,7 +626,7 @@ export class AggregationService {
               t."merchantId",
               lsm."spaceElementId",
               MAX(t."integrationId"),
-              SUM((ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)),
+              SUM(${revenueHtExpr}),
               -- BUG-135-01 : COUNT(DISTINCT t."id"), PAS COUNT(ti."id"). Cette colonne
               -- s'appelle "transactionsCount" mais comptait des LIGNES de vente : sur
               -- « Le Mans-Brest » du 22/08/2026, 13 925 lignes pour 5 721 tickets réels —
@@ -639,7 +678,7 @@ export class AggregationService {
               ${eventDate}::date,
               ti."productId",
               MAX(t."integrationId"),
-              SUM((ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)),
+              SUM(${revenueHtExpr}),
               SUM(ti."quantity")::float8,
               NOW(),
               NOW()
@@ -666,13 +705,10 @@ export class AggregationService {
           // t."locationId", jamais via une jointure produit), avec ti."productId" et
           // t."locationName" ajoutés au GROUP BY.
           //
-          // revenueHt ne soustrait PAS ti."reduction" — volontairement différent des deux
-          // blocs ci-dessus. C'est la formule historique de getEventTimelineBatch
-          // (spaces.service.ts), qui ne l'a jamais soustraite ; la préserver ici évite de
-          // changer les chiffres déjà affichés sur Analyse/Inventory/Live le jour où ce
-          // endpoint bascule sur cette table. Ne pas "corriger" pour aligner sur BUG-015 sans
-          // validation métier explicite — cf. décision documentée dans le schema Prisma sur
-          // SpaceRevenueMinuteItemAgg.
+          // BUG-352-01 : utilise désormais revenueHtExpr (paiements réels via rawData, cf.
+          // plus haut dans ce fichier) au lieu de unitPrice*quantity — supprime au passage
+          // l'ancien écart volontaire "pas de soustraction de reduction" avec les deux blocs
+          // ci-dessus : revenueHtExpr reflète le montant payé, déjà net de toute remise.
           //
           // AND t.status = 'V' : contrairement aux deux blocs ci-dessus, getEventTimelineBatch
           // filtre explicitement sur les transactions validées (spaces.service.ts) — sans ce
@@ -694,7 +730,7 @@ export class AggregationService {
               lsm."spaceElementId",
               ti."productId",
               MAX(t."integrationId"),
-              SUM(ti."unitPrice" * ti."quantity" / (1 + ti."vat" / 100)),
+              SUM(${revenueHtExpr}),
               COUNT(DISTINCT t."id")::int,
               SUM(ti."quantity")::float8,
               NOW(),
