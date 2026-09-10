@@ -33,21 +33,28 @@ export function reconciliationKey(elementId, itemId) {
  * Construit `soldUnitsByKey` depuis la consommation explosée du backend
  * (GET /inventory/:spaceId/event-consumption/:eventId — Q35 Option 1).
  *
- * Chaque ligne backend = { elementId, itemKey, quantity } où `itemKey` est un
- * NOM du référentiel Logistic (ingrédient, composant, ou menu item rfs=Yes).
- * La jointure vers l'article compté se fait par nom normalisé — même contrat
- * que Logistique ↔ front partout ailleurs. Pas de jointure → la quantité sort
- * dans `unjoined` (BUG-238 : jamais avalée en silence).
+ * Chaque ligne backend = { elementId, itemKey, quantity, itemRefId?, itemKind? }
+ * où `itemKey` est un NOM du référentiel Logistic (ingrédient, composant, ou
+ * menu item rfs=Yes) et `itemRefId` (BUG-378-02, ADR-0006) l'identité catalogue
+ * de la ligne, la même que le comptage (marketPriceId → id). Jointure vers
+ * l'article compté par ID d'abord (insensible aux renommages), nom normalisé en
+ * repli (backend antérieur sans identité, ou identité inconnue du comptage).
+ * Pas de jointure → la quantité sort dans `unjoined` (BUG-238 : jamais avalée
+ * en silence).
  *
- * @param {Array<{elementId:string, itemKey:string, quantity:number}>} lines
+ * @param {Array<{elementId:string, itemKey:string, quantity:number, itemRefId?:string}>} lines
  * @param {object} params
  * @param {Set<string>} params.elementIdSet        PdV/storages du référentiel compté
  * @param {Map<string,string>} params.itemIdByNormName  nom normalisé → itemId compté
+ * @param {Set<string>} [params.countedItemIds]    ids d'articles comptés (jointure par id)
  * @param {(s:any)=>string} params.normalize       normalisation partagée (normalizeStr)
  * @returns {{soldUnitsByKey: Record<string, number>, unjoinedItems: Set<string>,
  *   unjoinedShops: Set<string>, unjoinedUnits: number}}
  */
-export function buildSoldUnitsFromConsumption(lines, { elementIdSet, itemIdByNormName, normalize }) {
+export function buildSoldUnitsFromConsumption(
+  lines,
+  { elementIdSet, itemIdByNormName, countedItemIds = null, normalize },
+) {
   const soldUnitsByKey = {}
   const unjoinedItems = new Set()
   const unjoinedShops = new Set()
@@ -61,7 +68,9 @@ export function buildSoldUnitsFromConsumption(lines, { elementIdSet, itemIdByNor
       unjoinedUnits += qty
       continue
     }
-    const itemId = itemIdByNormName.get(normalize(l?.itemKey))
+    const refId = l?.itemRefId != null ? String(l.itemRefId) : ''
+    const itemId =
+      (refId && countedItemIds?.has(refId) ? refId : null) || itemIdByNormName.get(normalize(l?.itemKey))
     if (!itemId) {
       if (l?.itemKey) unjoinedItems.add(String(l.itemKey))
       unjoinedUnits += qty
@@ -86,12 +95,9 @@ export function buildSoldUnitsFromConsumption(lines, { elementIdSet, itemIdByNor
  * @param {Record<string, number>} params.countedUnitsByKey   comptage post-événement
  * @param {Record<string, number>|null} [params.preEventUnitsByKey]  inventaire pré-événement
  * @param {Record<string, number>} [params.soldUnitsByKey]    ventes pendant l'événement
- * @param {Record<string, number>|null} [params.predictedUnitsByKey] prédictions du scénario
- * @param {Set<string>|null} [params.predictableItemIds]  itemIds au grain menu item
- *   (catalogue vendable). Q35 : le scénario prédit des VENTES d'articles — sur une
- *   ligne au grain ingrédient (id de ligne de recette, hors catalogue), « absent du
- *   scénario » ne veut pas dire « prédit 0 », il veut dire « pas ce grain » →
- *   predictedUnits null. Sans le param (anciens appelants/tests) : régime inchangé.
+ * @param {Record<string, number>|null} [params.predictedUnitsByKey] prédictions du
+ *   scénario, au GRAIN INVENTAIRE depuis BUG-378-02 (`postEventPredicted.js`) :
+ *   même grain que le compté et le vendu, donc comparable ligne à ligne.
  * @param {Record<string, number>} [params.unitCostByItemId]  coût unitaire par article
  * @param {Map<string, string>|Record<string, string>} [params.elementNameById]
  * @param {Map<string, string>|Record<string, string>} [params.itemNameById]
@@ -103,7 +109,6 @@ export function buildPostEventReconciliationLines({
   soldUnitsByKey = {},
   movementUnitsByKey = null,
   predictedUnitsByKey = null,
-  predictableItemIds = null,
   unitCostByItemId = {},
   elementNameById = {},
   itemNameById = {},
@@ -140,11 +145,9 @@ export function buildPostEventReconciliationLines({
 
     const soldUnits = round2(toUnits(soldUnitsByKey?.[key]))
     const countedUnits = round2(toUnits(countedUnitsByKey?.[key]))
-    // Grain prédictible seulement (Q35) : ligne hors catalogue vendable → null,
-    // jamais un 0 fabriqué par changement de grain.
-    const predictable = !predictableItemIds || predictableItemIds.has(itemKey)
-    const predictedUnits =
-      hasScenario && predictable ? round2(toUnits(predictedUnitsByKey?.[key])) : null
+    // Scénario présent → 0 quand il ne prédit rien pour cette ligne (le prédit
+    // est au même grain que le compté, « absent » veut bien dire « 0 »).
+    const predictedUnits = hasScenario ? round2(toUnits(predictedUnitsByKey?.[key])) : null
 
     const movementUnits = hasMovements ? round2(toUnits(movementUnitsByKey?.[key])) : null
 
@@ -193,12 +196,12 @@ export function buildPostEventReconciliationLines({
  * persiste pas de summary, il reste self-contained par ses lignes).
  *
  * - `diffPct` = (Σ vendu − Σ prédit) / Σ prédit — null si aucune ligne prédite
- *   ou Σ prédit = 0 (éviter le ±Infinity). Depuis Q35 Option 1, `soldUnits`
- *   peut être au grain INGRÉDIENT (ventes explosées) alors que le prédit reste
- *   au grain menu item : le Σ vendu du diffPct ne somme donc que les lignes
- *   PRÉDITES (grains comparables) — sinon les unités d'ingrédients gonflent le
- *   vendu face à un prédit qui ne les contient pas. `totalSold` (chip « Total
- *   vendu ») reste la somme de TOUTES les lignes.
+ *   ou Σ prédit = 0 (éviter le ±Infinity). Le Σ vendu du diffPct ne somme que
+ *   les lignes PRÉDITES (predictedUnits non null) : un document antérieur à
+ *   BUG-378-02 garde un prédit au grain article sur certaines lignes seulement,
+ *   et les unités d'ingrédients gonfleraient le vendu face à un prédit qui ne
+ *   les contient pas. `totalSold` (chip « Total vendu ») reste la somme de
+ *   TOUTES les lignes.
  * - `totalMissingUnits`/`totalMissingValue` ne somment que les manquants
  *   POSITIFS (un surplus sur un article ne « rembourse » pas la perte d'un
  *   autre) ; null si aucune ligne n'a de missing calculable.

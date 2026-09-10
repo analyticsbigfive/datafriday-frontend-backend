@@ -891,6 +891,13 @@ import {
 } from '@/api/endpoints/inventory.api'
 import { buildPreEventExpected, expectedKey, flattenExpectedUnits } from '@/utils/preEventExpected'
 import { loadPredictedNeed, lookupPredictedNeed, buildRestockNeedIndex } from '@/composables/usePredictedNeed'
+import { buildPredictedUnitsForReconciliation } from '@/utils/postEventPredicted'
+import {
+  restrictKeysToPerimeter,
+  sumPerimeterExclusions,
+  buildCatalogNameById,
+} from '@/utils/reconciliationPerimeter'
+import { buildUnitCostByItemId } from '@/utils/reconciliationCosts'
 import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
 import { compareInventoryCards } from '@/utils/inventoryCardSort'
 import {
@@ -2703,7 +2710,14 @@ export default {
             kind: 'post-event',
             createdAt: new Date().toISOString(),
             lines,
-            meta: { baseline: { source: meta.preEventSource }, salesUnjoined: meta.salesUnjoined, salesSource: meta.salesSource },
+            meta: {
+              baseline: { source: meta.preEventSource },
+              salesUnjoined: meta.salesUnjoined,
+              salesSource: meta.salesSource,
+              predictedSource: meta.predictedSource,
+              predictedUnjoined: meta.predictedUnjoined,
+              perimeterExcluded: meta.perimeterExcluded,
+            },
           }
           this.reconciliations = [doc, ...this.reconciliations]
           this.selectedReconciliationId = doc.id
@@ -2724,6 +2738,10 @@ export default {
             // Q35 : grain de la source « Vendu » — un backend antérieur le rejette
             // en 400 « should not exist » → repli basePayload ci-dessous (BUG-228).
             salesSource: meta.salesSource,
+            // BUG-378-02 : même réflexe, mêmes champs optionnels côté DTO.
+            predictedSource: meta.predictedSource,
+            ...(meta.predictedUnjoined ? { predictedUnjoined: meta.predictedUnjoined } : {}),
+            ...(meta.perimeterExcluded ? { perimeterExcluded: meta.perimeterExcluded } : {}),
           })
         } catch (e) {
           // Réflexe BUG-228 : le DTO backend est en whitelist stricte
@@ -2760,9 +2778,20 @@ export default {
       const entries = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
       const countedUnitsByKey = {}
       const elementNameById = {}
-      const itemNameById = {}
+      // Noms : catalogue en repli (BUG-378-02), comptage prioritaire. Une clé
+      // jointe que l'écran ne nomme pas (pré-event d'un article retiré depuis,
+      // mouvement Logistic) n'affiche plus un tiret vide.
+      const itemNameById = buildCatalogNameById({
+        menuItems: this.store.state.analyse?.menuItems || [],
+        marketPrices: this.store.state.inventory?.marketPrices || [],
+        components: this.store.state.analyse?.components || [],
+      })
       const packagedByItemId = {}
       const elementIdByNormName = new Map()
+      // Périmètre compté (BUG-378-02) : PdV → articles. C'est LUI que le document
+      // décrit ; les autres sources s'y projettent, jamais l'inverse.
+      const countedItemsByElement = new Map()
+      const countedItems = []
       for (const entry of entries) {
         const el = entry.element || {}
         if (!el.id) continue
@@ -2770,17 +2799,23 @@ export default {
         const nk = normalizeStr(el.name)
         if (nk && !elementIdByNormName.has(nk)) elementIdByNormName.set(nk, String(el.id))
         const items = entry.consolidatedInventory || entry.storageInventory || entry.merchInventory || []
+        const perimeterItems = []
         for (const it of items) {
           if (!it?.id) continue
-          itemNameById[String(it.id)] = it.name || ''
+          itemNameById[String(it.id)] = it.name || itemNameById[String(it.id)] || ''
           packagedByItemId[String(it.id)] = Number(it.inventoryQuantityPackaged || 1)
           countedUnitsByKey[reconciliationKey(el.id, it.id)] = this.totalForItem(el.id, it)
+          perimeterItems.push({ id: String(it.id), name: it.name || '' })
+          countedItems.push(it)
         }
+        countedItemsByElement.set(String(el.id), perimeterItems)
       }
+      const countedElementIds = new Set(countedItemsByElement.keys())
+      const countedItemIds = new Set(countedItems.map((it) => String(it.id)))
       const itemIdByNormName = new Map()
-      for (const [id, name] of Object.entries(itemNameById)) {
-        const nk = normalizeStr(name)
-        if (nk && !itemIdByNormName.has(nk)) itemIdByNormName.set(nk, id)
+      for (const it of countedItems) {
+        const nk = normalizeStr(it.name)
+        if (nk && !itemIdByNormName.has(nk)) itemIdByNormName.set(nk, String(it.id))
       }
 
       // ── Pré-event : comptage d'avant-match du MÊME event, repli scopé sur le
@@ -2806,6 +2841,11 @@ export default {
         console.warn('[SpaceInventory] pré-event inventory KO (colonnes left/miss à « — »):', e?.message)
         preEventUnitsByKey = null
       }
+      // Un PdV compté avant le match mais retiré de la configuration depuis
+      // fabriquait une ligne orpheline sans nom (BUG-378-02) : hors périmètre →
+      // écarté et compté, archivé dans meta.perimeterExcluded.
+      const preRestricted = restrictKeysToPerimeter(preEventUnitsByKey, countedElementIds)
+      preEventUnitsByKey = preRestricted.kept
 
       // ── Mouvements Logistic de la fenêtre du match ──────────────────────────
       // Sans ce terme, un transfert entre deux PdV pendant le match se lit comme
@@ -2837,6 +2877,9 @@ export default {
         console.warn('[SpaceInventory] mouvements de la fenêtre KO (réco sans ce terme):', e?.message)
         movementUnitsByKey = null
       }
+      const movementsRestricted = restrictKeysToPerimeter(movementUnitsByKey, countedElementIds)
+      movementUnitsByKey = movementsRestricted.kept
+      const perimeterExcluded = sumPerimeterExclusions(preRestricted, movementsRestricted)
 
       // ── Vendu pendant l'event ────────────────────────────────────────────────
       // Q35 Option 1 (décision owner 2026-07-27) : source primaire = ventes
@@ -2881,8 +2924,11 @@ export default {
 
       if (consumption) {
         const joined = buildSoldUnitsFromConsumption(consumption.lines || [], {
-          elementIdSet: new Set(Object.keys(elementNameById)),
+          elementIdSet: countedElementIds,
           itemIdByNormName,
+          // BUG-378-02 : identité catalogue portée par le backend → jointure par
+          // id d'abord, nom en repli (backend antérieur sans identité).
+          countedItemIds,
           normalize: normalizeStr,
         })
         soldUnitsByKey = joined.soldUnitsByKey
@@ -2921,7 +2967,7 @@ export default {
               (r.mappedMenuItemId != null && String(r.mappedMenuItemId)) ||
               itemIdByNormName.get(normalizeStr(itemLabel)) ||
               null
-            if (!itemId || !(itemId in itemNameById)) {
+            if (!itemId || !countedItemIds.has(String(itemId))) {
               // Vente non rattachable à un article inventorié (id inconnu du
               // référentiel compté OU nom sans correspondance).
               if (itemLabel) unjoinedItems.add(String(itemLabel))
@@ -2949,36 +2995,54 @@ export default {
         )
       }
 
-      // ── Prédit : scénario Event Predict (pont localStorage, comme le Réarmement)
+      // ── Prédit : version Event Predict PAR DÉFAUT, explosée au grain inventaire
+      // (BUG-378-02), la même source que le chip « Besoin prédit » et que le
+      // document pre-event (`usePredictedNeed`). Jusqu'ici : records bruts au
+      // grain menu item (n'importe quelle version du miroir local) → 0 jointure
+      // avec un comptage au grain ingrédient, lignes orphelines sans nom, Diff %
+      // structurellement à -100 %. Le prédit est posé PAR ARTICLE COMPTÉ ; ce qui
+      // ne rejoint rien est archivé (`predictedUnjoined`), jamais transformé en
+      // ligne. Ne jette jamais (miroir local en repli si l'API tombe).
       let predictedUnitsByKey = null
-      const predicted = localDb.getAnyPredictedRecords(spaceId, recoEvent.id)
-      if (predicted?.records?.length) {
-        predictedUnitsByKey = {}
-        for (const pr of predicted.records) {
-          const elId = pr.shopId || pr.elementId
-          const itemId = pr.menuItemId || pr.mappedMenuItemId
-          if (!elId || !itemId) continue
-          const key = reconciliationKey(elId, itemId)
-          predictedUnitsByKey[key] = (predictedUnitsByKey[key] || 0) + (Number(pr.totalQuantity) || 0)
+      let predictedSource = 'none'
+      let predictedUnjoined = null
+      {
+        const { index, version } = await loadPredictedNeed({
+          eventId: recoEvent.id,
+          elements: [...countedItemsByElement.keys()].map((id) => ({ id, name: elementNameById[id] || '' })),
+          menuItems: this.store.state.analyse?.menuItems || [],
+          components: this.store.state.analyse?.components || [],
+        })
+        if (version) {
+          predictedSource = 'default-version'
+          const built = buildPredictedUnitsForReconciliation({
+            index,
+            version,
+            countedItemsByElement,
+            normalize: normalizeStr,
+          })
+          // Version présente mais index vide (aucun PdV compté couvert) : le
+          // scénario existe et prédit 0 sur ce périmètre → 0, pas un tiret vide.
+          predictedUnitsByKey = built.predictedUnitsByKey || {}
+          predictedUnjoined = built.unjoined
         }
       }
 
-      // Q35 : le scénario prédit des ventes d'ARTICLES — une ligne au grain
-      // ingrédient (id de ligne de recette, hors catalogue) garde predicted null.
-      // Catalogue pas encore chargé → null (régime inchangé), pas un Set vide qui
-      // éteindrait le prédit de toutes les lignes.
-      const catalogItemIds = new Set(
-        (this.store.state.analyse?.menuItems || []).map((mi) => String(mi?.id)).filter(Boolean),
-      )
       const lines = buildPostEventReconciliationLines({
         countedUnitsByKey,
         preEventUnitsByKey,
         soldUnitsByKey,
         movementUnitsByKey,
         predictedUnitsByKey,
-        predictableItemIds: catalogItemIds.size ? catalogItemIds : null,
-        // Coûts menu items (map partagée du store analyse) → Miss € au coût.
-        unitCostByItemId: this.store.state.analyse?.menuItemCostMap || {},
+        // Coût PAR KIND (Q40, décision 2026-09-10) : market price pour un
+        // ingrédient, unitCost pour un composant, menuItemCostMap pour un article
+        // compté tel quel. Jamais un 0 € fabriqué.
+        unitCostByItemId: buildUnitCostByItemId({
+          countedItems,
+          menuItemCostMap: this.store.state.analyse?.menuItemCostMap || {},
+          marketPrices: this.store.state.inventory?.marketPrices || [],
+          components: this.store.state.analyse?.components || [],
+        }),
         elementNameById,
         itemNameById,
       })
@@ -3008,6 +3072,11 @@ export default {
           Number(this.inventoryStats?.countedItems) || 0,
           Number(this.inventoryStats?.totalItems) || 0,
         ],
+        // BUG-378-02 : provenance du prédit, prédictions non jointes, clés hors
+        // périmètre. Un document doit dire lui-même ce qu'il n'a pas pu joindre.
+        predictedSource,
+        predictedUnjoined,
+        perimeterExcluded,
       }
       return { lines, meta }
     },

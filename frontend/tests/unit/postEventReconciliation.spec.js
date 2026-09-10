@@ -209,24 +209,62 @@ describe('buildSoldUnitsFromConsumption (Q35 Option 1)', () => {
   })
 })
 
-describe('buildPostEventReconciliationLines — predictableItemIds (Q35)', () => {
-  it('scenario present: vendable line keeps the 0-default, ingredient-grain line gets null', () => {
+describe('buildPostEventReconciliationLines : prédit au grain inventaire (BUG-378-02)', () => {
+  it('scénario présent : ligne absente du prédit → 0 réel, ligne prédite → sa valeur, quel que soit le grain', () => {
     const lines = buildPostEventReconciliationLines({
-      countedUnitsByKey: { [K('el1', 'mi-coca')]: 1, [K('el1', 'ing-fut')]: 2 },
-      predictedUnitsByKey: { [K('el1', 'other')]: 10 },
-      predictableItemIds: new Set(['mi-coca']),
+      countedUnitsByKey: { [K('el1', 'mi-coca')]: 1, [K('el1', 'mp-fut')]: 2 },
+      predictedUnitsByKey: { [K('el1', 'mp-fut')]: 3.5 },
     })
     const byItem = Object.fromEntries(lines.map((l) => [l.itemKey, l]))
-    expect(byItem['mi-coca'].predictedUnits).toBe(0) // vendable absent du scénario → 0 réel
-    expect(byItem['ing-fut'].predictedUnits).toBeNull() // grain ingrédient → pas ce grain
+    expect(byItem['mi-coca'].predictedUnits).toBe(0)
+    expect(byItem['mp-fut'].predictedUnits).toBe(3.5)
   })
 
-  it('without the param, behavior is unchanged (legacy callers)', () => {
+  it('sans scénario : predictedUnits null sur toutes les lignes (jamais un 0 fabriqué)', () => {
     const lines = buildPostEventReconciliationLines({
-      countedUnitsByKey: { [K('el1', 'ing-fut')]: 2 },
-      predictedUnitsByKey: { [K('el1', 'other')]: 10 },
+      countedUnitsByKey: { [K('el1', 'mp-fut')]: 2 },
+      predictedUnitsByKey: null,
     })
-    expect(lines[0].predictedUnits).toBe(0)
+    expect(lines[0].predictedUnits).toBeNull()
+  })
+})
+
+describe('buildSoldUnitsFromConsumption : jointure par identité (BUG-378-02)', () => {
+  const normalize = (s) => String(s ?? '').trim().toLowerCase()
+
+  it('itemRefId connu du comptage → jointure par id, même si le nom a changé', () => {
+    const { soldUnitsByKey, unjoinedItems } = buildSoldUnitsFromConsumption(
+      [{ elementId: 'el1', itemKey: 'Fût 30L (nouveau nom)', quantity: 4, itemKind: 'marketPrice', itemRefId: 'mp-fut' }],
+      {
+        elementIdSet: new Set(['el1']),
+        itemIdByNormName: new Map([['fût 30l', 'mp-fut']]),
+        countedItemIds: new Set(['mp-fut']),
+        normalize,
+      },
+    )
+    expect(soldUnitsByKey).toEqual({ [K('el1', 'mp-fut')]: 4 })
+    expect(unjoinedItems.size).toBe(0)
+  })
+
+  it('itemRefId inconnu du comptage → repli par nom normalisé (backend antérieur ou identité étrangère)', () => {
+    const { soldUnitsByKey } = buildSoldUnitsFromConsumption(
+      [{ elementId: 'el1', itemKey: 'Fût 30L', quantity: 2, itemRefId: 'ing-fut' }],
+      {
+        elementIdSet: new Set(['el1']),
+        itemIdByNormName: new Map([['fût 30l', 'mp-fut']]),
+        countedItemIds: new Set(['mp-fut']),
+        normalize,
+      },
+    )
+    expect(soldUnitsByKey).toEqual({ [K('el1', 'mp-fut')]: 2 })
+  })
+
+  it('sans countedItemIds (appelant historique) : comportement par nom inchangé', () => {
+    const { soldUnitsByKey } = buildSoldUnitsFromConsumption(
+      [{ elementId: 'el1', itemKey: 'Fût 30L', quantity: 2, itemRefId: 'mp-fut' }],
+      { elementIdSet: new Set(['el1']), itemIdByNormName: new Map([['fût 30l', 'mp-fut']]), normalize },
+    )
+    expect(soldUnitsByKey).toEqual({ [K('el1', 'mp-fut')]: 2 })
   })
 })
 

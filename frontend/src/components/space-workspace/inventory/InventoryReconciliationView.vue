@@ -232,6 +232,25 @@ const notices = computed(() => {
   if (Array.isArray(cp) && cp.length === 2 && cp[1] > 0 && cp[0] < cp[1]) {
     out.push({ level: 'warn', text: `${t('invRecoMetaIncomplete')} ${cp[0]}/${cp[1]}` })
   }
+  // BUG-378-02 : prédit lu sur la version PAR DÉFAUT au grain inventaire. Sans
+  // version par défaut, la colonne reste vide (jamais un 0 fabriqué) ; les
+  // prédictions sans article compté correspondant sont archivées et affichées,
+  // comme les ventes non jointes.
+  if (meta.predictedSource === 'none' && !isPre.value) {
+    out.push({ level: 'info', text: t('invRecoMetaPredictedNone') })
+  }
+  const pu = meta.predictedUnjoined
+  if (pu && (Number(pu.units) > 0 || pu.shopNames?.length || pu.itemNames?.length)) {
+    const names = [...(pu.shopNames || []), ...(pu.itemNames || [])].slice(0, 6).join(', ')
+    out.push({
+      level: 'warn',
+      text: `${formatUnits(Number(pu.units) || 0)} ${t('invRecoMetaPredictedUnjoined')}${names ? ` (${names})` : ''}`,
+    })
+  }
+  const pe = meta.perimeterExcluded
+  if (pe && Number(pe.lines) > 0) {
+    out.push({ level: 'info', text: `${pe.lines} ${t('invRecoMetaPerimeterExcluded')}` })
+  }
   return out
 })
 

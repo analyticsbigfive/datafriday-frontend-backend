@@ -285,6 +285,12 @@ export class InventoryService {
           // Q35 Option 1 : grain de la source « Vendu » ('consumption' = explosé
           // ingrédients, 'timeline' = brut article). null = document d'avant Q35.
           salesSource: dto.salesSource ?? null,
+          // BUG-378-02 : provenance du prédit (version par défaut au grain
+          // inventaire), prédictions non jointes et clés hors périmètre compté.
+          // null = document antérieur (le front n'affiche alors aucun bandeau).
+          predictedSource: dto.predictedSource ?? null,
+          predictedUnjoined: dto.predictedUnjoined ?? null,
+          perimeterExcluded: dto.perimeterExcluded ?? null,
         },
         createdBy: userId ?? null,
       } as any,
