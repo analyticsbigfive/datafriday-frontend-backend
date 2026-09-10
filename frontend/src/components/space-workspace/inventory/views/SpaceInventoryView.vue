@@ -2929,6 +2929,10 @@ export default {
           // BUG-378-02 : identité catalogue portée par le backend → jointure par
           // id d'abord, nom en repli (backend antérieur sans identité).
           countedItemIds,
+          // Noms des PdV vendeurs hors périmètre compté (le référentiel de
+          // l'écran ne contient que les PdV comptés) : sans ce dictionnaire, le
+          // bandeau affichait leur identifiant brut.
+          elementNameById: { ...elementNameById, ...(consumption.elementNames || {}) },
           normalize: normalizeStr,
         })
         soldUnitsByKey = joined.soldUnitsByKey

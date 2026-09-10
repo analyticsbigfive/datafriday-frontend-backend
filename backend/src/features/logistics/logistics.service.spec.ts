@@ -534,7 +534,24 @@ describe('LogisticsService — readyForSale display logic', () => {
       const explode = jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([]);
       const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
       expect(explode).toHaveBeenCalledWith([], 'tenant-1');
-      expect(result).toEqual({ eventId: 'ev-1', eventName: 'Match test', lines: [], unjoined: null });
+      expect(result).toEqual({ eventId: 'ev-1', eventName: 'Match test', lines: [], unjoined: null, elementNames: {} });
+    });
+
+    it('BUG-378-02 : renvoie le NOM des PdV vendeurs (un PdV non compté ne peut pas être nommé par le client)', async () => {
+      jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([
+        { elementId: 'shop-1', itemKey: 'Coca', quantity: 3 },
+        { elementId: 'shop-2', itemKey: 'Coca', quantity: 1 },
+        { elementId: 'shop-1', itemKey: 'Bun', quantity: 2 },
+      ]);
+      p.spaceElement.findMany.mockResolvedValueOnce([{ id: 'shop-1' }, { id: 'shop-2' }]);
+      p.spaceElement.findMany.mockResolvedValueOnce([
+        { id: 'shop-1', name: 'Click & Collect' },
+        { id: 'shop-2', name: 'Live Order' },
+      ]);
+      const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      expect(result.elementNames).toEqual({ 'shop-1': 'Click & Collect', 'shop-2': 'Live Order' });
+      // Dictionnaire, pas un champ par ligne : le même PdV revient sur des centaines de lignes.
+      expect(result.lines[0]).not.toHaveProperty('elementName');
     });
 
     it('espace sans PdV → réponse vide sans requête ventes (pas de fenêtre tenant-wide)', async () => {

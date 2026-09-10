@@ -2249,7 +2249,7 @@ export class LogisticsService {
       }),
     ]);
     if (!elementIds.length) {
-      return { eventId: event.id, eventName: event.name ?? null, lines: [], unjoined: null };
+      return { eventId: event.id, eventName: event.name ?? null, lines: [], unjoined: null, elementNames: {} };
     }
 
     // Même précédence que le timeline : scope intégration si mappé, sinon mode
@@ -2326,10 +2326,28 @@ export class LogisticsService {
     }
 
     const lines = await this.explodeSalesToConsumption(joinable, tenantId);
+
+    // Noms des PdV vendeurs (BUG-378-02) : un PdV de l'espace qui vend sans être
+    // dans le périmètre compté de l'écran inventaire sort en « non joint » côté
+    // client, qui n'a alors AUCUNE source pour le nommer (son référentiel ne
+    // contient que les PdV comptés) et affichait l'identifiant brut dans le
+    // bandeau. Dictionnaire, pas un champ par ligne : le même PdV revient sur
+    // des centaines de lignes.
+    const elementIdsInLines = [...new Set(lines.map((l) => l.elementId).filter(Boolean))];
+    const elementRows = elementIdsInLines.length
+      ? await this.prisma.spaceElement.findMany({
+          where: { id: { in: elementIdsInLines } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const elementNames: Record<string, string> = {};
+    for (const el of elementRows) if (el.name) elementNames[el.id] = el.name;
+
     return {
       eventId: event.id,
       eventName: event.name ?? null,
       lines,
+      elementNames,
       unjoined:
         unjoinedShops.size || unjoinedProducts.size
           ? {

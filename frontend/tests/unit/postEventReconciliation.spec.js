@@ -259,6 +259,28 @@ describe('buildSoldUnitsFromConsumption : jointure par identité (BUG-378-02)', 
     expect(soldUnitsByKey).toEqual({ [K('el1', 'mp-fut')]: 2 })
   })
 
+  it('PdV vendeur hors périmètre compté : nommé par elementNameById, jamais l’identifiant brut', () => {
+    const { unjoinedShops, unjoinedUnits } = buildSoldUnitsFromConsumption(
+      [{ elementId: 'cmsx2mkmd7ayygpkznq74i8b1', itemKey: 'Coca', quantity: 5 }],
+      {
+        elementIdSet: new Set(['el1']),
+        itemIdByNormName: new Map(),
+        elementNameById: { cmsx2mkmd7ayygpkznq74i8b1: 'Click & Collect' },
+        normalize,
+      },
+    )
+    expect([...unjoinedShops]).toEqual(['Click & Collect'])
+    expect(unjoinedUnits).toBe(5)
+  })
+
+  it('nom introuvable → repli sur l’identifiant (jamais avalé en silence)', () => {
+    const { unjoinedShops } = buildSoldUnitsFromConsumption(
+      [{ elementId: 'el-inconnu', itemKey: 'Coca', quantity: 1 }],
+      { elementIdSet: new Set(['el1']), itemIdByNormName: new Map(), normalize },
+    )
+    expect([...unjoinedShops]).toEqual(['el-inconnu'])
+  })
+
   it('sans countedItemIds (appelant historique) : comportement par nom inchangé', () => {
     const { soldUnitsByKey } = buildSoldUnitsFromConsumption(
       [{ elementId: 'el1', itemKey: 'Fût 30L', quantity: 2, itemRefId: 'mp-fut' }],

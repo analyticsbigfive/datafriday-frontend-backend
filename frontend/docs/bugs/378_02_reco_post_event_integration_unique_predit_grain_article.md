@@ -74,6 +74,10 @@ Décisions prises le 2026-09-10 par Ulrich (délégation Bertrand) : (1) coût p
   PdV n'est pas compté ; compteur archivé dans `meta.perimeterExcluded` avec bandeau.
 - **Front, noms** : `buildCatalogNameById` (menu items, market prices, composants) en repli du
   comptage : plus aucune ligne sans nom possible.
+- **Front/backend, noms des PdV vendeurs** : `deriveEventConsumption` renvoie un dictionnaire
+  `elementNames` (id → nom). Un PdV de l'espace qui VEND sans être dans le périmètre compté sort en
+  « non joint » côté client, qui n'avait alors aucune source pour le nommer (son référentiel ne
+  contient que les PdV comptés) et affichait l'identifiant brut dans le bandeau (`cmsx2mkmd...`).
 - **Front, Miss €** : `buildUnitCostByItemId`, coût par kind : `MarketPrice.pricePerUnit` pour un
   article compté sous une market price, `MenuComponent.unitCost` pour un composant,
   `menuItemCostMap` pour un article compté tel quel. Jamais un 0 € fabriqué (coût nul ou absent →
@@ -100,6 +104,31 @@ Décisions prises le 2026-09-10 par Ulrich (délégation Bertrand) : (1) coût p
 - Q26 (recalcul serveur des métriques, tranché mais jamais codé) reste la suite naturelle : tant
   que les lignes viennent du client, un navigateur sans miroir local ni permission peut produire un
   document sans prédit.
+
+## Vérification après régénération (2026-09-10 18:15, document `cmtvul2k5000210szip0xxb1s`)
+
+Document régénéré sur la branche : 589 lignes (contre 1101), **toutes nommées**, Vendu renseigné,
+Diff global -51,5 % (contre -100 %). `meta.predictedSource = 'default-version'`,
+`meta.perimeterExcluded = null`. Les trois causes sont éteintes.
+
+Restent visibles, et ce ne sont PAS des régressions :
+
+1. **Restant / Manquant à « — »** : `meta.baseline.source = 'none'`. Aucun stock de départ n'existe
+   en base pour ce match — pas de snapshot `kind='pre-event'` pour SFP-Perpignan, et le repli
+   (post-event du match précédent) échoue car PFC-Nice (30/08) n'a qu'un snapshot pre-event du
+   21/08. Le stock Logistic vivant (352 `StockLevel`) ne peut pas servir de repli : il est recalé
+   par `pushCountToLogistic` à chaque génération de réconciliation (INVENTORY_RESET du 10/09
+   18:15:31), donc il porte le comptage d'ARRIVÉE — `left = Logistic − vendu` donnerait
+   `missing = −vendu`. Zéro mouvement Logistic dans la fenêtre du match (05/09 → 06/09).
+   **Le cycle repose sur le comptage pre-event, qui n'a pas été fait pour ce match.**
+   Le prochain (PFC-Lyon, 12/09) a bien son snapshot pre-event du 09/09, mais sur **5 PdV / 92
+   articles** seulement (l'espace en compte 41 / 570) : son Restant/Manquant sera partiel d'autant.
+2. **3 071 unités vendues non jointes** dont celles de **Click & Collect** et **Live Order** : ces
+   deux PdV sont des `SpaceElement` de l'espace (rattachés par `zoneId`, 6 et 9 mappings POS) qui
+   VENDENT mais ne sont jamais comptés — le périmètre de l'écran inventaire vient de
+   `/spaces/:id/shops?configId=` filtré par config. Question de configuration, hors de cette fiche.
+   S'y ajoutent des produits Weezevent sans mapping (`TENDERS FRITES + BOISSONS`, `PULLED + FRITES`).
+3. **Comptage incomplet 230/570** au moment de la génération (bandeau déjà présent).
 
 ## Références
 

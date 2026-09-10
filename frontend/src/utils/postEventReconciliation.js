@@ -47,13 +47,16 @@ export function reconciliationKey(elementId, itemId) {
  * @param {Set<string>} params.elementIdSet        PdV/storages du référentiel compté
  * @param {Map<string,string>} params.itemIdByNormName  nom normalisé → itemId compté
  * @param {Set<string>} [params.countedItemIds]    ids d'articles comptés (jointure par id)
+ * @param {Record<string,string>} [params.elementNameById]  noms des PdV vendeurs, y compris
+ *   hors périmètre compté (dictionnaire `elementNames` du backend) — sans lui, un PdV qui
+ *   vend sans être compté s'affichait par son identifiant brut dans le bandeau.
  * @param {(s:any)=>string} params.normalize       normalisation partagée (normalizeStr)
  * @returns {{soldUnitsByKey: Record<string, number>, unjoinedItems: Set<string>,
  *   unjoinedShops: Set<string>, unjoinedUnits: number}}
  */
 export function buildSoldUnitsFromConsumption(
   lines,
-  { elementIdSet, itemIdByNormName, countedItemIds = null, normalize },
+  { elementIdSet, itemIdByNormName, countedItemIds = null, elementNameById = null, normalize },
 ) {
   const soldUnitsByKey = {}
   const unjoinedItems = new Set()
@@ -64,7 +67,7 @@ export function buildSoldUnitsFromConsumption(
     if (!qty) continue
     const elementId = l?.elementId != null ? String(l.elementId) : ''
     if (!elementId || !elementIdSet.has(elementId)) {
-      if (elementId) unjoinedShops.add(elementId)
+      if (elementId) unjoinedShops.add(elementNameById?.[elementId] || elementId)
       unjoinedUnits += qty
       continue
     }
