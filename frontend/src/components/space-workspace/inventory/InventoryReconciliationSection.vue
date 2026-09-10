@@ -3,7 +3,7 @@
        Inventory, sous les filtres. Un document par événement réconcilié
        (StockReconciliation kind='post-event') ; clic → la vue réconciliation
        remplace le contenu central. Doc : docs/modules/10_POST_EVENT_INVENTORY.md §7. -->
-  <div class="irs-panel">
+  <div class="irs-panel" :class="{ 'irs-panel--open': open }">
     <button type="button" class="irs-head" @click="open = !open">
       <span class="irs-title">{{ t('invRecoSection') }}</span>
       <span v-if="items.length" class="irs-count">{{ items.length }}</span>
@@ -81,6 +81,16 @@ function formatDate(v) {
   border-radius: 12px;
   margin-top: 12px;
   overflow: hidden;
+  /* Colonne flex : la tête reste fixe, le corps scrolle (voir --open). */
+  display: flex;
+  flex-direction: column;
+}
+/* Quand la section est DÉPLIÉE, elle prend une part de la colonne gauche et
+   scrolle en interne (au lieu de pousser tout vers le bas / masquer ses données).
+   Fermée, elle reste réduite à sa tête (flex par défaut = pas de croissance). */
+.irs-panel--open {
+  flex: 1 1 0;
+  min-height: 0;
 }
 .irs-head {
   width: 100%;
@@ -92,6 +102,7 @@ function formatDate(v) {
   border: 0;
   cursor: pointer;
   text-align: left;
+  flex: 0 0 auto;
 }
 .irs-title {
   font-size: 14px;
@@ -107,7 +118,14 @@ function formatDate(v) {
   padding: 1px 7px;
 }
 .irs-chevron { margin-left: auto; color: var(--fb-faint, #9E9E9E); }
-.irs-body { padding: 0 14px 10px; }
+.irs-body {
+  padding: 0 14px 10px;
+  /* Corps scrollable : remplit la part de colonne quand la section est dépliée
+     (flex enfant qui peut rétrécir → overflow s'active) au lieu de déborder. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
 .irs-empty {
   font-size: 12px;
   color: var(--fb-faint, #9E9E9E);
