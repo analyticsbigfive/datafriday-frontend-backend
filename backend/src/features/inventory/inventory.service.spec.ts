@@ -1156,6 +1156,10 @@ describe('InventoryService', () => {
         // Q35/explosion des ventes (develop 4e0c5fa) : provenance des ventes
         // archivée — null quand le client ne l'a pas fournie.
         salesSource: null,
+        // BUG-378-02 : contexte prédit / périmètre, null quand non fourni.
+        predictedSource: null,
+        predictedUnjoined: null,
+        perimeterExcluded: null,
       });
     });
   });

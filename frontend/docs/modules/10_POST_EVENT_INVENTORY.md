@@ -307,10 +307,14 @@ Collecte 4 sources puis délègue à l'util pur
 | Compté (post-event) | entries shops+storages+merch de l'écran, formule `totalForItem` | 0 (union des clés) |
 | Pré-event | `GET /inventory/:spaceId/pre-event/:eventId` — **le comptage Pre-event Inventory du MÊME event** (snapshot `kind='pre-event'`, cycle fermé § 8 — Q19 résolue), repli **scopé** = comptage post-event du match PRÉCÉDENT, avec `source` renvoyé et archivé (fiche [241](../bugs/241_getpreeventinventory_repli_legacy_hors_event.md), 2026-07-24 — avant : n'importe quel snapshot du space antérieur au jour du match, sans trace) ([inventory.service.ts](../../../backend/src/features/inventory/inventory.service.ts) `getPreEventInventory`) | `leftFromSales`/`missingUnits`/`missingValue` **null** (« — ») |
 | Vendu pendant l'event | **Depuis le 2026-07-27 (ex-Q35 tranchée owner, fiche [242](../bugs/242_reco_post_event_ventes_composees_non_explosees.md))** : `GET /inventory/:spaceId/event-consumption/:eventId` — ventes de l'event **explosées en consommation d'ingrédients** par la cascade Logistique (`deriveEventConsumption` → `explodeSalesToConsumption`, mêmes clauses de sélection que le timeline). PdV joint par **id**, article par nom normalisé (`buildSoldUnitsFromConsumption`). Repli grain article (timeline brut, chemin d'avant conservé) si backend antérieur (404) — `meta.salesSource` (`'consumption'`/`'timeline'`) archivé + bandeau sur les documents en repli. Les non-joignables (des deux côtés) restent **comptés et remontés** (`meta.salesUnjoined` + bandeau) — fiche [238](../bugs/238_reco_post_event_ventes_non_jointes_avalees.md) | 0 |
-| Prédit | `localDb.getAnyPredictedRecords` (pont § 4.2, même lecture que le Réarmement) | `predictedUnits` **null** ; scénario présent mais article absent → 0 |
+| Prédit | **Depuis le 2026-09-10 (fiche [378-02](../bugs/378_02_reco_post_event_integration_unique_predit_grain_article.md))** : version Event Predict **par défaut** via `loadPredictedNeed` (§ 14.2, même source que le chip « Besoin prédit » et le document pre-event), explosée au **grain inventaire** et posée PAR ARTICLE COMPTÉ (`utils/postEventPredicted.js`). Prédictions sans article compté correspondant → `meta.predictedUnjoined` + bandeau, jamais une ligne. Avant : records bruts `shopId|menuItemId` du miroir local, jamais joints à un comptage au grain ingrédient (lignes orphelines sans nom, Diff -100 % structurel) | `predictedUnits` **null** (`meta.predictedSource = 'none'`) ; scénario présent mais article absent → 0 |
 
-Coûts : `store.state.analyse.menuItemCostMap` → `missingValue` **au coût** (défaut à confirmer,
-question n°2). Formules : `leftFromSales = préEvent − vendus` ; `missingUnits = leftFromSales −
+Coûts : **par kind depuis le 2026-09-10 (Q40 tranchée, `utils/reconciliationCosts.js`)** :
+`MarketPrice.pricePerUnit` pour un article compté sous une market price, `MenuComponent.unitCost`
+pour un composant, `menuItemCostMap` pour un article compté tel quel ; coût nul ou absent → unités
+seulement. Périmètre : les clés pré-event / mouvements d'un PdV non compté sont écartées et comptées
+(`meta.perimeterExcluded`, `utils/reconciliationPerimeter.js`), les noms manquants viennent du
+catalogue en repli. Formules : `leftFromSales = préEvent − vendus` ; `missingUnits = leftFromSales −
 compté` (négatif = surplus, conservé) ; chips recalculées à l'affichage par
 `computeReconciliationSummary` (les manquants négatifs ne « remboursent » jamais les positifs).
 
@@ -994,3 +998,24 @@ Sondes read-only, 401 = route existante, 404 = absente (calibrage : route bidon 
 pre-event est un 403 ou une baseline vide, pas une route manquante.
 
 Rédaction § 14 : **JLH**.
+
+---
+
+## 15. Grain unique et périmètre compté (2026-09-10, fiche 378-02)
+
+Le document SFP-Perpignan (Stade Jean Bouin) a révélé trois défauts cumulés, corrigés ensemble :
+
+| Défaut | Avant | Après |
+|---|---|---|
+| Ventes d'un espace à PLUSIEURS intégrations (PFC + SFP) | `locationSpaceMapping.findFirst` : le match de l'autre club sortait 0 vente, sans « non joint » | `findMany` + `IN`, parité BUG-136-01 ; chaque ligne de consommation porte `(itemKind, itemRefId)`, jointure front par id puis nom |
+| Prédit au grain menu item | records bruts du miroir local, jamais joints au comptage ingrédient | version par défaut, explosion `buildStockRequirements`, prédit par article compté |
+| Aucun périmètre | pré-event / mouvements / prédit d'un PdV non compté → lignes orphelines sans nom | clés écartées et archivées (`perimeterExcluded`, `predictedUnjoined`), noms catalogue en repli |
+
+Règle qui en découle : **le document décrit le périmètre compté**. Toute autre source s'y projette
+(par id, nom en repli) ; ce qui ne se projette pas est compté et affiché, jamais transformé en ligne.
+Les trois moteurs d'explosion (comptage `inventoryUtils.js`, prédit `menuItemExpansion.js`, ventes
+`itemRefsForMenuItem`/`explodeSalesToConsumption` backend) appliquent la même règle readyForSale et la
+même identité `componentIngredientId` (marketPriceId → sourceId → id), ce qui rend la jointure par id
+possible de bout en bout.
+
+Rédaction § 15 : Ulrich.
