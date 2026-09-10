@@ -3808,10 +3808,21 @@ export default {
     grid-template-columns: 1fr;
   }
   .si-left-filters {
-    max-height: 100%;
+    /* Hauteur DÉFINIE (et non max-height) : sans ça, le panneau interne
+       (.inventory-filter-panel, max-height:100%) ne peut pas résoudre son 100% et
+       GRANDIT au lieu de scroller quand une section est dépliée. Le scroll est
+       délégué au panneau (règle :deep ci-dessous), d'où overflow:hidden ici. */
+    height: 100%;
     min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
+  }
+  /* Le panneau de filtre devient un vrai conteneur scrollable borné : enfant flex de
+     .si-left-filters (.wsl-side = flex column) qui peut RÉTRÉCIR (min-height:0, sinon
+     min-height:auto par défaut l'empêche) → son overflow-y:auto s'active quand
+     « Articles du menu » est déplié, au lieu de pousser toute la colonne vers le bas. */
+  .si-left-filters :deep(.inventory-filter-panel) {
+    flex: 1 1 0;
+    min-height: 0;
   }
   .si-main {
     overflow-y: auto;

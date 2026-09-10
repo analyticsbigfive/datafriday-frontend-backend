@@ -39,6 +39,7 @@
           >
             <Pencil :size="16" />
           </button>
+          <slot name="actions-after" />
         </div>
       </div>
     </section>
