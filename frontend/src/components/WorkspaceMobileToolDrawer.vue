@@ -58,11 +58,15 @@ export default {
 </script>
 
 <style scoped>
+/* z-index élevé : cette nav est téléportée sur <body> et doit passer au-dessus des
+   écrans d'outils eux-mêmes téléportés en overlay (ex. Event Predict
+   `.event-predict-overlay` z-index 1100 + ses overlays internes filtres/perfs à
+   4000). Reste sous rien d'autre quand ouverte (aucun dialog concurrent). */
 .wmtd-backdrop {
   position: fixed;
   inset: 0;
   background: rgba(17, 24, 39, .45);
-  z-index: 1000;
+  z-index: 5000;
 }
 
 .wmtd-panel {
@@ -70,7 +74,7 @@ export default {
   top: 0;
   bottom: 0;
   left: 0;
-  z-index: 1001;
+  z-index: 5001;
   width: min(300px, 84vw);
   background: #fff;
   box-shadow: 8px 0 30px rgba(0, 0, 0, .18);
