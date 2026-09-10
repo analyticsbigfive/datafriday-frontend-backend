@@ -53,8 +53,8 @@ export function normalizeComponent(c) {
   if (!c || typeof c !== 'object') return c
   return {
     ...c,
-    id: pick(c.id, c.componentId, c.ingredientId, c.packagingId),
-    sourceId: pick(c.sourceId, c.ingredientId, c.componentId, c.packagingId, c.id),
+    id: pick(c.id, c.componentId, c.ingredientId, c.packagingId, c.childId),
+    sourceId: pick(c.sourceId, c.ingredientId, c.componentId, c.packagingId, c.childId, c.id),
     // Sans ce champ, `componentIngredientId` (inventoryUtils.js) retombe sur
     // `sourceId` = l'id de l'Ingredient/Packaging plutôt que celui du MarketPrice
     // lié — silencieusement inadressable côté Logistic ensuite (id absent de
@@ -67,7 +67,7 @@ export function normalizeComponent(c) {
     name: pick(
       c.name, c.itemName, c.ingredientName, c.componentName,
       c.ingredient?.name, c.ingredient?.itemName,
-      c.component?.name, c.packaging?.name,
+      c.component?.name, c.packaging?.name, c.child?.name,
     ),
     numberOfUnits: Number(pick(c.numberOfUnits, c.quantity, c.qty, c.numberOfPieces) ?? 0) || 0,
     // BUG-291-01 : les relations `component` et `packaging` nichent leur entité
@@ -114,6 +114,15 @@ function buildComponents(mi) {
       itemType: 'Packaging',
       ...r,
     })),
+    // MenuItemCombo (2026-09-10) : un combo est un panier de refs vers
+    // d'autres MenuItem, PAS une ligne de recette classique — sans cette source,
+    // `components` ressort vide pour un combo dont la composition passe
+    // uniquement par `comboChildren`, et l'inventaire/stock-up/réarmement le
+    // traitent à tort comme un article sans recette (filet de sécurité :
+    // l'article réapparaît comme sa propre ligne de stock, même readyForSale='No').
+    // La récursion combo (getAllComponentsAndIngredients / menuItemExpansion)
+    // sait déjà ouvrir un `itemType:'MenuItem'` référencé par sourceId.
+    ...toArray(mi.comboChildren).map((r) => ({ itemType: 'MenuItem', ...r })),
   ]
   // `componentsData` est la version DÉNORMALISÉE des mêmes lignes : repli
   // uniquement si aucune relation n'est présente, jamais en supplément —
