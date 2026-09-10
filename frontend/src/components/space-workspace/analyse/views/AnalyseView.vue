@@ -59,8 +59,7 @@
                 >
                   <v-icon size="20">mdi-filter-variant</v-icon>
                 </button>
-                <h1 class="av-header__title">{{ spaceName }} : {{ toolTitle }}</h1>
-                <h1 class="av-header__title av-header__title--desktop">{{ spaceName }} : {{ toolTitle }}</h1>
+                <h1 class="av-header__title av-header__title--desktop">{{ desktopTitle }}</h1>
                 <!-- Titre mobile (maquette Bertrand) : nom d'outil en gros + sous-titre event. -->
                 <div class="av-header__title-mobile">
                   <span class="av-header__title-mobile__main">{{ mobileToolName }}</span>
@@ -284,6 +283,18 @@
                   @update:comparison-mode="(v) => setFilterImmediate('comparisonMode', v)"
                   @update:time-range="(v) => setFilterImmediate('timeRange', v)"
                 />
+                <!-- Effectifs opérationnels de l'évènement (retour Bertrand) : nombre de
+                     collaborateurs + nombre de TPE, sur la même rangée que « Tout
+                     l'historique », poussés tout à droite du bandeau. Seulement quand UN
+                     seul évènement est sélectionné (valeurs propres à cet event). -->
+                <div v-if="singleSelectedEventOps" class="av-header__ops">
+                  <span v-if="singleSelectedEventOps.collaborators != null" class="av-header__ops-line">
+                    {{ t('eventsListLabelNumberOfCollaborators') }} : {{ singleSelectedEventOps.collaborators }}
+                  </span>
+                  <span v-if="singleSelectedEventOps.tpe != null" class="av-header__ops-line">
+                    {{ t('eventsListLabelNumberOfTpe') }} : {{ singleSelectedEventOps.tpe }}
+                  </span>
+                </div>
               </div>
             </div>
 
@@ -2016,6 +2027,33 @@ const singleSelectedEventLabel = computed(() => {
   const date = formatDateShort(ev.date || ev.eventDate)
   return date ? `${name} — ${date}` : name
 })
+// L'évènement unique sélectionné (objet complet) — support des effectifs opérationnels
+// affichés dans le bandeau. null si 0 ou plusieurs évènements sélectionnés.
+const singleSelectedEvent = computed(() => {
+  const ids = filters.value.selectedEventIds || []
+  if (ids.length !== 1) return null
+  return (analysableEvents.value || []).find((e) => e.id === ids[0]) || null
+})
+// Effectifs opérationnels (nb collaborateurs / nb TPE) de l'évènement unique, pour le
+// bandeau (retour Bertrand). null si aucune des deux valeurs n'est renseignée → bloc masqué.
+const singleSelectedEventOps = computed(() => {
+  const ev = singleSelectedEvent.value
+  if (!ev) return null
+  const collaborators = ev.numberOfCollaborators ?? null
+  const tpe = ev.numberOfTpe ?? null
+  if (collaborators == null && tpe == null) return null
+  return { collaborators, tpe }
+})
+// Titre desktop du bandeau (retour Bertrand) : quand UN seul évènement est sélectionné,
+// on affiche son NOM SEUL (sans préfixe espace ni date) ; sinon « Espace : Outil ».
+const desktopTitle = computed(() => {
+  const ev = singleSelectedEvent.value
+  if (ev) {
+    const name = ev.name || ev.eventName || ''
+    if (name) return name
+  }
+  return `${spaceName.value} : ${toolTitle.value}`
+})
 // Titre du bandeau selon l'outil actif (Analyse / Prédire / Préd. Événement).
 const toolTitle = computed(() => {
   if (selectedToolbox.value === 'predict') return t('anToolPredict')
@@ -2483,6 +2521,24 @@ async function ensureAuthAndLoad(spaceId) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* Effectifs opérationnels (nb collaborateurs / nb TPE) à droite du bandeau — desktop
+   uniquement (masqué au palier ≤600 avec les autres éléments desktop). */
+.av-header__ops {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-left: auto; /* pousse le bloc tout à droite de la rangée « Tout l'historique » */
+  flex-shrink: 0;
+  text-align: right;
+}
+.av-header__ops-line {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  color: #fff;
+  line-height: 1.25;
+  white-space: nowrap;
+}
 /* Titre mobile (nom d'outil + sous-titre event) — masqué en desktop. */
 .av-header__title-mobile { display: none; min-width: 0; flex: 1; }
 .av-header__title-mobile__main {
@@ -2571,6 +2627,7 @@ async function ensureAuthAndLoad(spaceId) {
   .av-header__toggle--desktop { display: none; }
   .av-header__actions--desktop { display: none !important; } /* bat le d-flex Vuetify */
   .av-header__title--desktop { display: none; }
+  .av-header__ops { display: none; }
   .av-header__title-mobile { display: flex; flex-direction: column; }
   /* FMG (4 KPIs) masqué : fusionné dans la bande unique av-mobile-kpi-strip. */
   .an-fmg-desktop { display: none !important; }
@@ -2705,6 +2762,9 @@ async function ensureAuthAndLoad(spaceId) {
 /* Ligne 2 : période + comparaison, posées SUR le rouge (blanc translucide). */
 .av-header__row2 {
   padding: 0 22px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 .av-header__row2 :deep(.fs-period .v-field) {
   background: rgba(255, 255, 255, 0.14);
