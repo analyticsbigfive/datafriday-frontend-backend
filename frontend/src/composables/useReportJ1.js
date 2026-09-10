@@ -49,8 +49,48 @@ function isUnattached(raw) {
 /** Largeur de rendu du document hors écran (px) — ratio A4 portrait. */
 export const REPORT_PAGE_WIDTH = 794
 
-/** Famille d'un record pour le TOP 5 : signaux article d'abord, PdV en repli. */
+// Signaux CATALOGUE (catégorie réconciliée) — frontière de mot `\b` + pluriel optionnel
+// `s?`. Les libellés catalogue français sont souvent au PLURIEL (« Vins », « Bières »,
+// « Softs », « Apéritifs ») que les regex article `\b…\b` (au singulier) manquent. Le
+// `\b` protège des faux positifs de sous-chaîne (« vins? » ne matche pas « vinaigrette »,
+// « eaux? » pas « bordeaux »).
+const CAT_BEER_RE = /\b(beers?|bi[eè]res?|lagers?|pils|stouts?|ipa|ales?|blondes?|brunes?|pressions?|draughts?)\b/
+const CAT_BEVERAGE_RE = /\b(beverages?|boissons?|drinks?|softs?|sodas?|colas?|cocktails?|vins?|wines?|eaux?|waters?|jus|juices?|caf[eé]s?|coffees?|th[eé]s?|teas?|champagnes?|spiritueux|spirits?|alcools?|cidres?|ciders?|ap[eé]ritifs?|digestifs?|sirops?|smoothies?|limonades?)\b/
+const CAT_FOOD_RE = /\b(foods?|nourritures?|meals?|snacks?|burgers?|pizzas?|sandwich(?:es)?|desserts?|hot ?dogs?|frites?|nachos?|popcorns?|candys?|sweets?|cr[eê]pes?|gaufres?|tacos|kebabs?|wraps?|salades?|salads?|plats?|entr[eé]es?|glaces?|p[aâ]tisseries?)\b/
+
+/**
+ * Famille d'un record pour le TOP 5.
+ *
+ * PRIORITÉ au CATALOGUE réconcilié — d'abord le TYPE (`menuItemType`), puis la CATÉGORIE
+ * (`menuItemCategory`) : les mêmes champs qu'Analyse et que les camemberts `byType` /
+ * `byCategory`. Un article mappé est donc rangé exactement comme dans Analyse ; on ne
+ * retombe sur la devinette par mots-clés (nom, nature Weezevent, type de PdV) que pour
+ * les articles NON mappés.
+ *
+ *  1. TYPE = autorité macro (Food / Beverage / Beer). Test en `includes` → tolère les
+ *     pluriels « Beverages », « Nourriture » ; les macro-mots ne sont pas sous-chaîne
+ *     d'un type sans rapport (pas de faux positif).
+ *  2. CATÉGORIE (quand le type ne tranche pas) : signaux catalogue plur.-tolérants,
+ *     BEVERAGE testé AVANT FOOD — une famille boisson prime, un article boisson ne doit
+ *     jamais retomber en Food (retour Bertrand : « Lilet »/boissons rangées en Food).
+ *  3. Repli : article non mappé → signaux article complets, puis PdV (inchangé).
+ */
 export function classifyForReport(record) {
+  // 1) Type macro (autorité).
+  const type = resolveItemType(record).toLocaleLowerCase()
+  if (type.includes('beer') || type.includes('bière') || type.includes('biere')) return 'BEER'
+  if (type.includes('food') || type.includes('nourriture')) return 'FOOD'
+  if (type.includes('beverage') || type.includes('boisson') || type.includes('drink')) return 'BEVERAGE'
+
+  // 2) Catégorie catalogue (le type n'a pas tranché) — BEVERAGE avant FOOD.
+  const category = resolveItemCategory(record).toLocaleLowerCase()
+  if (category) {
+    if (CAT_BEER_RE.test(category)) return 'BEER'
+    if (CAT_BEVERAGE_RE.test(category)) return 'BEVERAGE'
+    if (CAT_FOOD_RE.test(category)) return 'FOOD'
+  }
+
+  // 3) Repli : article non mappé → signaux article, puis PdV (inchangé).
   const hay = menuItemSignalHay(record)
   if (BEER_SIGNAL_RE.test(hay)) return 'BEER'
   if (FOOD_SIGNAL_RE.test(hay)) return 'FOOD'
