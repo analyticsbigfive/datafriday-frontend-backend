@@ -2,7 +2,12 @@
   <div class="av-sticky">
     <div class="av-header">
       <div class="av-header__row1 d-flex align-center ga-2">
-        <WorkspacePanelToggle :open="drawerOpen" :label="t('anHeaderToggleFilters')" @toggle="emit('toggle-drawer')" />
+        <WorkspacePanelToggle class="lh-panel-toggle--desktop" :open="drawerOpen" :label="t('anHeaderToggleFilters')" @toggle="emit('toggle-drawer')" />
+        <!-- Mobile uniquement : ☰ nav outils (ouvre WorkspaceMobileToolDrawer côté vue),
+             remplace le toggle filtres desktop. Standard bandeau rouge. -->
+        <button type="button" class="lh-tools-trigger" :aria-label="t('srToolsLabel')" @click="emit('open-tools')">
+          <v-icon size="20">mdi-menu</v-icon>
+        </button>
         <h1 class="av-header__title">{{ spaceName }} : {{ eventTitle }}</h1>
         <span v-if="isLive" class="av-live-badge" :title="t('anToolLive')">
           <span class="av-live-badge__dot"></span>{{ t('anToolLive') }}
@@ -41,6 +46,15 @@
           </div>
         </v-tooltip>
         <v-spacer />
+        <!-- Mobile (≤600px) : entonnoir (ouvre les filtres) puis ▶ (ouvre les
+             performances à droite). Les actions copier/partager/export sont
+             masquées en mobile (cf. @media plus bas). -->
+        <button type="button" class="lh-mobile-trigger" :aria-label="t('anHeaderToggleFilters')" @click="emit('toggle-drawer')">
+          <v-icon size="20">mdi-filter-variant</v-icon>
+        </button>
+        <button type="button" class="lh-mobile-trigger" :aria-label="t('anHeaderToggleSummary')" @click="emit('toggle-summary')">
+          <v-icon size="22">mdi-play-circle-outline</v-icon>
+        </button>
         <v-btn
           icon
           variant="text"
@@ -135,7 +149,7 @@ const props = defineProps({
   records: { type: Array, default: () => [] },
 })
 
-const emit = defineEmits(['event-updated', 'toggle-drawer'])
+const emit = defineEmits(['event-updated', 'toggle-drawer', 'open-tools', 'toggle-summary'])
 
 // Parité AnalyseView.vue::singleSelectedEventLabel — « Nom — date », date omise si
 // absente/illisible.
@@ -205,27 +219,26 @@ const { exporting, onExportXlsx, onExportCsv } = useLiveExport({ spaceName: spac
 .av-live-badge {
   display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 22px;
-  flex-wrap: wrap;
-}
-.lh-band__left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  min-width: 0;
-  flex: 1 1 auto;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  flex-shrink: 0;
 }
 /* ☰ nav outils — pastille blanche translucide cliquable (parité pastilles des
    autres bandeaux). */
-.lh-tools-trigger {
-  width: 44px;
-  height: 44px;
+.lh-tools-trigger,
+.lh-mobile-trigger {
+  display: none; /* mobile-only : affiché au palier ≤600px (cf. @media plus bas) */
+  width: 40px;
+  height: 40px;
   border: 0;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.2);
-  display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
@@ -233,44 +246,12 @@ const { exporting, onExportXlsx, onExportCsv } = useLiveExport({ spaceName: spac
   cursor: pointer;
   transition: background 0.15s ease, transform 0.15s ease;
 }
-.lh-tools-trigger:hover { background: rgba(255, 255, 255, 0.32); }
-.lh-tools-trigger:active { transform: scale(0.94); }
-.lh-tools-trigger:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.85); outline-offset: 2px; }
-.lh-band__text { min-width: 0; }
-.lh-band__title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 800;
-  color: #fff;
-  line-height: 1.2;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.lh-band__title-sep { opacity: 0.7; }
-.lh-band__subtitle {
-  margin: 3px 0 0;
-  font-size: 12.5px;
-  color: rgba(255, 255, 255, 0.82);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* Badge LIVE pulsant (repris de l'ancien LiveHeader, adapté au fond rouge :
-   pastille blanche translucide au lieu de rouge sur blanc). */
-.lh-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: rgba(255, 255, 255, 0.22);
-  color: #fff;
-  font-size: var(--fs-xs, 11px);
-  font-weight: var(--fw-bold, 700);
-  letter-spacing: 0.4px;
-  padding: 4px 10px;
-  border-radius: 999px;
-  flex-shrink: 0;
-}
+.lh-tools-trigger:hover,
+.lh-mobile-trigger:hover { background: rgba(255, 255, 255, 0.32); }
+.lh-tools-trigger:active,
+.lh-mobile-trigger:active { transform: scale(0.94); }
+.lh-tools-trigger:focus-visible,
+.lh-mobile-trigger:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.85); outline-offset: 2px; }
 .av-live-badge__dot {
   width: 7px;
  
@@ -301,5 +282,32 @@ const { exporting, onExportXlsx, onExportCsv } = useLiveExport({ spaceName: spac
   margin-top: 4px;
   font-size: var(--fs-xs);
   opacity: 0.85;
+}
+
+/* ── Mobile (≤600px) : standard bandeau rouge des autres outils ──
+   ☰ nav outils affiché (remplace le toggle filtres desktop), bandeau collé aux
+   bords (coins carrés, sans ombre). Le sticky (position:sticky top:0) reste actif. */
+@media (max-width: 600px) {
+  /* Gauche : ☰ outils. Droite : entonnoir (filtres) + ▶ (perfs). */
+  .lh-tools-trigger,
+  .lh-mobile-trigger { display: flex; }
+  .lh-panel-toggle--desktop { display: none !important; }
+  /* Seulement entonnoir + ▶ à droite : on masque copier/partager/export. */
+  .av-header__row1 :deep(.av-action-btn) { display: none !important; }
+
+  /* Bandeau PLEINE LARGEUR (comme le header blanc principal) : breakout jusqu'aux
+     bords du viewport quel que soit l'empilement de gouttières (an-body/an-main/
+     lv-wrap). La garde overflow-x:clip est posée côté LiveView. */
+  .av-sticky {
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    margin-top: -12px;
+    margin-bottom: 12px;
+  }
+  .av-header {
+    border-radius: 0;
+    box-shadow: none;
+    padding: 12px 16px;
+  }
 }
 </style>
