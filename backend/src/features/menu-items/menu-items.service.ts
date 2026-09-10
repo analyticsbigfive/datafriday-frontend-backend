@@ -739,6 +739,7 @@ export class MenuItemsService {
     components: { include: { component: true } },
     ingredients: { include: { ingredient: { include: { marketPrice: { select: this.marketPriceSelectNoImage } } } } },
     packagings: { include: { packaging: { include: { marketPrice: { select: this.marketPriceSelectNoImage } } } } },
+    comboChildren: { include: { child: true } },
     spaceLinks: spaceLinksSelect,
   };
 
@@ -766,13 +767,19 @@ export class MenuItemsService {
   }
 
   /**
-   * Fusionne les 3 relations (MenuItemIngredient + MenuItemComponent +
-   * MenuItemPackaging) en un seul `components[]` dénormalisé au format contrat.
-   * Résout `supplierId` inline via marketPrice (le front court-circuite ainsi le
-   * join marketPrice→supplier). Collecte les supplierIds rencontrés.
+   * Fusionne les 4 relations (MenuItemIngredient + MenuItemComponent +
+   * MenuItemPackaging + MenuItemCombo) en un seul `components[]` dénormalisé au
+   * format contrat. Résout `supplierId` inline via marketPrice (le front
+   * court-circuite ainsi le join marketPrice→supplier). Collecte les
+   * supplierIds rencontrés.
    * NB: les MenuComponent (sous-recettes) sont retournés comme lignes terminales
    * (`itemType:'Component'`) ; le moteur front `expandMenuItemStock` recurse de
    * lui-même au niveau menu-items (pas d'aplatissement serveur superflu).
+   * Idem pour les MenuItemCombo (`itemType:'MenuItem'`) : un combo n'est qu'un
+   * panier de refs vers d'autres MenuItem, le front sait déjà les ouvrir
+   * (BUG-002/Q18) — sans cette ligne, `components` ressort vide pour un combo
+   * dont la composition ne passe QUE par comboChildren, et le front le traite à
+   * tort comme un article sans recette.
    */
   private buildRecipeComponents(item: any): { components: any[]; supplierIds: Set<string> } {
     const supplierIds = new Set<string>();
@@ -838,6 +845,23 @@ export class MenuItemsService {
         marketPriceId: null,
         supplierId: null,
         cost: this.lineCost(line),
+      });
+    }
+
+    for (const line of item.comboChildren || []) {
+      const child = line.child || {};
+      components.push({
+        id: line.id,
+        sourceId: line.childId,
+        name: child.name ?? null,
+        itemType: 'MenuItem',
+        numberOfUnits: this.toNumber(line.quantity),
+        unit: line.unit ?? 'unit',
+        category: null,
+        storageType: null,
+        marketPriceId: null,
+        supplierId: null,
+        cost: this.toNumber(line.cost, 0),
       });
     }
 
