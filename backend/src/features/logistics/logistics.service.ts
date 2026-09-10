@@ -2027,7 +2027,9 @@ export class LogisticsService {
       ingredients: {
         select: {
           numberOfUnits: true,
-          ingredient: { select: { name: true } },
+          // id/marketPriceId : identité catalogue de la ligne de consommation
+          // (BUG-378-02), même chaîne que le comptage front (marketPriceId → id).
+          ingredient: { select: { id: true, name: true, marketPriceId: true } },
         },
       },
       components: { select: { numberOfUnits: true, component: { select: componentSelect } } },
@@ -2107,13 +2109,30 @@ export class LogisticsService {
     // readyForSale==='Yes' ne se déclenchait jamais en pratique (0 Component avec ce
     // flag en base) et explosait donc systématiquement en ingrédients bruts, en
     // désaccord avec le référentiel Path A une fois celui-ci corrigé.
+    // Identité catalogue par clé de consommation (BUG-378-02, ADR-0006) : la clé
+    // reste le NOM (contrat Logistic), mais chaque ligne renvoyée porte aussi
+    // (itemKind, itemRefId) pour que la réconciliation post-event joigne par id
+    // d'abord, nom en repli. Même chaîne que le comptage front
+    // (`componentIngredientId` : marketPriceId → id) : un ingrédient lié à une
+    // Market Price est identifié par elle, sinon par lui-même. Première identité
+    // vue pour un nom gagne (deux homonymes ne peuvent pas être départagés ici).
+    const identityByKey = new Map<string, { itemKind: StockItemKind; itemRefId: string }>();
+    const rememberIdentity = (key: string | null | undefined, kind: StockItemKind, refId: string | null | undefined) => {
+      const k = key?.trim();
+      if (!k || !refId || identityByKey.has(k)) return;
+      identityByKey.set(k, { itemKind: kind, itemRefId: String(refId) });
+    };
+
     const componentPerUnitCache = new Map<string, Map<string, number>>();
     const perUnitForComponent = (comp: any): Map<string, number> => {
       const cached = componentPerUnitCache.get(comp.id);
       if (cached) return cached;
       const result = new Map<string, number>();
       const name = comp?.name?.trim();
-      if (name) result.set(name, 1);
+      if (name) {
+        result.set(name, 1);
+        rememberIdentity(name, 'menuComponent', comp.id);
+      }
       componentPerUnitCache.set(comp.id, result);
       return result;
     };
@@ -2135,10 +2154,14 @@ export class LogisticsService {
       const isCombo = this.normYesNo(item.comboItem) === 'Yes';
       if (!isCombo && this.normYesNo(item.readyForSale) === 'Yes') {
         add(item.name, 1);
+        rememberIdentity(item.name, 'menuItem', item.id);
       } else {
         const pieces = Number(item.numberOfPiecesRecipe) > 0 ? Number(item.numberOfPiecesRecipe) : 1;
         for (const line of item.ingredients) {
-          add(line.ingredient?.name, Number(line.numberOfUnits ?? 0) / pieces);
+          const ing = line.ingredient;
+          add(ing?.name, Number(line.numberOfUnits ?? 0) / pieces);
+          if (ing?.marketPriceId) rememberIdentity(ing.name, 'marketPrice', ing.marketPriceId);
+          else rememberIdentity(ing?.name, 'ingredient', ing?.id);
         }
         for (const line of item.components) {
           const qty = Number(line.numberOfUnits ?? 0) / pieces;
@@ -2173,7 +2196,14 @@ export class LogisticsService {
         agg.quantity += qtyPerUnit * row.qty;
       }
     }
-    return [...consumption.values()].map((c) => ({ ...c, quantity: Math.round(c.quantity * 100) / 100 }));
+    // (itemKind, itemRefId) uniquement quand l'identité est connue : les appelants
+    // Logistic (reset, simulation) ne lisent que itemKey/quantity et restent
+    // indifférents ; la réconciliation post-event les exploite quand ils sont là.
+    return [...consumption.values()].map((c) => ({
+      ...c,
+      quantity: Math.round(c.quantity * 100) / 100,
+      ...(identityByKey.get(c.itemKey) ?? {}),
+    }));
   }
 
   /**
@@ -2206,25 +2236,30 @@ export class LogisticsService {
     const windowEnd = new Date(event.eventEndDate ?? event.eventDate);
     windowEnd.setDate(windowEnd.getDate() + 1);
 
-    const [elementIds, locationMapping] = await Promise.all([
+    // BUG-378-02 : un espace peut être alimenté par PLUSIEURS intégrations (Stade
+    // Jean Bouin = PFC + SFP). Le findFirst d'origine prenait la première mappée,
+    // et un match de l'autre club sortait 0 vente, sans rien de « non joint » :
+    // le document affichait alors toute la consommation en manquant. Même règle
+    // que le timeline (BUG-136-01) : findMany, clause IN.
+    const [elementIds, locationMappings] = await Promise.all([
       this.getSpaceElementIds(spaceId, tenantId),
-      this.prisma.locationSpaceMapping.findFirst({
+      this.prisma.locationSpaceMapping.findMany({
         where: { tenantId, spaceId },
         select: { salesLocationId: true },
       }),
     ]);
     if (!elementIds.length) {
-      return { eventId: event.id, eventName: event.name ?? null, lines: [], unjoined: null };
+      return { eventId: event.id, eventName: event.name ?? null, lines: [], unjoined: null, elementNames: {} };
     }
 
     // Même précédence que le timeline : scope intégration si mappé, sinon mode
     // dégradé tenant-wide où seuls les PdV mappés à CET espace sont gardés (sans
     // ça, les ventes non mappées des autres espaces fuiraient dans la fenêtre).
-    const integrationId = locationMapping?.salesLocationId ?? null;
-    const integrationClause = integrationId
-      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+    const integrationIds = [...new Set(locationMappings.map((m) => m.salesLocationId).filter(Boolean))];
+    const integrationClause = integrationIds.length
+      ? Prisma.sql`AND t."integrationId" IN (${Prisma.join(integrationIds)})`
       : Prisma.empty;
-    const shopScopeClause = integrationId
+    const shopScopeClause = integrationIds.length
       ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" IN (${Prisma.join(elementIds)}))`
       : Prisma.sql`mem."spaceElementId" IN (${Prisma.join(elementIds)})`;
 
@@ -2291,10 +2326,28 @@ export class LogisticsService {
     }
 
     const lines = await this.explodeSalesToConsumption(joinable, tenantId);
+
+    // Noms des PdV vendeurs (BUG-378-02) : un PdV de l'espace qui vend sans être
+    // dans le périmètre compté de l'écran inventaire sort en « non joint » côté
+    // client, qui n'a alors AUCUNE source pour le nommer (son référentiel ne
+    // contient que les PdV comptés) et affichait l'identifiant brut dans le
+    // bandeau. Dictionnaire, pas un champ par ligne : le même PdV revient sur
+    // des centaines de lignes.
+    const elementIdsInLines = [...new Set(lines.map((l) => l.elementId).filter(Boolean))];
+    const elementRows = elementIdsInLines.length
+      ? await this.prisma.spaceElement.findMany({
+          where: { id: { in: elementIdsInLines } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const elementNames: Record<string, string> = {};
+    for (const el of elementRows) if (el.name) elementNames[el.id] = el.name;
+
     return {
       eventId: event.id,
       eventName: event.name ?? null,
       lines,
+      elementNames,
       unjoined:
         unjoinedShops.size || unjoinedProducts.size
           ? {

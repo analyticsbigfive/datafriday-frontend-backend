@@ -109,6 +109,25 @@ export class SalesUnjoinedDto {
   units?: number;
 }
 
+/**
+ * Clés d'une source (pré-event, mouvements) écartées car leur PdV n'est pas dans
+ * le périmètre compté (BUG-378-02). Sans ce compteur, un PdV retiré de la
+ * configuration entre deux matchs disparaissait du document sans trace.
+ */
+export class PerimeterExcludedDto {
+  @ApiPropertyOptional({ description: 'Nombre de lignes écartées', type: Number })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  lines?: number;
+
+  @ApiPropertyOptional({ description: 'Unités écartées (valeur absolue cumulée)', type: Number })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  units?: number;
+}
+
 export class CreatePostEventReconciliationDto {
   @ApiProperty({ description: "ID de l'événement réconcilié" })
   @IsString()
@@ -147,6 +166,36 @@ export class CreatePostEventReconciliationDto {
   @IsArray()
   @IsNumber({}, { each: true })
   countedProgress?: number[];
+
+  @ApiPropertyOptional({
+    description:
+      "Provenance du prédit (BUG-378-02) : 'default-version' = version Event Predict marquée par défaut, " +
+      "explosée au grain inventaire ; 'none' = aucune version par défaut (colonne prédit à null).",
+  })
+  @IsOptional()
+  @IsString()
+  predictedSource?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Prédictions écartées faute de jointure (BUG-378-02) : PdV prédits hors périmètre compté, ' +
+      'articles prédits sans article compté correspondant. Même forme que salesUnjoined.',
+    type: SalesUnjoinedDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SalesUnjoinedDto)
+  predictedUnjoined?: SalesUnjoinedDto;
+
+  @ApiPropertyOptional({
+    description:
+      'Clés pré-event / mouvements écartées car hors du périmètre compté (BUG-378-02) : lignes et unités.',
+    type: PerimeterExcludedDto,
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => PerimeterExcludedDto)
+  perimeterExcluded?: PerimeterExcludedDto;
 
   @ApiPropertyOptional({ description: "Nom de l'événement (dénormalisé pour la liste)" })
   @IsOptional()
