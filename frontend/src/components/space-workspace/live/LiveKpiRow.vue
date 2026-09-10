@@ -1,38 +1,31 @@
 <template>
-  <v-row class="mb-4" dense>
-    <v-col cols="12" sm="6" lg="3">
-      <KpiCard
-        :config="cards[0]"
-        :loading="loading"
-        :value="formatCurrency(metrics.displayRevenue.value)"
-        :subtext="`${t('anAvgPerEvent')} : ${formatCurrency(metrics.displayAvgRevenue.value)}`"
-      />
-    </v-col>
-    <v-col cols="12" sm="6" lg="3">
-      <KpiCard
-        :config="cards[1]"
-        :loading="loading"
-        :value="formatCurrencyDetailed(metrics.displayPerCapita.value)"
-        :subtext="perCapitaSubtext"
-      />
-    </v-col>
-    <v-col cols="12" sm="6" lg="3">
-      <KpiCard
-        :config="cards[2]"
-        :loading="loading"
-        :value="marginLabel"
-        :subtext="marginSubtext"
-      />
-    </v-col>
-    <v-col cols="12" sm="6" lg="3">
-      <KpiCard
-        :config="cards[3]"
-        :loading="loading"
-        :value="txPerMinuteLabel"
-        :subtext="t('anKpiTxRateScope')"
-      />
-    </v-col>
-  </v-row>
+  <!-- Grille KPI : responsive en desktop, SCROLL HORIZONTAL en mobile (≤600px, cf. CSS). -->
+  <div class="lkr-grid">
+    <KpiCard
+      :config="cards[0]"
+      :loading="loading"
+      :value="formatCurrency(metrics.displayRevenue.value)"
+      :subtext="`${t('anAvgPerEvent')} : ${formatCurrency(metrics.displayAvgRevenue.value)}`"
+    />
+    <KpiCard
+      :config="cards[1]"
+      :loading="loading"
+      :value="formatCurrencyDetailed(metrics.displayPerCapita.value)"
+      :subtext="perCapitaSubtext"
+    />
+    <KpiCard
+      :config="cards[2]"
+      :loading="loading"
+      :value="marginLabel"
+      :subtext="marginSubtext"
+    />
+    <KpiCard
+      :config="cards[3]"
+      :loading="loading"
+      :value="txPerMinuteLabel"
+      :subtext="t('anKpiTxRateScope')"
+    />
+  </div>
 </template>
 
 <script setup>

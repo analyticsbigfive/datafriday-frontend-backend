@@ -94,6 +94,12 @@ function computeBucketData(records) {
     const revenue = r.revenue || 0
     const name = resolveItemName(r)
     if (!name) continue
+    // Le packaging (consigne, gobelets…) a son propre type et son propre donut : il
+    // ne doit PAS polluer le top 5 Food/Beverage. classifyForReport ne connaît que
+    // FOOD/BEVERAGE/BEER/COMBO (pas « Packaging ») et rabattrait un packaging vendu à
+    // un PdV food dans Food — on le lit donc via son type ENREGISTRÉ (menuItemType)
+    // et on l'exclut du top 5. byType/byCategory (donuts) gardent tout.
+    if (/packaging/i.test(resolveItemType(r))) continue
     const bucket = classifyForReport(r)
     let entry = items.get(name)
     if (!entry) {

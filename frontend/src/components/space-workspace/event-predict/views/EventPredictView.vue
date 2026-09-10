@@ -80,7 +80,10 @@
       </aside>
     </div>
 
-    <div v-else class="ep-body" :class="{ 'ep-side-collapsed': sideCollapsed }">
+    <div v-else class="ep-body" :class="{ 'ep-side-collapsed': sideCollapsed, 'ep-metrics-open': metricsOpen }">
+      <!-- Mobile uniquement : backdrops des overlays (filtres/perfs), ferment au clic hors panneau. -->
+      <div v-if="!sideCollapsed" class="ep-side-backdrop" @click="sideCollapsed = true"></div>
+      <div v-if="metricsOpen" class="ep-metrics-backdrop" @click="metricsOpen = false"></div>
       <!-- LEFT: Event selector -->
       <div class="ep-side">
         <!-- Sous-menu outils (Analyse / Predict / Event Predict / Inventaire /
@@ -453,10 +456,44 @@
             <!-- Toggle STANDARD du panneau gauche dans le bandeau rouge. -->
             <template #lead>
               <WorkspacePanelToggle
+                class="ep-panel-toggle--desktop"
                 :open="!sideCollapsed"
                 :label="sideCollapsed ? t('epShowPanel') : t('epCollapsePanel')"
                 @toggle="sideCollapsed = !sideCollapsed"
               />
+              <!-- Mobile : ☰ nav outils (ouvre WorkspaceMobileToolDrawer). -->
+              <button
+                type="button"
+                class="ep-band-trigger ep-band-tools"
+                :aria-label="t('epToolsNavigation')"
+                @click="mobileToolDrawer = true"
+              >
+                <v-icon size="20">mdi-menu</v-icon>
+              </button>
+            </template>
+            <!-- Mobile : entonnoir (filtres = sélecteur d'events) juste à côté
+                 d'edit, en overlay depuis la droite. -->
+            <template #actions>
+              <button
+                type="button"
+                class="ep-band-trigger ep-band-filter"
+                :aria-label="t('epShowPanel')"
+                @click="sideCollapsed = !sideCollapsed"
+              >
+                <v-icon size="20">mdi-filter-variant</v-icon>
+              </button>
+            </template>
+            <!-- Mobile : ▶ (perfs = colonne ep-metrics) juste après edit, en
+                 overlay (drawer droit). -->
+            <template #actions-after>
+              <button
+                type="button"
+                class="ep-band-trigger ep-band-metrics"
+                :aria-label="t('epSectionsAria')"
+                @click="metricsOpen = !metricsOpen"
+              >
+                <v-icon size="22">mdi-play-circle-outline</v-icon>
+              </button>
             </template>
           </EventDetailsEditor>
 
@@ -1286,6 +1323,15 @@
         <v-btn variant="text" @click="snackbar = false">{{ t('close') }}</v-btn>
       </template>
     </v-snackbar>
+
+    <!-- Nav entre outils (☰ du bandeau rouge, mobile) — drawer partagé. -->
+    <WorkspaceMobileToolDrawer
+      v-model="mobileToolDrawer"
+      :items="visibleToolboxItems"
+      current-value="event-predict"
+      :title="t('epTools')"
+      @select="onToolboxSelect"
+    />
   </Teleport>
 </template>
 
@@ -1362,6 +1408,7 @@ import EventPredictHistoryAliasDrawer from "@/components/space-workspace/event-p
 import { applyHistoryAliases } from "@/utils/historyAliases";
 import WorkspaceToolSelect from "@/components/WorkspaceToolSelect.vue";
 import WorkspacePanelToggle from "@/components/WorkspacePanelToggle.vue";
+import WorkspaceMobileToolDrawer from "@/components/WorkspaceMobileToolDrawer.vue";
 import WorkspaceUserMenu from "@/components/WorkspaceUserMenu.vue";
 import WorkspaceSpaceSwitcher from "@/components/WorkspaceSpaceSwitcher.vue";
 import NotificationBell from "@/components/NotificationBell.vue";
@@ -1517,6 +1564,7 @@ export default {
     EventTimelineChart,
     EventDetailsEditor,
     WorkspacePanelToggle,
+    WorkspaceMobileToolDrawer,
     WorkspaceUserMenu,
     EventPredictSourcesDrawer,
     EventPredictHistoryAliasDrawer,
@@ -1637,6 +1685,9 @@ export default {
       calendarOpen: true,
       // Colonne gauche (sélecteur + versions) repliable pour élargir le centre.
       sideCollapsed: false,
+      // Mobile : ☰ nav outils (drawer) + overlay perfs (colonne ep-metrics via ▶).
+      mobileToolDrawer: false,
+      metricsOpen: false,
       // Quantity adjustments per record (key: `${elementId}-${menuItemId}`, value: percent 0..200)
       quantityAdjustments: {},
       // Quantités ABSOLUES manuelles pour les couples (shop, item) dont la
@@ -3735,6 +3786,12 @@ export default {
     },
   },
   async mounted() {
+    // Mobile (≤600px) : le sélecteur d'events (.ep-side) et les perfs (.ep-metrics)
+    // deviennent des overlays glissants → fermés par défaut.
+    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 600px)').matches) {
+      this.sideCollapsed = true;
+      this.metricsOpen = false;
+    }
     // Écoute l'état du rail Dashboard (déplié/replié) AVANT de signaler l'overlay
     // actif : DashboardView rediffuse l'état dans la foulée → chevron initialisé.
     this._navStateHandler = (e) => { this.navExpanded = !!e.detail?.expanded; };
@@ -10287,6 +10344,123 @@ export default {
 }
 .dark .ep-link-btn.ep-danger {
   border-color: rgba(220, 38, 38, 0.4);
+}
+
+/* ═══════════ Mobile (≤600px) — standard responsive espace de travail ═══════════
+   Bandeau rouge (.ede-summary d'EventDetailsEditor) fixe + pleine largeur, plus
+   rien au-dessus. À gauche : ☰ ouvre la nav outils (WorkspaceMobileToolDrawer).
+   À droite (à côté d'edit) : entonnoir → sélecteur d'events (.ep-side) en overlay,
+   ▶ → colonne perfs (.ep-metrics) en overlay. Parité Live/Restock. */
+
+/* Pastilles blanches translucides du bandeau (☰ / entonnoir / ▶), mobile-only. */
+.ep-band-trigger {
+  display: none;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.2);
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.ep-band-trigger:hover { background: rgba(255, 255, 255, 0.32); }
+.ep-band-trigger:active { transform: scale(0.94); }
+.ep-band-trigger:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.85); outline-offset: 2px; }
+
+/* Backdrops des overlays : absents hors mobile. */
+.ep-side-backdrop,
+.ep-metrics-backdrop { display: none; }
+
+@media (max-width: 600px) {
+  /* Bandeau : ☰ à gauche, entonnoir + ▶ à droite ; toggle desktop + toolbox masqués. */
+  .ep-band-trigger { display: inline-flex; }
+  .ep-panel-toggle--desktop { display: none !important; }
+  .ep-toolbox-select { display: none !important; }
+
+  /* Bandeau rouge PLEINE LARGEUR (breakout jusqu'aux bords du viewport) + coins
+     carrés. Reste sticky (top:0) dans le scroll de .ep-body. Garde overflow-x:clip
+     posée sur .ep-body pour ne pas créer de scroll horizontal. */
+  .ep-body { overflow-x: clip; }
+  .ep-main > :deep(.ede-summary) {
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    /* Une seule rangée : ☰ | titre | entonnoir·edit·▶ (le palier ≤640 empile en
+       colonne — on rétablit la rangée pour un vrai bandeau d'en-tête). */
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+  }
+  .ep-main :deep(.ede-summary-main) {
+    flex: 1;
+    min-width: 0;
+  }
+  .ep-main :deep(.ede-summary-actions) {
+    width: auto;
+    flex-shrink: 0;
+  }
+  .ep-main :deep(.ede-summary-action-row) {
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    width: auto;
+  }
+
+  /* .ep-side (sélecteur d'events = filtres) → overlay glissant depuis la droite. */
+  .ep-side {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: 88%;
+    max-width: 360px;
+    margin: 0;
+    padding: 14px;
+    z-index: 4000;
+    overflow-y: auto;
+    background: var(--fb-surface, #ffffff);
+    box-shadow: -4px 0 24px rgba(15, 23, 42, 0.18);
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .ep-body:not(.ep-side-collapsed) .ep-side { transform: translateX(0); }
+
+  /* .ep-metrics (perfs, colonne droite) → overlay glissant depuis la droite. */
+  .ep-metrics {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: 90%;
+    max-width: 380px;
+    margin: 0;
+    padding: 14px;
+    z-index: 4000;
+    overflow-y: auto;
+    background: var(--fb-surface, #ffffff);
+    box-shadow: -4px 0 24px rgba(15, 23, 42, 0.18);
+    border-left: none;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+  }
+  .ep-body.ep-metrics-open .ep-metrics { transform: translateX(0); }
+
+  .ep-side-backdrop,
+  .ep-metrics-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 3999;
+    background: rgba(17, 24, 39, 0.45);
+  }
 }
 </style>
 

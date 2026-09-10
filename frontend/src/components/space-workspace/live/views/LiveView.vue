@@ -5,6 +5,9 @@
     <v-main class="live-main">
       <div class="an-body" :class="{ 'an-side-collapsed': !drawer, 'an-summary-collapsed': !summaryDrawer }">
         <LiveFilterPanel :records="itemRecordsSource.itemRecords.value" :filters="filters" :is-dark="isDark" @update:filters="onFiltersUpdate" />
+        <!-- Mobile uniquement : backdrops des overlays (ferment au clic hors panneau). -->
+        <div v-if="drawer" class="an-mobile-filter-backdrop" @click="drawer = false"></div>
+        <div v-if="summaryDrawer" class="an-live-summary-backdrop" @click="summaryDrawer = false"></div>
 
         <div class="an-main">
           <div id="live-capture-root" class="lv-wrap" :class="{ 'lv-wrap--dark': isDark }">
@@ -16,6 +19,8 @@
               :drawer-open="drawer"
               :records="filteredItemRecords"
               @toggle-drawer="drawer = !drawer"
+              @open-tools="showToolDrawer = true"
+              @toggle-summary="summaryDrawer = !summaryDrawer"
               @event-updated="onEventUpdated"
             />
 
@@ -120,7 +125,7 @@
 import { ref, reactive, computed, onMounted, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import { useStore } from 'vuex'
-import { useTheme } from 'vuetify'
+import { useTheme, useDisplay } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { useLiveData } from '@/composables/useLiveData'
 import { useLiveItemRecords } from '@/composables/useLiveItemRecords'
@@ -163,8 +168,11 @@ const tab = ref('analyse')
 // le déploiement Vercel de production — absente ailleurs, donc affiché par défaut
 // (fail-open) sur staging/dev/local.
 const isProdEnv = process.env.VUE_APP_ENVIRONMENT === 'production'
-const drawer = ref(true)
-const summaryDrawer = ref(true)
+// Desktop : filtres + perfs ouverts (grille 3 colonnes). Mobile (≤600px) : fermés
+// par défaut — ils deviennent des overlays glissants ouverts par l'entonnoir / le ▶.
+const { mdAndDown } = useDisplay()
+const drawer = ref(!mdAndDown.value)
+const summaryDrawer = ref(!mdAndDown.value)
 
 // Nom d'espace : même source que tous les autres écrans de l'espace (Restock/Inventory/
 // Logistic dispatchent tous `analyse/loadSpace` pour ce même besoin, cf.
@@ -420,6 +428,9 @@ onBeforeUnmount(() => liveData.stopPolling())
   padding: 0;
   pointer-events: none;
 }
+/* Backdrops des overlays mobile — masqués en desktop (affichés au @media 600). */
+.an-mobile-filter-backdrop,
+.an-live-summary-backdrop { display: none; }
 @media (max-width: 900px) {
   .an-body,
   .an-body.an-side-collapsed,
@@ -470,5 +481,74 @@ onBeforeUnmount(() => liveData.stopPolling())
 @media (max-width: 600px) {
   .lv-wrap { padding: 12px; }
   .an-live-tabs { flex-wrap: wrap; }
+
+  /* Colonne unique = seulement an-main. Filtres + perfs sortent du flux (overlays)
+     → plus rien au-dessus du bandeau. Garde overflow-x:clip pour le breakout du
+     bandeau (full-bleed 100vw) sans barre horizontale. */
+  .an-body,
+  .an-body.an-side-collapsed,
+  .an-body.an-summary-collapsed,
+  .an-body.an-side-collapsed.an-summary-collapsed {
+    grid-template-columns: 1fr !important;
+    padding: 12px;
+  }
+  .live-main { overflow-x: clip; }
+
+  /* Panneau FILTRES : overlay glissant depuis la droite (ouvert par l'entonnoir). */
+  .an-body > :deep(.analyse-filter-panel) {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 86%;
+    max-width: 330px;
+    margin: 0;
+    border-radius: 0;
+    z-index: 3000;
+    overflow-y: auto;
+    background: #fff;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    opacity: 1;
+    pointer-events: auto;
+    padding: 12px;
+  }
+  .an-body:not(.an-side-collapsed) > :deep(.analyse-filter-panel) {
+    transform: translateX(0);
+  }
+  /* La « section outils » du panneau (WorkspaceToolSelect) est masquée : le ☰ du
+     bandeau la remplace, et rien ne doit apparaître au-dessus du bandeau. */
+  .an-body > :deep(.analyse-filter-panel .fp-toolbox) { display: none; }
+
+  /* PERFORMANCES (an-right) : overlay glissant depuis la droite (ouvert par le ▶). */
+  .an-body > .an-right {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 88%;
+    max-width: 360px;
+    margin: 0;
+    z-index: 3000;
+    overflow-y: auto;
+    background: #fff;
+    box-shadow: -4px 0 24px rgba(0, 0, 0, 0.18);
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+    opacity: 1;
+    pointer-events: auto;
+    padding: 12px;
+  }
+  .an-body:not(.an-summary-collapsed) > .an-right {
+    transform: translateX(0);
+  }
+  .live-app--dark .an-body > .an-right,
+  .live-app--dark .an-body > :deep(.analyse-filter-panel) { background: #0f172a; }
+
+  .an-mobile-filter-backdrop,
+  .an-live-summary-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 2999;
+    background: rgba(17, 24, 39, 0.45);
+  }
 }
 </style>
