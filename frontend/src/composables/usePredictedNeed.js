@@ -44,7 +44,12 @@ export function pickReferenceVersion(rows) {
  * @param {Array<object>} params.menuItems  catalogue (store analyse)
  * @param {Array<object>} params.components composants (store analyse)
  * @param {object|null} params.version      version Event Predict de référence
- * @returns {{byItemId: Record<string, number>, byItemName: Record<string, number>}|null}
+ * @returns {{byItemId: Record<string, number>, byItemName: Record<string, number>,
+ *   rows: Array<{elementId:string, itemId:string|null, sourceId:string|null, itemName:string, units:number}>}|null}
+ *   `rows` (BUG-378-02) : les lignes d'explosion à plat, une par PdV × article,
+ *   pour les consommateurs qui doivent savoir ce qui n'a PAS rejoint leur
+ *   référentiel (réconciliation post-event) ; `byItemId` porte deux clés par
+ *   ligne (id et sourceId) et ne permet pas ce décompte sans double compte.
  */
 export function buildPredictedNeedIndex({ elements = [], menuItems = [], components = [], version } = {}) {
   const records = Array.isArray(version?.predictedRecords) ? version.predictedRecords : []
@@ -68,10 +73,18 @@ export function buildPredictedNeedIndex({ elements = [], menuItems = [], compone
 
   const byItemId = {}
   const byItemName = {}
+  const flatRows = []
   for (const row of rows) {
     const elementId = row?.shopId
     const units = Number(row?.totalQuantity) || 0
     if (!elementId || !units) continue
+    flatRows.push({
+      elementId: String(elementId),
+      itemId: row.itemId != null ? String(row.itemId) : null,
+      sourceId: row.sourceId != null ? String(row.sourceId) : null,
+      itemName: String(row?.itemName ?? ''),
+      units,
+    })
     for (const id of [row.itemId, row.sourceId]) {
       if (id == null) continue
       const k = expectedKey(elementId, id)
@@ -87,7 +100,7 @@ export function buildPredictedNeedIndex({ elements = [], menuItems = [], compone
   // « pas de scénario » : dans les deux cas il n'y a rien à afficher, et un objet
   // vide obligerait chaque appelant à re-tester ses clés.
   if (!Object.keys(byItemId).length && !Object.keys(byItemName).length) return null
-  return { byItemId, byItemName }
+  return { byItemId, byItemName, rows: flatRows }
 }
 
 /**
@@ -173,10 +186,12 @@ export function lookupPredictedNeedPacks(index, elementId, item) {
 /**
  * Charge la version de référence et construit l'index. Ne jette jamais : un
  * indice absent ne doit pas empêcher de compter.
- * @returns {Promise<{index: object|null, reason: null|'no-default-version'}>}
+ * `version` (BUG-378-02) : la version de référence elle-même, pour les
+ * consommateurs qui archivent sa provenance ou lisent ses records bruts.
+ * @returns {Promise<{index: object|null, reason: null|'no-default-version', version: object|null}>}
  */
 export async function loadPredictedNeed({ eventId, elements, menuItems, components } = {}) {
-  if (!eventId) return { index: null, reason: null }
+  if (!eventId) return { index: null, reason: null, version: null }
 
   let rows = []
   try {
@@ -189,11 +204,11 @@ export async function loadPredictedNeed({ eventId, elements, menuItems, componen
   if (!Array.isArray(rows) || !rows.length) rows = localDb.getEventPredictVersions(eventId)
 
   const version = pickReferenceVersion(rows)
-  if (!version) return { index: null, reason: 'no-default-version' }
+  if (!version) return { index: null, reason: 'no-default-version', version: null }
 
   // Une version existe : si l'index est vide, c'est qu'elle ne couvre pas les PdV
   // affichés — surtout PAS `no-default-version`, qui inviterait à en définir une
   // alors qu'elle existe déjà.
   const index = buildPredictedNeedIndex({ elements, menuItems, components, version })
-  return { index, reason: null }
+  return { index, reason: null, version }
 }

@@ -238,6 +238,56 @@ describe('LogisticsService — readyForSale display logic', () => {
     });
   });
 
+  describe('explodeSalesToConsumption : identité catalogue sur les lignes (BUG-378-02, ADR-0006)', () => {
+    it('porte (itemKind, itemRefId) : marketPrice pour un ingrédient lié, ingredient sinon, menuItem pour un readyForSale=Yes', async () => {
+      mockPrisma.menuItem.findMany.mockResolvedValueOnce([
+        {
+          id: 'mi-pinte', name: 'Pinte', readyForSale: 'No', comboItem: 'No', numberOfPiecesRecipe: 1,
+          ingredients: [
+            { numberOfUnits: 0.5, ingredient: { id: 'ing-fut', name: 'Fût 30L', marketPriceId: 'mp-fut' } },
+            { numberOfUnits: 1, ingredient: { id: 'ing-gobelet', name: 'Gobelet', marketPriceId: null } },
+          ],
+          components: [],
+        },
+        {
+          id: 'mi-coca', name: 'Coca 33cl', readyForSale: 'Yes', comboItem: 'No', numberOfPiecesRecipe: 1,
+          ingredients: [], components: [],
+        },
+      ]);
+      mockPrisma.menuComponent.findMany.mockResolvedValue([]);
+
+      const raw = [
+        { elementId: 'el-1', menuItemId: 'mi-pinte', eventId: null, eventName: null, qty: 2, lastAt: new Date('2026-09-05') },
+        { elementId: 'el-1', menuItemId: 'mi-coca', eventId: null, eventName: null, qty: 3, lastAt: new Date('2026-09-05') },
+      ];
+      const consumption = await service.explodeSalesToConsumption(raw, 'tenant-1');
+
+      expect(consumption).toEqual(
+        expect.arrayContaining([
+          { elementId: 'el-1', itemKey: 'Fût 30L', quantity: 1, itemKind: 'marketPrice', itemRefId: 'mp-fut' },
+          { elementId: 'el-1', itemKey: 'Gobelet', quantity: 2, itemKind: 'ingredient', itemRefId: 'ing-gobelet' },
+          { elementId: 'el-1', itemKey: 'Coca 33cl', quantity: 3, itemKind: 'menuItem', itemRefId: 'mi-coca' },
+        ]),
+      );
+      expect(consumption).toHaveLength(3);
+    });
+
+    it('identité inconnue (ingrédient sans id) → aucun champ ajouté, contrat itemKey/quantity inchangé', async () => {
+      mockPrisma.menuItem.findMany.mockResolvedValueOnce([
+        {
+          id: 'mi-1', name: 'Plat', readyForSale: 'No', comboItem: 'No', numberOfPiecesRecipe: 1,
+          ingredients: [{ numberOfUnits: 1, ingredient: { name: 'Sel' } }],
+          components: [],
+        },
+      ]);
+      mockPrisma.menuComponent.findMany.mockResolvedValue([]);
+      const raw = [{ elementId: 'el-1', menuItemId: 'mi-1', eventId: null, eventName: null, qty: 1, lastAt: new Date('2026-09-05') }];
+      const consumption = await service.explodeSalesToConsumption(raw, 'tenant-1');
+      expect(consumption).toEqual([{ elementId: 'el-1', itemKey: 'Sel', quantity: 1 }]);
+      expect(Object.keys(consumption[0])).toEqual(['elementId', 'itemKey', 'quantity']);
+    });
+  });
+
   describe('explodeSalesToConsumption — Path B parity with Path A', () => {
     it('explodes sales through a readyForSale=No component into its ingredient (not a flat component key)', async () => {
       mockPrisma.menuItem.findMany.mockResolvedValueOnce([
@@ -420,11 +470,34 @@ describe('LogisticsService — readyForSale display logic', () => {
         }),
       };
       p.spaceElement = { findMany: jest.fn().mockResolvedValue([{ id: 'shop-1' }, { id: 'shop-2' }]) };
-      p.locationSpaceMapping = { findFirst: jest.fn().mockResolvedValue({ salesLocationId: 'integ-1' }) };
+      // BUG-378-02 : findMany (un espace peut être alimenté par plusieurs intégrations).
+      p.locationSpaceMapping = { findMany: jest.fn().mockResolvedValue([{ salesLocationId: 'integ-1' }]) };
       p.$queryRaw = jest.fn().mockResolvedValue([]);
     };
 
     beforeEach(() => mockPrismaFull());
+
+    it('BUG-378-02 : espace alimenté par DEUX intégrations → les deux entrent dans la clause (Stade Jean Bouin PFC + SFP)', async () => {
+      p.locationSpaceMapping.findMany.mockResolvedValueOnce([
+        { salesLocationId: 'integ-pfc' },
+        { salesLocationId: 'integ-sfp' },
+      ]);
+      jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([]);
+      await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      expect(p.$queryRaw).toHaveBeenCalledTimes(1);
+      const sql = p.$queryRaw.mock.calls[0][0];
+      expect(sql.values).toEqual(expect.arrayContaining(['integ-pfc', 'integ-sfp']));
+      expect(sql.sql).toMatch(/"integrationId" IN \(/);
+    });
+
+    it('BUG-378-02 : aucune intégration mappée → mode dégradé sans clause intégration (PdV de l’espace seulement)', async () => {
+      p.locationSpaceMapping.findMany.mockResolvedValueOnce([]);
+      jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([]);
+      await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      const sql = p.$queryRaw.mock.calls[0][0];
+      expect(sql.sql).not.toMatch(/"integrationId" IN/);
+      expect(sql.sql).not.toMatch(/"spaceElementId" IS NULL/);
+    });
 
     it('404 quand l’event n’appartient pas au space/tenant (pas de fenêtre arbitraire)', async () => {
       p.event.findFirst.mockResolvedValueOnce(null);
@@ -461,7 +534,24 @@ describe('LogisticsService — readyForSale display logic', () => {
       const explode = jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([]);
       const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
       expect(explode).toHaveBeenCalledWith([], 'tenant-1');
-      expect(result).toEqual({ eventId: 'ev-1', eventName: 'Match test', lines: [], unjoined: null });
+      expect(result).toEqual({ eventId: 'ev-1', eventName: 'Match test', lines: [], unjoined: null, elementNames: {} });
+    });
+
+    it('BUG-378-02 : renvoie le NOM des PdV vendeurs (un PdV non compté ne peut pas être nommé par le client)', async () => {
+      jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([
+        { elementId: 'shop-1', itemKey: 'Coca', quantity: 3 },
+        { elementId: 'shop-2', itemKey: 'Coca', quantity: 1 },
+        { elementId: 'shop-1', itemKey: 'Bun', quantity: 2 },
+      ]);
+      p.spaceElement.findMany.mockResolvedValueOnce([{ id: 'shop-1' }, { id: 'shop-2' }]);
+      p.spaceElement.findMany.mockResolvedValueOnce([
+        { id: 'shop-1', name: 'Click & Collect' },
+        { id: 'shop-2', name: 'Live Order' },
+      ]);
+      const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      expect(result.elementNames).toEqual({ 'shop-1': 'Click & Collect', 'shop-2': 'Live Order' });
+      // Dictionnaire, pas un champ par ligne : le même PdV revient sur des centaines de lignes.
+      expect(result.lines[0]).not.toHaveProperty('elementName');
     });
 
     it('espace sans PdV → réponse vide sans requête ventes (pas de fenêtre tenant-wide)', async () => {

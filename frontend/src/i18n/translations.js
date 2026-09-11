@@ -2233,6 +2233,13 @@ export const translations = {
     invRecoMetaSalesTimeline:
       'Sales counted at sold-item level (older backend at generation time) — ingredient-level lines show 0 sold; read their Missing with that bias.',
     invRecoMetaIncomplete: 'Count was incomplete when generated:',
+    // BUG-378-02 : prédit au grain inventaire (version par défaut), périmètre compté.
+    invRecoMetaPredictedNone:
+      'No default Event Predict version for this match. Qty pred and Diff are unavailable.',
+    invRecoMetaPredictedUnjoined:
+      'predicted units could not be matched to a counted POS/item. They are left out of Qty pred.',
+    invRecoMetaPerimeterExcluded:
+      'starting-stock or movement line(s) left out: their POS is not in the counted perimeter.',
     invPostCarriedHint:
       'Quantities shown come from the pre-match count — recount and validate each item.',
     invConfiguration: 'Configuration',
@@ -6984,6 +6991,13 @@ export const translations = {
     invRecoMetaSalesTimeline:
       'Ventes comptées au grain article vendu (backend antérieur à la génération) — les lignes au grain ingrédient affichent 0 vendu ; leur Manquant se lit avec ce biais.',
     invRecoMetaIncomplete: 'Comptage incomplet à la génération :',
+    // BUG-378-02 : prédit au grain inventaire (version par défaut), périmètre compté.
+    invRecoMetaPredictedNone:
+      'Aucune version Event Predict par défaut pour ce match. Qté prédite et Écart indisponibles.',
+    invRecoMetaPredictedUnjoined:
+      'unité(s) prédite(s) non rattachée(s) à un PdV/article compté. Elles ne comptent pas dans la Qté prédite.',
+    invRecoMetaPerimeterExcluded:
+      'ligne(s) de stock de départ ou de mouvements écartée(s) : leur PdV est hors du périmètre compté.',
     invPostCarriedHint:
       "Les quantités affichées viennent du comptage d'avant-match — recomptez et validez chaque article.",
     invConfiguration: 'Configuration',

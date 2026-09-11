@@ -59,6 +59,13 @@ describe('buildPredictedNeedIndex', () => {
     expect(index.byItemName['shop-1|biere pression']).toBe(120)
   })
 
+  it('expose les lignes à plat (BUG-378-02) : une par PdV × article, sans double compte id/sourceId', () => {
+    const index = buildPredictedNeedIndex({ elements: ELEMENTS, version: makeVersion() })
+    expect(index.rows).toEqual([
+      { elementId: 'shop-1', itemId: 'mi-1', sourceId: null, itemName: 'Biere Pression', units: 120 },
+    ])
+  })
+
   it('applique les quantityAdjustments du scénario', () => {
     const index = buildPredictedNeedIndex({
       elements: ELEMENTS,
@@ -102,9 +109,11 @@ describe('lookupPredictedNeed', () => {
 describe('loadPredictedNeed', () => {
   it("l'API fait foi", async () => {
     listEventPredictVersions.mockResolvedValue([makeVersion()])
-    const { index, reason } = await loadPredictedNeed({ eventId: 'e1', elements: ELEMENTS })
+    const { index, reason, version } = await loadPredictedNeed({ eventId: 'e1', elements: ELEMENTS })
     expect(reason).toBeNull()
     expect(index.byItemId['shop-1|mi-1']).toBe(120)
+    // BUG-378-02 : la version de référence est renvoyée (provenance archivable).
+    expect(version?.id).toBe('v1')
     expect(localDb.getEventPredictVersions).not.toHaveBeenCalled()
   })
 
@@ -124,7 +133,8 @@ describe('loadPredictedNeed', () => {
 
   it('aucune version par défaut nulle part → reason explicite (le front invite à en définir une)', async () => {
     listEventPredictVersions.mockResolvedValue([{ id: 'v2', isDefault: false }])
-    const { index, reason } = await loadPredictedNeed({ eventId: 'e1', elements: ELEMENTS })
+    const { index, reason, version } = await loadPredictedNeed({ eventId: 'e1', elements: ELEMENTS })
+    expect(version).toBeNull()
     expect(index).toBeNull()
     expect(reason).toBe('no-default-version')
   })
