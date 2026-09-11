@@ -279,7 +279,13 @@ export class InventoryService {
         // et ventes écartées faute de jointure. Sans ces marqueurs, un écart
         // fabriqué par une source manquante passe pour un manquant réel.
         meta: {
-          baseline: { source: dto.preEventSource ?? 'none' },
+          baseline: {
+            source: dto.preEventSource ?? 'none',
+            // Stock de départ par PdV (BUG-378-02) : repli Logistic sur les PdV
+            // sans comptage pré-event, et PdV restés sans aucun stock de départ.
+            fallback: dto.baselineFallback ?? null,
+            uncoveredElements: dto.baselineUncoveredElements ?? null,
+          },
           salesUnjoined: dto.salesUnjoined ?? null,
           countedProgress: dto.countedProgress ?? null,
           // Q35 Option 1 : grain de la source « Vendu » ('consumption' = explosé
@@ -896,9 +902,29 @@ export class InventoryService {
     });
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
 
-    const [{ expected, unjoinedItemKeys, asOf }, movementNet] = await Promise.all([
+    // BUG-378-02 : l'attendu Logistic sert de stock de départ à la réconciliation
+    // post-event quand un PdV n'a pas de comptage pré-event. Mais le registre est
+    // RECALÉ depuis le comptage d'après-match à chaque génération de document
+    // (`pushCountToLogistic`, marqueur BUG-352-01) : après ce recalage il porte
+    // le comptage d'arrivée, et `attendu − compté` vaudrait 0 partout. On signale
+    // donc au client si le registre contient déjà le comptage post-event de CET
+    // event, pour qu'il n'en fasse pas un stock de départ.
+    const [{ expected, unjoinedItemKeys, asOf }, movementNet, pushedFromThisEvent] = await Promise.all([
       this.computeLogisticExpected(spaceId, tenantId),
       this.netMovementUnitsForEventWindow(spaceId, tenantId, event),
+      this.prisma.stockReconciliation.findFirst({
+        where: {
+          tenantId,
+          spaceId,
+          eventId: event.id,
+          kind: null,
+          AND: [
+            { meta: { path: ['source'], equals: 'inventory-count' } },
+            { meta: { path: ['phase'], equals: 'post-event' } },
+          ],
+        },
+        select: { id: true },
+      }),
     ]);
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -929,6 +955,9 @@ export class InventoryService {
       expected: expectedBlob,
       expectedUnits: expectedUnitsBlob,
       movementUnits: movementUnitsBlob,
+      // true = le registre a déjà été recalé depuis un comptage POST-event de cet
+      // event : `expectedUnits` n'est plus un stock de départ exploitable.
+      holdsPostEventCount: !!pushedFromThisEvent,
       salesUnjoined: null,
       unjoinedItemKeys: [...new Set([...unjoinedItemKeys, ...movementNet.unjoinedItemKeys])],
     };

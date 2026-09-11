@@ -71,7 +71,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Building2, Check, ChevronDown, LayoutGrid } from 'lucide-vue-next'
-import { getAllSpaces } from '@/api/endpoints/space.api'
+import { getSpacesLight } from '@/api/endpoints/space.api'
 import { clearDemoMode } from '@/utils/demoMode'
 
 defineProps({
@@ -100,7 +100,7 @@ async function loadSpaces() {
   if (spacesLoaded.value || spacesLoading.value) return
   spacesLoading.value = true
   try {
-    const data = await getAllSpaces()
+    const data = await getSpacesLight()
     availableSpaces.value = Array.isArray(data) ? data : (data?.data ?? data?.spaces ?? [])
     spacesLoaded.value = true
   } catch {

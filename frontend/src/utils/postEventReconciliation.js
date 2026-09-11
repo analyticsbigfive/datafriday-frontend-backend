@@ -101,18 +101,32 @@ export function buildSoldUnitsFromConsumption(
  * @param {Record<string, number>|null} [params.predictedUnitsByKey] prédictions du
  *   scénario, au GRAIN INVENTAIRE depuis BUG-378-02 (`postEventPredicted.js`) :
  *   même grain que le compté et le vendu, donc comparable ligne à ligne.
+ * @param {Set<string>|null} [params.preEventElementIds]  PdV réellement présents dans le
+ *   comptage pré-event (BUG-378-02). Sans le param : tout PdV est réputé couvert
+ *   (régime historique). Avec : un PdV absent n'a PAS un départ de 0, il passe au
+ *   repli Logistic s'il en a un, sinon Restant/Manquant null.
+ * @param {Record<string, number>|null} [params.logisticLeftByKey]  Restant déjà netté par le
+ *   registre Logistic (attendu = départ − ventes ± mouvements), pour les PdV sans
+ *   comptage pré-event. Une clé absente → null (jamais un 0 fabriqué : le registre ne
+ *   suit pas cet article là).
  * @param {Record<string, number>} [params.unitCostByItemId]  coût unitaire par article
+ * @param {Record<string, {unit?:string, unitsPerPack?:number, packaging?:string}>} [params.unitInfoByItemId]
+ *   unité et conditionnement par article (`reconciliationUnits.js`), archivés sur la ligne
  * @param {Map<string, string>|Record<string, string>} [params.elementNameById]
  * @param {Map<string, string>|Record<string, string>} [params.itemNameById]
- * @returns {Array<object>} lignes triées (PdV puis article)
+ * @returns {Array<object>} lignes triées (PdV puis article), chacune avec `baselineSource`
+ *   ('pre-event' | 'logistic-live' | null)
  */
 export function buildPostEventReconciliationLines({
   countedUnitsByKey = {},
   preEventUnitsByKey = null,
+  preEventElementIds = null,
   soldUnitsByKey = {},
   movementUnitsByKey = null,
   predictedUnitsByKey = null,
+  logisticLeftByKey = null,
   unitCostByItemId = {},
+  unitInfoByItemId = null,
   elementNameById = {},
   itemNameById = {},
 } = {}) {
@@ -128,6 +142,7 @@ export function buildPostEventReconciliationLines({
     ...Object.keys(predictedUnitsByKey || {}),
     ...Object.keys(preEventUnitsByKey || {}),
     ...Object.keys(movementUnitsByKey || {}),
+    ...Object.keys(logisticLeftByKey || {}),
   ])
 
   const hasPreEvent = preEventUnitsByKey != null
@@ -158,9 +173,19 @@ export function buildPostEventReconciliationLines({
     let missingUnits = null
     let missingValue = null
     let unitCost = null
-    if (hasPreEvent) {
+    let baselineSource = null
+    const preEventCovers = hasPreEvent && (!preEventElementIds || preEventElementIds.has(elementId))
+    const logisticLeft = logisticLeftByKey?.[key]
+    if (preEventCovers) {
       const preEvent = toUnits(preEventUnitsByKey?.[key])
       leftFromSales = round2(preEvent - soldUnits + (movementUnits ?? 0))
+      baselineSource = 'pre-event'
+    } else if (logisticLeft != null && Number.isFinite(Number(logisticLeft))) {
+      // Attendu Logistic : ventes et mouvements déjà nettés par le registre.
+      leftFromSales = round2(Number(logisticLeft))
+      baselineSource = 'logistic-live'
+    }
+    if (leftFromSales != null) {
       missingUnits = round2(leftFromSales - countedUnits)
       const cost = Number(unitCostByItemId?.[itemKey])
       if (Number.isFinite(cost)) {
@@ -169,6 +194,7 @@ export function buildPostEventReconciliationLines({
       }
     }
 
+    const unitInfo = unitInfoByItemId?.[itemKey] || null
     lines.push({
       elementId,
       elementName: nameOf(elementNameById, elementId),
@@ -178,10 +204,15 @@ export function buildPostEventReconciliationLines({
       predictedUnits,
       movementUnits,
       leftFromSales,
+      baselineSource,
       countedUnits,
       missingUnits,
       missingValue,
       unitCost,
+      // Unité et conditionnement à la génération (photo figée) : « 840 L (28 Fut de 30 L) ».
+      unit: unitInfo?.unit || null,
+      unitsPerPack: unitInfo?.unitsPerPack || null,
+      packaging: unitInfo?.packaging || null,
     })
   }
 

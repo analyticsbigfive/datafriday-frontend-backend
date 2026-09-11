@@ -78,6 +78,28 @@ Décisions prises le 2026-09-10 par Ulrich (délégation Bertrand) : (1) coût p
   `elementNames` (id → nom). Un PdV de l'espace qui VEND sans être dans le périmètre compté sort en
   « non joint » côté client, qui n'avait alors aucune source pour le nommer (son référentiel ne
   contient que les PdV comptés) et affichait l'identifiant brut dans le bandeau (`cmsx2mkmd...`).
+- **Stock de départ PAR PdV (2026-09-11, `utils/postEventBaseline.js`)** : deux défauts de plus,
+  vus sur le document régénéré. (a) Un comptage pré-event PARTIEL (PFC-Lyon : 5 PdV sur 41)
+  fabriquait un départ de 0 sur les PdV non comptés (`toUnits(undefined)`), donc un « surplus »
+  égal aux ventes. (b) Le registre Logistic, source d'attendu des écrans depuis le PDF v3
+  (2026-08-21) et du « Doit rester » affiché pendant le comptage, n'était jamais consulté par le
+  document. Règle désormais, par PdV compté : pré-event s'il y figure (formule §14.3 inchangée),
+  sinon attendu Logistic tel quel (`expectedUnits`, ventes et mouvements déjà nettés), sinon
+  Restant/Manquant null. Chaque ligne porte `baselineSource`. Garde anti-circularité : le
+  registre est recalé depuis le comptage d'après-match à chaque génération (`pushCountToLogistic`,
+  marqueur BUG-352-01) ; `GET post-event-baseline` renvoie `holdsPostEventCount` et le client
+  n'utilise pas un registre qui porte déjà le comptage de CET event. Archivé dans
+  `meta.baseline` : `source` (`'logistic-live'` quand aucun pré-event), `fallback` (PdV en repli),
+  `uncoveredElements` ; trois bandeaux.
+- **Unité et conditionnement par ligne (2026-09-11, demande Ulrich, `utils/reconciliationUnits.js`)** :
+  chaque ligne archive `unit`, `unitsPerPack`, `packaging` (article compté d'abord : `unit`,
+  `inventoryQuantityPackaged`, `inventoryPackaging` ; Market Price en repli). Affichage
+  « 3 626,85 L » sur Vendu/Prédit, « 840 L (28 Fut de 30 L) » sur Restant/Inventaire/Manquant ;
+  en mode PdV la ligne de total ne porte une unité que si toutes ses lignes la partagent. Vérifié
+  sur « 1664 - 30L » : recette en L (0,45 pour une 45cl, 1,5 pour une 1,5L), Market Price
+  `unit='L'`, `packedUnits=30`, `inventoryPackaging='Fut'` ; le Vendu est donc bien en litres.
+  DTO : `baselineSource`, `unit`, `unitsPerPack`, `packaging` ajoutés sur la ligne (whitelist
+  stricte : sans eux la génération répondait 400).
 - **Front, Miss €** : `buildUnitCostByItemId`, coût par kind : `MarketPrice.pricePerUnit` pour un
   article compté sous une market price, `MenuComponent.unitCost` pour un composant,
   `menuItemCostMap` pour un article compté tel quel. Jamais un 0 € fabriqué (coût nul ou absent →
@@ -91,7 +113,9 @@ Décisions prises le 2026-09-10 par Ulrich (délégation Bertrand) : (1) coût p
   kind, identité inconnue), `inventory.service.spec.ts` (meta) ; front
   `postEventReconciliation.spec.js` (jointure par id, prédit au grain inventaire),
   `usePredictedNeed.spec.js` (rows, version), `postEventPredicted.spec.js`,
-  `reconciliationPerimeter.spec.js`, `reconciliationCosts.spec.js`. Suite front : 1160 verts,
+  `reconciliationPerimeter.spec.js`, `reconciliationCosts.spec.js`, `postEventBaseline.spec.js`
+  (répartition par PdV, registre contaminé, formule par ligne), `reconciliationUnits.spec.js`.
+  Suite front : 1160 verts,
   10 échecs préexistants hors périmètre (4 suites, identiques sans ces modifications).
 - Déploiement conjoint : un front à jour sur un backend antérieur joint les ventes par nom (repli)
   et perd les intégrations multiples jusqu'au redéploiement backend.
@@ -122,7 +146,11 @@ Restent visibles, et ce ne sont PAS des régressions :
    `missing = −vendu`. Zéro mouvement Logistic dans la fenêtre du match (05/09 → 06/09).
    **Le cycle repose sur le comptage pre-event, qui n'a pas été fait pour ce match.**
    Le prochain (PFC-Lyon, 12/09) a bien son snapshot pre-event du 09/09, mais sur **5 PdV / 92
-   articles** seulement (l'espace en compte 41 / 570) : son Restant/Manquant sera partiel d'autant.
+   articles** seulement (l'espace en compte 41 / 570). Depuis le 2026-09-11 les 36 autres PdV
+   prendront l'attendu Logistic comme départ (voir « Stock de départ PAR PdV » ci-dessus).
+   Pour SFP-Perpignan, rien n'est récupérable : le registre a été recalé trois fois depuis son
+   comptage d'après-match (08/09 ×2, 10/09), `holdsPostEventCount = true`, le document restera à
+   « — » même régénéré.
 2. **3 071 unités vendues non jointes** dont celles de **Click & Collect** et **Live Order** : ces
    deux PdV sont des `SpaceElement` de l'espace (rattachés par `zoneId`, 6 et 9 mappings POS) qui
    VENDENT mais ne sont jamais comptés — le périmètre de l'écran inventaire vient de
