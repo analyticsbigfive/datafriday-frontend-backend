@@ -133,24 +133,24 @@
                 </v-icon>
                 {{ g.label || '—' }}
               </td>
-              <td>{{ formatUnits(g.soldUnits) }}</td>
-              <td>{{ g.predictedUnits == null ? '—' : formatUnits(g.predictedUnits) }}</td>
+              <td>{{ formatQty(g.soldUnits, g.unitInfo) }}</td>
+              <td>{{ formatQty(g.predictedUnits, g.unitInfo) }}</td>
               <td :class="diffClass(rowDiffPct(g))">{{ formatPct(rowDiffPct(g)) }}</td>
-              <td>{{ g.leftFromSales == null ? '—' : formatUnits(g.leftFromSales) }}</td>
-              <td>{{ formatUnits(g.countedUnits) }}</td>
+              <td>{{ formatQtyPack(g.leftFromSales, g.unitInfo) }}</td>
+              <td>{{ formatQtyPack(g.countedUnits, g.unitInfo) }}</td>
               <td>
-                <span :class="missClass(g.missingUnits)">{{ g.missingUnits == null ? '—' : formatUnits(g.missingUnits) }}</span>
+                <span :class="missClass(g.missingUnits)">{{ formatQtyPack(g.missingUnits, g.unitInfo) }}</span>
               </td>
             </tr>
             <tr v-for="sub in (isExpanded(g.key) ? g.children : [])" :key="`${g.key}::${sub.key}`" class="irv-subrow">
               <td class="irv-col-name irv-subname">{{ sub.label || '—' }}</td>
-              <td>{{ formatUnits(sub.soldUnits) }}</td>
-              <td>{{ sub.predictedUnits == null ? '—' : formatUnits(sub.predictedUnits) }}</td>
+              <td>{{ formatQty(sub.soldUnits, sub.unitInfo) }}</td>
+              <td>{{ formatQty(sub.predictedUnits, sub.unitInfo) }}</td>
               <td :class="diffClass(rowDiffPct(sub))">{{ formatPct(rowDiffPct(sub)) }}</td>
-              <td>{{ sub.leftFromSales == null ? '—' : formatUnits(sub.leftFromSales) }}</td>
-              <td>{{ formatUnits(sub.countedUnits) }}</td>
+              <td>{{ formatQtyPack(sub.leftFromSales, sub.unitInfo) }}</td>
+              <td>{{ formatQtyPack(sub.countedUnits, sub.unitInfo) }}</td>
               <td>
-                <span :class="missClass(sub.missingUnits)">{{ sub.missingUnits == null ? '—' : formatUnits(sub.missingUnits) }}</span>
+                <span :class="missClass(sub.missingUnits)">{{ formatQtyPack(sub.missingUnits, sub.unitInfo) }}</span>
               </td>
             </tr>
           </template>
@@ -166,6 +166,7 @@ import { useI18n } from '@/i18n/useI18n'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 import { computeReconciliationSummary } from '@/utils/postEventReconciliation'
+import { formatQuantityWithPack, sharedUnitInfo } from '@/utils/reconciliationUnits'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 
 const props = defineProps({
@@ -207,8 +208,21 @@ const notices = computed(() => {
   const source = meta.baseline?.source
   if (source === 'previous-post-event') {
     out.push({ level: 'warn', text: t('invRecoMetaBaselinePrev') })
+  } else if (source === 'logistic-live' && !isPre.value) {
+    out.push({ level: 'info', text: t('invRecoMetaBaselineLogistic') })
   } else if (source === 'none' && !isPre.value) {
     out.push({ level: 'info', text: t('invRecoMetaBaselineNone') })
+  }
+  // BUG-378-02 : stock de départ résolu PAR PdV. Un comptage pré-event partiel
+  // ne fabrique plus un départ de 0 : les PdV non comptés passent au registre
+  // Logistic, et ceux qui n'ont rien restent à null, comptés ici.
+  const fb = meta.baseline?.fallback
+  if (fb && Number(fb.elements) > 0 && !isPre.value) {
+    out.push({ level: 'info', text: `${fb.elements} ${t('invRecoMetaBaselineFallback')}` })
+  }
+  const uncovered = Number(meta.baseline?.uncoveredElements)
+  if (uncovered > 0 && source !== 'none' && !isPre.value) {
+    out.push({ level: 'warn', text: `${uncovered} ${t('invRecoMetaBaselineUncovered')}` })
   }
   const su = meta.salesUnjoined
   if (su && (Number(su.units) > 0 || su.shopNames?.length || su.itemNames?.length)) {
@@ -373,6 +387,8 @@ const groups = computed(() => {
             countedUnits: 0,
             missingUnits: null,
             children: [],
+            lines: [],
+            unitInfo: null,
           }
       byGroup.set(key, g)
     }
@@ -395,6 +411,7 @@ const groups = computed(() => {
       g.predictedUnits = foldNullable(g.predictedUnits, l.predictedUnits)
       g.leftFromSales = foldNullable(g.leftFromSales, l.leftFromSales)
       g.missingUnits = foldNullable(g.missingUnits, l.missingUnits)
+      g.lines.push(l)
       g.children.push({
         key: childKeyOf(l) || '—',
         label: childLabelOf(l),
@@ -403,12 +420,18 @@ const groups = computed(() => {
         leftFromSales: l.leftFromSales,
         countedUnits: l.countedUnits || 0,
         missingUnits: l.missingUnits,
+        unitInfo: l.unit ? { unit: l.unit, unitsPerPack: l.unitsPerPack, packaging: l.packaging } : null,
       })
     }
   }
 
   const out = [...byGroup.values()]
-  for (const g of out) g.children.sort((a, b) => String(a.label).localeCompare(String(b.label)))
+  for (const g of out) {
+    g.children.sort((a, b) => String(a.label).localeCompare(String(b.label)))
+    // Ligne de total : unité seulement si toutes les lignes du groupe la
+    // partagent (mode PdV : litres + pièces additionnés → nombre nu).
+    if (!pre) g.unitInfo = sharedUnitInfo(g.lines || [])
+  }
   // Écarts d'abord (raison d'être du document), puis alpha. Pre : manquant =
   // −delta → tri delta croissant (plus négatif en tête).
   out.sort((a, b) => {
@@ -456,6 +479,14 @@ function formatDelta(v) {
 function formatUnits(v) {
   if (v == null || Number.isNaN(Number(v))) return '—'
   return Number(v).toLocaleString(intlLocale.value, { maximumFractionDigits: 2 })
+}
+/** « 3 626,85 L » : quantité + unité (documents antérieurs sans unité : nombre nu). */
+function formatQty(v, unitInfo) {
+  return formatQuantityWithPack(v, unitInfo, { formatNumber: formatUnits, ofWord: t('invRecoPackOf'), withPack: false })
+}
+/** « 840 L (28 Fut de 30 L) » : quantité + unité + équivalent en colis. */
+function formatQtyPack(v, unitInfo) {
+  return formatQuantityWithPack(v, unitInfo, { formatNumber: formatUnits, ofWord: t('invRecoPackOf') })
 }
 function formatPct(pct) {
   if (pct == null) return '—'

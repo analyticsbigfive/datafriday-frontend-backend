@@ -1011,6 +1011,14 @@ Le document SFP-Perpignan (Stade Jean Bouin) a révélé trois défauts cumulés
 | Prédit au grain menu item | records bruts du miroir local, jamais joints au comptage ingrédient | version par défaut, explosion `buildStockRequirements`, prédit par article compté |
 | Aucun périmètre | pré-event / mouvements / prédit d'un PdV non compté → lignes orphelines sans nom | clés écartées et archivées (`perimeterExcluded`, `predictedUnjoined`), noms catalogue en repli |
 
+**Stock de départ par PdV (2026-09-11)** : pré-event si le PdV y figure (`left = pré-event − vendu
++ mouvements`), sinon attendu Logistic tel quel (`expectedUnits` du GET post-event-baseline, le
+« Doit rester » de l'écran, ventes et mouvements déjà nettés), sinon null. Un comptage pré-event
+partiel ne fabrique plus un départ de 0. Garde : `holdsPostEventCount` (registre déjà recalé depuis
+le comptage d'après-match de cet event, marqueur BUG-352-01) interdit le repli, sinon
+`attendu − compté` vaudrait 0 partout. Ligne : `baselineSource` ; document : `meta.baseline.{source,
+fallback, uncoveredElements}`. Util : `utils/postEventBaseline.js`.
+
 Règle qui en découle : **le document décrit le périmètre compté**. Toute autre source s'y projette
 (par id, nom en repli) ; ce qui ne se projette pas est compté et affiché, jamais transformé en ligne.
 Les trois moteurs d'explosion (comptage `inventoryUtils.js`, prédit `menuItemExpansion.js`, ventes
