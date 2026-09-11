@@ -29,6 +29,9 @@ import {
   resolveItemName,
   resolveItemType,
   resolveItemCategory,
+  buildDisplayNameIndex,
+  resolveDisplayNameGroup,
+  NO_DISPLAY_NAME_KEY,
   BEER_SIGNAL_RE,
   FOOD_SIGNAL_RE,
   BEVERAGE_SIGNAL_RE,
@@ -124,27 +127,43 @@ function groupRevenueBy(records, resolveKey) {
 
 /**
  * Agrégats ventes du rapport, en un seul passage :
- *   - `byType` / `byCategory` : découpes pour les deux camemberts.
- *   - `topBeverage` / `topFood` : top 5 par famille (classif. signaux article).
+ *   - `byType` / `byCategory` : découpes pour les deux camemberts (inchangées).
+ *   - `topBeverage` / `topFood` : top 5 par famille, REGROUPÉS PAR DISPLAY NAME
+ *     (retour Bertrand). Plusieurs MenuItem partageant un même libellé commercial
+ *     (`MenuItem.displayNameId`, référentiel N→1) fusionnent en UNE ligne (somme CA +
+ *     quantités), exactement comme le regroupement « par Display Name » d'Analyse. Les
+ *     ventes sans Display Name (article non renseigné OU non mappé) tombent dans un
+ *     unique bucket sentinelle, libellé `noDisplayNameLabel` (parité `anNoDisplayName`).
+ *
+ * @param {Array} records                       records grain article
+ * @param {object} [opts]
+ * @param {object|null} [opts.dnIndex]           index `buildDisplayNameIndex(menuItems)`
+ * @param {string} [opts.noDisplayNameLabel]     libellé de la sentinelle « sans Display Name »
  */
-function computeBucketData(records) {
-  const items = new Map() // nom → { name, bucket, quantity, revenue }
+function computeBucketData(records, { dnIndex = null, noDisplayNameLabel = '' } = {}) {
+  // Clé de regroupement = (FAMILLE, Display Name). La famille entre dans la clé car la
+  // sentinelle « sans Display Name » agrège des articles de familles différentes (Food
+  // ET Beverage) : sans la famille, on fusionnerait leurs CA dans une même ligne
+  // inclassable (ni Food ni Beverage). Pour un vrai Display Name (famille unique), la
+  // clé se réduit de fait au seul Display Name.
+  const items = new Map() // `${bucket} ${group}` → { name, bucket, quantity, revenue }
 
   for (const r of records) {
     const revenue = r.revenue || 0
-    const name = resolveItemName(r)
-    if (!name) continue
     // Le packaging (consigne, gobelets…) a son propre type et son propre donut : il
-    // ne doit PAS polluer le top 5 Food/Beverage. classifyForReport ne connaît que
-    // FOOD/BEVERAGE/BEER/COMBO (pas « Packaging ») et rabattrait un packaging vendu à
-    // un PdV food dans Food — on le lit donc via son type ENREGISTRÉ (menuItemType)
-    // et on l'exclut du top 5. byType/byCategory (donuts) gardent tout.
+    // ne doit PAS polluer le top 5 Food/Beverage. On le lit via son type ENREGISTRÉ
+    // (menuItemType) et on l'exclut du top 5. byType/byCategory (donuts) gardent tout.
     if (/packaging/i.test(resolveItemType(r))) continue
     const bucket = classifyForReport(r)
-    let entry = items.get(name)
+    // Regroupement par Display Name (repli sur le nom d'article si aucun index).
+    const group = dnIndex ? resolveDisplayNameGroup(r, dnIndex) : resolveItemName(r)
+    if (!group) continue
+    const label = group === NO_DISPLAY_NAME_KEY ? noDisplayNameLabel : group
+    const key = `${bucket} ${group}`
+    let entry = items.get(key)
     if (!entry) {
-      entry = { name, bucket, quantity: 0, revenue: 0 }
-      items.set(name, entry)
+      entry = { name: label, bucket, quantity: 0, revenue: 0 }
+      items.set(key, entry)
     }
     entry.quantity += r.quantity || 0
     entry.revenue += revenue
@@ -207,10 +226,11 @@ async function renderPdf(fileName) {
  * @param {import('vue').ComputedRef<object|null>} options.reportEvent    l'event unique sélectionné (ou null)
  * @param {object} options.metrics        retour de useMetricsCalculator (displayRevenue, …)
  * @param {import('vue').ComputedRef<Array>} options.articleRecords       records grain article (mêmes que donuts/tables)
+ * @param {import('vue').ComputedRef<Array>} options.menuItems            catalogue MenuItem (store.state.analyse.menuItems) — index Display Name du top 5
  * @param {import('vue').ComputedRef<boolean>} options.busy               chargements en cours (même garde que l'export)
  * @param {(text: string, color?: string) => void} options.notify         snackbar partagée
  */
-export function useReportJ1({ space, reportEvent, metrics, articleRecords, busy, notify }) {
+export function useReportJ1({ space, reportEvent, metrics, articleRecords, menuItems, busy, notify }) {
   const { t } = useI18n()
 
   const generatingReport = ref(false)
@@ -245,7 +265,12 @@ export function useReportJ1({ space, reportEvent, metrics, articleRecords, busy,
           transformation: att ? (trans / att) * 100 : null,
           perCapita: metrics.displayPerCapita?.value ?? 0,
         },
-        buckets: computeBucketData(articleRecords.value || []),
+        buckets: computeBucketData(articleRecords.value || [], {
+          // Index catalogue Display Name (N→1) : le top 5 fusionne les MenuItem d'un
+          // même libellé commercial, comme le regroupement « par Display Name » d'Analyse.
+          dnIndex: buildDisplayNameIndex((menuItems?.value) || []),
+          noDisplayNameLabel: t('anNoDisplayName'),
+        }),
         generatedAt: new Date(),
       }
 

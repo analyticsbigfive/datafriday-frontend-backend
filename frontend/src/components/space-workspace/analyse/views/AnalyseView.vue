@@ -898,6 +898,8 @@ const weezeventSetupIncomplete = computed(() => store.state.analyse.weezeventSet
 const space = computed(() => store.state.analyse.space)
 const events = computed(() => store.state.analyse.events)
 const menuItemCostMap = computed(() => store.state.analyse.menuItemCostMap)
+// Catalogue MenuItem — index Display Name du top 5 J+1 (regroupement N→1).
+const menuItems = computed(() => store.state.analyse.menuItems || [])
 // summary enrichi avec variations (Précédent + N-1 calculées côté client si
 // l'API ne les fournit pas — cf. doc §13.7).
 const summary = computed(() => store.getters['analyse/summaryWithComparisons'])
@@ -1844,6 +1846,7 @@ const {
   events,
   metrics,
   articleRecords,
+  menuItems,
   busy: exportBusy,
   notify: (text, color = 'success') => {
     snackbarText.value = text
