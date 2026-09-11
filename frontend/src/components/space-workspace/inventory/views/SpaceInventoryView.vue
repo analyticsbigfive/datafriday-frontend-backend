@@ -898,6 +898,7 @@ import {
   buildCatalogNameById,
 } from '@/utils/reconciliationPerimeter'
 import { buildUnitCostByItemId } from '@/utils/reconciliationCosts'
+import { flattenLogisticExpected, splitBaselineByElement, describeBaseline } from '@/utils/postEventBaseline'
 import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
 import { compareInventoryCards } from '@/utils/inventoryCardSort'
 import {
@@ -2711,7 +2712,11 @@ export default {
             createdAt: new Date().toISOString(),
             lines,
             meta: {
-              baseline: { source: meta.preEventSource },
+              baseline: {
+                source: meta.preEventSource,
+                fallback: meta.baselineFallback,
+                uncoveredElements: meta.baselineUncoveredElements,
+              },
               salesUnjoined: meta.salesUnjoined,
               salesSource: meta.salesSource,
               predictedSource: meta.predictedSource,
@@ -2742,6 +2747,8 @@ export default {
             predictedSource: meta.predictedSource,
             ...(meta.predictedUnjoined ? { predictedUnjoined: meta.predictedUnjoined } : {}),
             ...(meta.perimeterExcluded ? { perimeterExcluded: meta.perimeterExcluded } : {}),
+            ...(meta.baselineFallback ? { baselineFallback: meta.baselineFallback } : {}),
+            baselineUncoveredElements: meta.baselineUncoveredElements,
           })
         } catch (e) {
           // Réflexe BUG-228 : le DTO backend est en whitelist stricte
@@ -2823,11 +2830,15 @@ export default {
       //    document : un repli est une approximation, elle doit rester visible.
       let preEventUnitsByKey = null
       let preEventSource = 'none'
+      // Blob brut conservé : ses clés disent quels PdV ont RÉELLEMENT été comptés
+      // avant le match (BUG-378-02, couverture partielle → pas de départ à 0).
+      let preEventBlob = null
       try {
         const pre = isDemoMode() ? null : await getPreEventInventory(spaceId, recoEvent.id)
         if (pre?.source) preEventSource = pre.source
         const blob = pre?.inventoryCounts
         if (blob && typeof blob === 'object') {
+          preEventBlob = blob
           preEventUnitsByKey = {}
           for (const [shopId, byItem] of Object.entries(blob)) {
             for (const [itemId, c] of Object.entries(byItem || {})) {
@@ -2857,29 +2868,53 @@ export default {
       // que les mouvements sont bornés à CE match — additionner les deux
       // reviendrait à ancrer les deux termes sur des matchs différents.
       let movementUnitsByKey = null
+      // Attendu Logistic (BUG-378-02) : stock de départ des PdV SANS comptage
+      // pré-event, « Doit rester » de l'écran de comptage. Inutilisable si le
+      // registre a déjà été recalé depuis un comptage post-event de cet event.
+      let logisticLeftByKey = null
+      let logisticUsable = false
       try {
-        if (!isDemoMode() && this.canSeeExpected && preEventSource === 'pre-event') {
+        if (!isDemoMode() && this.canSeeExpected) {
           const base = await getPostEventBaseline(spaceId, recoEvent.id)
-          const blob = base?.movementUnits
-          if (blob && typeof blob === 'object') {
-            movementUnitsByKey = {}
-            for (const [elementId, byItem] of Object.entries(blob)) {
-              for (const [itemId, units] of Object.entries(byItem || {})) {
-                const n = Number(units)
-                if (Number.isFinite(n) && n !== 0) {
-                  movementUnitsByKey[reconciliationKey(elementId, itemId)] = n
+          if (preEventSource === 'pre-event') {
+            const blob = base?.movementUnits
+            if (blob && typeof blob === 'object') {
+              movementUnitsByKey = {}
+              for (const [elementId, byItem] of Object.entries(blob)) {
+                for (const [itemId, units] of Object.entries(byItem || {})) {
+                  const n = Number(units)
+                  if (Number.isFinite(n) && n !== 0) {
+                    movementUnitsByKey[reconciliationKey(elementId, itemId)] = n
+                  }
                 }
               }
             }
           }
+          logisticLeftByKey = flattenLogisticExpected(base?.expectedUnits, reconciliationKey)
+          logisticUsable = base?.holdsPostEventCount !== true
         }
       } catch (e) {
-        console.warn('[SpaceInventory] mouvements de la fenêtre KO (réco sans ce terme):', e?.message)
+        console.warn('[SpaceInventory] baseline post-event KO (réco sans mouvements ni repli Logistic):', e?.message)
         movementUnitsByKey = null
+        logisticLeftByKey = null
       }
       const movementsRestricted = restrictKeysToPerimeter(movementUnitsByKey, countedElementIds)
       movementUnitsByKey = movementsRestricted.kept
       const perimeterExcluded = sumPerimeterExclusions(preRestricted, movementsRestricted)
+
+      // Stock de départ PAR PdV : pré-event si compté, sinon attendu Logistic,
+      // sinon rien (Restant/Manquant null). Jamais un départ de 0 fabriqué.
+      const baseline = splitBaselineByElement({
+        countedElementIds,
+        preEventBlob: preEventUnitsByKey ? preEventBlob : null,
+        logisticLeftByKey: restrictKeysToPerimeter(logisticLeftByKey, countedElementIds).kept,
+        logisticUsable,
+      })
+      const baselineMeta = describeBaseline({
+        preEventSource,
+        fallbackElementIds: baseline.fallbackElementIds,
+        uncoveredElementIds: baseline.uncoveredElementIds,
+      })
 
       // ── Vendu pendant l'event ────────────────────────────────────────────────
       // Q35 Option 1 (décision owner 2026-07-27) : source primaire = ventes
@@ -3035,9 +3070,11 @@ export default {
       const lines = buildPostEventReconciliationLines({
         countedUnitsByKey,
         preEventUnitsByKey,
+        preEventElementIds: preEventUnitsByKey ? baseline.preEventElementIds : null,
         soldUnitsByKey,
         movementUnitsByKey,
         predictedUnitsByKey,
+        logisticLeftByKey: baseline.logisticLeftByKey,
         // Coût PAR KIND (Q40, décision 2026-09-10) : market price pour un
         // ingrédient, unitCost pour un composant, menuItemCostMap pour un article
         // compté tel quel. Jamais un 0 € fabriqué.
@@ -3054,7 +3091,10 @@ export default {
       // Contexte de fabrication archivé avec le document (BUG-238/241/Q35) : sans
       // lui, un écart dû à une source manquante est indiscernable d'un manquant.
       const meta = {
-        preEventSource,
+        // 'logistic-live' quand aucun comptage pré-event mais un repli registre.
+        preEventSource: baselineMeta.source,
+        baselineFallback: baselineMeta.fallback,
+        baselineUncoveredElements: baselineMeta.uncoveredElements,
         salesSource,
         // Les mouvements de la fenêtre sont-ils entrés dans `leftFromSales` ?
         // Un document sans ce terme n'est pas faux, il est moins précis — encore

@@ -207,8 +207,21 @@ const notices = computed(() => {
   const source = meta.baseline?.source
   if (source === 'previous-post-event') {
     out.push({ level: 'warn', text: t('invRecoMetaBaselinePrev') })
+  } else if (source === 'logistic-live' && !isPre.value) {
+    out.push({ level: 'info', text: t('invRecoMetaBaselineLogistic') })
   } else if (source === 'none' && !isPre.value) {
     out.push({ level: 'info', text: t('invRecoMetaBaselineNone') })
+  }
+  // BUG-378-02 : stock de départ résolu PAR PdV. Un comptage pré-event partiel
+  // ne fabrique plus un départ de 0 : les PdV non comptés passent au registre
+  // Logistic, et ceux qui n'ont rien restent à null, comptés ici.
+  const fb = meta.baseline?.fallback
+  if (fb && Number(fb.elements) > 0 && !isPre.value) {
+    out.push({ level: 'info', text: `${fb.elements} ${t('invRecoMetaBaselineFallback')}` })
+  }
+  const uncovered = Number(meta.baseline?.uncoveredElements)
+  if (uncovered > 0 && source !== 'none' && !isPre.value) {
+    out.push({ level: 'warn', text: `${uncovered} ${t('invRecoMetaBaselineUncovered')}` })
   }
   const su = meta.salesUnjoined
   if (su && (Number(su.units) > 0 || su.shopNames?.length || su.itemNames?.length)) {

@@ -128,6 +128,23 @@ export class PerimeterExcludedDto {
   units?: number;
 }
 
+/**
+ * Repli de stock de départ (BUG-378-02) : PdV sans comptage pré-event dont le
+ * Restant a été repris de l'attendu Logistic.
+ */
+export class BaselineFallbackDto {
+  @ApiPropertyOptional({ description: "Source du repli ('logistic-live')" })
+  @IsOptional()
+  @IsString()
+  source?: string;
+
+  @ApiPropertyOptional({ description: 'Nombre de PdV concernés', type: Number })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  elements?: number;
+}
+
 export class CreatePostEventReconciliationDto {
   @ApiProperty({ description: "ID de l'événement réconcilié" })
   @IsString()
@@ -136,7 +153,8 @@ export class CreatePostEventReconciliationDto {
   @ApiPropertyOptional({
     description:
       "Provenance du stock de départ (BUG-241) : 'pre-event' = comptage d'avant-match du même " +
-      "événement ; 'previous-post-event' = comptage d'après-match du match précédent (approximation, " +
+      "événement ; 'logistic-live' = attendu du registre Logistic (BUG-378-02, aucun comptage pré-event) ; " +
+      "'previous-post-event' = comptage d'après-match du match précédent (approximation, " +
       'les mouvements Logistic intermédiaires ne sont pas déduits) ; absent = aucun stock de départ.',
   })
   @IsOptional()
@@ -186,6 +204,18 @@ export class CreatePostEventReconciliationDto {
   @ValidateNested()
   @Type(() => SalesUnjoinedDto)
   predictedUnjoined?: SalesUnjoinedDto;
+
+  @ApiPropertyOptional({ description: 'Repli Logistic du stock de départ (BUG-378-02)', type: BaselineFallbackDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BaselineFallbackDto)
+  baselineFallback?: BaselineFallbackDto;
+
+  @ApiPropertyOptional({ description: 'PdV comptés restés sans aucun stock de départ (BUG-378-02)', type: Number })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  baselineUncoveredElements?: number;
 
   @ApiPropertyOptional({
     description:

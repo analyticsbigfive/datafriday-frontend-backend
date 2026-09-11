@@ -707,6 +707,34 @@ describe('InventoryService', () => {
       expect(result.movementUnits['shop-1']['item-beer']).toBe(2);
       expect(result.anchorEvent).toBeNull();
       expect(result.salesUnjoined).toBeNull();
+      // BUG-378-02 : aucun recalage depuis un comptage post-event de cet event
+      // → l'attendu Logistic est un stock de départ exploitable.
+      expect(result.holdsPostEventCount).toBe(false);
+    });
+
+    it("BUG-378-02 : registre déjà recalé depuis le comptage POST-event de cet event → holdsPostEventCount=true", async () => {
+      wirePreEventSnapshot(null);
+      mockPrisma.stockLevel.findMany.mockResolvedValue([]);
+      mockPrisma.stockMovement.findMany.mockResolvedValue([]);
+      // L'ancre Logistic (`lastReco`) passe par le même findFirst : on répond
+      // sur la forme de la requête, pas sur l'ordre des appels.
+      mockPrisma.stockReconciliation.findFirst.mockImplementation(({ where }: any) =>
+        Promise.resolve(where?.eventId === 'event-1' && where?.kind === null ? { id: 'reset-1' } : null),
+      );
+
+      const result = await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+
+      expect(result.holdsPostEventCount).toBe(true);
+      const call = mockPrisma.stockReconciliation.findFirst.mock.calls.find(
+        ([arg]: any[]) => arg?.where?.eventId === 'event-1',
+      );
+      expect(call[0].where).toMatchObject({ spaceId: 'space-1', kind: null });
+      expect(call[0].where.AND).toEqual([
+        { meta: { path: ['source'], equals: 'inventory-count' } },
+        { meta: { path: ['phase'], equals: 'post-event' } },
+      ]);
+      mockPrisma.stockReconciliation.findFirst.mockReset();
+      mockPrisma.stockReconciliation.findFirst.mockResolvedValue(null);
     });
 
     it('fenêtre movementUnits : du comptage pre-event à eventEndDate + 1 j, SALE exclus', async () => {
@@ -1150,7 +1178,7 @@ describe('InventoryService', () => {
 
       const { data } = mockPrisma.stockReconciliation.create.mock.calls[0][0];
       expect(data.meta).toEqual({
-        baseline: { source: 'previous-post-event' },
+        baseline: { source: 'previous-post-event', fallback: null, uncoveredElements: null },
         salesUnjoined: { shopNames: ['Buvette Nord'], itemNames: [], units: 42 },
         countedProgress: [80, 128],
         // Q35/explosion des ventes (develop 4e0c5fa) : provenance des ventes
