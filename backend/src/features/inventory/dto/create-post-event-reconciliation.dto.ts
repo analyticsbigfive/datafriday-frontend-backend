@@ -80,6 +80,27 @@ export class PostEventReconciliationLineDto {
   @IsNumber()
   @Type(() => Number)
   unitCost?: number | null;
+
+  @ApiPropertyOptional({ description: "Provenance du stock de départ de la ligne ('pre-event' | 'logistic-live'), BUG-378-02" })
+  @IsOptional()
+  @IsString()
+  baselineSource?: string | null;
+
+  @ApiPropertyOptional({ description: "Unité des quantités de la ligne (unité de recette / de stock, ex. 'L')" })
+  @IsOptional()
+  @IsString()
+  unit?: string | null;
+
+  @ApiPropertyOptional({ description: 'Unités par colis (conditionnement d’inventaire à la génération)', type: Number })
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  unitsPerPack?: number | null;
+
+  @ApiPropertyOptional({ description: "Nom du colis (ex. 'Fut')" })
+  @IsOptional()
+  @IsString()
+  packaging?: string | null;
 }
 
 /**

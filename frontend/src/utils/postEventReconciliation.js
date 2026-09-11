@@ -110,6 +110,8 @@ export function buildSoldUnitsFromConsumption(
  *   comptage pré-event. Une clé absente → null (jamais un 0 fabriqué : le registre ne
  *   suit pas cet article là).
  * @param {Record<string, number>} [params.unitCostByItemId]  coût unitaire par article
+ * @param {Record<string, {unit?:string, unitsPerPack?:number, packaging?:string}>} [params.unitInfoByItemId]
+ *   unité et conditionnement par article (`reconciliationUnits.js`), archivés sur la ligne
  * @param {Map<string, string>|Record<string, string>} [params.elementNameById]
  * @param {Map<string, string>|Record<string, string>} [params.itemNameById]
  * @returns {Array<object>} lignes triées (PdV puis article), chacune avec `baselineSource`
@@ -124,6 +126,7 @@ export function buildPostEventReconciliationLines({
   predictedUnitsByKey = null,
   logisticLeftByKey = null,
   unitCostByItemId = {},
+  unitInfoByItemId = null,
   elementNameById = {},
   itemNameById = {},
 } = {}) {
@@ -191,6 +194,7 @@ export function buildPostEventReconciliationLines({
       }
     }
 
+    const unitInfo = unitInfoByItemId?.[itemKey] || null
     lines.push({
       elementId,
       elementName: nameOf(elementNameById, elementId),
@@ -205,6 +209,10 @@ export function buildPostEventReconciliationLines({
       missingUnits,
       missingValue,
       unitCost,
+      // Unité et conditionnement à la génération (photo figée) : « 840 L (28 Fut de 30 L) ».
+      unit: unitInfo?.unit || null,
+      unitsPerPack: unitInfo?.unitsPerPack || null,
+      packaging: unitInfo?.packaging || null,
     })
   }
 

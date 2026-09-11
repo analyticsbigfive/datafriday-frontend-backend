@@ -899,6 +899,7 @@ import {
 } from '@/utils/reconciliationPerimeter'
 import { buildUnitCostByItemId } from '@/utils/reconciliationCosts'
 import { flattenLogisticExpected, splitBaselineByElement, describeBaseline } from '@/utils/postEventBaseline'
+import { buildUnitInfoByItemId } from '@/utils/reconciliationUnits'
 import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
 import { compareInventoryCards } from '@/utils/inventoryCardSort'
 import {
@@ -3083,6 +3084,11 @@ export default {
           menuItemCostMap: this.store.state.analyse?.menuItemCostMap || {},
           marketPrices: this.store.state.inventory?.marketPrices || [],
           components: this.store.state.analyse?.components || [],
+        }),
+        // Unité + conditionnement archivés par ligne (demande 2026-09-11).
+        unitInfoByItemId: buildUnitInfoByItemId({
+          countedItems,
+          marketPrices: this.store.state.inventory?.marketPrices || [],
         }),
         elementNameById,
         itemNameById,

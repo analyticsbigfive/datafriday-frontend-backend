@@ -2240,6 +2240,7 @@ export const translations = {
       'predicted units could not be matched to a counted POS/item. They are left out of Qty pred.',
     invRecoMetaPerimeterExcluded:
       'starting-stock or movement line(s) left out: their POS is not in the counted perimeter.',
+    invRecoPackOf: 'of',
     invRecoMetaBaselineLogistic:
       'No pre-event count for this match. Starting stock taken from the Logistic register (the "Should remain" figure of the counting screen).',
     invRecoMetaBaselineFallback:
@@ -7004,6 +7005,7 @@ export const translations = {
       'unité(s) prédite(s) non rattachée(s) à un PdV/article compté. Elles ne comptent pas dans la Qté prédite.',
     invRecoMetaPerimeterExcluded:
       'ligne(s) de stock de départ ou de mouvements écartée(s) : leur PdV est hors du périmètre compté.',
+    invRecoPackOf: 'de',
     invRecoMetaBaselineLogistic:
       'Aucun comptage pré-event pour ce match. Stock de départ repris du registre Logistic (le « Doit rester » de l’écran de comptage).',
     invRecoMetaBaselineFallback:
