@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../../../core/redis/redis.service';
 import { liveHeartbeatKey, liveSyncStateKey } from '../../../../shared/constants/live-aggregation';
 
-export type LiveSyncMode = 'idle' | 'live-polling' | 'live-webhook';
+export type LiveSyncMode = 'idle' | 'live-polling' | 'live-quiet' | 'live-webhook';
 
 export interface LiveSyncState {
     mode: LiveSyncMode;

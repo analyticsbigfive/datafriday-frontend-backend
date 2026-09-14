@@ -6,7 +6,8 @@ import { LiveSyncRunnerService } from './live-sync-runner.service';
 import { LiveAggregationTriggerService } from './live-aggregation-trigger.service';
 import { WebhookHealthService } from './webhook-health.service';
 import { LiveHeartbeatService } from './live-heartbeat.service';
-import { LiveSyncCadenceConfig, readCadenceConfig, resolveSyncCadence } from './live-sync-cadence';
+import { LiveSyncCadenceConfig, isQuietPeriod, readCadenceConfig, resolveSyncCadence } from './live-sync-cadence';
+import { LiveSyncMode } from './live-heartbeat.service';
 
 interface IntegrationRuntime {
     tenantId: string;
@@ -15,6 +16,8 @@ interface IntegrationRuntime {
     lastError: string | null;
     consecutiveErrors: number;
     rateLimitedUntil: Date | null;
+    /** Dernière sync ayant écrit des ventes : pilote la période calme (60 s au lieu de 10 s). */
+    lastNewSalesAt: Date | null;
     inFlight: boolean;
 }
 
@@ -54,7 +57,7 @@ export class LiveSyncSchedulerService implements OnModuleInit {
         this.enabled = process.env.WEEZEVENT_CRON_ENABLED !== 'false';
         this.cadence = readCadenceConfig(process.env);
         this.logger.log(
-            `Live sync scheduler ${this.enabled ? 'ENABLED' : 'DISABLED'} (live ${this.cadence.liveIntervalSec}s, webhook ${this.cadence.liveWithWebhookIntervalSec}s, idle ${this.cadence.idleIntervalSec}s)`,
+            `Live sync scheduler ${this.enabled ? 'ENABLED' : 'DISABLED'} (live ${this.cadence.liveIntervalSec}s, quiet ${this.cadence.quietIntervalSec}s after ${this.cadence.quietAfterSec}s, webhook ${this.cadence.liveWithWebhookIntervalSec}s, idle ${this.cadence.idleIntervalSec}s)`,
         );
     }
 
@@ -72,14 +75,15 @@ export class LiveSyncSchedulerService implements OnModuleInit {
                 const isLive = live.integrationIds.has(integration.id);
                 const webhookHealthy = isLive ? await this.webhookHealth.isHealthy(integration.id, now) : false;
                 const rateLimited = !!state.rateLimitedUntil && state.rateLimitedUntil > now;
-                const { mode, intervalSec } = resolveSyncCadence({ isLive, webhookHealthy, rateLimited }, this.cadence);
+                const quiet = isLive && isQuietPeriod(state.lastNewSalesAt, now, this.cadence);
+                const { mode, intervalSec } = resolveSyncCadence({ isLive, webhookHealthy, rateLimited, quiet }, this.cadence);
 
                 const due = !state.lastRunAt || now.getTime() - state.lastRunAt.getTime() >= intervalSec * 1000;
                 if (!due) continue;
 
                 state.inFlight = true;
                 state.lastRunAt = now;
-                void this.runIntegration(integration, state, live, { mode, intervalSec, isLive }).finally(() => {
+                void this.runIntegration(integration, state, live, { mode, intervalSec, isLive, now }).finally(() => {
                     state.inFlight = false;
                 });
             }
@@ -92,7 +96,7 @@ export class LiveSyncSchedulerService implements OnModuleInit {
         integration: { id: string; tenantId: string },
         state: IntegrationRuntime,
         live: { events: LiveEvent[] },
-        ctx: { mode: 'idle' | 'live-polling' | 'live-webhook'; intervalSec: number; isLive: boolean },
+        ctx: { mode: LiveSyncMode; intervalSec: number; isLive: boolean; now: Date },
     ): Promise<void> {
         const startedAt = new Date();
         let created = 0;
@@ -104,6 +108,7 @@ export class LiveSyncSchedulerService implements OnModuleInit {
                 state.consecutiveErrors = 0;
                 state.rateLimitedUntil = null;
                 created = outcome.result.itemsCreated + outcome.result.itemsUpdated;
+                if (created > 0) state.lastNewSalesAt = ctx.now;
                 if (ctx.isLive && created > 0) {
                     await this.queueLiveAggregation(integration, live.events);
                 }
@@ -171,6 +176,7 @@ export class LiveSyncSchedulerService implements OnModuleInit {
                 lastError: null,
                 consecutiveErrors: 0,
                 rateLimitedUntil: null,
+                lastNewSalesAt: null,
                 inFlight: false,
             };
             this.runtime.set(integration.id, state);

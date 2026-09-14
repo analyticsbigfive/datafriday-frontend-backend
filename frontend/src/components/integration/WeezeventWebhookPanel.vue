@@ -119,6 +119,7 @@ export default {
       const mode = this.status && this.status.sync && this.status.sync.mode
       if (mode === 'live-webhook') return this.t('diWzPollingModeWebhook')
       if (mode === 'live-polling') return this.t('diWzPollingModeLive')
+      if (mode === 'live-quiet') return this.t('diWzPollingModeQuiet')
       return this.t('diWzPollingModeIdle')
     },
   },

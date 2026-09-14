@@ -37,7 +37,8 @@ describe('LiveSyncSchedulerService (BUG-379-02)', () => {
             { tenantId: 'tenant', spaceId: 'jean-bouin', integrationId: 'pfc', eventIds: ['pfc-lyon'] },
             'live-sync',
         );
-        expect(heartbeat.writeSyncState).toHaveBeenCalledWith('pfc', expect.objectContaining({ mode: 'live-polling', intervalSec: 10 }));
+        // Aucune vente vue avant cette première sync : période calme (60 s), puis 10 s dès que des ventes arrivent.
+        expect(heartbeat.writeSyncState).toHaveBeenCalledWith('pfc', expect.objectContaining({ mode: 'live-quiet', intervalSec: 60 }));
         expect(heartbeat.writeSyncState).toHaveBeenCalledWith('aix', expect.objectContaining({ mode: 'idle', intervalSec: 1800 }));
     });
 
@@ -50,6 +51,7 @@ describe('LiveSyncSchedulerService (BUG-379-02)', () => {
         await flush();
         expect(runner.run).toHaveBeenCalledTimes(1);
         expect(runner.run).toHaveBeenCalledWith('tenant', 'pfc');
+        expect(heartbeat.writeSyncState).toHaveBeenLastCalledWith('pfc', expect.objectContaining({ mode: 'live-polling', intervalSec: 10 }));
 
         runner.run.mockClear();
         await service.tick(new Date('2026-09-12T17:30:00Z'));
@@ -72,6 +74,37 @@ describe('LiveSyncSchedulerService (BUG-379-02)', () => {
         await flush();
 
         expect(runner.run).toHaveBeenCalledWith('tenant', 'pfc');
+        expect(heartbeat.writeSyncState).toHaveBeenLastCalledWith('pfc', expect.objectContaining({ mode: 'live-quiet', intervalSec: 60 }));
+    });
+
+    it('falls back to 60 s after 10 min without any new sale, and returns to 10 s on the first sale', async () => {
+        const t0 = Date.parse('2026-09-12T17:00:00Z');
+        await service.tick(new Date(t0));
+        await flush();
+        // Ventes vues à 17:00 : 10 s pendant les 10 minutes suivantes.
+        runner.run.mockResolvedValue({ status: 'ok', result: { itemsCreated: 0, itemsUpdated: 0 } });
+        await service.tick(new Date(t0 + 9 * 60_000));
+        await flush();
+        expect(heartbeat.writeSyncState).toHaveBeenLastCalledWith('pfc', expect.objectContaining({ mode: 'live-polling', intervalSec: 10 }));
+
+        // 10 min sans vente : période calme, plus de sync avant 60 s.
+        await service.tick(new Date(t0 + 10 * 60_000));
+        await flush();
+        expect(heartbeat.writeSyncState).toHaveBeenLastCalledWith('pfc', expect.objectContaining({ mode: 'live-quiet', intervalSec: 60 }));
+        runner.run.mockClear();
+        await service.tick(new Date(t0 + 10 * 60_000 + 30_000));
+        await flush();
+        expect(runner.run).not.toHaveBeenCalled();
+
+        // Première vente retrouvée : retour à 10 s dès le tick suivant.
+        runner.run.mockResolvedValue({ status: 'ok', result: { itemsCreated: 1, itemsUpdated: 0 } });
+        await service.tick(new Date(t0 + 11 * 60_000));
+        await flush();
+        expect(runner.run).toHaveBeenCalledTimes(1);
+        runner.run.mockClear();
+        await service.tick(new Date(t0 + 11 * 60_000 + 10_000));
+        await flush();
+        expect(runner.run).toHaveBeenCalledTimes(1);
         expect(heartbeat.writeSyncState).toHaveBeenLastCalledWith('pfc', expect.objectContaining({ mode: 'live-polling', intervalSec: 10 }));
     });
 
@@ -104,7 +137,8 @@ describe('LiveSyncSchedulerService (BUG-379-02)', () => {
             await service.tick(new Date(Date.parse('2026-09-12T17:00:00Z') + i * 30_000));
             await flush();
         }
-        expect(heartbeat.writeSyncState).toHaveBeenLastCalledWith('pfc', expect.objectContaining({ intervalSec: 30, lastError: 'Rate limit exceeded: 429' }));
+        // Période calme (aucune vente vue) : max(60 s calme, 30 s après 429) = 60 s.
+        expect(heartbeat.writeSyncState).toHaveBeenLastCalledWith('pfc', expect.objectContaining({ intervalSec: 60, lastError: 'Rate limit exceeded: 429' }));
         expect(heartbeat.alert).toHaveBeenCalledWith('sync:pfc', expect.stringContaining('pfc'));
     });
 

@@ -177,7 +177,7 @@ quand le webhook n'est pas sain.
 
 **Backend, worker (`src/features/weezevent/services/live/`)**
 - `LiveEventWindowService` : fenêtre live unique (`resolveEventTransactionWindow` + fuseau du space + 3 h de marge), groupes (space, intégration), intégrations en direct (A1).
-- `LiveSyncSchedulerService` : `@Interval(10 s)`, cadence par intégration via `live-sync-cadence.ts` (10 s live sans webhook / 120 s webhook sain / 30 s après 429 / 1800 s hors match), une sync en vol max par intégration, agrégation minute enqueuée dès qu'une sync a écrit des ventes, état par intégration en Redis, alerte si event en direct sans sync réussie > 3 min (A2, B5, C2). Remplace `@Cron(EVERY_10_MINUTES) syncRecentTransactions`.
+- `LiveSyncSchedulerService` : `@Interval(10 s)`, cadence par intégration via `live-sync-cadence.ts` (10 s live sans webhook / 60 s en période calme, c'est-à-dire aucune vente nouvelle depuis 10 min, retour à 10 s dès la première vente (validé Ulrich 14/09 : la fenêtre live démarre à minuit local, sans ce repli un jour de match = ~8 600 appels par intégration) / 120 s webhook sain / 30 s après 429 / 1800 s hors match), une sync en vol max par intégration, agrégation minute enqueuée dès qu'une sync a écrit des ventes, état par intégration en Redis, alerte si event en direct sans sync réussie > 3 min (A2, B5, C2). Remplace `@Cron(EVERY_10_MINUTES) syncRecentTransactions`.
 - `LiveSyncRunnerService` : une sync incrémentale avec les gardes historiques (SyncTracker, job manuel COLLECTING).
 - `LiveReconciliationCronService` : rebuild complet toutes les 30 min pendant la fenêtre, puis une fois 10 min après la fin déclarée. Remplace `triggerLiveAggregationSafetyNet`.
 - `LiveAggregationTriggerService` : enqueue coalescé du job minute (flag Redis `live:agg:pending`, levé au démarrage du job), rebuild complet, `metadata.trigger` (`live-sync`, `webhook-live`, `live-reconciliation`, `live-final`).
@@ -198,7 +198,7 @@ quand le webhook n'est pas sain.
 **Frontend**
 - `components/integration/WeezeventWebhookPanel.vue` monté dans la carte Weezevent de Data Integration : URL à copier, secret (activation / rotation via `PATCH .../webhook`), "Vérifier la réception" (dernier webhook, compteurs 24 h, santé, mode et cadence de polling). Clés i18n `diWz*` (B4).
 
-**Config** : `.env.example` documente `API_PUBLIC_URL`, `WEEZEVENT_CRON_ENABLED`, `LIVE_SYNC_INTERVAL_SEC`, `LIVE_SYNC_INTERVAL_WEBHOOK_SEC`, `LIVE_SYNC_INTERVAL_RATE_LIMITED_SEC`, `IDLE_SYNC_INTERVAL_SEC`, `ALERT_WEBHOOK_URL`.
+**Config** : `.env.example` documente `API_PUBLIC_URL`, `WEEZEVENT_CRON_ENABLED`, `LIVE_SYNC_INTERVAL_SEC`, `LIVE_SYNC_INTERVAL_WEBHOOK_SEC`, `LIVE_SYNC_INTERVAL_RATE_LIMITED_SEC`, `IDLE_SYNC_INTERVAL_SEC`, `LIVE_SYNC_QUIET_AFTER_MIN`, `LIVE_SYNC_INTERVAL_QUIET_SEC`, `ALERT_WEBHOOK_URL`.
 
 **Tests** : `live-event-window`, `live-sync-cadence`, `live-sync-scheduler`, `live-reconciliation-cron`, `live-aggregation-trigger`, `live-minute-aggregation`, `webhook-payload.parser`, `webhook-signature` (raw body), `webhook.controller` (format WeezPay, organisation, headers), `webhook-event.handler`, `aggregation.service` (metadata.trigger préservé). Les suites `transaction-sync`, `weezevent-incremental-sync`, `weezevent.controller`, `spaces.service` échouaient déjà sur `production` avant cette branche (mocks manquants, `SalesPriceAggService`, `getRevenueSummaries`), non touchées.
 
