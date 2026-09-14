@@ -82,7 +82,12 @@ Décisions prises avec Ulrich le 2026-09-14 :
   passé en mode invité ; `expectedFor`/`expectedDetailFor` rebranchés.
 - `InventoryCountingInterface.vue` : hint "Quantité attendue : N cartons de 40" / "N Pc en vrac" restauré
   sous chaque champ (props `expectedFor`, `expectedDetailFor`), en plus du chip total.
-- `GuestPinAccessPanel.vue` : PIN en cours affiché sous "Régénérer le PIN" (+ copier).
+- `GuestPinAccessPanel.vue` : UN SEUL bouton "Générer le PIN" (ouvre la fenêtre pré/post-event si besoin, puis
+  génère), qui devient "Régénérer le PIN" ; PIN en cours affiché dessous (+ copier). Le bouton "Démarrer" séparé
+  disparaît (décision Ulrich 2026-09-14, "comme la spec le demande").
+- Verrou par article pendant les 30 min (critère 9, décision Ulrich 2026-09-14) : un article déjà compté à
+  l'ouverture des portes est figé (champs et boutons désactivés, 403 serveur `isCountedRow`), seuls les non
+  comptés restent modifiables ; passé 30 min, tout est verrouillé.
 - `InventoryReconciliationView.vue` : bandeau "Auto (PDV entièrement compté / ouverture des portes /
   modification après l'ouverture)" depuis `meta.trigger`.
 - `useGuestInventorySession.js` : plus de baseline, `notifyElementComplete`.
@@ -90,10 +95,6 @@ Décisions prises avec Ulrich le 2026-09-14 :
 
 ## Ce qui reste / à valider en test
 
-- "Démarrer pré-event" reste une étape distincte avant "Générer le PIN" (critère 3). Fusionner les deux serait
-  possible (générer le PIN ouvre la fenêtre) ; non fait, à décider.
-- Le verrou 30 min ne distingue pas "éléments non comptés" (critère 9) : pendant la fenêtre, tout est
-  modifiable ; après, plus rien.
 - La régénération auto ne recalcule pas le besoin prédit (Event Predict vit côté front) : elle reporte celui
   de la feuille précédente, sinon colonnes vides.
 - Le polling live ne s'active que si le status board PIN est chargé (panneau `GuestPinAccessPanel`, permission

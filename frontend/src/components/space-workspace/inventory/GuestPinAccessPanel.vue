@@ -8,35 +8,28 @@
         </div>
       </div>
 
-      <!-- Fenêtre pas encore ouverte : rien d'autre n'a de sens avant ça. -->
-      <v-btn
-        v-if="!isWindowOpen"
-        size="small"
-        color="#ff3131"
-        variant="flat"
-        rounded="lg"
-        block
-        class="mt-3"
-        :loading="opening"
-        @click="onStartWindow"
-      >
-        <PlayCircle :size="14" class="mr-1" />
-        {{ phase === 'post-event' ? t('guestPinAdminStartPost') : t('guestPinAdminStartPre') }}
-      </v-btn>
+      <!-- UN SEUL bouton (critère d'acceptation 2026-09-14) : "Générer le PIN"
+           ouvre la fenêtre pré/post-event si elle ne l'est pas encore, puis génère
+           LE PIN partagé par tous les PDV (décision produit 2026-09-08). Une fois
+           le PIN posé, le même bouton devient "Régénérer le PIN". -->
+      <div class="gpp-pin-row">
+        <span class="gpp-pin-status">
+          {{ !isWindowOpen ? phaseNotStartedLabel : hasPin ? t('guestPinAdminWindowPinSet') : t('guestPinAdminWindowPinNotSet') }}
+        </span>
+        <v-btn
+          size="small"
+          :variant="hasPin ? 'outlined' : 'flat'"
+          color="#ff3131"
+          rounded="lg"
+          :loading="opening"
+          @click="onGeneratePin"
+        >
+          <KeyRound :size="14" class="mr-1" />
+          {{ hasPin ? t('guestPinAdminResetPin') : t('guestPinAdminGeneratePin') }}
+        </v-btn>
+      </div>
 
-      <!-- Fenêtre ouverte : UN SEUL PIN partagé par tous les PDV (décision produit
-           2026-09-08) — statut + génération/régénération, ici et une seule fois,
-           plus par carte (cf. GuestPinBadge.vue, qui n'affiche plus qu'un statut). -->
-      <template v-else>
-        <div class="gpp-pin-row">
-          <span class="gpp-pin-status">
-            {{ hasPin ? t('guestPinAdminWindowPinSet') : t('guestPinAdminWindowPinNotSet') }}
-          </span>
-          <v-btn size="small" variant="outlined" color="#ff3131" rounded="lg" @click="pinDialogOpen = true">
-            <KeyRound :size="14" class="mr-1" />
-            {{ hasPin ? t('guestPinAdminResetPin') : t('guestPinAdminGeneratePin') }}
-          </v-btn>
-        </div>
+      <template v-if="isWindowOpen">
         <!-- PIN en cours, retrouvable après fermeture du popup (critère
              d'acceptation 2026-09-14). null = fenêtre d'avant le chiffrement
              réversible : il faut le régénérer une fois. -->
@@ -82,7 +75,7 @@
 </template>
 
 <script>
-import { Check, Copy, Info, KeyRound, PlayCircle } from 'lucide-vue-next';
+import { Check, Copy, Info, KeyRound } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import SetWindowPinDialog from '@/components/guest-pin-manage/dialogs/SetWindowPinDialog.vue';
 
@@ -98,7 +91,7 @@ import SetWindowPinDialog from '@/components/guest-pin-manage/dialogs/SetWindowP
  */
 export default {
   name: 'GuestPinAccessPanel',
-  components: { Check, Copy, Info, KeyRound, PlayCircle, SetWindowPinDialog },
+  components: { Check, Copy, Info, KeyRound, SetWindowPinDialog },
 
   props: {
     spaceId: { type: String, default: null },
@@ -122,6 +115,9 @@ export default {
   computed: {
     phaseLabel() {
       return this.phase === 'post-event' ? this.t('pinLoginPhasePost') : this.t('pinLoginPhasePre');
+    },
+    phaseNotStartedLabel() {
+      return this.phase === 'post-event' ? this.t('guestPinAdminNotStartedPost') : this.t('guestPinAdminNotStartedPre');
     },
     window() {
       return this.$store.getters['guestPinAdmin/windowByPhase'](this.phase);
@@ -183,17 +179,26 @@ export default {
       }
     },
 
-    async onStartWindow() {
-      this.opening = true;
-      try {
-        await this.$store.dispatch('guestPinAdmin/openWindow', {
-          spaceId: this.spaceId,
-          eventId: this.eventId,
-          phase: this.phase,
-        });
-      } finally {
-        this.opening = false;
+    /** Ouvre la fenêtre si nécessaire, puis lance la génération du PIN. Le
+     *  dialog est monté (v-if="window") seulement une fois la fenêtre connue du
+     *  store : on attend le prochain tick avant de basculer modelValue, sinon
+     *  son watcher (non immediate) ne verrait pas l'ouverture. */
+    async onGeneratePin() {
+      if (!this.isWindowOpen) {
+        this.opening = true;
+        try {
+          await this.$store.dispatch('guestPinAdmin/openWindow', {
+            spaceId: this.spaceId,
+            eventId: this.eventId,
+            phase: this.phase,
+          });
+          await this.$nextTick();
+        } finally {
+          this.opening = false;
+        }
+        if (!this.isWindowOpen) return;
       }
+      this.pinDialogOpen = true;
     },
   },
 };

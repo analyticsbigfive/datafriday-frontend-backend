@@ -98,11 +98,35 @@ export class PreEventInventoryFlowService {
         `Inventaire pré-événement verrouillé : plus de ${PreEventInventoryFlowService.EDIT_WINDOW_MINUTES} minutes après l'ouverture des portes.`,
       );
     }
+    const afterDoorsOpen = !!event && now >= this.doorsOpenAt(event);
+    // Pendant les 30 minutes, SEULS les éléments non comptés restent modifiables
+    // (critère 9) : une ligne déjà marquée comptée à l'ouverture des portes est
+    // figée, y compris contre un "reset" qui la repasserait en non compté.
+    if (afterDoorsOpen && (await this.isCountedRow(dto, tenantId))) {
+      throw new ForbiddenException(
+        "Cet article est déjà compté : après l'ouverture des portes, seuls les éléments non comptés peuvent être modifiés.",
+      );
+    }
     const saved = await this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
-    if (event && now >= this.doorsOpenAt(event)) {
+    if (afterDoorsOpen) {
       await this.markDirty(dto.spaceId, dto.eventId, tenantId);
     }
     return saved;
+  }
+
+  /** La ligne visée par ce comptage est-elle déjà marquée comptée en base ? */
+  private async isCountedRow(dto: CreateInventoryCountDto, tenantId: string): Promise<boolean> {
+    const row = await this.prisma.inventoryCount.findFirst({
+      where: {
+        tenantId,
+        spaceId: dto.spaceId,
+        eventId: dto.eventId ?? null,
+        shopId: dto.shopId ?? null,
+        itemId: dto.itemId,
+      },
+      select: { isCounted: true },
+    });
+    return !!row?.isCounted;
   }
 
   // ── Régénération de la feuille ──────────────────────────────────────────────

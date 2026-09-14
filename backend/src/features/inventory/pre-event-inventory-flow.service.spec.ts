@@ -34,6 +34,7 @@ describe('PreEventInventoryFlowService', () => {
       delete: jest.fn().mockResolvedValue({}),
     },
     inventoryWindow: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    inventoryCount: { findFirst: jest.fn().mockResolvedValue(null) },
   };
 
   const baseDto = {
@@ -66,6 +67,7 @@ describe('PreEventInventoryFlowService', () => {
     mockPrisma.event.findFirst.mockResolvedValue(eventOpenedAgo(-120)); // portes dans 2h par défaut
     mockPrisma.stockReconciliation.findMany.mockResolvedValue([]);
     mockPrisma.kvStore.findUnique.mockResolvedValue(null);
+    mockPrisma.inventoryCount.findFirst.mockResolvedValue(null);
     mockInventory.getBySpaceAndEvent.mockResolvedValue({
       inventoryCounts: {
         'shop-1': { 'mi-cookie': { packedUnits: 2, looseUnits: 1, isCounted: true } },
@@ -124,6 +126,25 @@ describe('PreEventInventoryFlowService', () => {
           },
         }),
       );
+    });
+
+    it('dans les 30 min : un article déjà compté est figé (403), un non compté passe', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(eventOpenedAgo(10));
+      mockPrisma.inventoryCount.findFirst.mockResolvedValueOnce({ isCounted: true });
+      await expect(
+        service.saveCount({ ...baseDto, isCounted: false }, 'tenant-1', 'user-1'),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(mockInventory.saveInventoryCounts).not.toHaveBeenCalled();
+
+      mockPrisma.inventoryCount.findFirst.mockResolvedValueOnce({ isCounted: false });
+      await service.saveCount(baseDto, 'tenant-1', 'user-1');
+      expect(mockInventory.saveInventoryCounts).toHaveBeenCalledTimes(1);
+    });
+
+    it('avant les portes : un article compté reste modifiable', async () => {
+      mockPrisma.inventoryCount.findFirst.mockResolvedValue({ isCounted: true });
+      await service.saveCount({ ...baseDto, isCounted: false }, 'tenant-1', 'user-1');
+      expect(mockInventory.saveInventoryCounts).toHaveBeenCalledTimes(1);
     });
 
     it("plus de 30 min après les portes : 403, rien n'est écrit", async () => {

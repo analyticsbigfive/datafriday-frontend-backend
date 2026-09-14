@@ -191,23 +191,23 @@
           </ul>
         </div>
 
-        <div v-show="!mobile || isExpanded(item.id)" class="si-count-inputs" :class="{ 'si-count-inputs--readonly': readonly }">
+        <div v-show="!mobile || isExpanded(item.id)" class="si-count-inputs" :class="{ 'si-count-inputs--readonly': itemReadonly(item) }">
           <div class="si-count-field">
             <label class="si-count-label">{{ packedUnitsLabel(item) }}</label>
             <div class="si-count-stepper">
-              <button type="button" class="si-step" aria-label="-" :disabled="readonly" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', -1)">
+              <button type="button" class="si-step" aria-label="-" :disabled="itemReadonly(item)" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', -1)">
                 <v-icon size="16">mdi-minus</v-icon>
               </button>
               <input
                 class="form-control si-count-input"
                 type="text"
                 inputmode="numeric"
-                :disabled="readonly"
+                :disabled="itemReadonly(item)"
                 :value="fieldDisplay(shop.element.id, item.id, 'packedUnits')"
                 @input="onFieldInput(shop.element.id, item.id, 'packedUnits', $event.target.value)"
                 @blur="onFieldBlur(shop.element.id, item.id, 'packedUnits')"
               />
-              <button type="button" class="si-step" aria-label="+" :disabled="readonly" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', 1)">
+              <button type="button" class="si-step" aria-label="+" :disabled="itemReadonly(item)" @click.stop="stepValue(shop.element.id, item.id, 'packedUnits', 1)">
                 <v-icon size="16">mdi-plus</v-icon>
               </button>
             </div>
@@ -226,19 +226,19 @@
           <div class="si-count-field">
             <label class="si-count-label">{{ t('invCountLooseUnits') }}</label>
             <div class="si-count-stepper">
-              <button type="button" class="si-step" aria-label="-" :disabled="readonly" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', -1)">
+              <button type="button" class="si-step" aria-label="-" :disabled="itemReadonly(item)" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', -1)">
                 <v-icon size="16">mdi-minus</v-icon>
               </button>
               <input
                 class="form-control si-count-input"
                 type="text"
                 inputmode="decimal"
-                :disabled="readonly"
+                :disabled="itemReadonly(item)"
                 :value="fieldDisplay(shop.element.id, item.id, 'looseUnits')"
                 @input="onFieldInput(shop.element.id, item.id, 'looseUnits', $event.target.value)"
                 @blur="onFieldBlur(shop.element.id, item.id, 'looseUnits')"
               />
-              <button type="button" class="si-step" aria-label="+" :disabled="readonly" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', 1)">
+              <button type="button" class="si-step" aria-label="+" :disabled="itemReadonly(item)" @click.stop="stepValue(shop.element.id, item.id, 'looseUnits', 1)">
                 <v-icon size="16">mdi-plus</v-icon>
               </button>
             </div>
@@ -270,7 +270,7 @@
           </div>
         </div>
 
-        <div v-if="!readonly" v-show="!mobile || isExpanded(item.id)" class="si-count-actions">
+        <div v-if="!itemReadonly(item)" v-show="!mobile || isExpanded(item.id)" class="si-count-actions">
           <button v-if="canTransfer" type="button" class="si-act si-act--ghost" @click="emit('transfer', shop.element, item)">
             <v-icon size="15" class="mr-1">mdi-swap-horizontal</v-icon>
             {{ mobile ? t('invCountTransferShort') : t('invCountTransfer') }}
@@ -328,6 +328,10 @@ const props = defineProps({
   // Lecture seule (invité qui a soumis son comptage, ou fenêtre clôturée) : steppers
   // et champs désactivés, actions masquées. Généralisation du pattern canTransfer.
   readonly: { type: Boolean, default: false },
+  // Verrou PAR ARTICLE, en plus de `readonly` (global) : (shopId, itemId) => boolean.
+  // Pendant les 30 min après l'ouverture des portes, seuls les éléments non
+  // comptés restent modifiables (critère d'acceptation 2026-09-14).
+  isItemLocked: { type: Function, default: null },
   // Invité : pas de bouton retour — il n'y a nulle part d'utile où revenir (un
   // seul PDV, pas de grille à montrer derrière).
   hideClose: { type: Boolean, default: false },
@@ -341,6 +345,12 @@ const failedImages = ref({})
 const usedInOpen = reactive({})
 function toggleUsedIn(id) {
   usedInOpen[id] = !usedInOpen[id]
+}
+
+// Lecture seule d'un article : verrou global OU verrou par article (post-ouverture).
+function itemReadonly(item) {
+  if (props.readonly) return true
+  return !!(props.isItemLocked && props.isItemLocked(props.shop.element.id, item.id))
 }
 
 // Besoin prédit d'un article, ou null si le parent n'en fournit pas.

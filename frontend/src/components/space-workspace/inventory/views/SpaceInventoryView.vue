@@ -463,6 +463,7 @@
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
           :readonly="guestSession.isReadonly || preEventWindow.isLocked"
+          :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="countingShop = null"
           @change-shop="startCount"
@@ -771,6 +772,7 @@
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
           :readonly="guestSession.isReadonly || preEventWindow.isLocked"
+          :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="closeMobileCounting"
           @change-shop="startCount"
@@ -2355,6 +2357,12 @@ export default {
           await this.regeneratePreEventSheet(shopId)
         }
       }
+    },
+    /** Après l'ouverture des portes, un article déjà compté est figé : seuls les
+     *  éléments non comptés restent modifiables pendant les 30 min (critère 9,
+     *  miroir du 403 serveur dans PreEventInventoryFlowService.saveCount). */
+    isItemLockedAfterDoors(shopId, itemId) {
+      return this.isItemCounted(shopId, itemId)
     },
     /** Tous les articles de cet élément sont-ils marqués comptés ? */
     isElementComplete(elementId) {
