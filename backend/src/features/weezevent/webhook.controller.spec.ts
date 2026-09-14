@@ -100,6 +100,19 @@ describe('WebhookController', () => {
     jest.clearAllMocks();
   });
 
+  // Signature réelle : headers + body + requête avec rawBody (BUG-379-02).
+  const rawOf = (payload: unknown) => Buffer.from(JSON.stringify(payload));
+  const call = (tenantId: string, integrationId: string, signature: string, payload: unknown) =>
+    controller.receiveWebhook(
+      tenantId,
+      integrationId,
+      signature ? { 'x-weezevent-signature': signature } : {},
+      payload,
+      { rawBody: rawOf(payload) } as any,
+    );
+  const deliveryIdOf = (payload: unknown) =>
+    require('crypto').createHash('sha256').update(rawOf(payload)).digest('hex');
+
   it('should be defined', () => {
     expect(controller).toBeDefined();
   });
@@ -112,12 +125,7 @@ describe('WebhookController', () => {
       mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(null);
       mockPrismaService.integrationWebhookEvent.create.mockResolvedValue(mockWebhookEvent);
 
-      const result = await controller.receiveWebhook(
-        'tenant-123',
-        'integration-123',
-        'valid-signature',
-        mockPayload as any,
-      );
+      const result = await call('tenant-123', 'integration-123', 'valid-signature', mockPayload);
 
       expect(result).toEqual({
         received: true,
@@ -125,14 +133,13 @@ describe('WebhookController', () => {
       });
       expect(mockPrismaService.integrationWebhookEvent.create).toHaveBeenCalledWith(
         expect.objectContaining({
-          data: expect.objectContaining({ externalDeliveryId: 'valid-signature' }),
+          data: expect.objectContaining({ externalDeliveryId: deliveryIdOf(mockPayload) }),
         }),
       );
     });
 
-    // BUG-026 (corrigé) : un retry Weezevent renvoie le même payload → même signature HMAC
-    // (déterministe) → doit être détecté comme déjà traité, pas dupliqué en audit ni retraité.
-    it('should dedupe a retried webhook via signature (BUG-026)', async () => {
+    // BUG-026 / BUG-379-02 : un rejeu Weezevent renvoie le même corps → même hash → déjà traité.
+    it('should dedupe a retried webhook via raw body hash (BUG-026)', async () => {
       mockPrismaService.integration.findUnique.mockResolvedValue(mockIntegration);
       mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
       mockSignatureService.validateSignature.mockReturnValue(true);
@@ -141,12 +148,7 @@ describe('WebhookController', () => {
         processed: true,
       });
 
-      const result = await controller.receiveWebhook(
-        'tenant-123',
-        'integration-123',
-        'valid-signature',
-        mockPayload as any,
-      );
+      const result = await call('tenant-123', 'integration-123', 'valid-signature', mockPayload);
 
       expect(result).toEqual({ received: true, eventId: 'event-123' });
       expect(mockPrismaService.integrationWebhookEvent.create).not.toHaveBeenCalled();
@@ -158,7 +160,7 @@ describe('WebhookController', () => {
       mockPrismaService.tenant.findUnique.mockResolvedValue(null);
 
       await expect(
-        controller.receiveWebhook('non-existent', 'integration-123', 'signature', mockPayload as any),
+        call('non-existent', 'integration-123', 'signature', mockPayload),
       ).rejects.toThrow(BadRequestException);
     });
 
@@ -170,7 +172,7 @@ describe('WebhookController', () => {
       });
 
       await expect(
-        controller.receiveWebhook('tenant-123', 'integration-123', 'signature', mockPayload as any),
+        call('tenant-123', 'integration-123', 'signature', mockPayload),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -179,7 +181,7 @@ describe('WebhookController', () => {
       mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
 
       await expect(
-        controller.receiveWebhook('tenant-123', 'integration-123', '', mockPayload as any),
+        call('tenant-123', 'integration-123', '', mockPayload),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -189,7 +191,7 @@ describe('WebhookController', () => {
       mockSignatureService.validateSignature.mockReturnValue(false);
 
       await expect(
-        controller.receiveWebhook('tenant-123', 'integration-123', 'invalid-signature', mockPayload as any),
+        call('tenant-123', 'integration-123', 'invalid-signature', mockPayload),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -203,7 +205,7 @@ describe('WebhookController', () => {
       });
 
       await expect(
-        controller.receiveWebhook('tenant-123', 'integration-123', '', mockPayload as any),
+        call('tenant-123', 'integration-123', '', mockPayload),
       ).rejects.toThrow(UnauthorizedException);
 
       expect(mockSignatureService.validateSignature).not.toHaveBeenCalled();
@@ -230,17 +232,12 @@ describe('WebhookController', () => {
         mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(null);
         mockPrismaService.integrationWebhookEvent.create.mockResolvedValue(mockWebhookEvent);
 
-        const result = await controller.receiveWebhook(
-          'tenant-123',
-          'integration-123',
-          'valid-signature',
-          mockPayload as any,
-        );
+        const result = await call('tenant-123', 'integration-123', 'valid-signature', mockPayload);
 
         expect(result).toEqual({ received: true, eventId: 'event-123' });
         expect(mockEncryptionService.decrypt).toHaveBeenCalledWith('encrypted-secret');
         expect(mockSignatureService.validateSignature).toHaveBeenCalledWith(
-          mockPayload,
+          rawOf(mockPayload),
           'valid-signature',
           'per-integration-secret',
         );
@@ -256,17 +253,12 @@ describe('WebhookController', () => {
         mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(null);
         mockPrismaService.integrationWebhookEvent.create.mockResolvedValue(mockWebhookEvent);
 
-        const result = await controller.receiveWebhook(
-          'tenant-123',
-          'integration-123',
-          'valid-signature',
-          mockPayload as any,
-        );
+        const result = await call('tenant-123', 'integration-123', 'valid-signature', mockPayload);
 
         expect(result).toEqual({ received: true, eventId: 'event-123' });
         expect(mockEncryptionService.decrypt).not.toHaveBeenCalled();
         expect(mockSignatureService.validateSignature).toHaveBeenCalledWith(
-          mockPayload,
+          rawOf(mockPayload),
           'valid-signature',
           mockTenant.weezeventWebhookSecret,
         );
@@ -279,7 +271,7 @@ describe('WebhookController', () => {
         mockSignatureService.validateSignature.mockReturnValue(false);
 
         await expect(
-          controller.receiveWebhook('tenant-123', 'integration-123', 'bad-signature', mockPayload as any),
+          call('tenant-123', 'integration-123', 'bad-signature', mockPayload),
         ).rejects.toThrow(UnauthorizedException);
       });
 
@@ -293,19 +285,88 @@ describe('WebhookController', () => {
         mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(null);
         mockPrismaService.integrationWebhookEvent.create.mockResolvedValue(mockWebhookEvent);
 
-        await controller.receiveWebhook(
-          'tenant-123',
-          'integration-123',
-          'valid-signature',
-          mockPayload as any,
-        );
+        await call('tenant-123', 'integration-123', 'valid-signature', mockPayload);
 
         expect(mockEncryptionService.decrypt).not.toHaveBeenCalled();
         expect(mockSignatureService.validateSignature).toHaveBeenCalledWith(
-          mockPayload,
+          rawOf(mockPayload),
           'valid-signature',
           mockTenant.weezeventWebhookSecret,
         );
+      });
+    });
+
+    // BUG-379-02 : format réel WeezPay `{ type, method, origin, organization_id, id, values }`,
+    // avec des champs non documentés possibles (jamais rejetés).
+    describe('BUG-379-02: real WeezPay payload format', () => {
+      const weezPayPayload = {
+        type: 'transaction',
+        method: 'create',
+        origin: 'gill',
+        organization_id: 4242,
+        id: 987654,
+        values: { id: 987654, amount: 1250 },
+        some_future_field: 'ignored',
+      };
+      const integrationWithOrg = {
+        ...mockIntegration,
+        weezevent: { webhookEnabled: null, webhookSecret: null, organizationId: '4242' },
+      };
+
+      it('accepts the documented WeezPay shape and stores the raw payload', async () => {
+        mockPrismaService.integration.findUnique.mockResolvedValue(integrationWithOrg);
+        mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
+        mockSignatureService.validateSignature.mockReturnValue(true);
+        mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(null);
+        mockPrismaService.integrationWebhookEvent.create.mockResolvedValue(mockWebhookEvent);
+
+        const result = await call('tenant-123', 'integration-123', 'valid-signature', weezPayPayload);
+
+        expect(result).toEqual({ received: true, eventId: 'event-123' });
+        expect(mockPrismaService.integrationWebhookEvent.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ eventType: 'transaction', method: 'create', payload: weezPayPayload }),
+          }),
+        );
+      });
+
+      it('rejects a webhook whose organization_id does not match the integration', async () => {
+        mockPrismaService.integration.findUnique.mockResolvedValue({
+          ...integrationWithOrg,
+          weezevent: { ...integrationWithOrg.weezevent, organizationId: '1111' },
+        });
+        mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
+        mockSignatureService.validateSignature.mockReturnValue(true);
+
+        await expect(call('tenant-123', 'integration-123', 'valid-signature', weezPayPayload)).rejects.toThrow(
+          UnauthorizedException,
+        );
+        expect(mockPrismaService.integrationWebhookEvent.create).not.toHaveBeenCalled();
+      });
+
+      it('rejects an unsupported type with a 400 before touching the database', async () => {
+        await expect(call('tenant-123', 'integration-123', 'sig', { type: 'nope', method: 'create', id: 1 })).rejects.toThrow(
+          BadRequestException,
+        );
+        expect(mockPrismaService.integration.findUnique).not.toHaveBeenCalled();
+      });
+
+      it('reads the signature from an alternative header name', async () => {
+        mockPrismaService.integration.findUnique.mockResolvedValue(integrationWithOrg);
+        mockPrismaService.tenant.findUnique.mockResolvedValue(mockTenant);
+        mockSignatureService.validateSignature.mockReturnValue(true);
+        mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(null);
+        mockPrismaService.integrationWebhookEvent.create.mockResolvedValue(mockWebhookEvent);
+
+        await controller.receiveWebhook(
+          'tenant-123',
+          'integration-123',
+          { 'x-hub-signature-256': 'sha256=abc' },
+          weezPayPayload,
+          { rawBody: rawOf(weezPayPayload) } as any,
+        );
+
+        expect(mockSignatureService.validateSignature).toHaveBeenCalledWith(rawOf(weezPayPayload), 'sha256=abc', mockTenant.weezeventWebhookSecret);
       });
     });
   });

@@ -4,6 +4,7 @@ import { WeezeventIntegrationService } from './weezevent-integration.service';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { EncryptionService } from '../../../core/encryption/encryption.service';
 import { SpaceAccessService } from '../../../core/auth/space-access.service';
+import { WeezeventWebhookStatusService } from './weezevent-webhook-status.service';
 
 describe('WeezeventIntegrationService', () => {
     let service: WeezeventIntegrationService;
@@ -35,6 +36,7 @@ describe('WeezeventIntegrationService', () => {
                 { provide: PrismaService, useValue: mockPrismaService },
                 { provide: EncryptionService, useValue: mockEncryptionService },
                 { provide: SpaceAccessService, useValue: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => 'ALL' } },
+                { provide: WeezeventWebhookStatusService, useValue: { webhookUrl: (t: string, i: string) => `/webhooks/weezevent/${t}/${i}` } },
             ],
         }).compile();
 

@@ -11,6 +11,7 @@ import { UserRole } from '@prisma/client';
 import { RedisService } from '../core/redis/redis.service';
 import { QueueService } from '../core/queue/queue.service';
 import { PrismaService } from '../core/database/prisma.service';
+import { liveHeartbeatKey } from '../shared/constants/live-aggregation';
 
 /**
  * Health check controller to validate infrastructure is working
@@ -115,6 +116,11 @@ export class HealthController {
       checks.queues = { status: 'not_configured' };
     }
 
+    // BUG-379-02 : heartbeat du worker live (scheduler de sync 10 s, réconciliation 5 min).
+    if (this.redisService) {
+      checks.liveWorker = await this.liveWorkerCheck();
+    }
+
     // Overall status
     const allHealthy = Object.values(checks)
       .filter((c) => typeof c === 'object' && c.status)
@@ -124,6 +130,21 @@ export class HealthController {
       status: allHealthy ? 'healthy' : 'degraded',
       services: checks,
     };
+  }
+
+  private async liveWorkerCheck(): Promise<Record<string, any>> {
+    const staleAfterMs = { 'live-sync-scheduler': 60_000, 'live-reconciliation': 10 * 60_000 } as const;
+    const beats: Record<string, { lastBeatAt: string | null; stale: boolean }> = {};
+    let stale = false;
+    let known = false;
+    for (const [name, limit] of Object.entries(staleAfterMs)) {
+      const last = await this.redisService.get<string>(liveHeartbeatKey(name));
+      const isStale = !last || Date.now() - new Date(last).getTime() > limit;
+      beats[name] = { lastBeatAt: last, stale: isStale };
+      known = known || !!last;
+      stale = stale || isStale;
+    }
+    return { status: !known ? 'not_configured' : stale ? 'unhealthy' : 'healthy', beats };
   }
 
   /**

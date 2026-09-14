@@ -8,6 +8,7 @@ import {
     UpdateWeezeventInstanceDto,
 } from '../dto/weezevent-instance.dto';
 import { UpdateWeezeventWebhookDto } from '../dto/weezevent-webhook-config.dto';
+import { WeezeventWebhookStatusService } from './weezevent-webhook-status.service';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
@@ -18,6 +19,8 @@ type PublicInstance = {
     clientId: string;
     organizationId: string | null;
     enabled: boolean;
+    /** URL à communiquer au contact Weezevent pour le webhook transaction (BUG-379-02) */
+    webhookUrl: string;
     createdAt: Date;
     updatedAt: Date;
 };
@@ -26,6 +29,7 @@ type PublicInstance = {
 // Le contrat API reste plat (clientId/organizationId au premier niveau) → flatten ici.
 const INSTANCE_SELECT = {
     id: true,
+    tenantId: true,
     name: true,
     enabled: true,
     createdAt: true,
@@ -35,6 +39,7 @@ const INSTANCE_SELECT = {
 
 type InstanceRow = {
     id: string;
+    tenantId: string;
     name: string;
     enabled: boolean;
     createdAt: Date;
@@ -48,6 +53,7 @@ export class WeezeventIntegrationService {
         private readonly prisma: PrismaService,
         private readonly encryptionService: EncryptionService,
         private readonly spaceAccess: SpaceAccessService,
+        private readonly webhookStatus: WeezeventWebhookStatusService,
     ) { }
 
     private toPublicInstance(row: InstanceRow): PublicInstance {
@@ -57,6 +63,7 @@ export class WeezeventIntegrationService {
             clientId: row.weezevent?.clientId ?? '',
             organizationId: row.weezevent?.organizationId ?? null,
             enabled: row.enabled,
+            webhookUrl: this.webhookStatus.webhookUrl(row.tenantId, row.id),
             createdAt: row.createdAt,
             updatedAt: row.updatedAt,
         };

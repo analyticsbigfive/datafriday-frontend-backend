@@ -1,54 +1,31 @@
 import { Injectable } from '@nestjs/common';
 import * as crypto from 'crypto';
 
+/**
+ * Signature des webhooks Weezevent : HMAC-SHA256(secret, corps brut de la requête).
+ *
+ * BUG-379-02 : vérifiée sur les OCTETS reçus (rawBody), plus sur `JSON.stringify` du body
+ * déjà parsé et filtré par Nest : l'ordre des clés ou les espaces suffisaient à faire échouer
+ * la comparaison. Weezevent ne documente ni le nom du header ni l'encodage : on accepte hex et
+ * base64, avec ou sans préfixe `sha256=`, en comparaison à temps constant. À resserrer une
+ * fois la réponse de Weezevent connue (fiche 379-02, questions au contact).
+ */
 @Injectable()
 export class WebhookSignatureService {
-    /**
-     * Validate webhook signature using HMAC SHA256
-     * @param payload - The webhook payload
-     * @param signature - The signature from X-Weezevent-Signature header
-     * @param secret - The webhook secret configured for the tenant
-     * @returns true if signature is valid, false otherwise
-     */
-    validateSignature(
-        payload: any,
-        signature: string,
-        secret: string,
-    ): boolean {
-        if (!signature || !secret) {
-            return false;
-        }
-
-        try {
-            // Compute HMAC SHA256 of the payload
-            const payloadString = JSON.stringify(payload);
-            const computed = crypto
-                .createHmac('sha256', secret)
-                .update(payloadString)
-                .digest('hex');
-
-            // Use timing-safe comparison to prevent timing attacks
-            return crypto.timingSafeEqual(
-                Buffer.from(signature),
-                Buffer.from(computed),
-            );
-        } catch (error) {
-            // Invalid signature format or comparison error
-            return false;
-        }
+    validateSignature(rawBody: Buffer | string, signature: string, secret: string): boolean {
+        if (!signature || !secret) return false;
+        const provided = signature.trim().replace(/^sha256=/i, '');
+        const digest = crypto.createHmac('sha256', secret).update(rawBody).digest();
+        return this.safeEqual(provided, digest.toString('hex')) || this.safeEqual(provided, digest.toString('base64'));
     }
 
-    /**
-     * Generate a signature for testing purposes
-     * @param payload - The webhook payload
-     * @param secret - The webhook secret
-     * @returns HMAC SHA256 signature
-     */
-    generateSignature(payload: any, secret: string): string {
-        const payloadString = JSON.stringify(payload);
-        return crypto
-            .createHmac('sha256', secret)
-            .update(payloadString)
-            .digest('hex');
+    generateSignature(rawBody: Buffer | string, secret: string): string {
+        return crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
+    }
+
+    private safeEqual(a: string, b: string): boolean {
+        const bufA = Buffer.from(a);
+        const bufB = Buffer.from(b);
+        return bufA.length === bufB.length && crypto.timingSafeEqual(bufA, bufB);
     }
 }

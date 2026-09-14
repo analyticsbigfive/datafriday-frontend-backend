@@ -9,19 +9,25 @@ import {
     Logger,
     BadRequestException,
     UnauthorizedException,
+    Req,
+    RawBodyRequest,
 } from '@nestjs/common';
 import { ApiBody, ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { FastifyRequest } from 'fastify';
+import * as crypto from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { Public } from '../../core/auth/decorators/public.decorator';
 import { EncryptionService } from '../../core/encryption/encryption.service';
 import { WebhookSignatureService } from './services/webhook-signature.service';
 import { WebhookEventHandler } from './services/webhook-event.handler';
 import { WeezeventWebhookPayloadDto } from './dto/webhook-payload.dto';
+import { parseWeezeventWebhookPayload } from './webhook-payload.parser';
 
-// Endpoint appelé par Weezevent (sans JWT Supabase) : l'authentification se fait
-// par SIGNATURE HMAC (header x-weezevent-signature), pas par le guard JWT global.
-// `@Public()` désactive JwtDatabaseGuard/TenantGuard ; le scoping Prisma est de toute
-// façon neutralisé hors contexte tenant (cf. PrismaService).
+/** Headers de signature acceptés tant que Weezevent n'a pas confirmé le sien (fiche 379-02). */
+const SIGNATURE_HEADERS = ['x-weezevent-signature', 'x-signature', 'x-hub-signature-256', 'signature'];
+
+// Endpoint appelé par Weezevent (sans JWT Supabase) : l'authentification se fait par
+// signature HMAC du corps brut, pas par le guard JWT global.
 @ApiTags('Weezevent Webhooks')
 @Controller('webhooks/weezevent')
 @Public()
@@ -35,13 +41,9 @@ export class WebhookController {
         private readonly encryption: EncryptionService,
     ) { }
 
-    /**
-     * Receive webhook from Weezevent
-     * POST /webhooks/weezevent/:tenantId
-     */
     @Post(':tenantId/:integrationId')
     @HttpCode(HttpStatus.OK)
-    @ApiOperation({ summary: 'Recevoir un webhook Weezevent' })
+    @ApiOperation({ summary: 'Recevoir un webhook Weezevent (WeezPay)' })
     @ApiParam({ name: 'tenantId', description: 'ID du tenant destinataire du webhook' })
     @ApiParam({ name: 'integrationId', description: 'ID de l\'intégration Weezevent' })
     @ApiBody({ type: WeezeventWebhookPayloadDto })
@@ -49,12 +51,15 @@ export class WebhookController {
     async receiveWebhook(
         @Param('tenantId') tenantId: string,
         @Param('integrationId') integrationId: string,
-        @Headers('x-weezevent-signature') signature: string,
-        @Body() payload: WeezeventWebhookPayloadDto,
+        @Headers() headers: Record<string, string | string[] | undefined>,
+        @Body() body: unknown,
+        @Req() req: RawBodyRequest<FastifyRequest>,
     ): Promise<{ received: boolean; eventId: string }> {
-        this.logger.log(
-            `Received webhook for tenant ${tenantId}: ${payload.type} - ${payload.method}`,
-        );
+        // BUG-379-02 : pas de DTO class-validator ici, le ValidationPipe global
+        // (forbidNonWhitelisted) rejetait le vrai format WeezPay. Parsing tolérant dédié.
+        const payload = parseWeezeventWebhookPayload(body);
+        const rawBody = req.rawBody ?? Buffer.from(JSON.stringify(body ?? {}));
+        this.logger.log(`Received webhook for tenant ${tenantId}: ${payload.type} - ${payload.method} (id ${payload.objectId ?? '?'})`);
 
         try {
             const integration = await this.prisma.integration.findUnique({
@@ -62,133 +67,96 @@ export class WebhookController {
                 select: {
                     id: true,
                     tenantId: true,
-                    weezevent: { select: { webhookEnabled: true, webhookSecret: true } },
+                    weezevent: { select: { webhookEnabled: true, webhookSecret: true, organizationId: true } },
                 },
             });
-
             if (!integration || integration.tenantId !== tenantId) {
                 throw new BadRequestException('Integration not found');
             }
-
-            // 1. Get tenant configuration — sert de repli BUG-106 tant qu'aucun secret
-            //    par-intégration n'est configuré (rétrocompatible, zéro action requise).
-            const tenant = await this.prisma.tenant.findUnique({
-                where: { id: tenantId },
-            });
-
+            const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
             if (!tenant) {
                 throw new BadRequestException('Tenant not found');
             }
 
-            // BUG-106 : secret par intégration (WeezeventIntegrationConfig.webhookSecret)
-            // prioritaire s'il est explicitement configuré ; sinon repli intégral sur
-            // Tenant.weezeventWebhookSecret/weezeventWebhookEnabled (comportement historique,
-            // seule option avant que cette capacité de configuration par-intégration existe).
+            // BUG-106 : secret par intégration prioritaire, repli sur le secret tenant.
             const perIntegrationConfigured =
                 integration.weezevent?.webhookEnabled === true && !!integration.weezevent?.webhookSecret;
-
             const webhookEnabled = perIntegrationConfigured ? true : tenant.weezeventWebhookEnabled;
             if (!webhookEnabled) {
-                throw new UnauthorizedException('Webhooks not enabled for this tenant');
+                throw new UnauthorizedException('Webhooks not enabled for this integration');
             }
-
-            // 2. Validate signature (OBLIGATOIRE — fail-closed). Sans secret configuré
-            //    ou sans signature valide, on rejette : pas de webhook anonyme/spoofable.
             const webhookSecret = perIntegrationConfigured
                 ? this.encryption.decrypt(integration.weezevent!.webhookSecret!)
                 : tenant.weezeventWebhookSecret;
-
             if (!webhookSecret) {
-                this.logger.warn(`Webhook secret not configured for tenant ${tenantId}`);
-                throw new UnauthorizedException('Webhook secret not configured for this tenant');
+                throw new UnauthorizedException('Webhook secret not configured for this integration');
             }
 
+            const signature = this.readSignature(headers);
             if (!signature) {
                 throw new UnauthorizedException('Signature header missing');
             }
-
-            const isValid = this.signatureService.validateSignature(
-                payload,
-                signature,
-                webhookSecret,
-            );
-
-            if (!isValid) {
-                this.logger.warn(`Invalid signature for tenant ${tenantId}`);
+            if (!this.signatureService.validateSignature(rawBody, signature, webhookSecret)) {
+                this.logger.warn(`Invalid webhook signature for integration ${integrationId}`);
                 throw new UnauthorizedException('Invalid signature');
             }
 
-            this.logger.log(
-                `Signature validated for tenant ${tenantId}` +
-                (perIntegrationConfigured ? ' (secret par intégration)' : ' (secret tenant, repli)'),
-            );
+            // Défense en profondeur : un webhook d'une autre organisation Weezevent posté sur
+            // notre URL est rejeté même correctement signé.
+            const expectedOrg = integration.weezevent?.organizationId;
+            if (payload.organizationId && expectedOrg && payload.organizationId !== String(expectedOrg)) {
+                throw new UnauthorizedException('Webhook organization does not match this integration');
+            }
 
-            // 3. Dédup (BUG-026 corrigé) — Weezevent ne fournit pas d'UUID de livraison dans le
-            // payload (contrairement à Digifood, cf. IntegrationWebhookEvent.externalDeliveryId).
-            // La signature HMAC est déterministe sur le corps exact du payload (WebhookSignatureService
-            // : HMAC-SHA256(secret, JSON.stringify(payload))) : un retry Weezevent renvoie le même
-            // corps, donc la même signature — c'est une clé d'idempotence naturelle, déjà validée
-            // ci-dessus, aucune donnée supplémentaire à extraire.
+            // Dédup : Weezevent ne fournit pas d'id de livraison (contrairement à Digifood). Le
+            // hash du corps brut est une clé d'idempotence naturelle : un rejeu renvoie le même corps.
+            const deliveryId = crypto.createHash('sha256').update(rawBody).digest('hex');
             const existing = await this.prisma.integrationWebhookEvent.findUnique({
-                where: {
-                    integrationId_externalDeliveryId: { integrationId, externalDeliveryId: signature },
-                },
-                select: { id: true, processed: true },
+                where: { integrationId_externalDeliveryId: { integrationId, externalDeliveryId: deliveryId } },
+                select: { id: true },
             });
-
             if (existing) {
-                this.logger.log(`Webhook déjà reçu (dédupliqué via signature) — event existant ${existing.id}`);
+                this.logger.log(`Webhook already received (dedup) for event ${existing.id}`);
                 return { received: true, eventId: existing.id };
             }
 
-            // 4. Store webhook event for audit and processing
             const webhookEvent = await this.prisma.integrationWebhookEvent.create({
                 data: {
                     tenantId,
                     integrationId,
                     eventType: payload.type,
                     method: payload.method,
-                    payload: payload as any,
+                    payload: payload.raw as any,
                     signature,
-                    externalDeliveryId: signature,
+                    externalDeliveryId: deliveryId,
                     processed: false,
                 },
             });
 
-            this.logger.log(`Stored webhook event ${webhookEvent.id}`);
-
-            // 5. Process event asynchronously (don't wait for completion)
-            // This ensures we return 200 quickly to Weezevent
+            // Répondre 200 tout de suite : Weezevent ne rejoue pas un webhook en erreur.
             this.processEventAsync(webhookEvent.id);
-
-            // 6. Return success immediately
-            return {
-                received: true,
-                eventId: webhookEvent.id,
-            };
+            return { received: true, eventId: webhookEvent.id };
         } catch (error) {
-            this.logger.error(
-                `Failed to receive webhook for tenant ${tenantId}`,
-                error.stack,
-            );
+            this.logger.error(`Failed to receive webhook for tenant ${tenantId}`, (error as Error).stack);
             throw error;
         }
     }
 
-    /**
-     * Process event asynchronously without blocking the response
-     */
+    private readSignature(headers: Record<string, string | string[] | undefined>): string | null {
+        for (const name of SIGNATURE_HEADERS) {
+            const value = headers[name];
+            const first = Array.isArray(value) ? value[0] : value;
+            if (first) return first;
+        }
+        return null;
+    }
+
     private processEventAsync(eventId: string): void {
-        // Use setImmediate to process in next event loop iteration
         setImmediate(async () => {
             try {
                 await this.eventHandler.processEvent(eventId);
             } catch (error) {
-                this.logger.error(
-                    `Async processing failed for event ${eventId}`,
-                    error.stack,
-                );
-                // Error is already logged in the database by the handler
+                this.logger.error(`Async processing failed for event ${eventId}`, (error as Error).stack);
             }
         });
     }
