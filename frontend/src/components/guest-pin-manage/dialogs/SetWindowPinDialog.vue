@@ -16,7 +16,7 @@
             <Copy v-else :size="15" class="mr-1" />
             {{ copied ? t('guestPinAdminCopied') : t('guestPinAdminCopyPin') }}
           </v-btn>
-          <v-alert type="warning" variant="tonal" density="compact" rounded="lg" class="mt-3">
+          <v-alert type="info" variant="tonal" density="compact" rounded="lg" class="mt-3">
             {{ t('guestPinAdminPinOneShotWarning') }}
           </v-alert>
         </template>
@@ -47,6 +47,8 @@ import { useI18n } from '@/i18n/useI18n';
  * (décision produit 2026-09-08, revenue sur "un PIN par PDV"). Un seul dialog par
  * fenêtre (pré/post-event), déclenché depuis GuestPinAccessPanel.vue — plus depuis
  * chaque carte PDV (GuestPinBadge.vue ne génère plus rien, juste le statut par PDV).
+ * Le PIN reste retrouvable après fermeture (status board, critère d'acceptation
+ * 2026-09-14) : ce popup n'est plus "one-shot", le nom du composant est historique.
  */
 export default {
   name: 'SetWindowPinDialog',

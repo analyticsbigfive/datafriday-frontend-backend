@@ -56,8 +56,13 @@ export async function getGuestInventory() {
   return response.data
 }
 
-export async function getGuestBaseline() {
-  const response = await api.get('/guest-pin/inventory/baseline')
+/**
+ * Tous les articles du PDV sont marqués comptés : le serveur régénère la feuille
+ * pre-event du match et recale la Logistique (critère d'acceptation 2026-09-14).
+ * Sans effet en phase post-event.
+ */
+export async function notifyGuestElementComplete() {
+  const response = await api.post('/guest-pin/element-complete')
   return response.data
 }
 

@@ -163,6 +163,20 @@ export async function createPreEventReconciliation(spaceId, eventId, predictedUn
 }
 
 /**
+ * (Re)génère LA feuille pre-event du match depuis les comptages vivants et
+ * recale la Logistique. Appelé quand tous les articles d'un PDV viennent d'être
+ * marqués comptés (le serveur ne connaît pas la liste explosée des articles).
+ * POST /inventory/:spaceId/pre-event-reconciliations/regenerate
+ * @returns {Promise<{ok: boolean, reconciliationId?: string, lineCount?: number, reason?: string}>}
+ */
+export async function regeneratePreEventReconciliation(spaceId, eventId, elementId = null) {
+  return api.post(`/inventory/${spaceId}/pre-event-reconciliations/regenerate`, {
+    eventId,
+    ...(elementId ? { elementId } : {}),
+  })
+}
+
+/**
  * Liste tous les types de packaging (carton, palette, etc.).
  * Route backend réelle = GET /packaging (il n'existe PAS de /packaging-types → 404).
  */
