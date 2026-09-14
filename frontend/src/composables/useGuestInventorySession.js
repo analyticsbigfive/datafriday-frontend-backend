@@ -28,9 +28,9 @@ import { buildConsolidatedInventory } from '@/utils/inventoryUtils'
 import {
   getGuestCatalog,
   getGuestInventory,
-  getGuestBaseline,
   saveGuestCount,
   submitGuestCount,
+  notifyGuestElementComplete,
 } from '@/api/endpoints/guestPin.api'
 
 export function useGuestInventorySession() {
@@ -62,24 +62,21 @@ export function useGuestInventorySession() {
   // [{ element: {id, name, isOpen}, consolidatedInventory: [{id, name, unit, picture}] }]
   // Toujours 0 ou 1 entrée — un manager invité ne voit jamais qu'un seul PDV.
   const guestCards = ref([])
-  // { [itemId]: { packed, loose, units, unitsPerPack } } — état Logistic réel pour
-  // le PDV de l'invité. Toujours chargé et affiché (décision produit 2026-09-08 :
-  // pas d'option, le manager voit systématiquement le stock Logistic). Même
-  // donnée que le chip staff "État Logistic" (logisticStockFor), pas le "Besoin
-  // prédit" (source Restock/Event Predict, sans rapport).
-  const guestExpected = ref({})
+  // Aucune quantité attendue côté invité : critère d'acceptation 2026-09-14
+  // ("tous les éléments affichent 0 et aucune indication n'est donnée pour la
+  // valeur attendue"), qui revient sur la décision du 2026-09-08 (toujours
+  // montré). Le backend n'expose plus la baseline à un JWT invité.
 
-  /** Charge le catalogue + comptages + quantités attendues du PDV de l'invité —
-   *  équivalent invité de `loadForSpace`, mais sans AUCUN des chargements staff
-   *  (analyse/loadSpace, events, logistics...) qui partiraient en 401 sous JWT
-   *  invité. Le catalogue brut (/guest-pin/catalog) est explosé ICI par la MÊME
-   *  fonction que le staff (`buildConsolidatedInventory`) : mêmes articles,
-   *  mêmes images, mêmes libellés de conditionnement des deux côtés. */
+  /** Charge le catalogue + comptages du PDV de l'invité, équivalent invité de
+   *  `loadForSpace`, mais sans AUCUN des chargements staff (analyse/loadSpace,
+   *  events, logistics...) qui partiraient en 401 sous JWT invité. Le catalogue
+   *  brut (/guest-pin/catalog) est explosé ICI par la MÊME fonction que le staff
+   *  (`buildConsolidatedInventory`) : mêmes articles, mêmes images, mêmes
+   *  libellés de conditionnement des deux côtés. */
   async function loadGuestInventory() {
-    const [catalog, inventory, baseline] = await Promise.all([
+    const [catalog, inventory] = await Promise.all([
       getGuestCatalog(),
       getGuestInventory(),
-      getGuestBaseline(),
     ])
     const elementId = guestElementId.value
 
@@ -114,19 +111,19 @@ export function useGuestInventorySession() {
       },
       consolidatedInventory,
     }]
-
-    guestExpected.value = baseline?.expected?.[elementId] ?? {}
   }
 
-  /** Équivalent invité de `logisticStockFor(elementId, item)` (staff) — même
-   *  contrat d'appel (élément ignoré, un seul PDV possible côté invité), même
-   *  calcul (packed × conditionnement + loose). null = article absent du registre
-   *  Logistic (jamais compté ici, distinct de "pas encore de mouvement" → 0). */
-  function guestExpectedFor(elementId, item) {
-    const exp = guestExpected.value[item?.id]
-    if (!exp) return null
-    const upp = Number(exp.unitsPerPack) > 0 ? Number(exp.unitsPerPack) : 1
-    return (Number(exp.packed) || 0) * upp + (Number(exp.loose) || 0)
+  /** Tous les articles du PDV sont comptés (vérifié par la vue, seule à connaître
+   *  la liste explosée) : le serveur régénère la feuille pre-event et recale la
+   *  Logistique. Fire-and-forget côté UX : un échec ne bloque pas le comptage,
+   *  le passage "portes ouvertes" rattrapera. */
+  async function notifyElementComplete() {
+    try {
+      return await notifyGuestElementComplete()
+    } catch (e) {
+      console.warn('[guest-inventory] régénération feuille pre-event KO:', e?.message)
+      return null
+    }
   }
 
   /** Écriture optimiste locale + sauvegarde serveur — équivalent invité de
@@ -184,8 +181,8 @@ export function useGuestInventorySession() {
     guestEventId,
     guestInventoryCounts,
     guestCards,
-    guestExpectedFor,
     loadGuestInventory,
+    notifyElementComplete,
     upsertGuestCount,
     submitGuestInventory,
     logout,

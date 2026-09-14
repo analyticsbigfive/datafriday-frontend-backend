@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventSyncService } from './weezevent-sync.service';
-import { QueueService } from '../../../core/queue/queue.service';
+import { LiveEventWindowService } from './live/live-event-window.service';
+import { LiveAggregationTriggerService } from './live/live-aggregation-trigger.service';
+import { WebhookHealthService } from './live/webhook-health.service';
 
 interface WebhookEvent {
     id: string;
@@ -19,11 +21,9 @@ export class WebhookEventHandler {
     constructor(
         private readonly prisma: PrismaService,
         private readonly syncService: WeezeventSyncService,
-        // QueueService vient de QueueModule (@Global()) — pas besoin de l'importer dans
-        // WeezeventModule. Volontairement pas AggregationService : WeezeventModule →
-        // AggregationModule → MappingsModule → SpacesModule → WeezeventModule fermerait un
-        // cycle de modules (SpacesModule importe déjà WeezeventModule).
-        private readonly queueService: QueueService,
+        private readonly liveWindow: LiveEventWindowService,
+        private readonly liveTrigger: LiveAggregationTriggerService,
+        private readonly webhookHealth: WebhookHealthService,
     ) { }
 
     /**
@@ -61,7 +61,6 @@ export class WebhookEventHandler {
                     this.logger.warn(`Unknown event type: ${event.eventType}`);
             }
 
-            // Mark as processed
             await this.prisma.integrationWebhookEvent.update({
                 where: { id: eventId },
                 data: {
@@ -69,6 +68,8 @@ export class WebhookEventHandler {
                     processedAt: new Date(),
                 },
             });
+            // BUG-379-02 : webhook sain = le polling repasse en simple filet (LiveSyncScheduler).
+            await this.webhookHealth.markProcessed(event.integrationId);
 
             this.logger.log(`Successfully processed webhook event ${eventId}`);
         } catch (error) {
@@ -95,7 +96,8 @@ export class WebhookEventHandler {
      */
     private async handleTransactionEvent(event: WebhookEvent): Promise<void> {
         const { method, payload } = event;
-        const transactionId = payload.data?.id?.toString();
+        // Format WeezPay : `id` à la racine, `values` = détails ; ancien format supposé : `data.id`.
+        const transactionId = (payload.id ?? payload.values?.id ?? payload.data?.id)?.toString();
 
         if (!transactionId) {
             throw new Error('Transaction ID not found in webhook payload');
@@ -114,8 +116,8 @@ export class WebhookEventHandler {
                 break;
 
             case 'delete':
-                // Mark transaction as deleted (soft delete)
-                await this.markTransactionAsDeleted(transactionId);
+                await this.markTransactionAsDeleted(event.tenantId, event.integrationId, transactionId);
+                await this.queueLiveAggregation(event.tenantId, event.integrationId, `deleted transaction ${transactionId}`);
                 break;
 
             default:
@@ -153,65 +155,25 @@ export class WebhookEventHandler {
             throw error;
         }
 
-        // BUG-109 : la transaction est synchronisée, mais SpaceRevenueMinuteAgg (shop-details,
-        // KPI par shop) ne se met jamais à jour toute seule — queueAggregationJob() n'avait
-        // jusqu'ici aucun appelant automatique, seulement le wizard d'intégration (manuel).
-        // Best-effort : une erreur ici ne doit pas faire échouer le sync (déjà réussi) ni
-        // déclencher son retry — le cron de secours (WeezeventCronService, safety net) rattrape
-        // les cas manqués.
-        try {
-            await this.triggerLiveAggregation(tenantId, integrationId, transactionId);
-        } catch (error) {
-            this.logger.warn(
-                `Could not queue live aggregation after transaction ${transactionId} sync: ${error.message}`,
-            );
-        }
+        await this.queueLiveAggregation(tenantId, integrationId, `transaction ${transactionId}`);
     }
 
     /**
-     * Resolves the DataFriday Event + Space concerned by a just-synced transaction, and
-     * re-queues its aggregation. No-op if the transaction has no event, or that event has no
-     * unambiguous DataFriday Event match yet (Event.weezeventEventId, BUG-021 disambiguation).
-     *
-     * Mirrors AggregationService.processEvents' job-log-then-enqueue pattern (not called
-     * directly — see the module-cycle note on the constructor above).
+     * BUG-109 / BUG-379-02 : après une écriture de transaction, agrégation live par minute
+     * (coalescée) pour les events en direct de cette intégration. Best-effort : une erreur ici
+     * ne fait pas échouer le webhook, la réconciliation périodique rattrape.
      */
-    private async triggerLiveAggregation(
-        tenantId: string,
-        integrationId: string,
-        transactionId: string,
-    ): Promise<void> {
-        const transaction = await this.prisma.salesTransaction.findFirst({
-            where: { tenantId, integrationId, externalId: transactionId },
-            select: { eventId: true },
-        });
-        if (!transaction?.eventId) return;
-
-        const dfEvent = await this.prisma.event.findFirst({
-            where: { tenantId, weezeventEventId: transaction.eventId, spaceId: { not: null } },
-            select: { id: true, spaceId: true, eventDate: true },
-        });
-        if (!dfEvent?.spaceId) return;
-
-        const jobLog = await this.prisma.aggregationJobLog.create({
-            data: {
-                tenantId,
-                spaceId: dfEvent.spaceId,
-                jobType: 'incremental',
-                status: 'pending',
-                fromDate: dfEvent.eventDate,
-                toDate: dfEvent.eventDate,
-                metadata: { eventIds: [dfEvent.id], trigger: 'webhook-live' },
-            },
-        });
-        await this.queueService.queueAggregationJob({
-            type: 'process-events',
-            tenantId,
-            spaceId: dfEvent.spaceId,
-            jobLogId: jobLog.id,
-            eventIds: [dfEvent.id],
-            integrationId,
-        });
+    private async queueLiveAggregation(tenantId: string, integrationId: string, reason: string): Promise<void> {
+        try {
+            const events = (await this.liveWindow.findLiveEvents()).filter(
+                (e) => e.tenantId === tenantId && (e.integrationId === integrationId || !e.integrationId),
+            );
+            for (const group of LiveEventWindowService.groupBySpaceAndIntegration(events)) {
+                await this.liveTrigger.queueMinuteAggregation(group, 'webhook-live');
+            }
+        } catch (error) {
+            this.logger.warn(`Could not queue live aggregation after ${reason}: ${(error as Error).message}`);
+        }
     }
 
     /**
@@ -223,11 +185,13 @@ export class WebhookEventHandler {
      * d'agrégation (aggregation.service.ts, executeProcessEvents).
      */
     private async markTransactionAsDeleted(
+        tenantId: string,
+        integrationId: string,
         transactionId: string,
     ): Promise<void> {
         const now = new Date();
         const updated = await this.prisma.salesTransaction.updateMany({
-            where: { externalId: transactionId, deletedAt: null },
+            where: { tenantId, integrationId, externalId: transactionId, deletedAt: null },
             data: {
                 deletedAt: now,
                 syncedAt: now,
@@ -246,8 +210,8 @@ export class WebhookEventHandler {
      */
     private async handleOrderEvent(event: WebhookEvent): Promise<void> {
         const { method, payload } = event;
-        const orderId = payload.data?.id?.toString();
-        const eventId = payload.data?.event_id?.toString();
+        const orderId = (payload.id ?? payload.data?.id)?.toString();
+        const eventId = (payload.values?.event_id ?? payload.data?.event_id)?.toString();
 
         if (!orderId || !eventId) {
             throw new Error('Order ID or Event ID not found in webhook payload');
@@ -272,7 +236,7 @@ export class WebhookEventHandler {
      */
     private async handleProductEvent(event: WebhookEvent): Promise<void> {
         const { method, payload } = event;
-        const productId = payload.data?.id?.toString();
+        const productId = (payload.id ?? payload.data?.id)?.toString();
 
         if (!productId) {
             throw new Error('Product ID not found in webhook payload');

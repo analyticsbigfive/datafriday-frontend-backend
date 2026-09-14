@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { AggregationService } from './aggregation.service';
+import { EventWindowResolverService } from './event-window-resolver.service';
+import { EventRollupService } from './event-rollup.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { MappingsService } from '../mappings/mappings.service';
@@ -14,6 +16,7 @@ const mockPrisma: any = {
   aggregationJobLog: {
     findMany: jest.fn(),
     findFirst: jest.fn(),
+    findUnique: jest.fn().mockResolvedValue({ metadata: {} }),
     create: jest.fn(),
     update: jest.fn(),
     updateMany: jest.fn(),
@@ -109,6 +112,9 @@ describe('AggregationService', () => {
         { provide: MappingsService, useValue: mockMappingsService },
         // BUG-143-01 : purge des caches Redis event-timeline/baskets en fin de job.
         { provide: RedisService, useValue: { deletePattern: jest.fn(), get: jest.fn(), set: jest.fn() } },
+        // BUG-379-02 : résolution de fenêtre et rollup extraits, instances réelles sur le même mock Prisma.
+        EventWindowResolverService,
+        EventRollupService,
       ],
     }).compile();
 
@@ -636,6 +642,21 @@ describe('AggregationService', () => {
       );
       expect(completionCall[0].data.error).toBeNull();
       expect(completionCall[0].data.metadata).toEqual(expect.objectContaining({ errorCount: 0 }));
+    });
+
+    it('BUG-379-02 : metadata.trigger et integrationId survivent aux réécritures de progression et de fin de job', async () => {
+      mockPrisma.aggregationJobLog.findUnique.mockResolvedValueOnce({
+        metadata: { eventIds: [EVENT_1], trigger: 'live-reconciliation', integrationId: 'int-1' },
+      });
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1)]);
+
+      await service.executeProcessEvents(makeBullJob());
+
+      const metadataUpdates = mockPrisma.aggregationJobLog.update.mock.calls
+        .map((c: any) => c[0]?.data?.metadata)
+        .filter(Boolean);
+      expect(metadataUpdates.length).toBeGreaterThan(0);
+      expect(metadataUpdates.every((m: any) => m.trigger === 'live-reconciliation' && m.integrationId === 'int-1')).toBe(true);
     });
 
     // ─── BUG-328/329/330-02 : résolution de fenêtre (resolveEventWindow) ─────

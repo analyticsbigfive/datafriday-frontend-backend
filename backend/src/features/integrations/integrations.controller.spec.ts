@@ -5,6 +5,7 @@ import { WebhookIntegrationService } from './services/webhook-integration.servic
 import { WeezeventAuthService } from '../weezevent/services/weezevent-auth.service';
 import { DigifoodIntegrationService } from './services/digifood-integration.service';
 import { DigifoodCsvImportService } from '../digifood/services/digifood-csv-import.service';
+import { WeezeventWebhookStatusService } from './services/weezevent-webhook-status.service';
 import { WeezeventConfigDto } from './dto/weezevent-config.dto';
 import { WebhookConfigDto } from './dto/webhook-config.dto';
 
@@ -71,6 +72,10 @@ describe('IntegrationsController', () => {
         {
           provide: DigifoodCsvImportService,
           useValue: { importCsv: jest.fn() },
+        },
+        {
+          provide: WeezeventWebhookStatusService,
+          useValue: { getStatus: jest.fn() },
         },
       ],
     }).compile();

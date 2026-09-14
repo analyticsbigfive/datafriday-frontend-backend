@@ -8,34 +8,41 @@
         </div>
       </div>
 
-      <!-- Fenêtre pas encore ouverte : rien d'autre n'a de sens avant ça. -->
-      <v-btn
-        v-if="!isWindowOpen"
-        size="small"
-        color="#ff3131"
-        variant="flat"
-        rounded="lg"
-        block
-        class="mt-3"
-        :loading="opening"
-        @click="onStartWindow"
-      >
-        <PlayCircle :size="14" class="mr-1" />
-        {{ phase === 'post-event' ? t('guestPinAdminStartPost') : t('guestPinAdminStartPre') }}
-      </v-btn>
+      <!-- UN SEUL bouton (critère d'acceptation 2026-09-14) : "Générer le PIN"
+           ouvre la fenêtre pré/post-event si elle ne l'est pas encore, puis génère
+           LE PIN partagé par tous les PDV (décision produit 2026-09-08). Une fois
+           le PIN posé, le même bouton devient "Régénérer le PIN". -->
+      <div class="gpp-pin-row">
+        <span class="gpp-pin-status">
+          {{ !isWindowOpen ? phaseNotStartedLabel : hasPin ? t('guestPinAdminWindowPinSet') : t('guestPinAdminWindowPinNotSet') }}
+        </span>
+        <v-btn
+          size="small"
+          :variant="hasPin ? 'outlined' : 'flat'"
+          color="#ff3131"
+          rounded="lg"
+          :loading="opening"
+          @click="onGeneratePin"
+        >
+          <KeyRound :size="14" class="mr-1" />
+          {{ hasPin ? t('guestPinAdminResetPin') : t('guestPinAdminGeneratePin') }}
+        </v-btn>
+      </div>
 
-      <!-- Fenêtre ouverte : UN SEUL PIN partagé par tous les PDV (décision produit
-           2026-09-08) — statut + génération/régénération, ici et une seule fois,
-           plus par carte (cf. GuestPinBadge.vue, qui n'affiche plus qu'un statut). -->
-      <template v-else>
-        <div class="gpp-pin-row">
-          <span class="gpp-pin-status">
-            {{ hasPin ? t('guestPinAdminWindowPinSet') : t('guestPinAdminWindowPinNotSet') }}
-          </span>
-          <v-btn size="small" variant="outlined" color="#ff3131" rounded="lg" @click="pinDialogOpen = true">
-            <KeyRound :size="14" class="mr-1" />
-            {{ hasPin ? t('guestPinAdminResetPin') : t('guestPinAdminGeneratePin') }}
-          </v-btn>
+      <template v-if="isWindowOpen">
+        <!-- PIN en cours, retrouvable après fermeture du popup (critère
+             d'acceptation 2026-09-14). null = fenêtre d'avant le chiffrement
+             réversible : il faut le régénérer une fois. -->
+        <div v-if="hasPin" class="gpp-pin-current">
+          <template v-if="currentPin">
+            <span class="gpp-pin-current__label">{{ t('guestPinAdminCurrentPin') }}</span>
+            <span class="gpp-pin-current__value">{{ currentPin }}</span>
+            <button type="button" class="gpp-pin-copy" :title="t('guestPinAdminCopyPin')" @click="copyPin">
+              <Check v-if="copied" :size="14" />
+              <Copy v-else :size="14" />
+            </button>
+          </template>
+          <span v-else class="gpp-pin-current__missing">{{ t('guestPinAdminCurrentPinUnavailable') }}</span>
         </div>
 
         <div class="gpp-stats">
@@ -68,7 +75,7 @@
 </template>
 
 <script>
-import { Info, KeyRound, PlayCircle } from 'lucide-vue-next';
+import { Check, Copy, Info, KeyRound } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import SetWindowPinDialog from '@/components/guest-pin-manage/dialogs/SetWindowPinDialog.vue';
 
@@ -84,7 +91,7 @@ import SetWindowPinDialog from '@/components/guest-pin-manage/dialogs/SetWindowP
  */
 export default {
   name: 'GuestPinAccessPanel',
-  components: { Info, KeyRound, PlayCircle, SetWindowPinDialog },
+  components: { Check, Copy, Info, KeyRound, SetWindowPinDialog },
 
   props: {
     spaceId: { type: String, default: null },
@@ -101,12 +108,16 @@ export default {
     return {
       opening: false,
       pinDialogOpen: false,
+      copied: false,
     };
   },
 
   computed: {
     phaseLabel() {
       return this.phase === 'post-event' ? this.t('pinLoginPhasePost') : this.t('pinLoginPhasePre');
+    },
+    phaseNotStartedLabel() {
+      return this.phase === 'post-event' ? this.t('guestPinAdminNotStartedPost') : this.t('guestPinAdminNotStartedPre');
     },
     window() {
       return this.$store.getters['guestPinAdmin/windowByPhase'](this.phase);
@@ -116,6 +127,9 @@ export default {
     },
     hasPin() {
       return !!this.window?.hasPin;
+    },
+    currentPin() {
+      return this.window?.pin ?? null;
     },
     accesses() {
       return this.window?.accesses ?? [];
@@ -155,17 +169,36 @@ export default {
       }
     },
 
-    async onStartWindow() {
-      this.opening = true;
+    async copyPin() {
       try {
-        await this.$store.dispatch('guestPinAdmin/openWindow', {
-          spaceId: this.spaceId,
-          eventId: this.eventId,
-          phase: this.phase,
-        });
-      } finally {
-        this.opening = false;
+        await navigator.clipboard.writeText(this.currentPin);
+        this.copied = true;
+        setTimeout(() => { this.copied = false; }, 1500);
+      } catch {
+        /* clipboard indisponible (contexte non sécurisé) : le PIN reste affiché */
       }
+    },
+
+    /** Ouvre la fenêtre si nécessaire, puis lance la génération du PIN. Le
+     *  dialog est monté (v-if="window") seulement une fois la fenêtre connue du
+     *  store : on attend le prochain tick avant de basculer modelValue, sinon
+     *  son watcher (non immediate) ne verrait pas l'ouverture. */
+    async onGeneratePin() {
+      if (!this.isWindowOpen) {
+        this.opening = true;
+        try {
+          await this.$store.dispatch('guestPinAdmin/openWindow', {
+            spaceId: this.spaceId,
+            eventId: this.eventId,
+            phase: this.phase,
+          });
+          await this.$nextTick();
+        } finally {
+          this.opening = false;
+        }
+        if (!this.isWindowOpen) return;
+      }
+      this.pinDialogOpen = true;
     },
   },
 };
@@ -209,6 +242,38 @@ export default {
   background: var(--fb-subtle, #fafafa);
 }
 .gpp-pin-status { font-size: 11.5px; font-weight: 600; color: #374151; }
+
+.gpp-pin-current {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px dashed #fca5a5;
+  border-radius: 9px;
+  background: #fff5f5;
+}
+.gpp-pin-current__label { font-size: 11px; font-weight: 600; color: #6b7280; }
+.gpp-pin-current__value {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  color: #ff3131;
+  font-variant-numeric: tabular-nums;
+}
+.gpp-pin-current__missing { font-size: 11px; color: #92400e; }
+.gpp-pin-copy {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+}
+.gpp-pin-copy:hover { background: #fee2e2; color: #b91c1c; }
 
 .gpp-stats {
   display: grid;

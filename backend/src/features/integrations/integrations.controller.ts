@@ -24,6 +24,7 @@ import { DigifoodCsvImportService } from '../digifood/services/digifood-csv-impo
 import { WeezeventConfigDto } from './dto/weezevent-config.dto';
 import { WebhookConfigDto } from './dto/webhook-config.dto';
 import { UpdateWeezeventWebhookDto } from './dto/weezevent-webhook-config.dto';
+import { WeezeventWebhookStatusService } from './services/weezevent-webhook-status.service';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import {
     CreateWeezeventInstanceDto,
@@ -46,6 +47,7 @@ export class IntegrationsController {
         private readonly webhookService: WebhookIntegrationService,
         private readonly weezeventAuthService: WeezeventAuthService,
         private readonly digifoodCsvImport: DigifoodCsvImportService,
+        private readonly weezeventWebhookStatus: WeezeventWebhookStatusService,
     ) { }
 
     /**
@@ -299,6 +301,19 @@ export class IntegrationsController {
         @CurrentUser() user: any,
     ) {
         return this.weezeventService.getWebhookConfig(this.resolveTenantId(user, organizationId), instanceId);
+    }
+
+    @Get('weezevent/instances/:instanceId/webhook/status')
+    @ApiOperation({ summary: 'Statut du webhook Weezevent d\'une instance', description: 'URL à communiquer à Weezevent, configuration, dernier webhook reçu, santé (webhook traité < 2 min) et mode de polling courant (BUG-379-02).' })
+    @ApiParam({ name: 'organizationId', description: "ID de l'organisation" })
+    @ApiParam({ name: 'instanceId', description: "ID de l'instance" })
+    @ApiResponse({ status: 200, description: 'Statut webhook + polling de l\'instance' })
+    async getWeezeventInstanceWebhookStatus(
+        @Param('organizationId') organizationId: string,
+        @Param('instanceId') instanceId: string,
+        @CurrentUser() user: any,
+    ) {
+        return this.weezeventWebhookStatus.getStatus(this.resolveTenantId(user, organizationId), instanceId);
     }
 
     @RequirePermissions('menu.integration.fb')

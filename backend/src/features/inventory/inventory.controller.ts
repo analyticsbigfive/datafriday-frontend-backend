@@ -21,6 +21,8 @@ import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
 import { CreatePreEventReconciliationDto } from './dto/create-pre-event-reconciliation.dto';
 import { PushToLogisticDto } from './dto/push-to-logistic.dto';
+import { RegeneratePreEventReconciliationDto } from './dto/regenerate-pre-event-reconciliation.dto';
+import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
 
 @ApiTags('Inventory')
 @ApiBearerAuth('supabase-jwt')
@@ -30,7 +32,10 @@ import { PushToLogisticDto } from './dto/push-to-logistic.dto';
 export class InventoryController {
   private readonly logger = new Logger(InventoryController.name);
 
-  constructor(private readonly inventoryService: InventoryService) {}
+  constructor(
+    private readonly inventoryService: InventoryService,
+    private readonly preEventFlow: PreEventInventoryFlowService,
+  ) {}
 
   /** BUG-233 — l'appelant a-t-il le droit de VOIR les quantités attendues ?
    *  Même logique que PermissionsGuard (ADMIN systemKey = tout, sinon OR sur
@@ -173,6 +178,33 @@ export class InventoryController {
     );
   }
 
+  @Post(':spaceId/pre-event-reconciliations/regenerate')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "(Re)génère LA feuille pre-event du match depuis les comptages vivants et recale la Logistique. " +
+      "Appelé par l'écran quand tous les articles d'un PDV sont comptés (le serveur ne connaît pas la liste explosée).",
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiResponse({ status: 200, description: '{ ok, reconciliationId, lineCount } ou { ok: false, reason }' })
+  async regeneratePreEventReconciliation(
+    @Param('spaceId') spaceId: string,
+    @Body() dto: RegeneratePreEventReconciliationDto,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(
+      `POST /inventory/${spaceId}/pre-event-reconciliations/regenerate eventId=${dto.eventId} element=${dto.elementId ?? '-'}`,
+    );
+    return this.preEventFlow.regenerate(
+      spaceId,
+      dto.eventId,
+      user.tenantId,
+      user.id,
+      'pdv-complete',
+      dto.elementId ? { elementId: dto.elementId } : {},
+    );
+  }
+
   @Get(':spaceId/event-consumption/:eventId')
   @ApiOperation({
     summary:
@@ -282,14 +314,18 @@ export class InventoryController {
 export class InventoryCountsController {
   private readonly logger = new Logger(InventoryCountsController.name);
 
-  constructor(private readonly inventoryService: InventoryService) {}
+  constructor(private readonly preEventFlow: PreEventInventoryFlowService) {}
 
   @Post()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Upsert un comptage unitaire (par space+event+shop+item)' })
+  @ApiOperation({
+    summary:
+      'Upsert un comptage unitaire (par space+event+shop+item). En phase pre-event : verrou 30 min après ' +
+      "l'ouverture des portes (403) et marquage de la feuille à régénérer.",
+  })
   @ApiResponse({ status: 200, description: 'Comptage upserted' })
   async saveInventoryCounts(@Body() dto: CreateInventoryCountDto, @CurrentUser() user: any) {
-    this.logger.log(`POST /inventory-counts itemId=${dto.itemId}`);
-    return this.inventoryService.saveInventoryCounts(dto, user.tenantId, user.id);
+    this.logger.log(`POST /inventory-counts itemId=${dto.itemId} phase=${dto.phase ?? '-'}`);
+    return this.preEventFlow.saveCount(dto, user.tenantId, user.id);
   }
 }
