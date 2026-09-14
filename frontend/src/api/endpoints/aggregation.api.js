@@ -431,6 +431,35 @@ export async function getWeezeventJobStats(jobId) {
   }
 }
 
+// ─── Weezevent webhook (BUG-379-02) ──
+// Temps réel Weezevent : URL à faire enregistrer par le contact Weezevent + secret côté
+// DataFriday ; « status » = dernier webhook reçu, santé (< 2 min) et mode de polling courant.
+
+export async function getWeezeventWebhookStatus(organizationId, instanceId) {
+  try {
+    const response = await api.get(
+      `/organizations/${organizationId}/integrations/weezevent/instances/${instanceId}/webhook/status`,
+    )
+    return response.data
+  } catch (error) {
+    console.error('[AGGREGATION API] Error fetching weezevent webhook status:', error)
+    throw error
+  }
+}
+
+export async function updateWeezeventWebhookConfig(organizationId, instanceId, payload) {
+  try {
+    const response = await api.patch(
+      `/organizations/${organizationId}/integrations/weezevent/instances/${instanceId}/webhook`,
+      payload,
+    )
+    return response.data
+  } catch (error) {
+    console.error('[AGGREGATION API] Error updating weezevent webhook config:', error)
+    throw error
+  }
+}
+
 // ─── Digifood multi-instance endpoints ──
 // Digifood = webhooks temps réel (pas de sync API) : la config expose l'URL de
 // webhook à communiquer à Digifood ; « test » = statut du dernier webhook reçu.

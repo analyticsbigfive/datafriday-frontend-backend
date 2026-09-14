@@ -2,7 +2,9 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WebhookEventHandler } from './webhook-event.handler';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventSyncService } from './weezevent-sync.service';
-import { QueueService } from '../../../core/queue/queue.service';
+import { LiveEventWindowService } from './live/live-event-window.service';
+import { LiveAggregationTriggerService } from './live/live-aggregation-trigger.service';
+import { WebhookHealthService } from './live/webhook-health.service';
 
 describe('WebhookEventHandler', () => {
   let handler: WebhookEventHandler;
@@ -58,9 +60,9 @@ describe('WebhookEventHandler', () => {
     syncSingleTransaction: jest.fn(),
   };
 
-  const mockQueueService = {
-    queueAggregationJob: jest.fn(),
-  };
+  const mockLiveWindow = { findLiveEvents: jest.fn() };
+  const mockLiveTrigger = { queueMinuteAggregation: jest.fn() };
+  const mockWebhookHealth = { markProcessed: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -74,10 +76,9 @@ describe('WebhookEventHandler', () => {
           provide: WeezeventSyncService,
           useValue: mockSyncService,
         },
-        {
-          provide: QueueService,
-          useValue: mockQueueService,
-        },
+        { provide: LiveEventWindowService, useValue: mockLiveWindow },
+        { provide: LiveAggregationTriggerService, useValue: mockLiveTrigger },
+        { provide: WebhookHealthService, useValue: mockWebhookHealth },
       ],
     }).compile();
 
@@ -86,9 +87,8 @@ describe('WebhookEventHandler', () => {
     syncService = module.get<WeezeventSyncService>(WeezeventSyncService);
 
     jest.clearAllMocks();
-    // Défaut : pas de transaction/event trouvé → triggerLiveAggregation no-op (BUG-109).
-    // Les tests qui veulent vérifier le déclenchement d'agrégation surchargent ces mocks.
-    mockPrismaService.salesTransaction.findFirst.mockResolvedValue(null);
+    // Défaut : aucun event en direct → pas d'agrégation déclenchée (BUG-109 / BUG-379-02).
+    mockLiveWindow.findLiveEvents.mockResolvedValue([]);
   });
 
   it('should be defined', () => {
@@ -163,84 +163,78 @@ describe('WebhookEventHandler', () => {
       await handler.processEvent('event-123');
 
       expect(mockPrismaService.salesTransaction.updateMany).toHaveBeenCalledWith({
-        where: { externalId: 'tx-123', deletedAt: null },
+        where: { tenantId: 'tenant-123', integrationId: undefined, externalId: 'tx-123', deletedAt: null },
         data: { deletedAt: expect.any(Date), syncedAt: expect.any(Date) },
       });
       expect(mockSyncService.syncSingleTransaction).not.toHaveBeenCalled();
     });
 
-    // BUG-109 : après un sync réussi, l'agrégation doit être re-déclenchée automatiquement
-    // pour l'event DataFriday concerné (queueAggregationJob n'avait jusqu'ici aucun appelant
-    // automatique — seulement le wizard d'intégration).
-    describe('BUG-109 — déclenchement automatique de l\'agrégation post-webhook', () => {
-      const eventWithIntegration = {
-        ...mockWebhookEvent,
+    // BUG-109 / BUG-379-02 : après un sync réussi, l'agrégation live par minute est mise en
+    // file (coalescée) pour les events en direct de cette intégration.
+    describe('BUG-379-02 — agrégation live après webhook', () => {
+      const eventWithIntegration = { ...mockWebhookEvent, integrationId: 'integration-123' };
+      const liveEvent = (overrides: Partial<{ id: string; tenantId: string; spaceId: string; integrationId: string | null }>) => ({
+        id: 'df-event-1',
+        tenantId: 'tenant-123',
+        spaceId: 'space-1',
         integrationId: 'integration-123',
-      };
-
-      it('queues aggregation for the matched DataFriday event after a successful sync', async () => {
-        mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(eventWithIntegration);
-        mockPrismaService.integrationWebhookEvent.update.mockResolvedValue({});
-        mockSyncService.syncSingleTransaction.mockResolvedValue({ created: true, updated: false });
-        mockPrismaService.salesTransaction.findFirst.mockResolvedValue({ eventId: 'wz-event-1' });
-        mockPrismaService.event.findFirst.mockResolvedValue({
-          id: 'df-event-1',
-          spaceId: 'space-1',
-          eventDate: new Date('2026-07-20T20:00:00Z'),
-        });
-        mockPrismaService.aggregationJobLog.create.mockResolvedValue({ id: 'job-log-1' });
-
-        await handler.processEvent('event-123');
-
-        expect(mockPrismaService.salesTransaction.findFirst).toHaveBeenCalledWith({
-          where: { tenantId: 'tenant-123', integrationId: 'integration-123', externalId: 'tx-123' },
-          select: { eventId: true },
-        });
-        expect(mockPrismaService.event.findFirst).toHaveBeenCalledWith({
-          where: { tenantId: 'tenant-123', weezeventEventId: 'wz-event-1', spaceId: { not: null } },
-          select: { id: true, spaceId: true, eventDate: true },
-        });
-        expect(mockPrismaService.aggregationJobLog.create).toHaveBeenCalledWith(
-          expect.objectContaining({
-            data: expect.objectContaining({
-              tenantId: 'tenant-123',
-              spaceId: 'space-1',
-              metadata: { eventIds: ['df-event-1'], trigger: 'webhook-live' },
-            }),
-          }),
-        );
-        expect(mockQueueService.queueAggregationJob).toHaveBeenCalledWith({
-          type: 'process-events',
-          tenantId: 'tenant-123',
-          spaceId: 'space-1',
-          jobLogId: 'job-log-1',
-          eventIds: ['df-event-1'],
-          integrationId: 'integration-123',
-        });
+        windowStart: new Date(),
+        windowEnd: new Date(),
+        graceEnd: new Date(),
+        ...overrides,
       });
 
-      it('does not queue aggregation when the transaction has no matched DataFriday event (unresolved, BUG-021)', async () => {
+      it('queues a coalesced minute aggregation for the live events of this integration', async () => {
         mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(eventWithIntegration);
         mockPrismaService.integrationWebhookEvent.update.mockResolvedValue({});
         mockSyncService.syncSingleTransaction.mockResolvedValue({ created: true, updated: false });
-        mockPrismaService.salesTransaction.findFirst.mockResolvedValue({ eventId: 'wz-event-1' });
-        mockPrismaService.event.findFirst.mockResolvedValue(null);
+        mockLiveWindow.findLiveEvents.mockResolvedValue([
+          liveEvent({}),
+          liveEvent({ id: 'other-club', integrationId: 'integration-999' }),
+          liveEvent({ id: 'other-tenant', tenantId: 'tenant-999' }),
+        ]);
 
         await handler.processEvent('event-123');
 
-        expect(mockPrismaService.aggregationJobLog.create).not.toHaveBeenCalled();
-        expect(mockQueueService.queueAggregationJob).not.toHaveBeenCalled();
+        expect(mockLiveTrigger.queueMinuteAggregation).toHaveBeenCalledTimes(1);
+        expect(mockLiveTrigger.queueMinuteAggregation).toHaveBeenCalledWith(
+          { tenantId: 'tenant-123', spaceId: 'space-1', integrationId: 'integration-123', eventIds: ['df-event-1'] },
+          'webhook-live',
+        );
+        expect(mockWebhookHealth.markProcessed).toHaveBeenCalledWith('integration-123');
+      });
+
+      it('reads the transaction id at the root of the real WeezPay payload', async () => {
+        mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue({
+          ...eventWithIntegration,
+          payload: { type: 'transaction', method: 'create', origin: 'gill', organization_id: 1, id: 555, values: { id: 555 } },
+        });
+        mockPrismaService.integrationWebhookEvent.update.mockResolvedValue({});
+        mockSyncService.syncSingleTransaction.mockResolvedValue({ created: true, updated: false });
+
+        await handler.processEvent('event-123');
+
+        expect(mockSyncService.syncSingleTransaction).toHaveBeenCalledWith('tenant-123', 'integration-123', '555');
+      });
+
+      it('does not queue aggregation when no event is live', async () => {
+        mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(eventWithIntegration);
+        mockPrismaService.integrationWebhookEvent.update.mockResolvedValue({});
+        mockSyncService.syncSingleTransaction.mockResolvedValue({ created: true, updated: false });
+
+        await handler.processEvent('event-123');
+
+        expect(mockLiveTrigger.queueMinuteAggregation).not.toHaveBeenCalled();
       });
 
       it('does not fail webhook processing when the aggregation trigger itself errors', async () => {
         mockPrismaService.integrationWebhookEvent.findUnique.mockResolvedValue(eventWithIntegration);
         mockPrismaService.integrationWebhookEvent.update.mockResolvedValue({});
         mockSyncService.syncSingleTransaction.mockResolvedValue({ created: true, updated: false });
-        mockPrismaService.salesTransaction.findFirst.mockRejectedValue(new Error('DB timeout'));
+        mockLiveWindow.findLiveEvents.mockRejectedValue(new Error('DB timeout'));
 
         await expect(handler.processEvent('event-123')).resolves.not.toThrow();
 
-        // Le webhook reste marqué "processed" — le sync a réussi, seule la re-agrégation a échoué.
         expect(mockPrismaService.integrationWebhookEvent.update).toHaveBeenCalledWith({
           where: { id: 'event-123' },
           data: expect.objectContaining({ processed: true }),

@@ -235,6 +235,15 @@ const notices = computed(() => {
   if (Number(meta.orphanLinesExcluded) > 0) {
     out.push({ level: 'info', text: `${meta.orphanLinesExcluded} ${t('invRecoMetaOrphans')}` })
   }
+  // Feuille pre-event générée automatiquement (PreEventInventoryFlowService) :
+  // dire pourquoi elle existe, sinon un directeur qui n'a pas cliqué Save se
+  // demande d'où elle sort.
+  const triggerKey = {
+    'pdv-complete': 'invRecoTriggerPdvComplete',
+    'doors-open': 'invRecoTriggerDoorsOpen',
+    'post-doors-open-edit': 'invRecoTriggerPostDoorsOpenEdit',
+  }[meta.trigger]
+  if (triggerKey) out.push({ level: 'info', text: t(triggerKey) })
   // Q35 : grain de la source « Vendu ». 'timeline' = ventes brutes au grain
   // article (backend antérieur au moment de la génération) — les lignes au grain
   // ingrédient ont alors Vendu=0, leurs manquants sont à lire avec ce biais.

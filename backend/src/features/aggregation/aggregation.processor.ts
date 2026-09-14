@@ -4,6 +4,7 @@ import { Job } from 'bullmq';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { AggregationJobEnqueueData } from '../../core/queue/queue.service';
 import { AggregationService } from './aggregation.service';
+import { LiveMinuteAggregationService } from './live-minute-aggregation.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { liveSpaceChannel } from '../../shared/live-channel.util';
 
@@ -20,6 +21,7 @@ export class AggregationProcessor extends WorkerHost {
 
   constructor(
     private readonly aggregationService: AggregationService,
+    private readonly liveMinuteAggregation: LiveMinuteAggregationService,
     @Inject(RedisService) private readonly redisService: RedisService,
   ) {
     super();
@@ -35,6 +37,8 @@ export class AggregationProcessor extends WorkerHost {
         return this.aggregationService.executeProcessEvents(job);
       case 'synchronize':
         return this.aggregationService.executeSynchronize(job);
+      case 'process-event-minutes':
+        return this.liveMinuteAggregation.execute(job);
       default:
         throw new Error(`Unknown aggregation job type: ${(job.data as any).type}`);
     }
@@ -62,7 +66,7 @@ export class AggregationProcessor extends WorkerHost {
     // convergent tous ici via queueAggregationJob({type:'process-events'}). 'synchronize'
     // (resync manuel du wizard d'intégration) volontairement exclu : ne concerne pas un
     // event live en cours, publier dessus réveillerait des abonnés SSE pour rien.
-    if (job.data.type === 'process-events') {
+    if (job.data.type === 'process-events' || job.data.type === 'process-event-minutes') {
       try {
         await this.redisService.publish(liveSpaceChannel(job.data.tenantId, job.data.spaceId), {
           spaceId: job.data.spaceId,

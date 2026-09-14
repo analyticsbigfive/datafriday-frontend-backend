@@ -113,6 +113,13 @@ const mockPrisma = {
     findFirst: jest.fn().mockResolvedValue(null),
     findMany: jest.fn().mockResolvedValue([]),
   },
+  // resolveItemKeysByIds (pushCountToLogistic) consulte aussi ces deux catalogues.
+  ingredient: {
+    findMany: jest.fn().mockResolvedValue([]),
+  },
+  packaging: {
+    findMany: jest.fn().mockResolvedValue([]),
+  },
 };
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
@@ -137,6 +144,8 @@ describe('InventoryService', () => {
     mockPrisma.marketPrice.findMany.mockResolvedValue([]);
     mockPrisma.menuComponent.findFirst.mockResolvedValue(null);
     mockPrisma.menuComponent.findMany.mockResolvedValue([]);
+    mockPrisma.ingredient.findMany.mockResolvedValue([]);
+    mockPrisma.packaging.findMany.mockResolvedValue([]);
     mockPrisma.stockReconciliation.findMany.mockResolvedValue([]);
     mockPrisma.stockReconciliation.findFirst.mockResolvedValue(null);
     const module: TestingModule = await Test.createTestingModule({
@@ -624,7 +633,14 @@ describe('InventoryService', () => {
       // Comptage poussé en canaux BRUTS (le conditionnement est un référentiel
       // d'affichage — le registre le résout de son côté).
       expect(dto.lines).toEqual([
-        { elementId: 'shop-1', itemKey: 'Barre chocolatée', countedPacked: 2, countedLoose: 3 },
+        {
+          elementId: 'shop-1',
+          itemKey: 'Barre chocolatée',
+          itemKind: 'menuItem',
+          itemRefId: 'item-choco',
+          countedPacked: 2,
+          countedLoose: 3,
+        },
       ]);
       expect(actor).toBe('user-1');
       // Ce marqueur est ce qui évitera le double comptage au prochain écran.

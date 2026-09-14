@@ -76,14 +76,6 @@ export class GuestPinAuthController {
     return this.service.getInventory(user);
   }
 
-  @Get('inventory/baseline')
-  @UseGuards(JwtGuestPinGuard)
-  @ApiBearerAuth('guest-pin-jwt')
-  @ApiOperation({ summary: "Quantités attendues filtrées au PDV de l'invité (si autorisé)" })
-  async baseline(@CurrentUser() user: GuestPinUser) {
-    return this.service.getBaseline(user);
-  }
-
   @Post('inventory/counts')
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtGuestPinGuard)
@@ -91,6 +83,15 @@ export class GuestPinAuthController {
   @ApiOperation({ summary: 'Sauvegarde un comptage pour le PDV de l\'invité' })
   async saveCount(@CurrentUser() user: GuestPinUser, @Body() dto: SaveGuestCountDto) {
     return this.service.saveCount(user, dto);
+  }
+
+  @Post('element-complete')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtGuestPinGuard)
+  @ApiBearerAuth('guest-pin-jwt')
+  @ApiOperation({ summary: "Tous les articles du PDV sont comptés : régénère la feuille pre-event et recale la Logistique" })
+  async elementComplete(@CurrentUser() user: GuestPinUser) {
+    return this.service.notifyElementComplete(user);
   }
 
   @Post('submit')

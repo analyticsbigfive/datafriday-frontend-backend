@@ -3,25 +3,16 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventSyncService } from './weezevent-sync.service';
 import { WeezeventIncrementalSyncService } from './weezevent-incremental-sync.service';
-import { SyncTrackerService } from './sync-tracker.service';
-import { QueueService } from '../../../core/queue/queue.service';
 
 @Injectable()
 export class WeezeventCronService implements OnModuleInit {
     private readonly logger = new Logger(WeezeventCronService.name);
     private isEnabled = true;
 
-    // BUG-109 : filet de sécurité pour le déclenchement post-webhook (WebhookEventHandler.
-    // triggerLiveAggregation) — combien d'heures après la fin d'un event on continue de le
-    // considérer "en direct" pour la re-agrégation (couvre un règlement tardif/webhook manqué).
-    private readonly LIVE_AGGREGATION_GRACE_HOURS = 3;
-
     constructor(
         private readonly prisma: PrismaService,
         private readonly syncService: WeezeventSyncService,
         private readonly incrementalSyncService: WeezeventIncrementalSyncService,
-        private readonly syncTracker: SyncTrackerService,
-        private readonly queueService: QueueService,
     ) {}
 
     onModuleInit() {
@@ -35,180 +26,10 @@ export class WeezeventCronService implements OnModuleInit {
         this.logger.log(`Weezevent CRON jobs ${this.isEnabled ? 'ENABLED' : 'DISABLED'}`);
     }
 
-    /**
-     * Sync transactions every 10 minutes - INCREMENTAL
-     * Only syncs new transactions since last sync
-     */
-    @Cron(CronExpression.EVERY_10_MINUTES)
-    async syncRecentTransactions(): Promise<void> {
-        if (!this.isEnabled) return;
-
-        this.logger.log('🔄 CRON: Starting INCREMENTAL transactions sync...');
-
-        const tenants = await this.getWeezeventEnabledTenants();
-
-        for (const tenant of tenants) {
-            // Get all enabled integrations for this tenant
-            const integrations = await this.prisma.integration.findMany({
-                // Garde multi-provider (§8 plan Digifood) : ces crons appellent l'API
-                // Weezevent — une intégration DIGIFOOD n'a pas de credentials Weezevent.
-                // organizationId not null : exclut les intégrations pas encore/plus complètement
-                // configurées — sans ce filtre, syncTransactionsIncremental/syncEventsIncremental
-                // lève "organizationId not configured" à chaque passage cron pour ces
-                // intégrations, indéfiniment (BUG-123-02).
-                where: { tenantId: tenant.id, enabled: true, provider: 'WEEZEVENT', weezevent: { organizationId: { not: null } } },
-                select: { id: true },
-            });
-
-            for (const integration of integrations) {
-            // BUG-027 (corrigé) : la garde anti-double-run n'appelait jamais startSync/completeSync/
-            // failSync — getRunningSyncs() était donc toujours vide et cette condition ne bloquait
-            // jamais rien. Câblée ci-dessous, scopée par intégration (pas seulement par tenant) pour
-            // qu'un tenant multi-intégrations (cf. BUG-025) puisse syncer ses intégrations en parallèle.
-            if (this.syncTracker.isRunning(tenant.id, 'transactions', integration.id)) {
-                this.logger.warn(`Skipping tenant ${tenant.id}/integration ${integration.id} - transactions sync already running`);
-                continue;
-            }
-
-            // SyncTrackerService ne suit que ses propres jobs (cron) : un job manuel chunké
-            // (POST /weezevent/sync/start) tourne dans WeezeventSyncJob, une table séparée que
-            // ce tracker ignore. Sans cette garde, le cron pouvait lancer une sync incrémentale
-            // en même temps qu'une bissection manuelle sur la même intégration — écritures
-            // concurrentes sur les mêmes tables WeezeventTransaction*/SalesPriceAgg.
-            const manualJobRunning = await this.prisma.weezeventSyncJob.findFirst({
-                where: { integrationId: integration.id, status: 'COLLECTING' },
-                select: { id: true },
-            });
-            if (manualJobRunning) {
-                this.logger.warn(`Skipping tenant ${tenant.id}/integration ${integration.id} - manual sync job ${manualJobRunning.id} already running`);
-                continue;
-            }
-
-            const jobId = this.syncTracker.startSync(tenant.id, 'transactions', integration.id);
-            try {
-                // Use incremental sync - only fetches NEW transactions
-                const result = await this.incrementalSyncService.syncTransactionsIncremental(tenant.id, integration.id, {
-                    batchSize: 500,
-                    maxItems: 5000, // Limit per run to prevent overload
-                });
-
-                this.logger.log(
-                    `✅ Tenant ${tenant.id} [${integration.id}]: ${result.isIncremental ? 'INCREMENTAL' : 'FULL'} - ${result.itemsSynced} transactions (${result.itemsCreated} new, ${result.itemsSkipped} skipped) in ${result.duration}ms`,
-                );
-
-                // If there's more data, log it
-                if (result.hasMore) {
-                    this.logger.warn(`⚠️ Tenant ${tenant.id} [${integration.id}]: More transactions available, will continue next run`);
-                }
-                this.syncTracker.completeSync(jobId);
-            } catch (error) {
-                this.logger.error(
-                    `❌ Tenant ${tenant.id} [${integration.id}]: transactions sync failed - ${error.message}`,
-                );
-                this.syncTracker.failSync(jobId, error.message);
-            }
-            }
-        }
-
-        this.logger.log('🔄 CRON: INCREMENTAL transactions sync completed');
-    }
-
-    /**
-     * BUG-109 — filet de sécurité pour l'agrégation live : re-déclenche queueAggregationJob()
-     * pour tout event actuellement "en direct" (fenêtre event ± marge), au cas où le
-     * déclenchement post-webhook (WebhookEventHandler.triggerLiveAggregation) aurait échoué ou
-     * été manqué pour cet event depuis le dernier passage. executeProcessEvents est idempotent
-     * (delete-then-insert par event, cf. BUG-019) — un appel redondant toutes les 5 min ne
-     * duplique rien, il rattrape juste un webhook manqué.
-     */
-    @Cron(CronExpression.EVERY_5_MINUTES)
-    async triggerLiveAggregationSafetyNet(): Promise<void> {
-        if (!this.isEnabled) return;
-
-        const now = new Date();
-        const tenants = await this.getWeezeventEnabledTenants();
-
-        for (const tenant of tenants) {
-            // Bornée à 7 jours en DB (perf) — le filtre de grâce précis (quelques heures) est
-            // appliqué ensuite en mémoire, cf. LIVE_AGGREGATION_GRACE_HOURS.
-            const recentEvents = await this.prisma.event.findMany({
-                where: {
-                    tenantId: tenant.id,
-                    spaceId: { not: null },
-                    eventDate: { lte: now, gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
-                },
-                select: { id: true, spaceId: true, eventDate: true, eventEndDate: true, weezeventEventId: true },
-            });
-
-            const liveEvents = recentEvents.filter((e) => {
-                const windowEnd = e.eventEndDate ?? e.eventDate;
-                const graceEnd = new Date(windowEnd.getTime() + this.LIVE_AGGREGATION_GRACE_HOURS * 60 * 60 * 1000);
-                return now <= graceEnd;
-            });
-            if (!liveEvents.length) continue;
-
-            // BUG-365-02 : un space alimenté par PLUSIEURS intégrations (ex. Stade Jean Bouin,
-            // PFC + SFP) ne doit JAMAIS être traité en un seul job sans integrationId — sans ce
-            // filtre, executeProcessEvents peut taguer les transactions d'une intégration sous
-            // l'event d'une AUTRE (fenêtres qui se recoupent le même jour), contaminant
-            // silencieusement SpaceRevenueMinuteAgg/ItemAgg à l'écriture — irréversible côté
-            // lecture (BUG-146-01 filtre par tag, mais le tag lui-même serait déjà faux). On
-            // résout l'intégration réelle de chaque event via son SalesEvent lié
-            // (Event.weezeventEventId → SalesEvent.integrationId) et on groupe par
-            // (space, intégration) au lieu de (space) seul. Un event pas encore lié
-            // (weezeventEventId null) reste sans integrationId — comportement inchangé pour ce
-            // cas (le repli `t."eventId" IS NULL` de l'agrégation ne dépend déjà pas de
-            // l'intégration).
-            const linkedEventIds = liveEvents.map((e) => e.weezeventEventId).filter((id): id is string => !!id);
-            const salesEvents = linkedEventIds.length
-                ? await this.prisma.salesEvent.findMany({
-                      where: { id: { in: linkedEventIds }, tenantId: tenant.id },
-                      select: { id: true, integrationId: true },
-                  })
-                : [];
-            const integrationBySalesEventId = new Map(salesEvents.map((se) => [se.id, se.integrationId]));
-
-            // Un job par (space, intégration) — process-events accepte une liste d'eventIds.
-            const eventIdsByGroup = new Map<string, { spaceId: string; integrationId: string | undefined; eventIds: string[] }>();
-            for (const e of liveEvents) {
-                const integrationId = e.weezeventEventId ? integrationBySalesEventId.get(e.weezeventEventId) : undefined;
-                const groupKey = `${e.spaceId}::${integrationId ?? ''}`;
-                const group = eventIdsByGroup.get(groupKey) ?? { spaceId: e.spaceId as string, integrationId, eventIds: [] };
-                group.eventIds.push(e.id);
-                eventIdsByGroup.set(groupKey, group);
-            }
-
-            for (const { spaceId, integrationId, eventIds } of eventIdsByGroup.values()) {
-                try {
-                    const events = liveEvents.filter((e) => eventIds.includes(e.id));
-                    const dates = events.map((e) => e.eventDate).sort((a, b) => a.getTime() - b.getTime());
-                    const jobLog = await this.prisma.aggregationJobLog.create({
-                        data: {
-                            tenantId: tenant.id,
-                            spaceId,
-                            jobType: 'incremental',
-                            status: 'pending',
-                            fromDate: dates[0],
-                            toDate: dates[dates.length - 1],
-                            metadata: { eventIds, integrationId, trigger: 'live-safety-net' },
-                        },
-                    });
-                    await this.queueService.queueAggregationJob({
-                        type: 'process-events',
-                        tenantId: tenant.id,
-                        spaceId,
-                        jobLogId: jobLog.id,
-                        eventIds,
-                        integrationId,
-                    });
-                } catch (error) {
-                    this.logger.warn(
-                        `Live aggregation safety net failed for tenant ${tenant.id}/space ${spaceId}${integrationId ? `/integration ${integrationId}` : ''}: ${error.message}`,
-                    );
-                }
-            }
-        }
-    }
+    // BUG-379-02 : la sync des transactions (ex-cron fixe 10 min) et le filet de sécurité
+    // d'agrégation live (ex-cron 5 min, fenêtre fausse) vivent désormais dans
+    // services/live/ : LiveSyncSchedulerService (cadence par état) et
+    // LiveReconciliationCronService (rebuild complet de réconciliation).
 
     /**
      * Sync events INCREMENTALLY - daily at 3 AM

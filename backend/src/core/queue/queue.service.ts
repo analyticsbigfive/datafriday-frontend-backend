@@ -58,8 +58,11 @@ export interface ExportJobData {
 }
 
 export interface AggregationJobEnqueueData {
-  /** 'process-events' = agréger une sélection d'events ; 'synchronize' = full rebuild */
-  type: 'process-events' | 'synchronize';
+  /**
+   * 'process-events' = agréger une sélection d'events ; 'synchronize' = full rebuild ;
+   * 'process-event-minutes' = live, uniquement les minutes touchées depuis le dernier passage (BUG-379-02)
+   */
+  type: 'process-events' | 'synchronize' | 'process-event-minutes';
   tenantId: string;
   spaceId: string;
   /** ID de l'AggregationJobLog pré-créé en DB (utilisé par getJobProgress) */

@@ -195,6 +195,15 @@
             <span v-if="countsAreEventIndependent" class="si-band-title__warn">
               · {{ t('invContextCountsIndependent') }}
             </span>
+            <!-- Fenêtre des 30 min après l'ouverture des portes (critère
+                 d'acceptation 2026-09-14) : modifications encore possibles, feuille
+                 et Logistique régénérées automatiquement ; puis verrou. -->
+            <span v-if="preEventWindow.isLocked" class="si-band-title__warn si-band-title__lock">
+              · {{ t('preInvLockedAfterDoors') }}
+            </span>
+            <span v-else-if="preEventWindow.isAfterDoorsOpen" class="si-band-title__warn">
+              · {{ t('preInvEditingAfterDoors').replace('{time}', preEventDeadlineLabel) }}
+            </span>
           </template>
         </p>
         <p v-else-if="spaceLabel" class="si-band-title__sub">
@@ -449,9 +458,12 @@
           :is-item-counted="isItemCounted"
           :expected-total-for="canSeePredicted ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
-          :logistic-stock-for="guestSession.isGuestMode ? guestSession.guestExpectedFor : (canSeeExpected ? logisticStockFor : null)"
+          :logistic-stock-for="guestSession.isGuestMode ? null : (canSeeExpected ? logisticStockFor : null)"
+          :expected-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedForField : null)"
+          :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
-          :readonly="guestSession.isReadonly"
+          :readonly="guestSession.isReadonly || preEventWindow.isLocked"
+          :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="countingShop = null"
           @change-shop="startCount"
@@ -755,9 +767,12 @@
           :is-item-counted="isItemCounted"
           :expected-total-for="canSeePredicted ? expectedTotalFor : null"
           :expected-total-label-key="expectedTotalLabelKey"
-          :logistic-stock-for="guestSession.isGuestMode ? guestSession.guestExpectedFor : (canSeeExpected ? logisticStockFor : null)"
+          :logistic-stock-for="guestSession.isGuestMode ? null : (canSeeExpected ? logisticStockFor : null)"
+          :expected-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedForField : null)"
+          :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
-          :readonly="guestSession.isReadonly"
+          :readonly="guestSession.isReadonly || preEventWindow.isLocked"
+          :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="closeMobileCounting"
           @change-shop="startCount"
@@ -853,6 +868,8 @@ import { useI18n } from '@/i18n/useI18n'
 import { COUNTING_STATUS, COUNTING_TABS as RAW_TABS, emptyInventoryCount } from '@/types/inventoryCount'
 import { useInventoryData } from '@/composables/useInventoryData'
 import { useGuestInventorySession } from '@/composables/useGuestInventorySession'
+import { usePreEventEditWindow } from '@/composables/usePreEventEditWindow'
+import { useInventoryLivePolling } from '@/composables/useInventoryLivePolling'
 import { formatUnits } from '@/composables/useFormatters'
 import { buildSpaceInventoryMock, buildInventoryCountsMock } from '@/data/spaceInventoryMock'
 import * as localDb from '@/data/localDb'
@@ -886,6 +903,7 @@ import {
   getPreEventBaseline,
   getPostEventBaseline,
   createPreEventReconciliation,
+  regeneratePreEventReconciliation,
   getEventSalesConsumption,
   pushInventoryCountToLogistic,
 } from '@/api/endpoints/inventory.api'
@@ -982,6 +1000,33 @@ export default {
     // reactive() (pas l'objet brut) : auto-unwrap des refs imbriquées, en template
     // COMME en JS (`guestSession.isGuestMode` partout, jamais `.value` à la main).
     const guestSession = reactive(useGuestInventorySession())
+    // Verrou des 30 min après l'ouverture des portes (staff, pre-event). L'event
+    // ancré est une computed Options API (`contextEvent`) : on la reflète dans
+    // cette ref via un watcher, le composable ne lit que la ref.
+    const preEventAnchorEvent = ref(null)
+    const preEventWindow = reactive(
+      usePreEventEditWindow(
+        () => preEventAnchorEvent.value,
+        () => route.meta?.inventoryMode === 'pre' && !route.meta?.guestMode,
+      ),
+    )
+    // Rafraîchissement de fond pendant qu'une fenêtre PIN est ouverte (les
+    // managers comptent sur leur téléphone) : comptages + statuts PIN + feuille.
+    // Activé par le watcher `livePollingActive` (Options API) ; `livePollExtra`
+    // porte le rechargement des réconciliations (méthode de la vue).
+    const livePollingEnabled = ref(false)
+    const livePollExtra = ref(null)
+    useInventoryLivePolling(
+      () => livePollingEnabled.value,
+      async () => {
+        await store.dispatch('inventory/refreshInventorySilently')
+        const { currentSpaceId, currentEventId } = store.state.inventory
+        if (currentSpaceId && currentEventId) {
+          await store.dispatch('guestPinAdmin/fetchStatusBoard', { spaceId: currentSpaceId, eventId: currentEventId })
+        }
+        await livePollExtra.value?.()
+      },
+    )
     return {
       t,
       intlLocale,
@@ -998,6 +1043,10 @@ export default {
       contextError,
       contextWarning,
       guestSession,
+      preEventAnchorEvent,
+      preEventWindow,
+      livePollingEnabled,
+      livePollExtra,
     }
   },
   data() {
@@ -1251,6 +1300,19 @@ export default {
     },
     isPreMode() {
       return this.inventoryMode === 'pre'
+    },
+    /** Polling live : staff, une fenêtre PIN ouverte pour la phase courante,
+     *  un event ancré (sinon rien à recharger). */
+    livePollingActive() {
+      if (this.guestSession.isGuestMode || isDemoMode() || !this.selectedEventId) return false
+      const win = this.$store.getters['guestPinAdmin/windowByPhase']?.(this.guestPinPhase)
+      return win?.status === 'open'
+    },
+    /** Heure de fin de la fenêtre d'édition (HH:MM locale) pour le bandeau. */
+    preEventDeadlineLabel() {
+      const d = this.preEventWindow.deadline
+      if (!d) return ''
+      return d.toLocaleTimeString(this.intlLocale, { hour: '2-digit', minute: '2-digit' })
     },
     /** Mode post ouvert sur des lignes reprises du comptage d'avant-match
      *  (drapeau serveur `carriedFromPreEvent`, BUG-237) → bandeau « à recompter ». */
@@ -2274,17 +2336,58 @@ export default {
       }
       this.store.dispatch('inventory/upsertCount', { shopId, itemId, patch })
     },
-    markCounted(shopId, itemId, counted) {
+    async markCounted(shopId, itemId, counted) {
       const status = counted ? COUNTING_STATUS.COUNTED : COUNTING_STATUS.PENDING
       const patch = { isCounted: counted, countingStatus: status }
       if (this.guestSession.isGuestMode) {
-        this.guestSession.upsertGuestCount({ itemId, patch })
+        await this.guestSession.upsertGuestCount({ itemId, patch })
+        // Tous les articles du PDV comptés : feuille pre-event + Logistique
+        // régénérées côté serveur (critère d'acceptation 2026-09-14).
+        if (counted && this.isPreMode && this.isElementComplete(shopId)) {
+          await this.guestSession.notifyElementComplete()
+        }
         return
       }
       this.store.dispatch('inventory/upsertCount', { shopId, itemId, patch })
       // La mutation UPSERT_COUNT est synchrone (avant l'await API) : l'état reflète
       // déjà le nouveau isCounted ici. On notifie si le PDV/stockage est complet.
-      if (counted) this.notifyIfElementComplete(shopId)
+      if (counted) {
+        this.notifyIfElementComplete(shopId)
+        if (this.isPreMode && this.isElementComplete(shopId)) {
+          await this.regeneratePreEventSheet(shopId)
+        }
+      }
+    },
+    /** Après l'ouverture des portes, un article déjà compté est figé : seuls les
+     *  éléments non comptés restent modifiables pendant les 30 min (critère 9,
+     *  miroir du 403 serveur dans PreEventInventoryFlowService.saveCount). */
+    isItemLockedAfterDoors(shopId, itemId) {
+      return this.isItemCounted(shopId, itemId)
+    },
+    /** Tous les articles de cet élément sont-ils marqués comptés ? */
+    isElementComplete(elementId) {
+      const entry = this.findElementEntry(elementId)
+      if (!entry) return false
+      const items = this.elementItems(entry)
+      if (!items.length) return false
+      return items.every((it) => this.isItemCounted(elementId, it.id))
+    },
+    /** Staff : un PDV vient d'être entièrement compté → le serveur régénère LA
+     *  feuille pre-event du match et recale la Logistique avec tout ce qui est
+     *  saisi. Silencieux en cas d'échec (le passage "portes ouvertes" rattrape). */
+    async regeneratePreEventSheet(elementId) {
+      if (isDemoMode() || !this.selectedEventId) return
+      const spaceId = this.route.params.spaceId
+      try {
+        const result = await regeneratePreEventReconciliation(spaceId, this.selectedEventId, elementId)
+        if (result?.ok) {
+          await this.loadReconciliations(spaceId, { silent: true })
+          this.successText = this.t('invPreEventSheetRegenerated')
+          this.successSnackbar = true
+        }
+      } catch (e) {
+        console.warn('[SpaceInventory] régénération feuille pre-event KO:', e?.message)
+      }
     },
     async onSaveAll() {
       // Garde douce (option 2) : si l'inventaire est incomplet, on confirme sans
@@ -3164,9 +3267,9 @@ export default {
         this.errorSnackbar = true
       }
     },
-    async loadReconciliations(spaceId) {
+    async loadReconciliations(spaceId, { silent = false } = {}) {
       if (!spaceId || isDemoMode()) return
-      this.recoLoading = true
+      if (!silent) this.recoLoading = true
       try {
         const rows = await listInventoryReconciliations(spaceId)
         this.reconciliations = Array.isArray(rows) ? rows : []
@@ -3174,7 +3277,7 @@ export default {
         // Non bloquant : la section affiche « aucune » ; le comptage reste utilisable.
         console.warn('[SpaceInventory] chargement réconciliations KO:', e?.message)
       } finally {
-        this.recoLoading = false
+        if (!silent) this.recoLoading = false
       }
     },
     closeMobileCounting() {
@@ -3224,6 +3327,18 @@ export default {
     },
   },
   watch: {
+    contextEvent: {
+      immediate: true,
+      handler(ev) {
+        this.preEventAnchorEvent = ev || null
+      },
+    },
+    livePollingActive: {
+      immediate: true,
+      handler(on) {
+        this.livePollingEnabled = !!on
+      },
+    },
     // Échec de sync inventaire (upsert/save) remonté par le store → toast, puis reset.
     inventoryError(msg) {
       if (!msg) return
@@ -3272,6 +3387,11 @@ export default {
         await this.loadForSpace(this.route?.params?.spaceId)
       },
     },
+  },
+  created() {
+    // Rechargement des réconciliations à chaque tick du polling live (méthode de
+    // la vue, hors de portée du setup).
+    this.livePollExtra = () => this.loadReconciliations(this.route?.params?.spaceId, { silent: true })
   },
   mounted() {
     this.updateViewportMode()
@@ -3632,6 +3752,7 @@ export default {
 .si-band-title__event { font-weight: 700; color: #fff; }
 .si-band-title__anchor { opacity: 0.82; }
 .si-band-title__warn { opacity: 0.95; font-weight: 600; }
+.si-band-title__lock { color: #b91c1c; }
 /* Search bar collé sous le bandeau, même largeur (colonne centre). */
 .si-carried-alert { margin: 10px 0 0; font-size: 13px; }
 .si-search-wrap {
