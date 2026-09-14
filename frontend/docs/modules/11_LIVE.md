@@ -497,6 +497,14 @@ Tests ajoutés : `useSpaceDataWaves.spec.js` (2 tests, dont le cas d'échec rés
 
 ## 15. Stock Live initialisé automatiquement depuis l'Inventaire pré-événement — ✅ implémenté 2026-08-05
 
+> **Remplacé le 2026-09-14** par le flux `PreEventInventoryFlowService` (critères d'acceptation Pre-event
+> Inventory, cf. [chantier 381](../chantiers/381_pre_event_inventory_criteres_acceptation/PLAN.md)) :
+> même déclencheur (`eventStartDate ?? eventDate`, cron toutes les minutes désormais), mais la source est
+> le comptage VIVANT (`InventoryCount`) et non plus le snapshot, une feuille de réconciliation pre-event
+> est générée, la fenêtre invité pre-event est clôturée, et les 30 minutes d'édition staff qui suivent
+> régénèrent feuille + Logistique. `autoInitLiveStockFromPreEventInventory` n'existe plus. Le texte
+> ci-dessous décrit l'architecture du 2026-08-05, conservé pour l'historique.
+
 > Historique du jour (pour comprendre le code si une trace subsiste ailleurs) : une 1re version
 > initialisait le stock de départ depuis **Event Predict** (une prédiction) — erreur corrigée dans
 > l'heure, Bertrand ayant précisé que la source est **l'Inventaire pré-événement** (comptage

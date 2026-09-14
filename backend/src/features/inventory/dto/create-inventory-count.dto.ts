@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateInventoryCountDto {
   @ApiProperty({ description: "ID de l'espace" })
@@ -49,4 +49,14 @@ export class CreateInventoryCountDto {
   @IsOptional()
   @IsString()
   countingStatus?: string;
+
+  @ApiPropertyOptional({
+    description:
+      "Phase de l'écran qui écrit : 'pre-event' active le verrou des 30 minutes après l'ouverture des portes " +
+      "et la régénération automatique de la feuille (PreEventInventoryFlowService). Absent = client ancien, aucun verrou.",
+    enum: ['pre-event', 'post-event'],
+  })
+  @IsOptional()
+  @IsIn(['pre-event', 'post-event'])
+  phase?: 'pre-event' | 'post-event';
 }

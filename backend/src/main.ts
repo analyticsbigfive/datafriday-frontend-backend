@@ -26,7 +26,8 @@ async function bootstrap() {
       // pour récupérer la vraie IP client (X-Forwarded-For)
       trustProxy: true,
     }),
-    { bufferLogs: true },
+    // rawBody : signature HMAC des webhooks vérifiée sur les octets reçus (BUG-379-02).
+    { bufferLogs: true, rawBody: true },
   );
 
   // Attach pino structured logger (bufferLogs flushes any early NestJS messages).

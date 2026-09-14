@@ -313,12 +313,13 @@ Snapshots append-only par espace(+event) ; `POST /inventory-counts` fait un upse
 | GET | `/inventory/:spaceId/:eventId` | — |
 | GET | `/inventory/:spaceId/post-event-baseline/:eventId` | Indice attendu du Post-event Inventory (pre-event du même match + mouvements de la fenêtre − ventes) — permission dédiée |
 | POST | `/inventory/:spaceId/pre-event-reconciliations` | Créer la réconciliation PRE-event (attendu vs compté) — lignes construites côté serveur |
+| POST | `/inventory/:spaceId/pre-event-reconciliations/regenerate` | (Re)génère LA feuille pre-event du match depuis les comptages vivants et recale la Logistique (déclencheur "tous les articles d'un PDV comptés", chantier 381) |
 | GET | `/inventory/:spaceId/event-consumption/:eventId` | Ventes de l'événement explosées en consommation d'ingrédients (cascade Logistic) — source « Vendu » de la réconciliation post-event (Q35 Option 1). Les ventes non rattachables (PdV non mappé, produit sans mapping) sortent dans `unjoined`, jamais écartées en silence. |
 | GET | `/inventory/:spaceId/pre-event/:eventId` | Inventaire de référence pré-événement (dernier snapshot antérieur au jour de l'event) |
 | POST | `/inventory/:spaceId/reconciliations` | Créer un document de réconciliation post-événement (kind=post-event) |
 | GET | `/inventory/:spaceId/:eventId` | Dernier snapshot d'inventaire pour un espace+événement |
 | POST | `/inventory` | Enregistrer un snapshot d'inventaire (append-only) |
-| POST | `/inventory-counts` | Upsert un comptage unitaire (par space+event+shop+item) |
+| POST | `/inventory-counts` | Upsert un comptage unitaire (par space+event+shop+item). `phase: 'pre-event'` active le verrou 30 min après l'ouverture des portes (403) et la régénération automatique de la feuille |
 
 ### Restock State
 

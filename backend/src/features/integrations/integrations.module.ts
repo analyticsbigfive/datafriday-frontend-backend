@@ -4,6 +4,7 @@ import { IntegrationsService } from './integrations.service';
 import { WeezeventIntegrationService } from './services/weezevent-integration.service';
 import { DigifoodIntegrationService } from './services/digifood-integration.service';
 import { WebhookIntegrationService } from './services/webhook-integration.service';
+import { WeezeventWebhookStatusService } from './services/weezevent-webhook-status.service';
 import { EncryptionModule } from '../../core/encryption/encryption.module';
 import { WeezeventModule } from '../weezevent/weezevent.module';
 import { DigifoodModule } from '../digifood/digifood.module';
@@ -16,6 +17,7 @@ import { DigifoodModule } from '../digifood/digifood.module';
     WeezeventIntegrationService,
     DigifoodIntegrationService,
     WebhookIntegrationService,
+    WeezeventWebhookStatusService,
   ],
   exports: [WeezeventIntegrationService, DigifoodIntegrationService, WebhookIntegrationService],
 })

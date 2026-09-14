@@ -1,107 +1,38 @@
-import { Test, TestingModule } from '@nestjs/testing';
+import * as crypto from 'crypto';
 import { WebhookSignatureService } from './webhook-signature.service';
 
-describe('WebhookSignatureService', () => {
-  let service: WebhookSignatureService;
+describe('WebhookSignatureService (BUG-379-02 : signature sur le corps brut)', () => {
+    const service = new WebhookSignatureService();
+    const secret = 'super-secret';
+    const raw = Buffer.from('{"type":"transaction","method":"create","id":42,"values":{"id":42}}');
+    const hex = crypto.createHmac('sha256', secret).update(raw).digest('hex');
+    const b64 = crypto.createHmac('sha256', secret).update(raw).digest('base64');
 
-  beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      providers: [WebhookSignatureService],
-    }).compile();
-
-    service = module.get<WebhookSignatureService>(WebhookSignatureService);
-  });
-
-  it('should be defined', () => {
-    expect(service).toBeDefined();
-  });
-
-  describe('generateSignature', () => {
-    it('should generate a signature', () => {
-      const payload = { type: 'transaction', data: { id: 123 } };
-      const secret = 'my-secret';
-
-      const signature = service.generateSignature(payload, secret);
-
-      expect(signature).toBeDefined();
-      expect(typeof signature).toBe('string');
-      expect(signature).toHaveLength(64); // SHA256 hex = 64 chars
+    it('accepts a hex HMAC-SHA256 of the raw body', () => {
+        expect(service.validateSignature(raw, hex, secret)).toBe(true);
     });
 
-    it('should generate consistent signatures for same input', () => {
-      const payload = { type: 'test' };
-      const secret = 'secret';
-
-      const sig1 = service.generateSignature(payload, secret);
-      const sig2 = service.generateSignature(payload, secret);
-
-      expect(sig1).toBe(sig2);
+    it('accepts a base64 HMAC-SHA256 of the raw body', () => {
+        expect(service.validateSignature(raw, b64, secret)).toBe(true);
     });
 
-    it('should generate different signatures for different payloads', () => {
-      const secret = 'secret';
-      const sig1 = service.generateSignature({ a: 1 }, secret);
-      const sig2 = service.generateSignature({ a: 2 }, secret);
-
-      expect(sig1).not.toBe(sig2);
+    it('accepts the sha256= prefix', () => {
+        expect(service.validateSignature(raw, `sha256=${hex}`, secret)).toBe(true);
     });
 
-    it('should generate different signatures for different secrets', () => {
-      const payload = { test: true };
-      const sig1 = service.generateSignature(payload, 'secret1');
-      const sig2 = service.generateSignature(payload, 'secret2');
-
-      expect(sig1).not.toBe(sig2);
-    });
-  });
-
-  describe('validateSignature', () => {
-    it('should validate correct signature', () => {
-      const payload = { type: 'transaction', data: { id: 123 } };
-      const secret = 'my-secret';
-      const signature = service.generateSignature(payload, secret);
-
-      const isValid = service.validateSignature(payload, signature, secret);
-
-      expect(isValid).toBe(true);
+    it('is computed on the exact bytes, not on a re-serialized object', () => {
+        const reordered = Buffer.from('{"method":"create","type":"transaction","id":42,"values":{"id":42}}');
+        expect(service.validateSignature(reordered, hex, secret)).toBe(false);
     });
 
-    it('should reject incorrect signature', () => {
-      const payload = { type: 'transaction', data: { id: 123 } };
-      const secret = 'my-secret';
-
-      const isValid = service.validateSignature(payload, 'invalid-signature', secret);
-
-      expect(isValid).toBe(false);
+    it('rejects a wrong secret, a wrong signature and empty inputs', () => {
+        expect(service.validateSignature(raw, hex, 'other')).toBe(false);
+        expect(service.validateSignature(raw, 'deadbeef', secret)).toBe(false);
+        expect(service.validateSignature(raw, '', secret)).toBe(false);
+        expect(service.validateSignature(raw, hex, '')).toBe(false);
     });
 
-    it('should reject when signature is empty', () => {
-      const payload = { type: 'test' };
-
-      const isValid = service.validateSignature(payload, '', 'secret');
-
-      expect(isValid).toBe(false);
+    it('generateSignature round-trips with validateSignature', () => {
+        expect(service.validateSignature(raw, service.generateSignature(raw, secret), secret)).toBe(true);
     });
-
-    it('should reject when secret is empty', () => {
-      const payload = { type: 'test' };
-
-      const isValid = service.validateSignature(payload, 'sig', '');
-
-      expect(isValid).toBe(false);
-    });
-
-    it('should handle payload modification', () => {
-      const payload = { type: 'test', data: { id: 1 } };
-      const secret = 'secret';
-      const signature = service.generateSignature(payload, secret);
-
-      // Modify payload
-      const modifiedPayload = { type: 'test', data: { id: 2 } };
-
-      const isValid = service.validateSignature(modifiedPayload, signature, secret);
-
-      expect(isValid).toBe(false);
-    });
-  });
 });

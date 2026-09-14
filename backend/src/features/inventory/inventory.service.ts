@@ -504,79 +504,6 @@ export class InventoryService {
     return m;
   }
 
-  /**
-   * Stock Live initialisé automatiquement depuis l'Inventaire pré-événement, à
-   * « l'ouverture des portes » (décision Bertrand 2026-07-24, question #24 —
-   * jamais implémentée jusqu'ici). Aucun signal « portes ouvertes » n'existe dans
-   * les données (ni Weezevent ni Digifood ne remontent un scan d'entrée) : le
-   * proxy technique retenu est `eventStartDate ?? eventDate`, déclenché par le
-   * cron `InventoryLiveInitCronService` toutes les 5 min — même tolérance qu'un
-   * webhook manqué que `WeezeventCronService.triggerLiveAggregationSafetyNet`
-   * (BUG-109) : un appel redondant ne duplique rien de grave, `LogisticsService
-   * .reset()` recalcule un delta nul si le stock cible est déjà atteint.
-   *
-   * Idempotence : marqueur `KvStore` (`live-pre-event-init:{spaceId}:{eventId}`)
-   * posé uniquement APRÈS un reset réussi — si aucun comptage pré-événement
-   * n'existe encore au moment du passage cron, on ne pose rien et on retente au
-   * prochain tick (jamais de stock fabriqué à partir de rien, même règle que
-   * `getPreEventInventory`).
-   */
-  async autoInitLiveStockFromPreEventInventory(
-    spaceId: string,
-    eventId: string,
-    eventName: string | null,
-    tenantId: string,
-  ): Promise<{ ok: boolean; reason?: string; lineCount?: number }> {
-    const already = await this.prisma.kvStore.findUnique({
-      where: { uniq_kv_store: { tenantId, key: `live-pre-event-init:${spaceId}:${eventId}` } },
-    });
-    if (already) return { ok: false, reason: 'already-initialized' };
-
-    const pre = await this.getPreEventInventory(spaceId, eventId, tenantId);
-    if (!pre || !pre.inventoryCounts) return { ok: false, reason: 'no-pre-event-inventory' };
-
-    const countedBlob = pre.inventoryCounts as Record<string, Record<string, any>>;
-    const itemIds = new Set<string>();
-    for (const byItem of Object.values(countedBlob)) for (const itemId of Object.keys(byItem ?? {})) itemIds.add(itemId);
-    const itemKeyById = await this.resolveItemKeysByIds([...itemIds], tenantId);
-
-    const lines: Array<{
-      elementId: string;
-      itemKey: string;
-      itemKind: StockItemKind;
-      itemRefId: string;
-      countedPacked: number;
-      countedLoose: number;
-    }> = [];
-    for (const [shopId, byItem] of Object.entries(countedBlob)) {
-      for (const [itemId, count] of Object.entries(byItem ?? {})) {
-        const resolved = itemKeyById.get(itemId);
-        if (!resolved) continue; // orphelin : id absent des deux catalogues, non adressable côté Logistic
-        lines.push({
-          elementId: shopId,
-          itemKey: resolved.name,
-          itemKind: resolved.kind,
-          itemRefId: itemId,
-          countedPacked: Number((count as any)?.packedUnits) || 0,
-          countedLoose: Number((count as any)?.looseUnits) || 0,
-        });
-      }
-    }
-    if (!lines.length) return { ok: false, reason: 'no-requirements' };
-
-    await this.logistics.reset(spaceId, { eventId, eventName: eventName ?? undefined, lines }, tenantId, 'system-live-door-opening');
-
-    await this.prisma.kvStore.create({
-      data: {
-        tenantId,
-        key: `live-pre-event-init:${spaceId}:${eventId}`,
-        value: { spaceId, eventId, lineCount: lines.length, source: pre.source, at: new Date().toISOString() },
-      },
-    });
-
-    return { ok: true, lineCount: lines.length };
-  }
-
   // ── Pre-event Inventory : baseline « quantités attendues » ───────────────────
   // attendu = comptage POST-event de l'événement précédent + Σ mouvements
   // Logistic depuis ce comptage. Cycle complet :
@@ -978,6 +905,9 @@ export class InventoryService {
     // Besoin prédit fourni par le client (scénario Event Predict par défaut) :
     // le serveur ne réimplémente pas la prédiction, il l'archive.
     predictedUnits?: Record<string, Record<string, number>> | null,
+    // Contexte de génération automatique (PreEventInventoryFlowService :
+    // trigger, feuille remplacée...) archivé dans `meta` à côté du reste.
+    extraMeta: Record<string, unknown> = {},
   ) {
     this.logger.log(`POST /inventory/${spaceId}/pre-event-reconciliations eventId=${eventId}`);
     await this.assertSpace(spaceId, tenantId);
@@ -1124,6 +1054,7 @@ export class InventoryService {
           // Le document porte-t-il la comparaison au scénario ? Sans marqueur, une
           // colonne prédit vide se confond avec « rien n'était prédit ».
           predictedSource: predictedUnits ? 'event-predict-default-version' : 'none',
+          ...extraMeta,
         },
         createdBy: userId ?? null,
       } as any,
@@ -1182,8 +1113,8 @@ export class InventoryService {
     for (const [elementId, byItem] of Object.entries(countedBlob)) {
       for (const [itemId, count] of Object.entries(byItem ?? {})) {
         const resolved = itemKeyById.get(itemId);
-        // Orphelin des deux catalogues : non adressable côté Logistic (même
-        // limitation que autoInitLiveStockFromPreEventInventory).
+        // Orphelin des catalogues (resolveItemKeysByIds) : non adressable côté
+        // Logistic, la ligne est écartée.
         if (!resolved) continue;
         lines.push({
           elementId,

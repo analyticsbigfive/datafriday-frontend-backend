@@ -57,6 +57,14 @@ const state = () => ({
   error: null,
   currentSpaceId: null,
   currentEventId: null,
+  // Phase de l'écran qui a chargé le contexte ('pre-event'|'post-event') :
+  // envoyée avec chaque comptage, le backend en déduit le verrou des 30 min et
+  // la régénération automatique de la feuille (PreEventInventoryFlowService).
+  currentPhase: null,
+  // Horodatage de la dernière écriture locale (upsertCount) : le polling live
+  // (useInventoryLivePolling) saute son tick juste après une saisie pour ne pas
+  // écraser une valeur dont le POST est encore en vol.
+  lastLocalWriteAt: null,
 })
 
 const getters = {
@@ -92,9 +100,13 @@ const mutations = {
   INVALIDATE_MARKET_PRICES(state) { state.marketPricesCachedAt = null },
   INVALIDATE_PACKAGING_TYPES(state) { state.packagingTypesCachedAt = null },
   SET_LAST_EVENT(state, v) { state.lastEvent = v || null },
-  SET_CONTEXT(state, { spaceId, eventId }) {
+  SET_CONTEXT(state, { spaceId, eventId, phase }) {
     state.currentSpaceId = spaceId || null
     state.currentEventId = eventId || null
+    state.currentPhase = phase || null
+  },
+  SET_LAST_LOCAL_WRITE(state) {
+    state.lastLocalWriteAt = Date.now()
   },
   // Contexte invalide (inventaire ouvert sans ?event valide) : vide l'AFFICHAGE
   // (comptages en mémoire + erreur + contexte). NE TOUCHE PAS localStorage/DB —
@@ -104,6 +116,7 @@ const mutations = {
     state.error = null
     state.currentSpaceId = null
     state.currentEventId = null
+    state.currentPhase = null
     state.loading = false
   },
 }
@@ -112,14 +125,18 @@ const actions = {
   // `phase` ('pre-event'|'post-event', BUG-237) : discrimine la lecture des
   // comptages entre les deux écrans, qui partagent le même eventId. Fait partie
   // de la clé de déduplication : deux phases = deux réponses différentes.
-  loadInventory({ commit, state }, { spaceId, eventId, phase }) {
+  // `silent` : rechargement de fond (polling live pendant une fenêtre PIN
+  // ouverte) : pas de spinner, pas de reset d'erreur, mêmes données.
+  loadInventory({ commit, state }, { spaceId, eventId, phase, silent = false }) {
     const key = `${spaceId}::${eventId}::${phase || ''}`
     // Si un chargement identique est déjà en vol, on le réutilise (pas de 2e GET).
     if (_loadInFlight && _loadInFlightKey === key) return _loadInFlight
 
-    commit('SET_CONTEXT', { spaceId, eventId })
-    commit('SET_LOADING', true)
-    commit('SET_ERROR', null)
+    commit('SET_CONTEXT', { spaceId, eventId, phase })
+    if (!silent) {
+      commit('SET_LOADING', true)
+      commit('SET_ERROR', null)
+    }
 
     // Anti-obsolète : le contexte demandé. Une réponse tardive (event A) ne doit
     // JAMAIS écraser les comptages / couper le spinner d'un event B plus récent.
@@ -162,7 +179,7 @@ const actions = {
       } finally {
         // Ne couper le spinner que si on est encore le contexte actif (sinon on
         // masquerait le chargement d'un event plus récent).
-        if (isActive()) commit('SET_LOADING', false)
+        if (isActive() && !silent) commit('SET_LOADING', false)
         if (_loadInFlightKey === key) {
           _loadInFlight = null
           _loadInFlightKey = null
@@ -176,6 +193,20 @@ const actions = {
     commit('CLEAR_CONTEXT')
   },
 
+  /** Rechargement de fond du contexte courant (polling live) : sans spinner,
+   *  et sauté si une saisie locale date de moins de `minIdleMs` (POST en vol). */
+  async refreshInventorySilently({ state, dispatch }, { minIdleMs = 5000 } = {}) {
+    if (!state.currentSpaceId || !state.currentEventId) return false
+    if (state.lastLocalWriteAt && Date.now() - state.lastLocalWriteAt < minIdleMs) return false
+    await dispatch('loadInventory', {
+      spaceId: state.currentSpaceId,
+      eventId: state.currentEventId,
+      phase: state.currentPhase,
+      silent: true,
+    })
+    return true
+  },
+
   /** Sauvegarde un comptage unitaire (debounced côté view si besoin). */
   async upsertCount({ state, commit }, { shopId, itemId, patch }) {
     const eventId = state.currentEventId
@@ -183,6 +214,7 @@ const actions = {
     const safePatch = sanitizeCountPatch(patch)
     // Optimistic UI : commit immédiat.
     commit('UPSERT_COUNT', { shopId, itemId, patch: safePatch, eventId })
+    commit('SET_LAST_LOCAL_WRITE')
 
     // Mode démo : persistance locale pour survivre au reload, pas de réseau.
     if (isDemoMode()) {
@@ -212,6 +244,9 @@ const actions = {
       // eventId est un champ UUID côté backend : ne jamais envoyer `null`
       // (sinon @IsUUID rejette → 400). On l'omet quand aucun event n'est choisi.
       if (eventId) payload.eventId = eventId
+      // Phase de l'écran : verrou 30 min + régénération auto côté serveur
+      // (pre-event uniquement, le post-event reste libre).
+      if (state.currentPhase) payload.phase = state.currentPhase
       console.log('[inventory] 📤 upsertCount — POST /inventory-counts …', payload)
       await apiSaveInventoryCount(payload)
       console.log('[inventory] 📤✅ upsertCount OK — comptage sauvegardé en BDD', { shopId, itemId })
@@ -223,7 +258,15 @@ const actions = {
         e?.response?.data ?? e?.message,
       )
       // …et toast utilisateur (UX upstream). En mode réel l'API est source de vérité.
-      commit('SET_ERROR', e?.userMessage || e?.message || 'Échec de la sauvegarde du comptage')
+      // 403 = verrou pre-event (plus de 30 min après l'ouverture des portes) :
+      // le message serveur dit pourquoi, on le relaie tel quel.
+      commit(
+        'SET_ERROR',
+        (e?.response?.status === 403 && e?.response?.data?.message) ||
+          e?.userMessage ||
+          e?.message ||
+          'Échec de la sauvegarde du comptage',
+      )
     }
   },
 

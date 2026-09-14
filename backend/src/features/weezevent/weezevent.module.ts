@@ -20,6 +20,13 @@ import { WeezeventCronService } from './services/weezevent-cron.service';
 import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
 import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
 import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
+import { LiveEventWindowService } from './services/live/live-event-window.service';
+import { LiveAggregationTriggerService } from './services/live/live-aggregation-trigger.service';
+import { WebhookHealthService } from './services/live/webhook-health.service';
+import { LiveHeartbeatService } from './services/live/live-heartbeat.service';
+import { LiveSyncRunnerService } from './services/live/live-sync-runner.service';
+import { LiveSyncSchedulerService } from './services/live/live-sync-scheduler.service';
+import { LiveReconciliationCronService } from './services/live/live-reconciliation-cron.service';
 
 @Module({
     imports: [
@@ -49,6 +56,14 @@ import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker
         WeezeventCronService,
         WeezeventCollectWorkerService,
         WeezeventInsertWorkerService,
+        // BUG-379-02 : pipeline live (fenêtre, cadence de sync, agrégation minute, santé webhook)
+        LiveEventWindowService,
+        LiveAggregationTriggerService,
+        WebhookHealthService,
+        LiveHeartbeatService,
+        LiveSyncRunnerService,
+        LiveSyncSchedulerService,
+        LiveReconciliationCronService,
     ],
     exports: [
         WeezeventClientService,
@@ -58,6 +73,9 @@ import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker
         WeezeventQueuedEntitySyncService,
         WeezeventIncrementalSyncService,
         WeezeventAuthService,
+        WebhookHealthService,
+        LiveHeartbeatService,
+        LiveEventWindowService,
     ],
 })
 export class WeezeventModule { }

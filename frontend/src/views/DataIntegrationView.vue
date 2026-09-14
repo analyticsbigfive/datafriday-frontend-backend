@@ -164,6 +164,14 @@
 
               <!-- ── Weezevent : sync API par fenêtre de dates ── -->
               <template v-else>
+              <!-- BUG-379-02 : temps réel Weezevent (URL, secret, dernier webhook, mode de polling) -->
+              <WeezeventWebhookPanel
+                :integration="integration"
+                :organization-id="tenantId"
+                :is-dark="isDark"
+                :t="t"
+                :format-date="formatDateTime"
+              />
               <div class="card-section-label">{{ t('diSyncSectionLabel') }}</div>
               <!-- Date pickers for job-based sync -->
               <div class="sync-date-row">
@@ -881,6 +889,7 @@ import { toIntlLocale } from '@/composables/useNumberFormat'
 import { getLocationSpaceMappings } from '@/api/endpoints/mapping.api'
 import IntegrationWizard from '@/components/integration/wizard/IntegrationWizard.vue'
 import SyncProgressDialog from '@/components/integration/SyncProgressDialog.vue'
+import WeezeventWebhookPanel from '@/components/integration/WeezeventWebhookPanel.vue'
 import { X, ArrowLeft, Plus, ChevronRight, Eye, EyeOff, Zap, Settings, FileSpreadsheet, Upload } from 'lucide-vue-next'
 import {
   listWeezeventInstances,
@@ -923,6 +932,7 @@ function toCard(instance) {
     ...toBaseCard(instance, 'Weezevent', 'weezevent'),
     clientId: instance.clientId,
     organizationId: instance.organizationId,
+    webhookUrl: instance.webhookUrl,
   }
 }
 
@@ -980,7 +990,7 @@ function toDigifoodCard(instance) {
 export default {
   name: 'DataIntegrationView',
 
-  components: { IntegrationWizard, SyncProgressDialog, X, ArrowLeft, Plus, ChevronRight, Eye, EyeOff, Zap, Settings, FileSpreadsheet, Upload },
+  components: { IntegrationWizard, SyncProgressDialog, WeezeventWebhookPanel, X, ArrowLeft, Plus, ChevronRight, Eye, EyeOff, Zap, Settings, FileSpreadsheet, Upload },
 
   data() {
     return {

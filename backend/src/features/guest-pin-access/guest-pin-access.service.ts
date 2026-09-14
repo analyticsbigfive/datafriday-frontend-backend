@@ -13,6 +13,8 @@ import { RedisService } from '../../core/redis/redis.service';
 import { AuditService } from '../../core/audit/audit.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { InventoryService } from '../inventory/inventory.service';
+import { PreEventInventoryFlowService } from '../inventory/pre-event-inventory-flow.service';
+import { decryptPin, encryptPin } from './guest-pin-crypto';
 import { MenuItemsService } from '../menu-items/menu-items.service';
 import { MarketPricesService } from '../market-prices/market-prices.service';
 import { MenuComponentsService } from '../menu-components/menu-components.service';
@@ -59,6 +61,7 @@ export class GuestPinAccessService {
     private readonly redis: RedisService,
     private readonly audit: AuditService,
     private readonly inventoryService: InventoryService,
+    private readonly preEventFlow: PreEventInventoryFlowService,
     private readonly menuItems: MenuItemsService,
     private readonly marketPrices: MarketPricesService,
     private readonly menuComponents: MenuComponentsService,
@@ -77,9 +80,12 @@ export class GuestPinAccessService {
     }
   }
 
+  private pinSecret(): string {
+    return this.configService.getOrThrow<string>('GUEST_PIN_HMAC_SECRET');
+  }
+
   private hashPin(pin: string): string {
-    const secret = this.configService.getOrThrow<string>('GUEST_PIN_HMAC_SECRET');
-    return createHmac('sha256', secret).update(pin).digest('hex');
+    return createHmac('sha256', this.pinSecret()).update(pin).digest('hex');
   }
 
   private hashDeviceId(deviceId: string): string {
@@ -386,19 +392,10 @@ export class GuestPinAccessService {
     };
   }
 
-  // Décision produit 2026-09-08 : toujours montré, pas d'option — `showExpected`
-  // (InventoryWindow) n'est plus lu ici (le champ reste en base, juste plus vérifié).
-  async getBaseline(user: GuestPinUser) {
-    const baseline =
-      user.phase === 'pre-event'
-        ? await this.inventoryService.getPreEventBaseline(user.spaceId, user.eventId, user.tenantId)
-        : await this.inventoryService.getPostEventBaseline(user.spaceId, user.eventId, user.tenantId);
-    const expectedBlob = (baseline?.expected ?? {}) as Record<string, unknown>;
-    return {
-      ...baseline,
-      expected: { [user.elementId]: expectedBlob[user.elementId] ?? {} },
-    };
-  }
+  // Pas d'attendu côté invité : critère d'acceptation 2026-09-14 ("Tous les
+  // éléments affichent 0 et aucune indication n'est donnée pour la valeur
+  // attendue"), qui revient sur la décision du 2026-09-08 (toujours montré).
+  // Aucun endpoint n'expose donc la baseline à un JWT invité.
 
   async saveCount(user: GuestPinUser, dto: SaveGuestCountDto) {
     // Seul le DIRECTEUR verrouille (validateAccess) — `submittedAt` n'est qu'un
@@ -409,7 +406,9 @@ export class GuestPinAccessService {
         'Comptage validé par le directeur de site — lecture seule. Contacte-le pour une correction.',
       );
     }
-    const result = await this.inventoryService.saveInventoryCounts(
+    // Même point d'entrée que le staff (verrou 30 min + marquage "à régénérer"
+    // en phase pre-event, cf. PreEventInventoryFlowService.saveCount).
+    const result = await this.preEventFlow.saveCount(
       {
         spaceId: user.spaceId,
         eventId: user.eventId,
@@ -420,6 +419,7 @@ export class GuestPinAccessService {
         isCounted: dto.isCounted,
         storageLocation: dto.storageLocation,
         countingStatus: dto.countingStatus,
+        phase: user.phase as 'pre-event' | 'post-event',
       },
       user.tenantId,
       undefined,
@@ -434,6 +434,24 @@ export class GuestPinAccessService {
       });
     }
     return result;
+  }
+
+  /**
+   * Tous les articles du PDV sont marqués comptés (détecté par le front, seul à
+   * connaître la liste explosée) : la feuille pre-event du match est régénérée et
+   * la Logistique recalée avec tout ce qui a été saisi, PDV en cours compris
+   * (critère d'acceptation 2026-09-14). Sans effet hors phase pre-event.
+   */
+  async notifyElementComplete(user: GuestPinUser) {
+    if (user.phase !== 'pre-event') return { ok: false, reason: 'not-pre-event' };
+    return this.preEventFlow.regenerate(
+      user.spaceId,
+      user.eventId,
+      user.tenantId,
+      `guest-pin:${user.elementId}`,
+      'pdv-complete',
+      { elementId: user.elementId },
+    );
   }
 
   /**
@@ -526,6 +544,10 @@ export class GuestPinAccessService {
       // PIN désormais partagé par TOUS les PDV de la fenêtre — un seul flag/horodatage
       // au niveau fenêtre, plus par accès (cf. schema.prisma::InventoryWindow).
       hasPin: !!w.pinLookupHash,
+      // PIN en clair pour le directeur (retrouvable sous "Régénérer le PIN",
+      // critère d'acceptation 2026-09-14). null si la fenêtre date d'avant le
+      // chiffrement réversible : il faudra le régénérer une fois.
+      pin: w.pinLookupHash ? decryptPin(w.pinCiphertext, this.pinSecret()) : null,
       pinSetAt: w.pinSetAt,
       accesses: w.guestAccesses.map((a) => ({
         id: a.id,
@@ -549,9 +571,10 @@ export class GuestPinAccessService {
 
   /**
    * Génère (ou régénère) LE PIN partagé de cette fenêtre — vaut pour TOUS les PDV,
-   * pas un par PDV (décision produit 2026-09-08). Retourne le PIN EN CLAIR —
-   * l'appelant (contrôleur) est responsable de ne jamais le journaliser ni le
-   * stocker ailleurs que dans la réponse HTTP one-shot. Régénérer invalide
+   * pas un par PDV (décision produit 2026-09-08). Retourne le PIN EN CLAIR et le
+   * conserve chiffré (pinCiphertext) pour que le directeur puisse le retrouver
+   * après fermeture du popup (critère d'acceptation 2026-09-14) ; ne jamais le
+   * journaliser. Régénérer invalide
    * IMMÉDIATEMENT l'ancien PIN pour tout le monde (comparaison stricte dans
    * `login`), sans toucher aux lignes GuestPinAccess existantes (statut/historique
    * par PDV conservés).
@@ -569,7 +592,12 @@ export class GuestPinAccessService {
       try {
         await this.prisma.inventoryWindow.update({
           where: { id: windowId },
-          data: { pinLookupHash, pinSetAt: new Date(), pinSetBy: actorUserId },
+          data: {
+            pinLookupHash,
+            pinCiphertext: encryptPin(pin, this.pinSecret()),
+            pinSetAt: new Date(),
+            pinSetBy: actorUserId,
+          },
         });
 
         await this.audit.log({
@@ -726,7 +754,13 @@ export class GuestPinAccessService {
     // `window.status === 'open'`, ce n'est qu'une libération de la valeur.
     await this.prisma.inventoryWindow.update({
       where: { id: windowId },
-      data: { status: 'closed', closedAt: new Date(), closedBy: actorUserId, pinLookupHash: null },
+      data: {
+        status: 'closed',
+        closedAt: new Date(),
+        closedBy: actorUserId,
+        pinLookupHash: null,
+        pinCiphertext: null,
+      },
     });
 
     let pushResult: { ok: boolean; reason?: string } = { ok: false, reason: 'not-attempted' };

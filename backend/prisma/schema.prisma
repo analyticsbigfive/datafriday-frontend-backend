@@ -3230,6 +3230,12 @@ model InventoryWindow {
   // plus identifié par LE PIN (qui ne l'identifie plus, il est partagé) mais par le
   // `slug` de l'URL scannée (/login/pin/:slug) — cf. GuestPinAccessService.login.
   pinLookupHash String?   @unique
+  // PIN retrouvable après fermeture du popup (critère d'acceptation 2026-09-14 :
+  // "le code PIN peut être retrouvé sous le bouton Reset Code PIN"). Chiffré
+  // AES-256-GCM (clé dérivée de GUEST_PIN_HMAC_SECRET, cf. guest-pin-crypto.ts),
+  // jamais en clair. Déchiffré uniquement pour le status board directeur
+  // (permission front.fb.guestPinManage). Remis à null à la clôture, comme le hash.
+  pinCiphertext String?
   pinSetAt      DateTime?
   pinSetBy      String?
   openedAt           DateTime  @default(now())
