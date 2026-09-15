@@ -46,11 +46,37 @@ export function buildMatchClause(window: EventWindow, seasonContainerIds: Readon
 /**
  * BUG-370-02 : l'intégration du JOB ne filtre qu'en dehors du mode `integration-range`, où la
  * fenêtre porte déjà la seule intégration qui compte.
+ * BUG-384-02 : sans intégration de job, on ne retombe plus sur le tenant entier mais sur les
+ * intégrations MAPPÉES À L'ESPACE (`SpaceIntegrationScopeService`) : en mode `range`, la clause
+ * de rattachement (`eventId NULL OU conteneur de saison` + fenêtre jour) est tenant-wide et
+ * ramenait les ventes des autres clubs du même jour dans l'espace (Le Mans-Brest 22/08 :
+ * 66 k€ Weez + 46 k€ FC Nantes Digifood → rollup 112 k€).
  */
-export function buildIntegrationClause(jobIntegrationId: string | undefined, window: EventWindow): Prisma.Sql {
-  return jobIntegrationId && window.mode !== 'integration-range'
-    ? Prisma.sql`AND t."integrationId" = ${jobIntegrationId}`
+export function buildIntegrationClause(
+  jobIntegrationId: string | undefined,
+  window: EventWindow,
+  spaceIntegrationIds: ReadonlyArray<string> = [],
+): Prisma.Sql {
+  if (window.mode === 'integration-range') return Prisma.sql``;
+  if (jobIntegrationId) return Prisma.sql`AND t."integrationId" = ${jobIntegrationId}`;
+  return spaceIntegrationIds.length
+    ? Prisma.sql`AND t."integrationId" = ANY(${[...spaceIntegrationIds]})`
     : Prisma.sql``;
+}
+
+/**
+ * BUG-384-02 : le mode `range` (Event sans lien SalesEvent ni Event.integrationId) n'est
+ * rattaché à rien d'autre qu'une fenêtre de dates. Sans intégration de job ET sans intégration
+ * mappée à l'espace, il agrégerait le tenant entier : on refuse plutôt que d'écrire du faux.
+ * Les modes `exact`/`container-range` sont épinglés à un SalesEvent, `integration-range` à
+ * son intégration : ils restent traitables sans mapping (espaces historiques).
+ */
+export function isUnscopedRangeWindow(
+  jobIntegrationId: string | undefined,
+  window: EventWindow,
+  spaceIntegrationIds: ReadonlyArray<string>,
+): boolean {
+  return window.mode === 'range' && !jobIntegrationId && spaceIntegrationIds.length === 0;
 }
 
 /** Restreint l'agrégation aux minutes données (jobs live incrémentaux) ; vide = toute la fenêtre. */
