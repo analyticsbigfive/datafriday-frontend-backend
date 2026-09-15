@@ -42,6 +42,10 @@ Critère "Heure d'ouverture des portes" du document de test : "ce qui n'a pas é
 
 Fix : ligne sans comptage validé → compté = attendu Logistic, écart 0, `countedSource: 'logistic'` (`'count'` si validée, `'none'` sans Logistic ni comptage) ; la vue `InventoryReconciliationView` affiche « (L) » (ligne et total de groupe) + légende. Appliqué à toute réconciliation pre-event, pas seulement à Doors Open (un document régénéré en cours de comptage montre "pas encore compté = Logistic" au lieu d'un faux écart). Une saisie non cochée « compté » est traitée comme non comptée, comme pour le push Logistic (à confirmer avec Bertrand si besoin, question 70 du tracker sur le périmètre "compté").
 
+Couverture de test des deux critères "Fin de l'inventaire pre-event" (staff et invité) :
+- Comptage terminé : `inventory.controller.pre-event-end.spec.ts` (staff, endpoint regenerate), `guest-pin-access.pre-event-end.spec.ts` (invité, `notifyElementComplete`), `pre-event-inventory-flow.service.spec.ts` (regenerate : une feuille par match, snapshot), `inventory.service.spec.ts` (push Logistic des lignes validées uniquement).
+- Doors Open : `inventory-live-init.cron.spec.ts` (cron à la minute, fenêtre 30 min), `pre-event-inventory-flow.service.spec.ts` (`runDoorsOpen` clôt la fenêtre, efface le PIN, régénère, idempotent), `inventory.service.spec.ts` (non compté = Logistic, `countedSource`), `guest-pin-access.pre-event-end.spec.ts` (QR → « Accès inactif », login refusé), `jwt-guest-pin.strategy.spec.ts` (session en cours rejetée dès la clôture), front `inventoryReconciliationViewPreEvent.spec.js` (« (L) » sur les lignes et les totaux, légende).
+
 ## Risque de régression / à surveiller
 
 - Un PdV assigné à des articles dans une configuration d'un autre club voit ces articles apparaître à compter : voulu (Bertrand). Si un client veut cloisonner, ce sera par espace, pas par configuration.
