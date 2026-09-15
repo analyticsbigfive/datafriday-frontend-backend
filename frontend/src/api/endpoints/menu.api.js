@@ -489,8 +489,11 @@ export async function getSpaceMenuConfiguration(spaceId, configId) {
  * @param {string} configId
  * @returns {Promise<Record<string, {shopName:string, items:{id:string,name:string,category:string}[]}>>}
  */
-export async function getConfigShopMenuItemsLight(spaceId, configId) {
-  return api.get(`/space-menu/${spaceId}/${configId}/shop-items`)
+export async function getConfigShopMenuItemsLight(spaceId, configId, { itemsScope } = {}) {
+  // itemsScope 'space' (inventaire pre/post-event, BUG-383-02) : PdV de la configuration,
+  // articles = union de toutes les configurations de l'espace. Défaut : la configuration seule.
+  const params = itemsScope ? { itemsScope } : undefined
+  return api.get(`/space-menu/${spaceId}/${configId}/shop-items`, params ? { params } : undefined)
 }
 
 /**

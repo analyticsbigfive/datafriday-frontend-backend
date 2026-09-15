@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import { AggregationService } from './aggregation.service';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
+import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { MappingsService } from '../mappings/mappings.service';
@@ -115,6 +116,8 @@ describe('AggregationService', () => {
         // BUG-379-02 : résolution de fenêtre et rollup extraits, instances réelles sur le même mock Prisma.
         EventWindowResolverService,
         EventRollupService,
+        // BUG-384-02 : frontière des intégrations mappées à l'espace, instance réelle.
+        SpaceIntegrationScopeService,
       ],
     }).compile();
 
@@ -287,6 +290,9 @@ describe('AggregationService', () => {
       mockPrisma.aggregationJobLog.update.mockResolvedValue({});
       mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1)]);
       mockPrisma.locationSpaceMapping.findFirst.mockResolvedValue({ spaceId: SPACE });
+      // BUG-384-02 : l'intégration du job est la seule mappée à l'espace.
+      mockPrisma.locationSpaceMapping.findMany.mockResolvedValue([{ salesLocationId: INT_ID }]);
+      mockPrisma.spaceProductRevenueDailyAgg.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.salesLocation.findMany.mockResolvedValue([{ id: LOCATION_ID }]);
       mockPrisma.locationShopMapping.findMany.mockResolvedValue([
         { weezeventLocationId: LOCATION_ID, spaceElementId: 'element-1' },
@@ -372,6 +378,66 @@ describe('AggregationService', () => {
       });
       expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
         where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
+      });
+    });
+
+    describe('BUG-384-02 : frontière des intégrations mappées à l\'espace', () => {
+      const sqlOf = (call: any[]) => (call[0]?.strings ?? []).join('?');
+      const valuesOf = (call: any[]) => call[0]?.values ?? [];
+      const insertCalls = () => mockPrisma.$executeRaw.mock.calls.filter((c: any[]) => sqlOf(c).includes('INSERT INTO'));
+
+      it('job sans integrationId, event en mode range → les INSERT sont scopés `t."integrationId" = ANY(intégrations du space)`, jamais tenant-wide', async () => {
+        mockPrisma.locationSpaceMapping.findMany.mockResolvedValue([{ salesLocationId: INT_ID }, { salesLocationId: 'integration-digi' }]);
+        await service.executeProcessEvents(makeBullJob({ integrationId: undefined }));
+
+        const inserts = insertCalls();
+        expect(inserts.length).toBe(3);
+        for (const call of inserts) {
+          expect(sqlOf(call)).toContain('AND t."integrationId" = ANY(');
+          expect(valuesOf(call)).toContainEqual([INT_ID, 'integration-digi']);
+        }
+      });
+
+      it('job AVEC integrationId → clause d\'égalité sur celle du job (inchangé), pas de ANY', async () => {
+        await service.executeProcessEvents(makeBullJob());
+        for (const call of insertCalls()) {
+          expect(sqlOf(call)).toContain('AND t."integrationId" = ?');
+          expect(sqlOf(call)).not.toContain('ANY(');
+        }
+      });
+
+      it('purge à chaque job les lignes de l\'espace écrites sous une intégration non mappée (3 tables)', async () => {
+        await service.executeProcessEvents(makeBullJob());
+        const foreignWhere = { tenantId: TENANT, spaceId: SPACE, integrationId: { notIn: [INT_ID] } };
+        expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({ where: foreignWhere });
+        expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({ where: foreignWhere });
+        expect(mockPrisma.spaceProductRevenueDailyAgg.deleteMany).toHaveBeenCalledWith({ where: foreignWhere });
+      });
+
+      it('le rollup Event.revenue ne somme que les intégrations mappées à l\'espace', async () => {
+        await service.executeProcessEvents(makeBullJob());
+        expect(mockPrisma.spaceRevenueMinuteAgg.aggregate).toHaveBeenCalledWith(expect.objectContaining({
+          where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1, integrationId: { in: [INT_ID] } },
+        }));
+      });
+
+      it('espace sans aucune intégration mappée : aucune purge, et un event en mode range sans integrationId de job est refusé (pas d\'agrégation tenant-wide)', async () => {
+        mockPrisma.locationSpaceMapping.findMany.mockResolvedValue([]);
+        const result = await service.executeProcessEvents(makeBullJob({ integrationId: undefined }));
+
+        expect(result.results[0].status).toBe('error');
+        expect(result.results[0].error).toMatch(/Aucune intégration mappée/);
+        expect(insertCalls().length).toBe(0);
+        expect(mockPrisma.spaceProductRevenueDailyAgg.deleteMany).not.toHaveBeenCalled();
+      });
+
+      it('espace sans mapping mais event lié à un SalesEvent (mode exact) : reste agrégé, sans clause d\'intégration (espaces historiques)', async () => {
+        mockPrisma.locationSpaceMapping.findMany.mockResolvedValue([]);
+        mockPrisma.event.findMany.mockResolvedValue([{ ...makeEvent(EVENT_1), weezeventEventId: 'wz-1' }]);
+        const result = await service.executeProcessEvents(makeBullJob({ integrationId: undefined }));
+
+        expect(result.results[0].status).toBe('success');
+        for (const call of insertCalls()) expect(sqlOf(call)).not.toContain('t."integrationId" =');
       });
     });
 
@@ -508,7 +574,8 @@ describe('AggregationService', () => {
       await service.executeProcessEvents(job);
 
       expect(mockPrisma.spaceRevenueMinuteAgg.aggregate).toHaveBeenCalledWith({
-        where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
+        // BUG-384-02 : scopé aux intégrations mappées à l'espace.
+        where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1, integrationId: { in: [INT_ID] } },
         _sum: { revenueHt: true, transactionsCount: true },
       });
       expect(mockPrisma.event.update).toHaveBeenCalledWith({

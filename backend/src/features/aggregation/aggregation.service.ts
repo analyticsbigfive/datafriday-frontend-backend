@@ -10,12 +10,14 @@ import { MappingsService } from '../mappings/mappings.service';
 import { EventDayFields } from '../../shared/utils/event-window.util';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
+import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import {
   buildIntegrationClause,
   buildMatchClause,
   insertDailyProductAggSql,
   insertMinuteAggSql,
   insertMinuteItemAggSql,
+  isUnscopedRangeWindow,
 } from './event-aggregation-sql';
 
 
@@ -32,6 +34,7 @@ export class AggregationService {
     private redis: RedisService,
     private windowResolver: EventWindowResolverService,
     private eventRollup: EventRollupService,
+    private spaceIntegrationScope: SpaceIntegrationScopeService,
   ) {}
 
   /**
@@ -277,6 +280,12 @@ export class AggregationService {
     // le même pour tous les matchs de cette intégration.
     const seasonContainerIds = await this.windowResolver.resolveSeasonContainerEventIds(tenantId);
 
+    // BUG-384-02 : intégrations mappées à CET espace (étape 1 du wizard). Frontière du writer :
+    // clause d'intégration de repli quand le job n'en porte pas, scope du rollup, et purge des
+    // lignes étrangères déjà écrites (résidu d'un job non scopé — un delete scopé par
+    // l'intégration du job, BUG-317-02, ne les touchait jamais).
+    const spaceIntegrationIds = await this.spaceIntegrationScope.resolve(tenantId, spaceId);
+
     // Fiche 147-01 : la frontière de fenêtre (fin déclarée d'un voisin qui se termine le jour de
     // début) a besoin de TOUS les events de l'espace, pas seulement du batch — en re-agrégation
     // incrémentale (`eventIds` fourni), le voisin peut être hors batch.
@@ -301,6 +310,12 @@ export class AggregationService {
           throw new Error(`Integration ${integrationId} is mapped to a different space (${spaceLink.spaceId}).`);
         }
       }
+
+      // BUG-384-02 : une ligne écrite sous une intégration non mappée à l'espace n'est jamais
+      // une contribution légitime — on la purge à chaque job, à l'échelle de l'espace (la
+      // table daily n'a pas de clé event).
+      const purged = await this.spaceIntegrationScope.purgeForeignRows(tenantId, spaceId, spaceIntegrationIds);
+      if (purged) this.logger.warn(`Space ${spaceId}: ${purged} foreign-integration aggregate row(s) purged (BUG-384-02)`);
 
       // BUG-374-02 (2026-08-26) : `transactionsProcessed`/`job.updateProgress` n'avançaient
       // qu'une fois PAR EVENT ENTIER — pour un clic "Agréger" sur un seul event volumineux
@@ -329,6 +344,12 @@ export class AggregationService {
           // minuit local → fin déclarée (repli journée pleine) avec frontière au voisin —
           // voir resolveEventWindow / resolveEventTransactionWindow.
           const window = this.windowResolver.resolveEventWindow(event, spaceTimezone, seasonContainerIds, allSpaceEvents);
+          if (isUnscopedRangeWindow(integrationId, window, spaceIntegrationIds)) {
+            throw new Error(
+              `Aucune intégration mappée à l'espace ${spaceId} : l'event ${event.id} (fenêtre de dates seule) ` +
+                `ne peut pas être rattaché à des ventes sans agréger tout le tenant (BUG-384-02). Compléter l'étape 1 du wizard.`,
+            );
+          }
           const matchClause = buildMatchClause(window, seasonContainerIds);
 
           // Efface les anciennes lignes de cet event avant re-agrégation — scopé par
@@ -352,7 +373,7 @@ export class AggregationService {
           await this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere });
           await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere });
 
-          const integrationClause = buildIntegrationClause(integrationId, window);
+          const integrationClause = buildIntegrationClause(integrationId, window, spaceIntegrationIds);
           const sqlInput = { tenantId, spaceId, eventId: event.id, integrationClause, matchClause };
 
           // Requêtes partagées avec le job live par minute (event-aggregation-sql.ts).
@@ -365,7 +386,7 @@ export class AggregationService {
           await this.prisma.$executeRaw(insertMinuteItemAggSql(sqlInput));
           await updateEventSubProgress(3);
 
-          await this.eventRollup.refresh(tenantId, spaceId, event);
+          await this.eventRollup.refresh(tenantId, spaceId, event, spaceIntegrationIds);
           // Rebuild complet = référence : le job live par minute repart d'ici.
           await this.redis.set(liveWatermarkKey(event.id), new Date().toISOString(), { ttl: 3 * 24 * 3600 });
 

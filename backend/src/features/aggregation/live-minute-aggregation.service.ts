@@ -9,12 +9,14 @@ import { EventDayFields } from '../../shared/utils/event-window.util';
 import { livePendingKey, liveWatermarkKey } from '../../shared/constants/live-aggregation';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
+import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import {
   buildIntegrationClause,
   buildMatchClause,
   buildMinuteClause,
   insertMinuteAggSql,
   insertMinuteItemAggSql,
+  isUnscopedRangeWindow,
 } from './event-aggregation-sql';
 
 /**
@@ -37,6 +39,7 @@ export class LiveMinuteAggregationService {
     private readonly redis: RedisService,
     private readonly windowResolver: EventWindowResolverService,
     private readonly eventRollup: EventRollupService,
+    private readonly spaceIntegrationScope: SpaceIntegrationScopeService,
   ) {}
 
   async execute(job: Job<AggregationJobEnqueueData>) {
@@ -53,6 +56,8 @@ export class LiveMinuteAggregationService {
       where: { tenantId, spaceId },
       select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true, integrationId: true },
     });
+    // BUG-384-02 : même frontière que le rebuild complet (clause de repli + scope du rollup).
+    const spaceIntegrationIds = await this.spaceIntegrationScope.resolve(tenantId, spaceId);
 
     let minutesProcessed = 0;
     const errors: string[] = [];
@@ -67,6 +72,7 @@ export class LiveMinuteAggregationService {
             spaceTimezone,
             seasonContainerIds,
             allSpaceEvents,
+            spaceIntegrationIds,
           });
         } catch (err) {
           errors.push(`${event.name || event.id}: ${(err as Error).message}`);
@@ -119,11 +125,15 @@ export class LiveMinuteAggregationService {
     spaceTimezone: string;
     seasonContainerIds: Set<string>;
     allSpaceEvents: EventDayFields[];
+    spaceIntegrationIds: string[];
   }): Promise<number> {
-    const { tenantId, spaceId, integrationId, event } = input;
+    const { tenantId, spaceId, integrationId, event, spaceIntegrationIds } = input;
     const window = this.windowResolver.resolveEventWindow(event, input.spaceTimezone, input.seasonContainerIds, input.allSpaceEvents);
+    if (isUnscopedRangeWindow(integrationId, window, spaceIntegrationIds)) {
+      throw new Error(`Aucune intégration mappée à l'espace ${spaceId} : event ${event.id} non rattachable (BUG-384-02)`);
+    }
     const matchClause = buildMatchClause(window, input.seasonContainerIds);
-    const integrationClause = buildIntegrationClause(integrationId, window);
+    const integrationClause = buildIntegrationClause(integrationId, window, spaceIntegrationIds);
 
     const watermark = await this.readWatermark(event.id, event.calculatedAt);
     const since = watermark ? new Date(watermark.getTime() - LiveMinuteAggregationService.OVERLAP_MS) : null;
@@ -150,7 +160,7 @@ export class LiveMinuteAggregationService {
     const sqlInput = { tenantId, spaceId, eventId: event.id, integrationClause, matchClause, minuteClause: buildMinuteClause(minutes) };
     await this.prisma.$executeRaw(insertMinuteAggSql(sqlInput));
     await this.prisma.$executeRaw(insertMinuteItemAggSql(sqlInput));
-    await this.eventRollup.refresh(tenantId, spaceId, event);
+    await this.eventRollup.refresh(tenantId, spaceId, event, spaceIntegrationIds);
 
     const newWatermark = touched.reduce((max, r) => (new Date(r.lastUpdatedAt) > max ? new Date(r.lastUpdatedAt) : max), new Date(0));
     await this.redis.set(liveWatermarkKey(event.id), newWatermark.toISOString(), { ttl: LiveMinuteAggregationService.WATERMARK_TTL_SEC });
