@@ -130,6 +130,7 @@ import { useI18n } from '@/i18n/useI18n'
 import { useLiveData } from '@/composables/useLiveData'
 import { useLiveItemRecords } from '@/composables/useLiveItemRecords'
 import { useMetricsCalculator } from '@/composables/useMetricsCalculator'
+import { buildShopTotals } from '@/utils/liveKpis'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
 import { reconcileRecord } from '@/utils/analyseReconciliation'
 import { useReconciliationContext } from '@/composables/useReconciliationContext'
@@ -332,23 +333,20 @@ const filteredBasketRows = computed(() => {
   })
 })
 
-const filteredShopTotals = computed(() => {
-  const byShop = new Map()
-  for (const r of filteredItemRecords.value) {
-    if (!byShop.has(r.shopId)) byShop.set(r.shopId, { shopId: r.shopId, shopName: r.shopName, revenue: 0, transactionCount: 0, itemsCount: 0 })
-    const s = byShop.get(r.shopId)
-    s.revenue += Number(r.revenue) || 0
-    s.transactionCount += Number(r.transactionCount) || 0
-    s.itemsCount += Number(r.quantity) || 0
-  }
-  return [...byShop.values()]
-})
+// CA / quantités depuis le grain article, tickets depuis les paniers (BUG-382-02).
+const filteredShopTotals = computed(() => buildShopTotals(filteredItemRecords.value, filteredBasketRows.value))
 
 const liveEvents = computed(() => (liveData.event.value ? [liveData.event.value] : []))
 const metrics = useMetricsCalculator({
   filteredShopGranularData: filteredItemRecords,
   chartFilteredEvents: liveEvents,
   menuItemCostMap: itemRecordsSource.menuItemCostMap,
+  // BUG-354-01 / BUG-382-02 : les transactions (donc le panier moyen et la transformation)
+  // viennent des PANIERS, un ticket = une ligne. Le grain article sommait un panier à
+  // N articles N fois : 3 721 affichés pour 1 299 tickets réels sur AJA-Nice 12/09.
+  // `null` pendant le premier chargement (pas de 0 provisoire), les deux sources arrivent
+  // dans le même Promise.all de useLiveData.refresh().
+  transactionRecords: computed(() => (liveData.loading.value ? null : filteredBasketRows.value)),
 })
 
 // Bande KPI du header (parité AnalyseView.vue:1564-1585) — 1 seul event live : « Moy./Évén. »

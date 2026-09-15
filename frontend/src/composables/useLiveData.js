@@ -19,6 +19,7 @@ import { ref, computed } from 'vue'
 import { getSpaceLiveStatus, getSpaceEventTimelineBatch, getSpaceTransactionBasketsBatch } from '@/api/endpoints/space.api'
 import { getEvents } from '@/api/endpoints/event.api'
 import { useLiveStream } from '@/composables/useLiveStream'
+import { buildShopTotals, buildTimelineByMinute, sumBasketTransactions, txPerMinuteFromBaskets } from '@/utils/liveKpis'
 
 // Décision utilisateur (2026-09-01) : pas de "front qui va demander" en boucle, même
 // espacé — le backend sait déjà exactement quand quelque chose change (il publie sur
@@ -143,42 +144,19 @@ export function useLiveData(spaceId) {
     stream.disconnect()
   }
 
-  // ── Par shop, dérivé de timelineRows (déjà scopé au seul event live) — remplace
-  // shop-details (RPC all-time, cf. note d'en-tête), une seule passe de regroupement.
-  const shopTotals = computed(() => {
-    const byShop = new Map()
-    for (const r of timelineRows.value) {
-      if (!byShop.has(r.shopId)) byShop.set(r.shopId, { shopId: r.shopId, shopName: r.shopName, revenue: 0, transactionCount: 0, itemsCount: 0 })
-      const s = byShop.get(r.shopId)
-      s.revenue += Number(r.revenueHt ?? r.revenue) || 0
-      s.transactionCount += Number(r.transactionCount ?? r.transactionsCount) || 0
-      s.itemsCount += Number(r.quantity) || 0
-    }
-    return [...byShop.values()]
-  })
+  // ── Par shop, dérivé de timelineRows (déjà scopé au seul event live) pour le CA et
+  // les quantités, et des PANIERS pour les tickets (BUG-382-02 : le grain article compte
+  // un panier à N articles N fois, cf. utils/liveKpis.js).
+  const shopTotals = computed(() => buildShopTotals(timelineRows.value, basketRows.value))
 
   const revenue = computed(() => shopTotals.value.reduce((s, sh) => s + sh.revenue, 0))
-  const transactionCount = computed(() => shopTotals.value.reduce((s, sh) => s + sh.transactionCount, 0))
+  const transactionCount = computed(() => sumBasketTransactions(basketRows.value))
   const itemsCount = computed(() => shopTotals.value.reduce((s, sh) => s + sh.itemsCount, 0))
   const avgSpendPerTx = computed(() => (transactionCount.value > 0 ? revenue.value / transactionCount.value : 0))
 
-  // TX/min : nombre de minutes distinctes couvertes par la timeline, transactions sur
-  // les 5 dernières minutes connues (fenêtre glissante courte, cohérent avec un "rythme
-  // actuel" plutôt qu'une moyenne depuis l'ouverture des portes).
-  const txPerMinute = computed(() => {
-    const rows = timelineRows.value
-    if (!rows.length) return 0
-    const byMinute = new Map()
-    for (const r of rows) {
-      const key = r.minuteLocal || r.minute
-      byMinute.set(key, (byMinute.get(key) || 0) + (Number(r.transactionsCount ?? r.transactionCount) || 0))
-    }
-    const minutes = [...byMinute.keys()].sort()
-    const lastMinutes = minutes.slice(-5)
-    if (!lastMinutes.length) return 0
-    const total = lastMinutes.reduce((s, m) => s + byMinute.get(m), 0)
-    return total / lastMinutes.length
-  })
+  // TX/min : tickets (paniers) sur les 5 dernières minutes connues, fenêtre glissante
+  // courte, cohérent avec un "rythme actuel" plutôt qu'une moyenne depuis l'ouverture.
+  const txPerMinute = computed(() => txPerMinuteFromBaskets(basketRows.value))
 
   // Répartition par catégories : chaque panier (categoryCombo) crédite ses catégories
   // du nombre de transactions portant cette combinaison — combo null/vide → "Non mappées"
@@ -197,19 +175,8 @@ export function useLiveData(spaceId) {
       .sort((a, b) => b.count - a.count)
   })
 
-  // Timeline agrégée par minute (toutes lignes shop/produit confondues) — pour le
-  // graphique TX/min, pas besoin du détail par produit à ce niveau d'affichage.
-  const timelineByMinute = computed(() => {
-    const byMinute = new Map()
-    for (const r of timelineRows.value) {
-      const key = r.minuteLocal || r.minute
-      if (!byMinute.has(key)) byMinute.set(key, { minute: key, transactions: 0, revenue: 0 })
-      const bucket = byMinute.get(key)
-      bucket.transactions += Number(r.transactionsCount ?? r.transactionCount) || 0
-      bucket.revenue += Number(r.revenueHt) || 0
-    }
-    return [...byMinute.values()].sort((a, b) => (a.minute > b.minute ? 1 : -1))
-  })
+  // Timeline agrégée par minute : CA depuis le grain article, tickets depuis les paniers.
+  const timelineByMinute = computed(() => buildTimelineByMinute(timelineRows.value, basketRows.value))
 
   return {
     isLive, liveSince, eventId, event, shopTotals, loading, error,
