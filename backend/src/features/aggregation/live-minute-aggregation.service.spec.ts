@@ -1,6 +1,7 @@
 import { LiveMinuteAggregationService } from './live-minute-aggregation.service';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
+import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { liveWatermarkKey } from '../../shared/constants/live-aggregation';
 
 const sqlText = (sql: any): string => (sql?.strings ?? []).join('?');
@@ -38,6 +39,8 @@ describe('LiveMinuteAggregationService (BUG-379-02)', () => {
             salesEvent: { findMany: jest.fn().mockResolvedValue([]) },
             spaceRevenueMinuteAgg: { deleteMany: jest.fn(), aggregate: jest.fn().mockResolvedValue({ _sum: { revenueHt: 100, transactionsCount: 10 } }) },
             spaceRevenueMinuteItemAgg: { deleteMany: jest.fn() },
+            // BUG-384-02 : intégration mappée à l'espace (étape 1 du wizard).
+            locationSpaceMapping: { findMany: jest.fn().mockResolvedValue([{ salesLocationId: 'pfc' }]) },
             $queryRaw: jest.fn(),
             $executeRaw: jest.fn().mockResolvedValue(1),
         };
@@ -55,7 +58,13 @@ describe('LiveMinuteAggregationService (BUG-379-02)', () => {
                 { minute: minute1, lastUpdatedAt: new Date('2026-09-12T17:01:30Z') },
                 { minute: minute2, lastUpdatedAt: new Date('2026-09-12T17:03:40Z') },
             ]);
-        service = new LiveMinuteAggregationService(prisma, redis, new EventWindowResolverService(prisma), new EventRollupService(prisma));
+        service = new LiveMinuteAggregationService(
+            prisma,
+            redis,
+            new EventWindowResolverService(prisma),
+            new EventRollupService(prisma),
+            new SpaceIntegrationScopeService(prisma),
+        );
     });
 
     it('recomputes only the touched minutes and advances the watermark', async () => {
@@ -75,6 +84,13 @@ describe('LiveMinuteAggregationService (BUG-379-02)', () => {
         expect(inserts.some((s: string) => s.includes('SpaceProductRevenueDailyAgg'))).toBe(false);
         expect(store.get(liveWatermarkKey('pfc-lyon'))).toBe('2026-09-12T17:03:40.000Z');
         expect(prisma.event.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'pfc-lyon' } }));
+    });
+
+    it('BUG-384-02 : le rollup est restreint aux intégrations mappées à l\'espace', async () => {
+        await service.execute(job());
+        expect(prisma.spaceRevenueMinuteAgg.aggregate).toHaveBeenCalledWith(expect.objectContaining({
+            where: { tenantId: 'tenant', spaceId: 'jean-bouin', weezeventEventId: 'pfc-lyon', integrationId: { in: ['pfc'] } },
+        }));
     });
 
     it('looks for transactions updated since the watermark (with overlap), falling back to calculatedAt', async () => {
