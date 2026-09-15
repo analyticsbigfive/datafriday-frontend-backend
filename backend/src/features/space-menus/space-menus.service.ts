@@ -1238,12 +1238,27 @@ export class SpaceMenusService {
    * d'assignation : tout champ ajouté est réémis autant de fois que l'article est
    * assigné à un PdV. C'est ce qui a fait passer cette réponse à 5,6 Mo / 53 s.
    */
-  async getConfigShopMenuItemsLight(spaceId: string, configId: string, tenantId: string) {
+  async getConfigShopMenuItemsLight(
+    spaceId: string,
+    configId: string,
+    tenantId: string,
+    options: { itemsScope?: 'config' | 'space' } = {},
+  ) {
     const config = await this.prisma.config.findFirst({
       where: { id: configId, spaceId, space: { tenantId } },
       select: { id: true },
     });
     if (!config) return {};
+
+    // BUG-383-02 (règle Bertrand 2026-09-15) : pour l'inventaire pre/post-event, les PdV
+    // restent ceux de LA configuration de l'event (les points de vente ouverts ce soir-là),
+    // mais les articles à compter par PdV sont l'union de toutes les configurations de
+    // l'espace : le stock est physique et le même quel que soit le match (foot et rugby
+    // mélangés, assumé). `config` (défaut) garde le comportement historique (Analyse, Space Menu).
+    const assignmentWhere =
+      options.itemsScope === 'space'
+        ? { enabled: true, menuItem: { deletedAt: null }, config: { spaceId } }
+        : { configId, enabled: true, menuItem: { deletedAt: null } };
 
     const elements = await this.prisma.spaceElement.findMany({
       where: {
@@ -1260,7 +1275,7 @@ export class SpaceMenusService {
         // BUG-058 (réplique du fix BUG-051) : un MenuItem soft-deleted ne doit jamais apparaître
         // ici (sert la page Analyse) même s'il a encore une ligne MenuAssignment(enabled: true).
         menuAssignments: {
-          where: { configId, enabled: true, menuItem: { deletedAt: null } },
+          where: assignmentWhere,
           select: {
             menuItem: {
               // basePrice : additif (2026-07-18) — permet à Space Inventory de
@@ -1289,9 +1304,11 @@ export class SpaceMenusService {
 
     const out: Record<string, { shopName: string; items: { id: string; name: string; category: string; basePrice: number | null }[] }> = {};
     for (const el of elements as any[]) {
+      const seen = new Set<string>();
       const items = (el.menuAssignments || [])
         .map((a: any) => a.menuItem)
-        .filter(Boolean)
+        // Un même article assigné à ce PdV dans plusieurs configurations (itemsScope 'space') : une seule ligne.
+        .filter((mi: any) => mi && !seen.has(mi.id) && seen.add(mi.id))
         .map((mi: any) => ({
           id: mi.id,
           name: mi.name,

@@ -994,8 +994,15 @@ export class InventoryService {
       const [elementId, itemId] = k.split('::');
       const exp = expected.get(k) ?? null;
       const counted = countedBlob?.[elementId]?.[itemId] ?? null;
-      const countedPacked = Number(counted?.packedUnits) || 0;
-      const countedLoose = round2(Number(counted?.looseUnits) || 0);
+      // BUG-383-02 (critère Doors Open) : une ligne sans comptage VALIDÉ prend la valeur
+      // actuelle de Logistic (écart 0) et est marquée `countedSource: 'logistic'`, affichée
+      // « (L) ». Le document ne peut plus contredire le registre, qui garde lui aussi cette
+      // valeur (le push ne concerne que les lignes validées). Une saisie non cochée
+      // « compté » n'est pas un comptage. Sans état Logistic ni comptage : 0, `'none'`.
+      const isValidated = counted?.isCounted === true;
+      const countedSource: 'count' | 'logistic' | 'none' = isValidated ? 'count' : exp ? 'logistic' : 'none';
+      const countedPacked = isValidated ? Number(counted?.packedUnits) || 0 : exp ? exp.packed : 0;
+      const countedLoose = round2(isValidated ? Number(counted?.looseUnits) || 0 : exp ? exp.loose : 0);
       // Conditionnement connu (> 1) uniquement : sinon on laisse la vue
       // convertir avec le référentiel affiché, comme avant (pas de « pack de 1 »
       // fabriqué qui écraserait un conditionnement réel côté écran).
@@ -1026,6 +1033,7 @@ export class InventoryService {
         countedPacked,
         countedLoose,
         countedUnits,
+        countedSource,
         deltaPacked: expectedPacked == null ? null : countedPacked - expectedPacked,
         deltaLoose: expectedLoose == null ? null : round2(countedLoose - expectedLoose),
         deltaUnits:
@@ -1095,9 +1103,18 @@ export class InventoryService {
     countedBlob: Record<string, Record<string, any>>,
     userId?: string,
   ): Promise<{ ok: boolean; reason?: string; lineCount?: number }> {
+    // BUG-383-02 (règle Bertrand 2026-09-15) : seul ce qui a été COMPTÉ (validé) met à jour
+    // Logistic ; le reste garde sa valeur courante. Sans ce filtre, en post-event les
+    // propositions reportées du pre-event (`carriedFromPreEvent`, isCounted=false) étaient
+    // poussées comme un comptage, écrasant le stock d'articles jamais recomptés.
+    const validated: Record<string, Record<string, any>> = {};
     const itemIds = new Set<string>();
-    for (const byItem of Object.values(countedBlob ?? {})) {
-      for (const itemId of Object.keys(byItem ?? {})) itemIds.add(itemId);
+    for (const [elementId, byItem] of Object.entries(countedBlob ?? {})) {
+      for (const [itemId, count] of Object.entries(byItem ?? {})) {
+        if ((count as any)?.isCounted !== true) continue;
+        (validated[elementId] ??= {})[itemId] = count;
+        itemIds.add(itemId);
+      }
     }
     if (!itemIds.size) return { ok: false, reason: 'no-counts' };
 
@@ -1110,8 +1127,8 @@ export class InventoryService {
       countedPacked: number;
       countedLoose: number;
     }> = [];
-    for (const [elementId, byItem] of Object.entries(countedBlob)) {
-      for (const [itemId, count] of Object.entries(byItem ?? {})) {
+    for (const [elementId, byItem] of Object.entries(validated)) {
+      for (const [itemId, count] of Object.entries(byItem)) {
         const resolved = itemKeyById.get(itemId);
         // Orphelin des catalogues (resolveItemKeysByIds) : non adressable côté
         // Logistic, la ligne est écartée.

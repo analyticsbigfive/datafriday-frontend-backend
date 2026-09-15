@@ -67,6 +67,7 @@
     </div>
 
     <!-- Table — variante PRE-event (attendu vs compté) -->
+    <p v-if="isPre && hasLogisticFilled" class="irv-legend">{{ t('invRecoCountedFromLogisticLegend') }}</p>
     <div v-if="isPre" class="irv-tablewrap">
       <table class="irv-table">
         <thead>
@@ -91,14 +92,14 @@
                 {{ g.label || '—' }}
               </td>
               <td>{{ g.expectedUnits == null ? '—' : formatUnits(g.expectedUnits) }}</td>
-              <td>{{ formatUnits(g.countedUnits) }}</td>
+              <td>{{ formatUnits(g.countedUnits) }}<span v-if="g.fromLogistic" class="irv-src-l" :title="t('invRecoCountedFromLogistic')"> (L)</span></td>
               <td><span :class="deltaClass(g.deltaUnits)">{{ formatDelta(g.deltaUnits) }}</span></td>
               <td><span :class="deltaClass(g.deltaValue)">{{ g.deltaValue == null ? '—' : formatMoney(g.deltaValue) }}</span></td>
             </tr>
             <tr v-for="sub in (isExpanded(g.key) ? g.children : [])" :key="`${g.key}::${sub.key}`" class="irv-subrow">
               <td class="irv-col-name irv-subname">{{ sub.label || '—' }}</td>
               <td>{{ sub.expectedUnits == null ? '—' : formatUnits(sub.expectedUnits) }}</td>
-              <td>{{ formatUnits(sub.countedUnits) }}</td>
+              <td>{{ formatUnits(sub.countedUnits) }}<span v-if="sub.fromLogistic" class="irv-src-l" :title="t('invRecoCountedFromLogistic')"> (L)</span></td>
               <td><span :class="deltaClass(sub.deltaUnits)">{{ formatDelta(sub.deltaUnits) }}</span></td>
               <td><span :class="deltaClass(sub.deltaValue)">{{ sub.deltaValue == null ? '—' : formatMoney(sub.deltaValue) }}</span></td>
             </tr>
@@ -385,6 +386,8 @@ const groups = computed(() => {
             countedUnits: 0,
             deltaUnits: null,
             deltaValue: null,
+            // BUG-383-02 : « (L) » sur le total si au moins une ligne du groupe vient de Logistic.
+            fromLogistic: false,
             children: [],
           }
         : {
@@ -407,6 +410,8 @@ const groups = computed(() => {
       g.expectedUnits = foldNullable(g.expectedUnits, l.expectedUnits)
       g.deltaUnits = foldNullable(g.deltaUnits, l.deltaUnits)
       g.deltaValue = foldNullable(g.deltaValue, l.deltaValue)
+      const fromLogistic = l.countedSource === 'logistic'
+      g.fromLogistic = g.fromLogistic || fromLogistic
       g.children.push({
         key: childKeyOf(l) || '—',
         label: childLabelOf(l),
@@ -414,6 +419,7 @@ const groups = computed(() => {
         countedUnits: l.countedUnits || 0,
         deltaUnits: l.deltaUnits,
         deltaValue: l.deltaValue,
+        fromLogistic,
       })
     } else {
       g.soldUnits += l.soldUnits || 0
@@ -453,6 +459,8 @@ const groups = computed(() => {
   })
   return out
 })
+
+const hasLogisticFilled = computed(() => isPre.value && rawLines.value.some((l) => l?.countedSource === 'logistic'))
 
 function isExpanded(key) { return expanded.value.has(key) }
 function toggleExpand(key) {
@@ -622,6 +630,8 @@ function formatDateTime(v) {
 .irv-neg { color: var(--fb-danger, #C62828); font-weight: 600; }
 .irv-pos { color: var(--fb-warning, #B45309); font-weight: 600; }
 .irv-muted { color: var(--fb-faint, #9E9E9E); }
+.irv-src-l { color: var(--fb-muted, #6B7280); font-size: 11px; }
+.irv-legend { margin: 0 0 8px; font-size: 11px; color: var(--fb-muted, #6B7280); }
 .irv-miss {
   color: var(--fb-danger, #C62828);
   font-weight: 700;
