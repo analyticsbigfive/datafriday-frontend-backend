@@ -227,6 +227,15 @@ Ici, le **flux vu de l'écran** :
 
 - Le périmètre compté (PdV F&B, storages) découle de la **configuration** de l'event résolu
   (`ctx.configId`, § 2) — même contexte config que le reste de l'app (06 et 03 pour le détail).
+- **Articles à compter par PdV = union de TOUTES les configurations de l'espace** (règle Bertrand
+  2026-09-15, BUG-383-02) : un PdV n'est ouvert que pour son event, mais son stock est physique et
+  le même quel que soit le match (foot et rugby mélangés, assumé). Backend :
+  `GET /space-menu/:spaceId/:configId/shop-items?itemsScope=space` (`useInventoryData`), même
+  règle côté invité PIN (`GuestPinAccessService.getEnabledMenuItemIds`). L'Analyse et Space Menu
+  restent scopés à une configuration (`itemsScope` absent).
+- **Mise à jour Logistic = uniquement ce qui a été compté** (`isCounted`) : une proposition
+  reportée du pre-event ou une saisie non validée ne touche jamais le registre, le reste garde sa
+  valeur courante (`InventoryService.pushCountToLogistic`, BUG-383-02).
 
 ### 4.7 AppHeader / navigation globale
 

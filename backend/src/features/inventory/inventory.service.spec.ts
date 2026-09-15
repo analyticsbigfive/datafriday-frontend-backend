@@ -648,6 +648,56 @@ describe('InventoryService', () => {
       resetSpy.mockRestore();
     });
 
+    // BUG-383-02 (règle Bertrand 2026-09-15) : seul ce qui a été compté met à jour Logistic,
+    // le reste garde sa valeur. Une proposition reportée du pre-event (isCounted=false) ou une
+    // saisie non validée ne doit jamais devenir un reset de stock.
+    it("ne pousse vers Logistic que les lignes validées (isCounted), jamais les propositions", async () => {
+      const resetSpy = jest.spyOn(logistics, 'reset').mockResolvedValue({} as any);
+      mockPrisma.event.findFirst.mockImplementation(({ where }: any) =>
+        Promise.resolve(where?.id ? { id: 'event-next', name: 'Prochain match' } : null),
+      );
+      wireElements(['shop-1'], [{ id: 'shop-1', name: 'Buvette 1' }]);
+      wireCatalog([
+        { id: 'item-choco', name: 'Barre chocolatée', inventoryNumberOfUnits: 5 },
+        { id: 'item-beer', name: 'Bière', inventoryNumberOfUnits: 6 },
+      ]);
+      mockPrisma.stockLevel.findMany.mockResolvedValue([]);
+      mockPrisma.inventoryCount.findMany.mockResolvedValue([
+        makeCount({ eventId: 'event-next', shopId: 'shop-1', itemId: 'item-choco', packedUnits: 2, looseUnits: 3, isCounted: true }),
+        makeCount({ eventId: 'event-next', shopId: 'shop-1', itemId: 'item-beer', packedUnits: 9, looseUnits: 9, isCounted: false }),
+      ]);
+      mockPrisma.stockReconciliation.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'reco-1', ...data }),
+      );
+
+      await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+
+      const [, dto] = resetSpy.mock.calls[0];
+      expect(dto.lines.map((l: any) => l.itemRefId)).toEqual(['item-choco']);
+      resetSpy.mockRestore();
+    });
+
+    it('aucune ligne validée : aucun recalage Logistic', async () => {
+      const resetSpy = jest.spyOn(logistics, 'reset').mockResolvedValue({} as any);
+      mockPrisma.event.findFirst.mockImplementation(({ where }: any) =>
+        Promise.resolve(where?.id ? { id: 'event-next', name: 'Prochain match' } : null),
+      );
+      wireElements(['shop-1'], [{ id: 'shop-1', name: 'Buvette 1' }]);
+      wireCatalog([{ id: 'item-choco', name: 'Barre chocolatée', inventoryNumberOfUnits: 5 }]);
+      mockPrisma.stockLevel.findMany.mockResolvedValue([]);
+      mockPrisma.inventoryCount.findMany.mockResolvedValue([
+        makeCount({ eventId: 'event-next', shopId: 'shop-1', itemId: 'item-choco', packedUnits: 2, looseUnits: 3, isCounted: false }),
+      ]);
+      mockPrisma.stockReconciliation.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'reco-1', ...data }),
+      );
+
+      await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+
+      expect(resetSpy).not.toHaveBeenCalled();
+      resetSpy.mockRestore();
+    });
+
     it('recalage Logistic en échec : le document de réconciliation est CONSERVÉ', async () => {
       const resetSpy = jest
         .spyOn(logistics, 'reset')

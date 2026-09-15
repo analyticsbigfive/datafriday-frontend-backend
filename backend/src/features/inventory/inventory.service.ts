@@ -1095,9 +1095,18 @@ export class InventoryService {
     countedBlob: Record<string, Record<string, any>>,
     userId?: string,
   ): Promise<{ ok: boolean; reason?: string; lineCount?: number }> {
+    // BUG-383-02 (règle Bertrand 2026-09-15) : seul ce qui a été COMPTÉ (validé) met à jour
+    // Logistic ; le reste garde sa valeur courante. Sans ce filtre, en post-event les
+    // propositions reportées du pre-event (`carriedFromPreEvent`, isCounted=false) étaient
+    // poussées comme un comptage, écrasant le stock d'articles jamais recomptés.
+    const validated: Record<string, Record<string, any>> = {};
     const itemIds = new Set<string>();
-    for (const byItem of Object.values(countedBlob ?? {})) {
-      for (const itemId of Object.keys(byItem ?? {})) itemIds.add(itemId);
+    for (const [elementId, byItem] of Object.entries(countedBlob ?? {})) {
+      for (const [itemId, count] of Object.entries(byItem ?? {})) {
+        if ((count as any)?.isCounted !== true) continue;
+        (validated[elementId] ??= {})[itemId] = count;
+        itemIds.add(itemId);
+      }
     }
     if (!itemIds.size) return { ok: false, reason: 'no-counts' };
 
@@ -1110,8 +1119,8 @@ export class InventoryService {
       countedPacked: number;
       countedLoose: number;
     }> = [];
-    for (const [elementId, byItem] of Object.entries(countedBlob)) {
-      for (const [itemId, count] of Object.entries(byItem ?? {})) {
+    for (const [elementId, byItem] of Object.entries(validated)) {
+      for (const [itemId, count] of Object.entries(byItem)) {
         const resolved = itemKeyById.get(itemId);
         // Orphelin des catalogues (resolveItemKeysByIds) : non adressable côté
         // Logistic, la ligne est écartée.

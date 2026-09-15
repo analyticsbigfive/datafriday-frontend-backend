@@ -320,32 +320,51 @@ export class GuestPinAccessService {
     return v1Config?.id ?? shop.configurationElements?.[0]?.configId ?? null;
   }
 
-  /** Items menu ACTIVÉS pour ce PDV, dans la config de l'événement réellement
-   *  ouvert — même résolution que SpaceMenusService.getShopInventory (shop +
-   *  menuAssignments filtrées par configId+enabled), extraite ici pour ne
-   *  renvoyer que les ids (le catalogue complet vient de getRecipes ensuite). */
+  /** Items menu ACTIVÉS pour ce PDV. BUG-383-02 (règle Bertrand 2026-09-15) : même
+   *  règle que l'écran staff (`getConfigShopMenuItemsLight` itemsScope 'space') : le PDV
+   *  est ouvert pour l'event (sa configuration), mais les articles à compter sont
+   *  l'union de toutes les configurations de l'ESPACE, le stock étant physique. Ne
+   *  renvoie que les ids (le catalogue complet vient de getRecipes ensuite). */
   private async getEnabledMenuItemIds(elementId: string, explicitConfigId?: string | null) {
     const shop = await this.prisma.spaceElement.findFirst({
       where: { id: elementId },
       select: {
         name: true,
-        floor: { select: { config: { select: { id: true } } } },
-        forecourt: { select: { config: { select: { id: true } } } },
-        externalMerch: { select: { config: { select: { id: true } } } },
+        floor: { select: { config: { select: { id: true, spaceId: true } } } },
+        forecourt: { select: { config: { select: { id: true, spaceId: true } } } },
+        externalMerch: { select: { config: { select: { id: true, spaceId: true } } } },
         configurationElements: { select: { configId: true }, orderBy: { createdAt: 'asc' }, take: 1 },
-        menuAssignments: { select: { menuItemId: true, enabled: true, configId: true } },
+        menuAssignments: {
+          where: { enabled: true, menuItem: { deletedAt: null } },
+          select: { menuItemId: true, configId: true, config: { select: { spaceId: true } } },
+        },
       },
     });
     if (!shop) return { elementName: null, enabledIds: [] as string[] };
     const effectiveConfigId = this.resolveShopConfigId(shop as any, explicitConfigId);
+    const spaceId = await this.resolveConfigSpaceId(shop as any, effectiveConfigId);
     const enabledIds = [
       ...new Set<string>(
         ((shop as any).menuAssignments ?? [])
-          .filter((a: any) => (a.configId ?? null) === effectiveConfigId && a.enabled)
+          .filter((a: any) =>
+            spaceId ? a.config?.spaceId === spaceId : (a.configId ?? null) === effectiveConfigId,
+          )
           .map((a: any) => String(a.menuItemId)),
       ),
     ];
     return { elementName: shop.name, enabledIds };
+  }
+
+  /** Espace de la configuration effective (parent v1 déjà chargé, sinon lecture de la config v2). */
+  private async resolveConfigSpaceId(
+    shop: { floor?: any; forecourt?: any; externalMerch?: any },
+    effectiveConfigId: string | null,
+  ): Promise<string | null> {
+    const v1Config = shop.floor?.config ?? shop.forecourt?.config ?? shop.externalMerch?.config;
+    if (v1Config?.id && v1Config.id === effectiveConfigId && v1Config.spaceId) return v1Config.spaceId;
+    if (!effectiveConfigId) return null;
+    const config = await this.prisma.config.findUnique({ where: { id: effectiveConfigId }, select: { spaceId: true } });
+    return config?.spaceId ?? null;
   }
 
   /**

@@ -259,7 +259,11 @@ export function useInventoryData(selectedConfigId) {
       let batchOk = false
       try {
         const { getConfigShopMenuItemsLight } = await import('@/api/endpoints/menu.api')
-        const byShop = (await getConfigShopMenuItemsLight(spaceId, configId)) || {}
+        // BUG-383-02 (règle Bertrand 2026-09-15) : les PdV à compter sont ceux de la
+        // configuration de l'event, mais les articles à compter par PdV sont l'union de
+        // toutes les configurations de l'espace (le stock est physique, foot et rugby
+        // mélangés, assumé). Le fallback per-shop ci-dessous reste scopé par configuration.
+        const byShop = (await getConfigShopMenuItemsLight(spaceId, configId, { itemsScope: 'space' })) || {}
         // Le batch omet les shops sans item activé : absence = « 0 item » (l'union
         // des shops est déjà connue), PAS un échec.
         for (const entry of union) {
