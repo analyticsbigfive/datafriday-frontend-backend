@@ -606,7 +606,46 @@ describe('InventoryService', () => {
       expect(ghost.expectedPacked).toBeNull();
       expect(ghost.deltaPacked).toBeNull();
       expect(ghost.countedPacked).toBe(1);
+      expect(choco.countedSource).toBe('count');
+      expect(ghost.countedSource).toBe('count');
       expect((reco.meta as any).baseline).toEqual({ source: 'logistic-live', asOf: expect.any(Date) });
+    });
+
+    // BUG-383-02 (critère Doors Open) : ce qui n'est pas compté prend la valeur actuelle de
+    // Logistic dans le document, marqué « (L) », écart 0 : document et registre ne peuvent
+    // plus se contredire. Une saisie non validée (isCounted=false) n'est pas un comptage.
+    it("createPreEventReconciliation : ligne non comptée = valeur Logistic, countedSource 'logistic', écart 0", async () => {
+      mockPrisma.event.findFirst.mockImplementation(({ where }: any) =>
+        Promise.resolve(where?.id ? { id: 'event-next', name: 'Prochain match' } : null),
+      );
+      wireElements(['shop-1'], [{ id: 'shop-1', name: 'Buvette 1' }]);
+      wireCatalog([
+        { id: 'item-choco', name: 'Barre chocolatée', inventoryNumberOfUnits: 5 },
+        { id: 'item-beer', name: 'Bière', inventoryNumberOfUnits: 6 },
+        { id: 'item-ghost', name: 'Carotte râpée' },
+      ]);
+      mockPrisma.stockLevel.findMany.mockResolvedValue([
+        { elementId: 'shop-1', itemKey: 'Barre chocolatée', packedUnits: 2, looseUnits: 4, unitsPerPack: 5 },
+        { elementId: 'shop-1', itemKey: 'Bière', packedUnits: 3, looseUnits: 1, unitsPerPack: 6 },
+      ]);
+      mockPrisma.inventoryCount.findMany.mockResolvedValue([
+        // Saisie mais pas cochée « compté » : ne compte pas.
+        makeCount({ eventId: 'event-next', shopId: 'shop-1', itemId: 'item-beer', packedUnits: 9, looseUnits: 9, isCounted: false }),
+        // Jamais suivi par Logistic ET non validé : 0, source none.
+        makeCount({ id: 'cnt-2', eventId: 'event-next', shopId: 'shop-1', itemId: 'item-ghost', packedUnits: 1, looseUnits: 0, isCounted: false }),
+      ]);
+      mockPrisma.stockReconciliation.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'reco-1', ...data }),
+      );
+
+      const reco = await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+      const byKey = (k: string) => (reco.lines as any[]).find((l: any) => l.itemKey === k);
+
+      // Jamais saisi : Logistic (L), écart 0.
+      expect(byKey('item-choco')).toMatchObject({ countedSource: 'logistic', countedPacked: 2, countedLoose: 4, countedUnits: 14, deltaUnits: 0 });
+      // Saisi sans validation : idem, la saisie 9/9 est ignorée.
+      expect(byKey('item-beer')).toMatchObject({ countedSource: 'logistic', countedPacked: 3, countedLoose: 1, deltaPacked: 0, deltaLoose: 0 });
+      expect(byKey('item-ghost')).toMatchObject({ countedSource: 'none', countedPacked: 0, countedLoose: 0, expectedPacked: null });
     });
 
     // PDF 2026-08-21 + précision JLH : « idéalement reset sur pre ou post event
@@ -1144,7 +1183,8 @@ describe('InventoryService', () => {
           where?.eventId === 'event-next' && !where?.kind
             ? makeSnapshot({
                 eventId: 'event-next',
-                inventoryCounts: { 'shop-1': { 'item-coke': { packedUnits: 4, looseUnits: 20 } } },
+                // isCounted : sans validation, la ligne prendrait la valeur Logistic (BUG-383-02).
+                inventoryCounts: { 'shop-1': { 'item-coke': { packedUnits: 4, looseUnits: 20, isCounted: true } } },
               })
             : null,
         ),

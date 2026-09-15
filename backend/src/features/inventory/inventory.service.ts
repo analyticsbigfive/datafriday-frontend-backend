@@ -994,8 +994,15 @@ export class InventoryService {
       const [elementId, itemId] = k.split('::');
       const exp = expected.get(k) ?? null;
       const counted = countedBlob?.[elementId]?.[itemId] ?? null;
-      const countedPacked = Number(counted?.packedUnits) || 0;
-      const countedLoose = round2(Number(counted?.looseUnits) || 0);
+      // BUG-383-02 (critère Doors Open) : une ligne sans comptage VALIDÉ prend la valeur
+      // actuelle de Logistic (écart 0) et est marquée `countedSource: 'logistic'`, affichée
+      // « (L) ». Le document ne peut plus contredire le registre, qui garde lui aussi cette
+      // valeur (le push ne concerne que les lignes validées). Une saisie non cochée
+      // « compté » n'est pas un comptage. Sans état Logistic ni comptage : 0, `'none'`.
+      const isValidated = counted?.isCounted === true;
+      const countedSource: 'count' | 'logistic' | 'none' = isValidated ? 'count' : exp ? 'logistic' : 'none';
+      const countedPacked = isValidated ? Number(counted?.packedUnits) || 0 : exp ? exp.packed : 0;
+      const countedLoose = round2(isValidated ? Number(counted?.looseUnits) || 0 : exp ? exp.loose : 0);
       // Conditionnement connu (> 1) uniquement : sinon on laisse la vue
       // convertir avec le référentiel affiché, comme avant (pas de « pack de 1 »
       // fabriqué qui écraserait un conditionnement réel côté écran).
@@ -1026,6 +1033,7 @@ export class InventoryService {
         countedPacked,
         countedLoose,
         countedUnits,
+        countedSource,
         deltaPacked: expectedPacked == null ? null : countedPacked - expectedPacked,
         deltaLoose: expectedLoose == null ? null : round2(countedLoose - expectedLoose),
         deltaUnits:

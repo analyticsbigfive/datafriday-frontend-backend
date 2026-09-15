@@ -24,6 +24,10 @@ Mesuré en base sur Jean Bouin (7 configurations) : 39 events liés à "Plan Max
 - Les articles par PdV sont l'union de toutes les configurations de l'espace : mélanger foot et rugby n'est pas un problème, en post-event on compte des choses réutilisables pour un autre type d'event.
 - Mise à jour Logistic : uniquement ce qui a été compté ; le non-compté garde la valeur présente dans Logistic, jamais remis à 0.
 
+## Note sur le document de test (2026-09-15, après-midi)
+
+Le critère "Pre-event Inventory, premier chargement" du document de test dit "les PDVs présentés sont tous les PDVs agrégés pour toutes les configurations de l'espace". Vérifié et confirmé avec Bertrand : **le document de test est faux sur ce point**, la règle reste "PdV de la configuration de l'event". Une variante "tous les PdV de l'espace" a été codée puis retirée le jour même pour ne pas réintroduire la dette (buvettes rugby à 0 dans un inventaire PFC). Le document de test est à corriger.
+
 ## Correction
 
 - `getConfigShopMenuItemsLight(spaceId, configId, tenantId, { itemsScope })` : `itemsScope: 'space'` garde les PdV de la configuration mais lit `MenuAssignment` avec `config: { spaceId }` (toutes les configurations de l'espace), dédup par article. Query `?itemsScope=space` sur `GET /space-menu/:spaceId/:configId/shop-items`. Défaut inchangé (`config`) pour l'Analyse et Space Menu.
@@ -31,6 +35,12 @@ Mesuré en base sur Jean Bouin (7 configurations) : 39 events liés à "Plan Max
 - Invité PIN : `getEnabledMenuItemIds` applique la même union (configs du même espace, jamais un autre espace).
 - `pushCountToLogistic` ne construit des lignes que pour `isCounted === true` ; aucune ligne validée = pas de reset (`no-counts`). `LogisticsService.reset` préservait déjà les niveaux non couverts (consommation dérivée matérialisée, pas de remise à 0), la règle Bertrand est donc respectée de bout en bout.
 - Tests : `space-menus.shop-items-light.spec.ts`, `guest-pin-access.catalog.spec.ts`, `inventory.service.spec.ts` (2 cas push).
+
+### Complément Doors Open (2026-09-15, après-midi)
+
+Critère "Heure d'ouverture des portes" du document de test : "ce qui n'a pas été compté prend la valeur actuelle de la logistique ; dans le document de réconciliation, les valeurs générées automatiquement sont suivies de (L)". Constat : `createPreEventReconciliation` écrivait `compté = 0` pour une ligne non comptée, donc un faux écart de tout l'attendu, alors que le registre Logistic gardait sa valeur (document et registre se contredisaient). Aucun marqueur "(L)" n'existait.
+
+Fix : ligne sans comptage validé → compté = attendu Logistic, écart 0, `countedSource: 'logistic'` (`'count'` si validée, `'none'` sans Logistic ni comptage) ; la vue `InventoryReconciliationView` affiche « (L) » (ligne et total de groupe) + légende. Appliqué à toute réconciliation pre-event, pas seulement à Doors Open (un document régénéré en cours de comptage montre "pas encore compté = Logistic" au lieu d'un faux écart). Une saisie non cochée « compté » est traitée comme non comptée, comme pour le push Logistic (à confirmer avec Bertrand si besoin, question 70 du tracker sur le périmètre "compté").
 
 ## Risque de régression / à surveiller
 
