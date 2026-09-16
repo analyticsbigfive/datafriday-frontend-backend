@@ -31,8 +31,12 @@ describe('GuestPinAccessService : fin de l\'inventaire pre-event (invité)', () 
                     floor: { config: { spaceId: 'space-1' } },
                 }),
             },
-            inventoryWindow: { findFirst: jest.fn().mockResolvedValue(null) },
-            guestPinAccess: { findUnique: jest.fn().mockResolvedValue(null) },
+            inventoryWindow: {
+                findMany: jest.fn().mockResolvedValue([]),
+                count: jest.fn().mockResolvedValue(0),
+                findFirst: jest.fn().mockResolvedValue(null),
+            },
+            guestPinAccess: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
         };
         preEventFlow = { regenerate: jest.fn().mockResolvedValue({ ok: true, reconciliationId: 'reco-1', lineCount: 3 }) };
         redis = { get: jest.fn().mockResolvedValue(0), ttl: jest.fn().mockResolvedValue(0), set: jest.fn(), incr: jest.fn() };
@@ -67,8 +71,12 @@ describe('GuestPinAccessService : fin de l\'inventaire pre-event (invité)', () 
         });
 
         it("le lien QR affiche « Accès inactif » tant qu'aucun PIN n'a été généré", async () => {
-            prisma.inventoryWindow.findFirst.mockResolvedValue({ id: 'win-1', pinLookupHash: null });
+            // Une fenêtre ouverte sans PIN est filtrée par la requête (pinLookupHash not null).
+            prisma.inventoryWindow.findMany.mockResolvedValue([]);
             expect(await service.getPublicContext('buvette-d')).toEqual({ elementName: 'Buvette D', active: false });
+            expect(prisma.inventoryWindow.findMany).toHaveBeenCalledWith(
+                expect.objectContaining({ where: expect.objectContaining({ status: 'open', pinLookupHash: { not: null } }) }),
+            );
         });
 
         it('le login est refusé (inactive) sans fenêtre ouverte, sans compter un échec de PIN', async () => {
