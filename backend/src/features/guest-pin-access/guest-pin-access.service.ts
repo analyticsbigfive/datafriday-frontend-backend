@@ -136,27 +136,33 @@ export class GuestPinAccessService {
    * une tentative de PIN). Ne révèle jamais le PIN ni son statut détaillé.
    *
    * UN SEUL lien par PDV (décision produit 2026-09-08) : le même QR sert avant ET après
-   * l'événement — en pratique jamais les deux fenêtres ouvertes en même temps (le
-   * directeur clôture le pré-event avant d'ouvrir le post-event), donc la phase se
-   * déduit de LA fenêtre actuellement ouverte, pas de l'URL.
+   * l'événement. Les fenêtres pre-event et post-event PEUVENT être ouvertes en même
+   * temps (post-event ouvert avant que le cron Doors Open n'ait clôturé le pre-event,
+   * ou test d'un post-event sur un autre match) : la phase n'est donc jamais déduite
+   * ici, c'est le PIN saisi qui désigne la fenêtre (cf. `login`). Avant saisie, le
+   * PDV est "actif" dès qu'au moins une fenêtre ouverte avec PIN ne l'a pas révoqué.
    */
   async getPublicContext(slug: string): Promise<GuestPinPublicContext> {
     const element = await this.resolveElementBySlug(slug);
     if (!element || !element.spaceId) return { elementName: element?.name ?? null, active: false };
 
-    const window = await this.prisma.inventoryWindow.findFirst({
-      where: { spaceId: element.spaceId, status: 'open' },
-      select: { id: true, pinLookupHash: true },
+    const windows = await this.prisma.inventoryWindow.findMany({
+      where: { spaceId: element.spaceId, status: 'open', pinLookupHash: { not: null } },
+      select: { id: true },
     });
-    if (!window || !window.pinLookupHash) return { elementName: element.name, active: false };
+    if (!windows.length) return { elementName: element.name, active: false };
 
     // Ce PDV précis a pu être révoqué individuellement — la fenêtre reste ouverte
     // pour les autres, mais l'écran de connexion doit refléter SON statut à lui.
-    const access = await this.prisma.guestPinAccess.findUnique({
-      where: { uniq_guest_pin_access_per_element: { windowId: window.id, elementId: element.id } },
-      select: { status: true },
+    const revoked = await this.prisma.guestPinAccess.findMany({
+      where: {
+        windowId: { in: windows.map((w) => w.id) },
+        elementId: element.id,
+        status: { not: 'active' },
+      },
+      select: { windowId: true },
     });
-    const active = !access || access.status === 'active';
+    const active = revoked.length < windows.length;
     return { elementName: element.name, active };
   }
 
@@ -184,22 +190,30 @@ export class GuestPinAccessService {
     }
 
     const element = await this.resolveElementBySlug(slug);
-    const window = element?.spaceId
-      ? await this.prisma.inventoryWindow.findFirst({ where: { spaceId: element.spaceId, status: 'open' } })
-      : null;
+    const armed = element?.spaceId
+      ? await this.prisma.inventoryWindow.count({
+          where: { spaceId: element.spaceId, status: 'open', pinLookupHash: { not: null } },
+        })
+      : 0;
 
-    // PDV inconnu, pas de fenêtre ouverte pour son espace, ou fenêtre sans PIN encore
-    // généré — même écran "Accès inactif" (déjà annoncé par getPublicContext avant
-    // toute saisie). Pas de compteur d'échec ici : rien à brute-forcer, aucun PIN
-    // n'est comparé.
-    if (!element || !window || !window.pinLookupHash) {
+    // PDV inconnu, ou aucune fenêtre ouverte AVEC PIN pour son espace — même écran
+    // "Accès inactif" (déjà annoncé par getPublicContext avant toute saisie). Pas de
+    // compteur d'échec ici : rien à brute-forcer, aucun PIN n'est comparé.
+    if (!element || !armed) {
       return { state: 'inactive' };
     }
-    // `window` n'a été résolu que quand `element.spaceId` était non-null (ligne
+    // `armed` n'est non nul que quand `element.spaceId` était non-null (ligne
     // ci-dessus) — TS ne le déduit pas à travers deux variables distinctes.
     const spaceId = element.spaceId as string;
 
-    if (this.hashPin(pin) !== window.pinLookupHash) {
+    // C'est le PIN qui désigne la fenêtre (pinLookupHash est unique) : pre-event et
+    // post-event peuvent être ouvertes en même temps sur le même espace, un
+    // findFirst "n'importe quelle fenêtre ouverte" comparait alors le PIN
+    // post-event au hash pre-event et le rejetait.
+    const window = await this.prisma.inventoryWindow.findFirst({
+      where: { spaceId, status: 'open', pinLookupHash: this.hashPin(pin) },
+    });
+    if (!window) {
       const count = await this.registerLoginFailure(rlKey);
       return { state: 'not_found', attemptsRemaining: Math.max(PIN_LOGIN_MAX_ATTEMPTS - count, 0) };
     }
