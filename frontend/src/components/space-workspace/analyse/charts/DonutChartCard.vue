@@ -46,7 +46,8 @@
           </template>
           <v-list-item-title class="legend-text" :title="label">{{ label }}</v-list-item-title>
           <template #append>
-            <span class="legend-value">{{ formatValue(values[idx]) }}</span>
+            <span class="legend-value">{{ formatBase(values[idx]) }}</span>
+            <span v-if="showPercent" class="legend-share">{{ formatShare(values[idx], valuesTotal) }}</span>
           </template>
         </v-list-item>
       </v-list>
@@ -68,7 +69,7 @@ import { ref, computed, watch } from 'vue'
 import { Doughnut } from 'vue-chartjs'
 import { useTheme } from 'vuetify'
 import { registerChartJs } from '@/lib/chartjs'
-import { formatCurrencyDetailed, formatNumber, formatShare } from '@/composables/useFormatters'
+import { formatCurrency, formatNumber, formatShare } from '@/composables/useFormatters'
 import { useI18n } from '@/i18n/useI18n'
 import { useFilters } from '@/composables/useFilters'
 import AnalyseSkeletonVeil from '@/components/space-workspace/analyse/AnalyseSkeletonVeil.vue'
@@ -138,13 +139,21 @@ const valuesTotal = computed(() =>
   props.percentBase ?? (props.values || []).reduce((sum, v) => sum + (Number(v) || 0), 0),
 )
 
+// Montant seul (sans la part) : la légende l'affiche dans sa propre colonne,
+// le % dans une seconde colonne de largeur fixe pour que tout soit aligné.
+// CA en 0 décimale : ce sont des totaux (décision UI 2026-07-12, cf.
+// useFormatters.js), et les « ,00 » forçaient des retours à la ligne.
+function formatBase(v) {
+  return props.mode === 'quantity'
+    ? formatNumber(v) + ' u'
+    : props.mode === 'count'
+      ? formatNumber(v) + (props.unitLabel ? ` ${props.unitLabel}` : '')
+      : formatCurrency(v)
+}
+
+// Montant + part sur une ligne (tooltip du donut).
 function formatValue(v) {
-  const base =
-    props.mode === 'quantity'
-      ? formatNumber(v) + ' u'
-      : props.mode === 'count'
-        ? formatNumber(v) + (props.unitLabel ? ` ${props.unitLabel}` : '')
-        : formatCurrencyDetailed(v)
+  const base = formatBase(v)
   if (!props.showPercent) return base
   const share = formatShare(v, valuesTotal.value)
   return share ? `${base} · ${share}` : base
@@ -308,6 +317,7 @@ const chartOptions = computed(() => ({
 .legend-text {
   font-size: var(--fs-xs)!important;
   color: #424242;
+  min-width: 0;
   /* Les libellés de COMBINAISON (« Boissons Soft, Salé Chaud, Sides ») dépassent
      largement la largeur de la légende : on tronque proprement plutôt que de
      laisser le texte pousser la valeur hors de la carte. Le libellé complet reste
@@ -316,10 +326,44 @@ const chartOptions = computed(() => ({
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.legend-value {
+/* Colonnes montant + part : jamais de retour à la ligne, chiffres tabulaires
+   pour que les lignes s'alignent verticalement ; le libellé (1fr, ellipsis) est
+   le seul à céder de la place. La colonne % a une largeur fixe (« 100,0 % »)
+   afin que les montants restent calés à droite quelle que soit la part. */
+.legend-value,
+.legend-share {
   font-size: var(--fs-xs);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.legend-value {
   color: #212121;
   font-weight: 600;
+}
+.legend-value {
+  margin-left: 8px;
+}
+.legend-share {
+  color: #757575;
+  min-width: 3rem;
+  margin-left: 4px;
+  text-align: right;
+}
+/* Vuetify laisse la colonne contenu déborder au lieu de tronquer : sans ce
+   min-width:0 l'ellipsis du libellé ne s'applique pas et c'est la valeur qui
+   passe à la ligne. */
+.donut-card :deep(.v-list-item__content) {
+  min-width: 0;
+}
+.donut-card :deep(.v-list-item__append) {
+  flex: none;
+}
+/* Les spacers Vuetify (32px devant ET derrière le contenu) mangeaient 64px sur
+   une ligne qui en fait ~260 en colonne étroite : le libellé finissait tronqué
+   à une lettre (« P€216 575 »). Le point de légende et la valeur portent déjà
+   leurs propres marges. */
+.donut-card :deep(.v-list-item__spacer) {
+  display: none;
 }
 .show-all {
   display: block;
@@ -359,6 +403,9 @@ const chartOptions = computed(() => ({
 }
 .donut-card--dark .legend-value {
   color: #f9fafb;
+}
+.donut-card--dark .legend-share {
+  color: #94a3b8;
 }
 /* Skeleton : shimmer clair (#EEEEEE/#F7F7F7) invisible ou éblouissant sur fond
    sombre → même animation, couleurs recalées sur la famille de surfaces sombres. */
