@@ -272,6 +272,7 @@ import NumberField from '@/components/common/NumberField.vue'
 import HrSpaceEditDrawer from '@/components/hr/HrSpaceEditDrawer.vue'
 import { useHrSpaceGoalRatio } from '@/composables/useHrSpaceGoalRatio'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
+import { staffSliderBounds } from '@/utils/staffScheduleBounds'
 
 const PATCH_DEBOUNCE_MS = 500
 const STEP = 15 // minutes
@@ -349,10 +350,20 @@ const dayStart = computed(() => {
 })
 const toMin = (iso) => Math.round((new Date(iso).getTime() - dayStart.value.getTime()) / 60_000)
 const toIso = (min) => new Date(dayStart.value.getTime() + min * 60_000).toISOString()
-const bounds = computed(() => ({
-  min: schedule.value ? toMin(schedule.value.startTime) : 0,
-  max: schedule.value ? toMin(schedule.value.endTime) : 24 * 60,
-}))
+// Bornes du curseur = fenêtre suggérée (portes − 2 h → fin + 1 h), ÉLARGIE aux
+// horaires des lignes qui en sortent (ligne modifiée à la main avant un
+// changement d'heures de l'event) : un curseur borné plus étroit que sa valeur
+// affichait un thumb collé au bord et une plage fausse.
+const bounds = computed(() =>
+  staffSliderBounds(
+    {
+      min: schedule.value ? toMin(schedule.value.startTime) : 0,
+      max: schedule.value ? toMin(schedule.value.endTime) : 24 * 60,
+    },
+    elements.value,
+    toMin,
+  ),
+)
 function fmtTime(min) {
   const h = Math.floor(min / 60) % 24
   const m = ((min % 60) + 60) % 60
