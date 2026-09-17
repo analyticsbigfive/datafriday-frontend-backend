@@ -68,7 +68,7 @@ import { ref, computed, watch } from 'vue'
 import { Doughnut } from 'vue-chartjs'
 import { useTheme } from 'vuetify'
 import { registerChartJs } from '@/lib/chartjs'
-import { formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
+import { formatCurrencyDetailed, formatNumber, formatShare } from '@/composables/useFormatters'
 import { useI18n } from '@/i18n/useI18n'
 import { useFilters } from '@/composables/useFilters'
 import AnalyseSkeletonVeil from '@/components/space-workspace/analyse/AnalyseSkeletonVeil.vue'
@@ -101,9 +101,14 @@ const props = defineProps({
   loading: { type: Boolean, default: false },
   // Suffixe d'unité en `mode="count"` (ex. « tx »). Vide = aucun suffixe.
   unitLabel: { type: String, default: '' },
-  // Ajoute la part en % du total à côté de la valeur. Utile quand la LECTURE du
-  // donut est le pourcentage lui-même (répartition des paniers) et non le montant.
-  showPercent: { type: Boolean, default: false },
+  // Part en % du total à côté de la valeur. Activé par défaut depuis la demande
+  // « pourcentages sur toutes les légendes » (2026-09-17) : la lecture d'un donut
+  // est d'abord une répartition, le montant vient ensuite.
+  showPercent: { type: Boolean, default: true },
+  // Base du % quand les `values` ne couvrent PAS tout le total (ex. « Top 10 »
+  // d'une liste de 69 articles) : sans elle, 100 % serait le top 10 et non le CA
+  // réel. null = somme des `values`.
+  percentBase: { type: Number, default: null },
 })
 
 const emit = defineEmits(['slice-click'])
@@ -130,7 +135,7 @@ const visibleLabels = computed(() =>
 )
 
 const valuesTotal = computed(() =>
-  (props.values || []).reduce((sum, v) => sum + (Number(v) || 0), 0),
+  props.percentBase ?? (props.values || []).reduce((sum, v) => sum + (Number(v) || 0), 0),
 )
 
 function formatValue(v) {
@@ -141,9 +146,8 @@ function formatValue(v) {
         ? formatNumber(v) + (props.unitLabel ? ` ${props.unitLabel}` : '')
         : formatCurrencyDetailed(v)
   if (!props.showPercent) return base
-  const total = valuesTotal.value
-  if (!total) return base
-  return `${base} · ${((Number(v) || 0) / total * 100).toFixed(1).replace('.', ',')} %`
+  const share = formatShare(v, valuesTotal.value)
+  return share ? `${base} · ${share}` : base
 }
 
 function itemKeyAt(index) {
