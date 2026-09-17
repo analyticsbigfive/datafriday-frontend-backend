@@ -62,6 +62,16 @@ export function formatPercent(value, digits = 1, locale = null) {
   return `${formatSpacedGroups(nf, n)}%`
 }
 
+// Part d'une valeur dans un total, rendue « 15,6 % » (1 décimale, virgule,
+// espace avant le signe). Même rendu partout où une légende ou une carte
+// affiche une répartition (donuts Analyse, cartes par type d'article).
+// Total nul ou absent → chaîne vide : l'appelant n'affiche alors rien.
+export function formatShare(value, total) {
+  const t = Number(total)
+  if (!t) return ''
+  return `${((Number(value) || 0) / t * 100).toFixed(1).replace('.', ',')} %`
+}
+
 export function formatVariation(value, digits = 1, locale = null) {
   const n = Number(value)
   if (value == null || Number.isNaN(n)) return ''

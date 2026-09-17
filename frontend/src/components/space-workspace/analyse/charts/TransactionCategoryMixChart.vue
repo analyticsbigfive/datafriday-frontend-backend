@@ -37,7 +37,6 @@
           :colors="byCategory.colors"
           mode="count"
           :unit-label="t('anTxUnit')"
-          show-percent
           :max-legend="MAX_LEGEND"
           clickable
           :loading="loading"
@@ -54,7 +53,6 @@
           :colors="byItem.colors"
           mode="count"
           :unit-label="t('anTxUnit')"
-          show-percent
           :max-legend="MAX_LEGEND"
           :loading="loading"
         />
