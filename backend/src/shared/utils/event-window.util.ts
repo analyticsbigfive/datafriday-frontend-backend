@@ -80,9 +80,30 @@ export interface EventDayFields {
   eventEndDate?: Date | string | null;
   eventEndTime?: string | null;
   integrationId?: string | null;
+  /** `Event.sessions` brut (JSON sérialisé, cf. parseEventSessions) : porte `doorsOpening`. */
+  sessions?: unknown;
 }
 
 const startDayOf = (e: EventDayFields): Date => new Date((e.eventStartDate ?? e.eventDate) as any);
+
+/**
+ * Instant réel d'ouverture des portes : `sessions[].doorsOpening` (la plus tôt des sessions
+ * valides, heure locale du space) posée sur le jour de début. `null` si aucune heure n'est
+ * renseignée : `eventDate`/`eventStartDate` sont des jours calendaires ancrés à minuit, jamais
+ * une heure d'ouverture (100 % des events en base sont à 00:00), s'y replier déclencherait tout
+ * flux « portes ouvertes » à 02:00 du matin. L'appelant décide quoi faire sans heure (flux
+ * Pre-event Inventory : aucun verrou, déclenchement manuel).
+ */
+export function resolveDoorsOpenAt(e: EventDayFields, timeZone: string): Date | null {
+  const day = startDayOf(e);
+  if (Number.isNaN(day.getTime())) return null;
+  let earliest: Date | null = null;
+  for (const session of parseEventSessions(e.sessions)) {
+    const at = combineDayAndLocalTime(day, session.doorsOpening ?? null, timeZone);
+    if (at && (!earliest || at < earliest)) earliest = at;
+  }
+  return earliest;
+}
 const endDayOf = (e: EventDayFields): Date =>
   new Date((e.eventEndDate ?? e.eventStartDate ?? e.eventDate) as any);
 

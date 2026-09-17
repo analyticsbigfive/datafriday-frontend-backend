@@ -2,6 +2,10 @@ import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nest
 import { PrismaService } from '../../core/database/prisma.service';
 import { InventoryService } from './inventory.service';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
+import {
+  resolveDoorsOpenAt,
+  resolveEventTransactionWindow,
+} from '../../shared/utils/event-window.util';
 
 /** Événement tel que lu pour le flux (sélection minimale, partagée cron/service). */
 export interface FlowEvent {
@@ -12,6 +16,11 @@ export interface FlowEvent {
   eventDate: Date;
   eventStartDate: Date | null;
   eventEndDate?: Date | null;
+  eventEndTime?: string | null;
+  /** `Event.sessions` brut : porte l'heure d'ouverture des portes (`doorsOpening`). */
+  sessions?: unknown;
+  /** Fuseau du space (`Space.timezone`), dans lequel `doorsOpening` est saisi. */
+  timezone: string;
 }
 
 export type PreEventRegenerateTrigger =
@@ -25,6 +34,18 @@ export interface PreEventRegenerateResult {
   reason?: string;
   reconciliationId?: string;
   lineCount?: number;
+  /** Document créé (expurgé selon `canSeeExpected`), pour l'appel manuel. */
+  document?: unknown;
+}
+
+export type PreEventWindowPhase = 'no-doors-open' | 'before' | 'editing' | 'locked';
+
+/** État de la fenêtre d'édition pre-event, exposé au front (instants UTC). */
+export interface PreEventWindowState {
+  phase: PreEventWindowPhase;
+  doorsOpenAt: Date | null;
+  editDeadline: Date | null;
+  doorsOpenDone: boolean;
 }
 
 /**
@@ -33,21 +54,30 @@ export interface PreEventRegenerateResult {
  *
  *  1. Quand TOUS les articles d'un PDV sont marqués comptés (signalé par le front,
  *     staff ou invité PIN : lui seul connaît la liste explosée des articles), la
- *     réconciliation pre-event est (re)générée et la Logistique recalée avec
- *     toutes les valeurs saisies, même si les autres PDV ne sont pas finis.
- *  2. À l'ouverture des portes (`eventStartDate ?? eventDate`, aucun signal
- *     "portes ouvertes" n'existe dans les données), même chose, une seule fois
- *     (marqueur KvStore), et la fenêtre invité pre-event est clôturée : les
- *     managers sans login n'écrivent plus.
+ *     réconciliation pre-event est (re)générée et la Logistique recalée avec les
+ *     comptages nouveaux ou modifiés, même si les autres PDV ne sont pas finis.
+ *  2. À l'ouverture des portes, même chose, une seule fois (marqueur KvStore), et
+ *     la fenêtre invité pre-event est clôturée : les managers sans login
+ *     n'écrivent plus.
  *  3. Pendant les 30 minutes qui suivent, les utilisateurs avec login peuvent
  *     encore modifier ; chaque écriture marque la feuille "à régénérer"
  *     (KvStore), et le cron la régénère à la minute suivante, Logistique
  *     comprise. Au-delà, l'écriture pre-event est refusée (403).
  *
- * UNE feuille par match : chaque régénération remplace la précédente (le besoin
- * prédit archivé sur l'ancienne feuille est conservé, le serveur ne sait pas le
- * recalculer). Séparé d'InventoryService pour ne pas alourdir un fichier déjà
- * dense ; ce service en dépend, jamais l'inverse.
+ * "Doors Open" = `sessions[].doorsOpening` (heure locale du space) posée sur le
+ * jour de l'event. `eventDate`/`eventStartDate` sont des jours calendaires ancrés
+ * à minuit, jamais une heure : s'y replier verrouillait l'inventaire à 02:30 du
+ * matin le jour du match. SANS heure renseignée : aucun verrou, aucune clôture
+ * automatique ; il reste le déclencheur "PDV complet" et le passage manuel
+ * (`runDoorsOpen` via l'endpoint dédié).
+ *
+ * UNE feuille par match : chaque régénération remplace la précédente en
+ * reprenant telles quelles les lignes déjà poussées et inchangées (écarts figés)
+ * et ne pousse vers Logistic que l'incrément (cf. InventoryService). Les
+ * régénérations d'un même match sont sérialisées en mémoire (cron et HTTP vivent
+ * dans le même process ; un second process exigerait un verrou en base).
+ * Séparé d'InventoryService pour ne pas alourdir un fichier déjà dense ; ce
+ * service en dépend, jamais l'inverse.
  */
 @Injectable()
 export class PreEventInventoryFlowService {
@@ -55,9 +85,15 @@ export class PreEventInventoryFlowService {
 
   /** Fenêtre d'édition staff après l'ouverture des portes. */
   static readonly EDIT_WINDOW_MINUTES = 30;
+  /** Au-delà de la fin de la fenêtre + cette marge, le passage "portes ouvertes"
+   *  rattrapé (cron arrêté, redéploiement) ne pousse plus rien vers Logistic. */
+  static readonly LATE_GRACE_MINUTES = 5;
 
   static readonly DOORS_OPEN_MARKER_PREFIX = 'live-pre-event-init';
   static readonly DIRTY_MARKER_PREFIX = 'pre-event-reco-dirty';
+
+  /** File d'attente par match : une régénération à la fois. */
+  private readonly regenerateQueues = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -66,17 +102,53 @@ export class PreEventInventoryFlowService {
 
   // ── Dates ────────────────────────────────────────────────────────────────────
 
-  /** "Doors Open" = `eventStartDate ?? eventDate` (décision 2026-09-14, même
-   *  proxy que le cron live-init historique). */
-  doorsOpenAt(event: Pick<FlowEvent, 'eventDate' | 'eventStartDate'>): Date {
-    return event.eventStartDate ?? event.eventDate;
+  /** Instant réel d'ouverture des portes, `null` si aucune heure n'est renseignée. */
+  doorsOpenAt(event: FlowEvent): Date | null {
+    return resolveDoorsOpenAt(event, event.timezone || 'Europe/Paris');
   }
 
-  editDeadline(event: Pick<FlowEvent, 'eventDate' | 'eventStartDate'>): Date {
+  editDeadline(event: FlowEvent): Date | null {
+    const doorsOpen = this.doorsOpenAt(event);
+    if (!doorsOpen) return null;
     return new Date(
-      this.doorsOpenAt(event).getTime() +
-        PreEventInventoryFlowService.EDIT_WINDOW_MINUTES * 60 * 1000,
+      doorsOpen.getTime() + PreEventInventoryFlowService.EDIT_WINDOW_MINUTES * 60 * 1000,
     );
+  }
+
+  /** Fin de la fenêtre de l'event (même règle que le Live : fin déclarée, sinon
+   *  journée calendaire), pour borner le cron. */
+  eventWindowEnd(event: FlowEvent): Date {
+    return resolveEventTransactionWindow(event, event.timezone || 'Europe/Paris').end;
+  }
+
+  windowState(
+    event: FlowEvent,
+    now: Date = new Date(),
+  ): Omit<PreEventWindowState, 'doorsOpenDone'> {
+    const doorsOpenAt = this.doorsOpenAt(event);
+    const editDeadline = this.editDeadline(event);
+    if (!doorsOpenAt || !editDeadline) {
+      return { phase: 'no-doors-open', doorsOpenAt: null, editDeadline: null };
+    }
+    const phase: PreEventWindowPhase =
+      now < doorsOpenAt ? 'before' : now <= editDeadline ? 'editing' : 'locked';
+    return { phase, doorsOpenAt, editDeadline };
+  }
+
+  /** État de la fenêtre pour le front (une seule source de vérité, instants UTC). */
+  async getWindowState(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+  ): Promise<PreEventWindowState> {
+    const event = await this.findEvent(spaceId, eventId, tenantId);
+    if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
+    const state = this.windowState(event);
+    const marker = await this.prisma.kvStore.findUnique({
+      where: { uniq_kv_store: { tenantId, key: this.doorsOpenKey(spaceId, eventId) } },
+      select: { id: true },
+    });
+    return { ...state, doorsOpenDone: !!marker };
   }
 
   // ── Écriture d'un comptage ──────────────────────────────────────────────────
@@ -85,20 +157,26 @@ export class PreEventInventoryFlowService {
    * Point d'entrée UNIQUE des écritures de comptage (staff et invité) : applique
    * le verrou des 30 minutes en phase pre-event, délègue l'upsert, puis marque la
    * feuille à régénérer si les portes sont déjà ouvertes. Hors phase pre-event
-   * (post-event, ou client ancien sans `phase`), simple délégation.
+   * (post-event, ou client ancien sans `phase`), ou sans heure d'ouverture des
+   * portes connue, simple délégation.
    */
   async saveCount(dto: CreateInventoryCountDto, tenantId: string, userId?: string) {
     if (dto.phase !== 'pre-event' || !dto.eventId) {
       return this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
     }
     const event = await this.findEvent(dto.spaceId, dto.eventId, tenantId);
+    const doorsOpen = event ? this.doorsOpenAt(event) : null;
+    const deadline = event ? this.editDeadline(event) : null;
+    if (!event || !doorsOpen || !deadline) {
+      return this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
+    }
     const now = new Date();
-    if (event && now > this.editDeadline(event)) {
+    if (now > deadline) {
       throw new ForbiddenException(
         `Inventaire pré-événement verrouillé : plus de ${PreEventInventoryFlowService.EDIT_WINDOW_MINUTES} minutes après l'ouverture des portes.`,
       );
     }
-    const afterDoorsOpen = !!event && now >= this.doorsOpenAt(event);
+    const afterDoorsOpen = now >= doorsOpen;
     // Pendant les 30 minutes, SEULS les éléments non comptés restent modifiables
     // (critère 9) : une ligne déjà marquée comptée à l'ouverture des portes est
     // figée, y compris contre un "reset" qui la repasserait en non compté.
@@ -133,19 +211,53 @@ export class PreEventInventoryFlowService {
 
   /**
    * (Re)génère LA feuille pre-event du match depuis les comptages vivants
-   * (`InventoryCount`, jamais un snapshot figé) et recale la Logistique
-   * (`createPreEventReconciliation` s'en charge). Les feuilles pre-event
-   * précédentes du même match sont supprimées ; leur besoin prédit est reporté.
+   * (`InventoryCount`, jamais un snapshot figé) et recale la Logistique avec
+   * l'incrément (`createPreEventReconciliation` s'en charge). Les feuilles
+   * pre-event précédentes du même match sont supprimées après création de la
+   * nouvelle ; leurs lignes déjà poussées et leur besoin prédit sont repris.
    * Pose aussi le snapshot `kind='pre-event'` qui ferme le cycle pre↔post
-   * (BUG-237, getPreEventInventory).
+   * (BUG-237, getPreEventInventory). Sérialisée par match.
    */
-  async regenerate(
+  regenerate(
     spaceId: string,
     eventId: string,
     tenantId: string,
     actor: string,
     trigger: PreEventRegenerateTrigger,
     extraMeta: Record<string, unknown> = {},
+    options: {
+      /** Besoin prédit fourni par le client (appel manuel) ; sinon celui de la feuille précédente. */
+      predictedUnits?: Record<string, Record<string, number>> | null;
+      canSeeExpected?: boolean;
+    } = {},
+  ): Promise<PreEventRegenerateResult> {
+    const key = `${tenantId}:${spaceId}:${eventId}`;
+    const previous = this.regenerateQueues.get(key) ?? Promise.resolve();
+    const run = previous
+      .catch(() => undefined)
+      .then(() =>
+        this.regenerateNow(spaceId, eventId, tenantId, actor, trigger, extraMeta, options),
+      );
+    this.regenerateQueues.set(key, run);
+    run
+      .finally(() => {
+        if (this.regenerateQueues.get(key) === run) this.regenerateQueues.delete(key);
+      })
+      .catch(() => undefined);
+    return run;
+  }
+
+  private async regenerateNow(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+    actor: string,
+    trigger: PreEventRegenerateTrigger,
+    extraMeta: Record<string, unknown>,
+    options: {
+      predictedUnits?: Record<string, Record<string, number>> | null;
+      canSeeExpected?: boolean;
+    },
   ): Promise<PreEventRegenerateResult> {
     const event = await this.findEvent(spaceId, eventId, tenantId);
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
@@ -165,16 +277,18 @@ export class PreEventInventoryFlowService {
       orderBy: { createdAt: 'desc' },
       select: { id: true, lines: true },
     });
-    const predictedUnits = this.extractPredictedUnits(previous[0]?.lines);
+    const previousLines = previous[0]?.lines ?? null;
+    const predictedUnits = options.predictedUnits ?? this.extractPredictedUnits(previousLines);
 
     const created = await this.inventoryService.createPreEventReconciliation(
       spaceId,
       eventId,
       tenantId,
       actor,
-      true,
+      options.canSeeExpected ?? true,
       predictedUnits,
       { trigger, regeneratedFrom: previous[0]?.id ?? null, ...extraMeta },
+      previousLines,
     );
 
     if (previous.length) {
@@ -195,7 +309,7 @@ export class PreEventInventoryFlowService {
     this.logger.log(
       `Feuille pre-event régénérée (${trigger}) : space ${spaceId} / event ${eventId} (${lineCount ?? '?'} ligne(s))`,
     );
-    return { ok: true, reconciliationId: (created as any).id, lineCount };
+    return { ok: true, reconciliationId: (created as any).id, lineCount, document: created };
   }
 
   /** Besoin prédit archivé sur une feuille existante → blob attendu par
@@ -221,69 +335,116 @@ export class PreEventInventoryFlowService {
     return found ? out : null;
   }
 
-  // ── Ouverture des portes (cron) ─────────────────────────────────────────────
+  // ── Ouverture des portes (cron ou manuel) ───────────────────────────────────
+
+  private doorsOpenKey(spaceId: string, eventId: string): string {
+    return `${PreEventInventoryFlowService.DOORS_OPEN_MARKER_PREFIX}:${spaceId}:${eventId}`;
+  }
 
   /**
-   * Passage "portes ouvertes" d'un event, idempotent (marqueur KvStore, même clé
-   * que l'ancien cron live-init pour ne pas rejouer les events déjà traités) :
-   * clôt la fenêtre invité pre-event puis régénère la feuille. Le marqueur est
-   * posé même sans comptage : il n'y a rien à pousser, et une saisie staff dans
-   * les 30 minutes passera par `markDirty` → `flushDirty`.
+   * Passage "portes ouvertes" d'un event, idempotent : le marqueur KvStore (même
+   * clé que l'ancien cron live-init, pour ne pas rejouer les events déjà traités)
+   * est RÉCLAMÉ avant le travail (contrainte unique : deux appels concurrents,
+   * cron et bouton, ne passent pas tous les deux) et retiré si le travail échoue.
+   * Clôt la fenêtre invité pre-event puis régénère la feuille. Trop tard (fenêtre
+   * des 30 min largement dépassée, cron rattrapé après coup) : la fenêtre est
+   * clôturée et le marqueur posé, mais rien n'est régénéré ni poussé, le comptage
+   * d'avant-match ne doit pas écraser un registre qui a déjà vécu le match.
    */
-  async runDoorsOpen(event: FlowEvent): Promise<PreEventRegenerateResult> {
-    const key = `${PreEventInventoryFlowService.DOORS_OPEN_MARKER_PREFIX}:${event.spaceId}:${event.id}`;
-    const already = await this.prisma.kvStore.findUnique({
-      where: { uniq_kv_store: { tenantId: event.tenantId, key } },
+  async runDoorsOpen(
+    event: FlowEvent,
+    actor = 'system-doors-open',
+    now: Date = new Date(),
+  ): Promise<PreEventRegenerateResult> {
+    const key = this.doorsOpenKey(event.spaceId, event.id);
+    const claimed = await this.claimMarker(event.tenantId, key, {
+      spaceId: event.spaceId,
+      eventId: event.id,
+      actor,
+      startedAt: now.toISOString(),
     });
-    if (already) return { ok: false, reason: 'already-initialized' };
+    if (!claimed) return { ok: false, reason: 'already-initialized' };
 
-    const closed = await this.prisma.inventoryWindow.updateMany({
-      where: {
-        tenantId: event.tenantId,
-        spaceId: event.spaceId,
-        eventId: event.id,
-        phase: 'pre-event',
-        status: 'open',
-      },
-      data: {
-        status: 'closed',
-        closedAt: new Date(),
-        closedBy: 'system-doors-open',
-        pinLookupHash: null,
-        pinCiphertext: null,
-      },
-    });
-    if (closed.count) {
-      this.logger.log(
-        `Fenêtre invité pre-event clôturée à l'ouverture des portes : space ${event.spaceId} / event ${event.id}`,
-      );
-    }
-
-    const result = await this.regenerate(
-      event.spaceId,
-      event.id,
-      event.tenantId,
-      'system-doors-open',
-      'doors-open',
-    );
-
-    await this.prisma.kvStore.create({
-      data: {
-        tenantId: event.tenantId,
-        key,
-        value: {
+    try {
+      const closed = await this.prisma.inventoryWindow.updateMany({
+        where: {
+          tenantId: event.tenantId,
           spaceId: event.spaceId,
           eventId: event.id,
-          at: new Date().toISOString(),
-          result: {
-            ok: result.ok,
-            reason: result.reason ?? null,
-            lineCount: result.lineCount ?? null,
+          phase: 'pre-event',
+          status: 'open',
+        },
+        data: {
+          status: 'closed',
+          closedAt: now,
+          closedBy: actor,
+          pinLookupHash: null,
+          pinCiphertext: null,
+        },
+      });
+      if (closed.count) {
+        this.logger.log(
+          `Fenêtre invité pre-event clôturée à l'ouverture des portes : space ${event.spaceId} / event ${event.id}`,
+        );
+      }
+
+      const deadline = this.editDeadline(event);
+      const lateAfter = deadline
+        ? deadline.getTime() + PreEventInventoryFlowService.LATE_GRACE_MINUTES * 60 * 1000
+        : null;
+      const result: PreEventRegenerateResult =
+        lateAfter !== null && now.getTime() > lateAfter
+          ? { ok: false, reason: 'late' }
+          : await this.regenerate(event.spaceId, event.id, event.tenantId, actor, 'doors-open');
+      if (result.reason === 'late') {
+        this.logger.warn(
+          `Portes ouvertes rattrapées trop tard, feuille non régénérée : space ${event.spaceId} / event ${event.id}`,
+        );
+      }
+
+      await this.prisma.kvStore.update({
+        where: { uniq_kv_store: { tenantId: event.tenantId, key } },
+        data: {
+          value: {
+            spaceId: event.spaceId,
+            eventId: event.id,
+            actor,
+            at: new Date().toISOString(),
+            result: {
+              ok: result.ok,
+              reason: result.reason ?? null,
+              lineCount: result.lineCount ?? null,
+            },
           },
         },
-      },
-    });
-    return result;
+      });
+      return {
+        ok: result.ok,
+        reason: result.reason,
+        reconciliationId: result.reconciliationId,
+        lineCount: result.lineCount,
+      };
+    } catch (error) {
+      await this.prisma.kvStore
+        .delete({ where: { uniq_kv_store: { tenantId: event.tenantId, key } } })
+        .catch(() => undefined);
+      throw error;
+    }
+  }
+
+  /** Pose le marqueur si absent. `false` si déjà présent (P2002 ou lecture). */
+  private async claimMarker(
+    tenantId: string,
+    key: string,
+    value: Record<string, unknown>,
+  ): Promise<boolean> {
+    try {
+      await this.prisma.kvStore.create({ data: { tenantId, key, value: value as any } });
+      return true;
+    } catch (error: any) {
+      if (error?.code === 'P2002') return false;
+      throw error;
+    }
   }
 
   // ── Fenêtre des 30 minutes (cron) ───────────────────────────────────────────
@@ -330,16 +491,22 @@ export class PreEventInventoryFlowService {
 
   // ── helpers ──────────────────────────────────────────────────────────────────
 
-  private async findEvent(
-    spaceId: string,
-    eventId: string,
-    tenantId: string,
-  ): Promise<FlowEvent | null> {
+  async findEvent(spaceId: string, eventId: string, tenantId: string): Promise<FlowEvent | null> {
     const event = await this.prisma.event.findFirst({
       where: { id: eventId, spaceId, tenantId },
-      select: { id: true, name: true, eventDate: true, eventStartDate: true, eventEndDate: true },
+      select: {
+        id: true,
+        name: true,
+        eventDate: true,
+        eventStartDate: true,
+        eventEndDate: true,
+        eventEndTime: true,
+        sessions: true,
+        space: { select: { timezone: true } },
+      },
     });
     if (!event) return null;
-    return { ...event, tenantId, spaceId };
+    const { space, ...rest } = event;
+    return { ...rest, tenantId, spaceId, timezone: space?.timezone || 'Europe/Paris' };
   }
 }
