@@ -5,6 +5,7 @@ import {
   formatUnits,
   formatPercent,
   formatVariation,
+  formatShare,
 } from '@/composables/useFormatters'
 import {
   toIntlLocale,
@@ -104,5 +105,21 @@ describe('formatNumber', () => {
     expect(flat(formatNumber(1234.6))).toBe('1 235')
     setAppLocale('en')
     expect(formatNumber(1234.6)).toBe(`1${GROUP_SEPARATOR}235`)
+  })
+})
+
+describe('formatShare (part d\'un total, légendes donuts et cartes par type)', () => {
+  it('rend « 15,6 % » : 1 décimale, virgule, espace avant le signe', () => {
+    expect(formatShare(797, 5094)).toBe('15,6 %')
+    expect(formatShare(29669, 54338)).toBe('54,6 %')
+    expect(formatShare(5094, 5094)).toBe('100,0 %')
+  })
+
+  it('total nul, absent ou valeur non numérique → chaîne vide / 0,0 %', () => {
+    expect(formatShare(10, 0)).toBe('')
+    expect(formatShare(10, null)).toBe('')
+    expect(formatShare(10, undefined)).toBe('')
+    expect(formatShare(null, 100)).toBe('0,0 %')
+    expect(formatShare('abc', 100)).toBe('0,0 %')
   })
 })

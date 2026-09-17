@@ -55,8 +55,13 @@
           </div>
           <!-- Totaux par famille → 0 décimale (décision UI 2026-07-12, cf.
                useFormatters.js:9-16). Les 2 décimales sont réservées aux prix
-               unitaires et aux ratios par ticket, pas aux totaux à 6 chiffres. -->
-          <div class="cat-value">{{ formatCurrency(entry.value) }}</div>
+               unitaires et aux ratios par ticket, pas aux totaux à 6 chiffres.
+               Part du CA total à droite (demande 2026-09-17), même rendu que
+               les légendes des donuts. -->
+          <div class="cat-row">
+            <div class="cat-value">{{ formatCurrency(entry.value) }}</div>
+            <div v-if="entry.share" class="cat-share">{{ entry.share }}</div>
+          </div>
         </v-card>
       </v-col>
     </v-row>
@@ -70,6 +75,7 @@
           :labels="byItem.labels.slice(0, 10)"
           :values="byItem.values.slice(0, 10)"
           :colors="byItem.colors.slice(0, 10)"
+          :percent-base="byItemTotal"
           :mode="localMode"
           :max-legend="5"
           clickable
@@ -117,7 +123,7 @@ import { ref, computed } from 'vue'
 import { useTheme } from 'vuetify'
 import DonutChartCard from '../charts/DonutChartCard.vue'
 import { SHOP_COLORS } from '@/constants/analyseColors'
-import { formatCurrency } from '@/composables/useFormatters'
+import { formatCurrency, formatShare } from '@/composables/useFormatters'
 import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import { resolveItemType, resolveItemCategory } from '@/utils/analyseDimensions'
@@ -190,6 +196,9 @@ const selectedCategoryKeys = computed(() => selectedMenuItemCategories.value)
 // repli dims backend puis bucket sentinelle si non mappé. Alignées sur le donut
 // « By item type ». Data-driven : la sentinelle « Non rattachés » reste visible
 // (part grise cliquable) — c'est de la vente réelle.
+// Les types à 0 € (ex. Combo sans aucune vente sur la sélection) sont retirés :
+// une carte « €0 » n'apporte rien et prend la place des autres (demande
+// 2026-09-17). Part = CA du type / CA total de la sélection (= sous-titre).
 const posTypeBreakdown = computed(() => {
   const grouped = groupBy(
     resolveItemType,
@@ -200,16 +209,23 @@ const posTypeBreakdown = computed(() => {
     dimLabel,
     (record) => record.revenue || 0,
   )
-  return grouped.keys.map((key, index) => ({
-    key,
-    label: grouped.labels[index],
-    value: grouped.values[index],
-    color: grouped.colors[index],
-  }))
+  const total = totalRevenue.value
+  return grouped.keys
+    .map((key, index) => ({
+      key,
+      label: grouped.labels[index],
+      value: grouped.values[index],
+      color: grouped.colors[index],
+      share: formatShare(grouped.values[index], total),
+    }))
+    .filter((entry) => entry.value !== 0)
 })
 
 // Article = nom catalogue DataFriday (records filtrés → toujours présent).
 const byItem = computed(() => groupBy((r) => r.menuItemName || r.itemName || r.productName || ''))
+// Le donut n'affiche que le top 10 : ses % se lisent sur le total de TOUS les
+// articles, pas sur la somme des 10 premiers.
+const byItemTotal = computed(() => byItem.value.values.reduce((a, v) => a + v, 0))
 // Taxonomie catalogue : Type (Beverage/Food/Combo/Glasses) → Catégorie (sous-élément :
 // Soft Drink, Beer, Water, Mixology…). « By item type » groupe par TYPE, « By item
 // category » par CATÉGORIE — deux niveaux distincts. Repli bucket si non mappé. Mêmes
@@ -307,12 +323,25 @@ function onCategoryDimensionClick(key) {
   background: var(--cat-rail, #64748b);
   flex: none;
 }
+.cat-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
 .cat-value {
   color: #0f172a;
   font-size: var(--fs-xl);
   font-weight: var(--fw-bold);
   line-height: 1.1;
   letter-spacing: -0.3px;
+  font-variant-numeric: tabular-nums;
+}
+.cat-share {
+  color: #64748b;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 
@@ -334,5 +363,8 @@ function onCategoryDimensionClick(key) {
 }
 .mird--dark .cat-value {
   color: #f9fafb;
+}
+.mird--dark .cat-share {
+  color: #94a3b8;
 }
 </style>
