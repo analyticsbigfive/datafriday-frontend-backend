@@ -49,19 +49,18 @@
           class="category-card"
           :style="{ '--cat-rail': entry.color }"
         >
+          <!-- Part du CA total (demande 2026-09-17) sur la ligne du libellé, à
+               droite : à côté du montant en fs-xl elle débordait des cartes en
+               colonne étroite (sidebar ouverte). -->
           <div class="cat-label">
             <span class="cat-dot" />
-            {{ entry.label }}
+            <span class="cat-label__text">{{ entry.label }}</span>
+            <span v-if="entry.share" class="cat-share">{{ entry.share }}</span>
           </div>
           <!-- Totaux par famille → 0 décimale (décision UI 2026-07-12, cf.
                useFormatters.js:9-16). Les 2 décimales sont réservées aux prix
-               unitaires et aux ratios par ticket, pas aux totaux à 6 chiffres.
-               Part du CA total à droite (demande 2026-09-17), même rendu que
-               les légendes des donuts. -->
-          <div class="cat-row">
-            <div class="cat-value">{{ formatCurrency(entry.value) }}</div>
-            <div v-if="entry.share" class="cat-share">{{ entry.share }}</div>
-          </div>
+               unitaires et aux ratios par ticket, pas aux totaux à 6 chiffres. -->
+          <div class="cat-value">{{ formatCurrency(entry.value) }}</div>
         </v-card>
       </v-col>
     </v-row>
@@ -323,11 +322,22 @@ function onCategoryDimensionClick(key) {
   background: var(--cat-rail, #64748b);
   flex: none;
 }
-.cat-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+.cat-label__text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cat-share {
+  flex: none;
+  color: #64748b;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .cat-value {
   color: #0f172a;
@@ -336,13 +346,7 @@ function onCategoryDimensionClick(key) {
   line-height: 1.1;
   letter-spacing: -0.3px;
   font-variant-numeric: tabular-nums;
-}
-.cat-share {
-  color: #64748b;
-  font-size: var(--fs-sm);
-  font-weight: 600;
   white-space: nowrap;
-  font-variant-numeric: tabular-nums;
 }
 
 /* ── Dark mode (autonome via isDark) : override des couleurs claires en dur.
