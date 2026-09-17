@@ -1794,6 +1794,8 @@ export default {
       shopMenuUnavailable: null,
       // Cache par configId (évite re-fetch au changement d'event même config).
       _shopMenuAssignmentCache: null,
+      // configId de l'assignation actuellement affichée (stale-while-revalidate).
+      _assignmentConfigId: null,
       // Cache local des shops NestJS par spaceId (stateless store, alimenté par fetchForSpace).
       _spaceShopsCache: {},
       // Passe à true après une tentative de chargement (distingue "pas chargé"
@@ -4480,9 +4482,18 @@ export default {
         this._assignmentLoaded = true;
         return;
       }
-      // Fetch frais : l'Adjusted repasse en skeleton le temps du chargement
-      // (une section ne s'affiche jamais avec des données à moitié prêtes).
-      this._assignmentLoaded = false;
+      // Premier chargement : l'Adjusted reste en skeleton tant que le Space Menu
+      // n'est pas prêt (une section ne s'affiche jamais avec des données à moitié
+      // prêtes). RAFRAÎCHISSEMENT (activation d'un article ou d'un PDV) : on garde
+      // l'assignation courante affichée pendant le refetch. Repasser en skeleton
+      // démontait toute la section Configuration : scroll et PDV dépliés perdus,
+      // l'utilisateur ne savait plus où il travaillait (retour Bertrand 2026-09-17).
+      // Autre config (changement d'event) : skeleton, l'assignation affichée ne
+      // serait pas la bonne.
+      if (this.shopMenuAssignment == null || this._assignmentConfigId !== cfgId) {
+        this._assignmentLoaded = false;
+      }
+      this._assignmentConfigId = cfgId;
       // Shops de la config = MÊME source que le drawer Space Menu (spaceShops
       // /shops, filtré par configId). Donne le shopId que getShopMenus attend.
       try {
@@ -5780,6 +5791,14 @@ export default {
         if (saved && typeof saved === "object") {
           store.dispatch("events/updateEvent", saved);
           this.applyEventOverrideLocal({ ...saved, id: updated.id });
+        }
+        // Les horaires staff (portes − 2 h → fin + 1 h, lignes ALGO recalées côté
+        // serveur) dépendent des heures de l'event : on recharge l'onglet Staff s'il
+        // porte déjà cet event, sinon il restait sur l'ancienne fenêtre jusqu'au F5.
+        if (store.state.staffing?.eventId === updated.id) {
+          store
+            .dispatch("staffing/fetchStaffing", { eventId: updated.id, force: true })
+            .catch(() => null);
         }
         // Nudge : les champs sauvés pilotent l'algo → guider l'utilisateur vers
         // les 2 façons de matérialiser la prédiction recalculée (cf. plan suivi).
