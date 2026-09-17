@@ -544,7 +544,7 @@ export class StaffingService {
     const settings = await this.resolveSettings(ctx.spaceId, tenantId);
     const warnings: StaffingWarning[] = [...extraWarnings];
 
-    const lines = await this.prisma.eventStaffLine.findMany({
+    let lines = await this.prisma.eventStaffLine.findMany({
       where: { eventId },
       orderBy: { createdAt: 'asc' },
       include: {
@@ -553,6 +553,30 @@ export class StaffingService {
         supplier: { select: { name: true } },
       },
     });
+
+    // Les horaires d'une ligne ALGO non modifiée par l'utilisateur SUIVENT la fenêtre
+    // suggérée (portes − 2 h → fin + offset). Ils étaient figés à la génération : après
+    // une édition des heures de l'event (ouverture des portes renseignée après coup, fin
+    // décalée), les lignes gardaient l'ancienne plage (ex. 00:00 → 01:50 quand aucune heure
+    // n'était connue) alors que la fenêtre affichée avait bougé (retour Bertrand 2026-09-17).
+    // On les recale ici, en base, pour que coûts et curseurs restent cohérents ; une ligne
+    // MANUAL ou userModified n'est jamais touchée.
+    const stale = lines.filter(
+      (l) =>
+        l.source === 'ALGO' &&
+        !l.userModified &&
+        (l.startTime.getTime() !== ctx.lineStart.getTime() ||
+          l.endTime.getTime() !== ctx.lineEnd.getTime()),
+    );
+    if (stale.length) {
+      await this.prisma.eventStaffLine.updateMany({
+        where: { id: { in: stale.map((l) => l.id) } },
+        data: { startTime: ctx.lineStart, endTime: ctx.lineEnd },
+      });
+      lines = lines.map((l) =>
+        stale.some((s) => s.id === l.id) ? { ...l, startTime: ctx.lineStart, endTime: ctx.lineEnd } : l,
+      );
+    }
 
     const elementIds = Array.from(new Set(lines.map((l) => l.elementId)));
     const [elements, perfs] = await this.prisma.$transaction([
