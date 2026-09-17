@@ -6,13 +6,19 @@ import { PrismaService } from '../../core/database/prisma.service';
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
 
+/**
+ * Le flux est mocké avec des dates portées par l'event de test (`_doorsOpenAt`,
+ * `_windowEnd`) : la résolution réelle (sessions.doorsOpening + fuseau) est
+ * testée dans pre-event-inventory-flow.service.spec et event-window.util.spec.
+ */
 describe('InventoryLiveInitCronService', () => {
   let cron: InventoryLiveInitCronService;
   const mockFlow = {
-    doorsOpenAt: jest.fn((e: any) => e.eventStartDate ?? e.eventDate),
-    editDeadline: jest.fn(
-      (e: any) => new Date((e.eventStartDate ?? e.eventDate).getTime() + 30 * MIN),
+    doorsOpenAt: jest.fn((e: any) => e._doorsOpenAt ?? null),
+    editDeadline: jest.fn((e: any) =>
+      e._doorsOpenAt ? new Date(e._doorsOpenAt.getTime() + 30 * MIN) : null,
     ),
+    eventWindowEnd: jest.fn((e: any) => e._windowEnd),
     runDoorsOpen: jest.fn().mockResolvedValue({ ok: true, lineCount: 1 }),
     flushDirty: jest.fn().mockResolvedValue({ ok: false, reason: 'clean' }),
   };
@@ -26,8 +32,13 @@ describe('InventoryLiveInitCronService', () => {
       spaceId: 'space-1',
       name: 'Match A',
       eventDate: new Date(now.getTime() - HOUR),
-      eventStartDate: new Date(now.getTime() - 10 * MIN),
-      eventEndDate: new Date(now.getTime() + 2 * HOUR),
+      eventStartDate: null,
+      eventEndDate: null,
+      eventEndTime: '23:00',
+      sessions: '[{"doorsOpening":"19:00"}]',
+      space: { timezone: 'Europe/Paris' },
+      _doorsOpenAt: new Date(now.getTime() - 10 * MIN),
+      _windowEnd: new Date(now.getTime() + 2 * HOUR),
       ...overrides,
     };
   };
@@ -54,29 +65,48 @@ describe('InventoryLiveInitCronService', () => {
     await cron.autoInitLiveStockForOpenEvents();
 
     expect(mockFlow.runDoorsOpen).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'event-1', spaceId: 'space-1', tenantId: 'tenant-1' }),
+      expect.objectContaining({
+        id: 'event-1',
+        spaceId: 'space-1',
+        tenantId: 'tenant-1',
+        timezone: 'Europe/Paris',
+        sessions: '[{"doorsOpening":"19:00"}]',
+      }),
+      'system-doors-open',
+      expect.any(Date),
     );
     expect(mockFlow.flushDirty).toHaveBeenCalledWith(expect.objectContaining({ id: 'event-1' }));
   });
 
-  it('retombe sur eventDate quand eventStartDate est absent', async () => {
-    const now = new Date();
-    mockPrisma.event.findMany.mockResolvedValue([
-      event({ eventStartDate: null, eventDate: new Date(now.getTime() - 5 * MIN) }),
-    ]);
+  it("charge le fuseau du space et les sessions (le flux en a besoin pour l'heure d'ouverture)", async () => {
+    mockPrisma.event.findMany.mockResolvedValue([event()]);
+    await cron.autoInitLiveStockForOpenEvents();
+    expect(mockPrisma.event.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        select: expect.objectContaining({
+          sessions: true,
+          eventEndTime: true,
+          space: { select: { timezone: true } },
+        }),
+      }),
+    );
+  });
+
+  it("ignore un event SANS heure d'ouverture des portes (jamais de repli sur minuit)", async () => {
+    mockPrisma.event.findMany.mockResolvedValue([event({ _doorsOpenAt: null, sessions: null })]);
 
     await cron.autoInitLiveStockForOpenEvents();
 
-    expect(mockFlow.runDoorsOpen).toHaveBeenCalledTimes(1);
+    expect(mockFlow.runDoorsOpen).not.toHaveBeenCalled();
+    expect(mockFlow.flushDirty).not.toHaveBeenCalled();
   });
 
   it("ignore un event dont l'ouverture des portes n'est pas encore atteinte", async () => {
     const now = new Date();
     mockPrisma.event.findMany.mockResolvedValue([
       event({
-        eventDate: new Date(now.getTime() + HOUR),
-        eventStartDate: new Date(now.getTime() + HOUR),
-        eventEndDate: new Date(now.getTime() + 4 * HOUR),
+        _doorsOpenAt: new Date(now.getTime() + HOUR),
+        _windowEnd: new Date(now.getTime() + 4 * HOUR),
       }),
     ]);
 
@@ -86,13 +116,12 @@ describe('InventoryLiveInitCronService', () => {
     expect(mockFlow.flushDirty).not.toHaveBeenCalled();
   });
 
-  it('ignore un event terminé depuis plus de la marge de grâce (3h)', async () => {
+  it('ignore un event dont la fenêtre est finie depuis plus de la marge de grâce (3h)', async () => {
     const now = new Date();
     mockPrisma.event.findMany.mockResolvedValue([
       event({
-        eventDate: new Date(now.getTime() - 10 * HOUR),
-        eventStartDate: new Date(now.getTime() - 10 * HOUR),
-        eventEndDate: new Date(now.getTime() - 5 * HOUR),
+        _doorsOpenAt: new Date(now.getTime() - 10 * HOUR),
+        _windowEnd: new Date(now.getTime() - 5 * HOUR),
       }),
     ]);
 
@@ -104,7 +133,7 @@ describe('InventoryLiveInitCronService', () => {
   it('ne flushe plus le dirty passé la fenêtre des 30 min (+2 min de marge), mais garde le passage portes ouvertes', async () => {
     const now = new Date();
     mockPrisma.event.findMany.mockResolvedValue([
-      event({ eventStartDate: new Date(now.getTime() - 45 * MIN) }),
+      event({ _doorsOpenAt: new Date(now.getTime() - 45 * MIN) }),
     ]);
 
     await cron.autoInitLiveStockForOpenEvents();

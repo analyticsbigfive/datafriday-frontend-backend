@@ -1,11 +1,14 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { StockMovementReason } from '@prisma/client';
+import { Prisma, StockMovementReason } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { LogisticsService } from '../logistics/logistics.service';
 import { StockItemKind } from '../logistics/dto/logistics.dto';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
+
+/** État de push Logistic des lignes d'un match, clé `elementId::itemId` (cf. pushCountToLogistic). */
+type LogisticPushState = Map<string, { id: string; updatedAt: Date; logisticPushedAt: Date | null }>;
 
 @Injectable()
 export class InventoryService {
@@ -521,15 +524,41 @@ export class InventoryService {
       .toLowerCase();
   }
 
-  /** nom normalisé → menuItemId du tenant. `StockMovement.itemKey` et les lignes
-   *  de consommation ventes sont des NOMS libres (piège n°1 du domaine Stock) :
-   *  c'est le seul pont vers le référentiel compté. */
-  private async menuItemIdByNormName(tenantId: string): Promise<Map<string, string>> {
-    const items = await this.prisma.menuItem.findMany({
-      where: { tenantId },
-      select: { id: true, name: true },
-    });
-    return new Map(items.map((i) => [this.normalizeName(i.name), i.id]));
+  /** nom normalisé → ids de catalogue du tenant portant ce nom, MenuItem d'abord, puis
+   *  MarketPrice (`itemName`), puis MenuComponent. `StockMovement.itemKey` et les lignes de
+   *  consommation ventes sont des NOMS libres (piège n°1 du domaine Stock) : c'est le seul
+   *  pont vers le référentiel compté. Or l'inventaire compte « à 1 cran » : une ligne
+   *  comptée porte l'id du MenuItem vendu tel quel, OU celui de l'ingrédient (MarketPrice)
+   *  / du composant d'une recette (`componentIngredientId`, inventoryUtils.js), et la liste
+   *  est dédoublonnée par NOM : « Coca-Cola CAN 33cl » est compté sous son id MarketPrice
+   *  dès qu'il entre dans une recette, même si un MenuItem homonyme existe. Joindre au seul
+   *  MenuItem (comportement jusqu'au 2026-09-17) laissait 70 % des lignes comptées sans
+   *  attendu et hors de la feuille pre-event. Un nom est donc joint à TOUS ses ids ; le
+   *  premier (MenuItem) reste l'id « principal » quand aucun comptage ne tranche. */
+  private async catalogIdsByNormName(tenantId: string): Promise<Map<string, string[]>> {
+    const [menuItems, marketPrices, components] = await Promise.all([
+      this.prisma.menuItem.findMany({ where: { tenantId }, select: { id: true, name: true } }),
+      this.prisma.marketPrice.findMany({
+        where: { tenantId, deletedAt: null },
+        select: { id: true, itemName: true },
+      }),
+      this.prisma.menuComponent.findMany({
+        where: { tenantId, deletedAt: null },
+        select: { id: true, name: true },
+      }),
+    ]);
+    const out = new Map<string, string[]>();
+    const add = (name: unknown, id: string) => {
+      const nk = this.normalizeName(name);
+      if (!nk) return;
+      const ids = out.get(nk) ?? [];
+      if (!ids.includes(id)) ids.push(id);
+      out.set(nk, ids);
+    };
+    for (const mi of menuItems) add(mi.name, mi.id);
+    for (const mp of marketPrices) add(mp.itemName, mp.id);
+    for (const c of components) add(c.name, c.id);
+    return out;
   }
 
   /** Quantité par paquet du référentiel **INVENTAIRE** (BUG-239) — miroir de la
@@ -553,37 +582,93 @@ export class InventoryService {
     const ids = [...new Set(itemIds.filter(Boolean))];
     if (!ids.length) return out;
 
-    const items = await this.prisma.menuItem.findMany({
-      where: { tenantId, id: { in: ids } },
-      select: { id: true, name: true, inventoryNumberOfUnits: true },
-    });
-
-    const pending: Array<{ id: string; name: string }> = [];
-    for (const it of items) {
-      const n = Number(it.inventoryNumberOfUnits);
-      if (n > 0 && n !== 1) out.set(it.id, n);
-      else pending.push({ id: it.id, name: it.name });
-    }
-    if (!pending.length) return out;
-
-    const names = [...new Set(pending.map((p) => p.name).filter(Boolean))];
-    const [mps, comps] = await Promise.all([
+    // Un id compté peut être un MenuItem, un MarketPrice, un MenuComponent (voire un
+    // Ingredient/Packaging, repli `sourceId`/`id` de componentIngredientId) : on lit
+    // chaque catalogue par id, puis par NOM pour les replis croisés, comme le front
+    // (`allMenuItemsData.find(mi => mi.id === data.id || mi.name === name)`, puis
+    // MarketPrice par id ou nom, puis ComponentDefinition).
+    const [miById, mpById, compById, ingById, pkgById] = await Promise.all([
+      this.prisma.menuItem.findMany({
+        where: { tenantId, id: { in: ids } },
+        select: { id: true, name: true, inventoryNumberOfUnits: true },
+      }),
       this.prisma.marketPrice.findMany({
-        where: { tenantId, deletedAt: null, itemName: { in: names } },
-        select: { itemName: true, packedUnits: true },
+        where: { tenantId, id: { in: ids } },
+        select: { id: true, itemName: true, packedUnits: true },
       }),
       this.prisma.menuComponent.findMany({
-        where: { tenantId, deletedAt: null, name: { in: names } },
-        select: { name: true, packedUnits: true },
+        where: { tenantId, id: { in: ids } },
+        select: { id: true, name: true, packedUnits: true },
       }),
+      this.prisma.ingredient.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true, name: true } }),
+      this.prisma.packaging.findMany({ where: { tenantId, id: { in: ids } }, select: { id: true, name: true } }),
     ]);
-    const mpByName = new Map(mps.map((m) => [this.normalizeName(m.itemName), m.packedUnits]));
-    const compByName = new Map(comps.map((c) => [this.normalizeName(c.name), c.packedUnits]));
+    const mi = new Map(miById.map((r) => [r.id, r]));
+    const mp = new Map(mpById.map((r) => [r.id, r]));
+    const comp = new Map(compById.map((r) => [r.id, r]));
+    const nameById = new Map<string, string>();
+    for (const r of miById) nameById.set(r.id, r.name);
+    for (const r of mpById) if (!nameById.has(r.id)) nameById.set(r.id, r.itemName);
+    for (const r of compById) if (!nameById.has(r.id)) nameById.set(r.id, r.name);
+    for (const r of ingById) if (!nameById.has(r.id)) nameById.set(r.id, r.name);
+    for (const r of pkgById) if (!nameById.has(r.id)) nameById.set(r.id, r.name);
 
-    for (const p of pending) {
-      const nk = this.normalizeName(p.name);
-      const v = Number(mpByName.get(nk)) || Number(compByName.get(nk)) || 1;
-      out.set(p.id, v > 0 ? v : 1);
+    const names = [...new Set([...nameById.values()].filter(Boolean))];
+    const [miByNameRows, mpByNameRows, compByNameRows] = names.length
+      ? await Promise.all([
+          this.prisma.menuItem.findMany({
+            where: { tenantId, name: { in: names } },
+            select: { name: true, inventoryNumberOfUnits: true },
+          }),
+          this.prisma.marketPrice.findMany({
+            where: { tenantId, deletedAt: null, itemName: { in: names } },
+            select: { itemName: true, packedUnits: true },
+          }),
+          this.prisma.menuComponent.findMany({
+            where: { tenantId, deletedAt: null, name: { in: names } },
+            select: { name: true, packedUnits: true },
+          }),
+        ])
+      : [[], [], []];
+    // Intention = valeur > 0 et ≠ 1 (le formulaire persiste `Number(x) || 1`).
+    const intent = (v: unknown) => {
+      const n = Number(v);
+      return n > 0 && n !== 1 ? n : null;
+    };
+    const positive = (v: unknown) => {
+      const n = Number(v);
+      return n > 0 ? n : null;
+    };
+    const miIntentByName = new Map<string, number>();
+    for (const r of miByNameRows) {
+      const n = intent(r.inventoryNumberOfUnits);
+      const nk = this.normalizeName(r.name);
+      if (n && !miIntentByName.has(nk)) miIntentByName.set(nk, n);
+    }
+    const mpPackByName = new Map<string, number>();
+    for (const r of mpByNameRows) {
+      const n = positive(r.packedUnits);
+      const nk = this.normalizeName(r.itemName);
+      if (n && !mpPackByName.has(nk)) mpPackByName.set(nk, n);
+    }
+    const compPackByName = new Map<string, number>();
+    for (const r of compByNameRows) {
+      const n = positive(r.packedUnits);
+      const nk = this.normalizeName(r.name);
+      if (n && !compPackByName.has(nk)) compPackByName.set(nk, n);
+    }
+
+    for (const id of ids) {
+      const nk = this.normalizeName(nameById.get(id));
+      const v =
+        intent(mi.get(id)?.inventoryNumberOfUnits) ??
+        miIntentByName.get(nk) ??
+        positive(mp.get(id)?.packedUnits) ??
+        mpPackByName.get(nk) ??
+        positive(comp.get(id)?.packedUnits) ??
+        compPackByName.get(nk) ??
+        1;
+      out.set(id, v);
     }
     return out;
   }
@@ -610,9 +695,11 @@ export class InventoryService {
       string,
       { packed: number; loose: number; units: number | null; unitsPerPack: number | null }
     >();
-    if (!index.size) return { expected, unjoinedItemKeys: [] as string[], asOf };
+    if (!index.size) {
+      return { expected, unjoinedItemKeys: [] as string[], asOf, aliasGroups: new Map<string, string[]>() };
+    }
 
-    const idByNormName = await this.menuItemIdByNormName(tenantId);
+    const idsByNormName = await this.catalogIdsByNormName(tenantId);
     const unjoined = new Set<string>();
     const joined: Array<{
       elementId: string;
@@ -621,19 +708,31 @@ export class InventoryService {
       loose: number;
       logUpp: number | null;
     }> = [];
+    // Un même niveau Logistic est exposé sous TOUS les ids de catalogue de son nom
+    // (cf. catalogIdsByNormName) : l'écran et la feuille retrouvent l'attendu quel
+    // que soit l'id sous lequel l'article est compté. `aliasGroups` (élément × nom →
+    // ids) permet à la feuille de ne pas dupliquer une ligne « Logistic seule ».
+    const aliasGroups = new Map<string, string[]>();
     for (const entry of index.values()) {
-      const itemId = idByNormName.get(this.normalizeName(entry.itemKey));
-      if (!itemId) {
+      const nk = this.normalizeName(entry.itemKey);
+      const itemIds = idsByNormName.get(nk);
+      if (!itemIds?.length) {
         unjoined.add(entry.itemKey);
         continue;
       }
-      joined.push({
-        elementId: entry.elementId,
-        itemId,
-        packed: entry.packed,
-        loose: entry.loose,
-        logUpp: entry.unitsPerPack && entry.unitsPerPack > 0 ? entry.unitsPerPack : null,
-      });
+      const groupKey = `${entry.elementId}::${nk}`;
+      const group = aliasGroups.get(groupKey) ?? [];
+      for (const itemId of itemIds) {
+        if (!group.includes(itemId)) group.push(itemId);
+        joined.push({
+          elementId: entry.elementId,
+          itemId,
+          packed: entry.packed,
+          loose: entry.loose,
+          logUpp: entry.unitsPerPack && entry.unitsPerPack > 0 ? entry.unitsPerPack : null,
+        });
+      }
+      aliasGroups.set(groupKey, group);
     }
     if (unjoined.size) {
       this.logger.warn(
@@ -674,7 +773,7 @@ export class InventoryService {
       }
     }
 
-    return { expected, unjoinedItemKeys: [...unjoined], asOf };
+    return { expected, unjoinedItemKeys: [...unjoined], asOf, aliasGroups };
   }
 
   /** Delta NET des mouvements Logistic de la fenêtre du match, en unités, par
@@ -719,7 +818,14 @@ export class InventoryService {
     });
     if (!rows.length) return { net, unjoinedItemKeys: [...unjoined] };
 
-    const idByNormName = await this.menuItemIdByNormName(tenantId);
+    const idsByNormName = await this.catalogIdsByNormName(tenantId);
+    // Un mouvement est exposé sous tous les ids de catalogue de son nom (même règle
+    // que computeLogisticExpected) : la ligne post-event comptée sous un id MarketPrice
+    // retrouve ses mouvements.
+    const idsFor = (m: { menuItemId: string | null; itemKey: string }) => {
+      const byName = idsByNormName.get(this.normalizeName(m.itemKey)) ?? [];
+      return [...new Set([...(m.menuItemId ? [m.menuItemId] : []), ...byName])];
+    };
     // unitsPerPack par itemKey — même chaîne de résolution que la Logistique
     // (MarketPrice → MenuComponent → MenuItem.inventoryNumberOfUnits), mémoïsée.
     const uppByNormKey = new Map<string, number | null>();
@@ -729,18 +835,17 @@ export class InventoryService {
         uppByNormKey.set(nk, await this.logistics.resolveUnitsPerPackForItemKey(m.itemKey, tenantId));
       }
     }
-    const itemIds = rows
-      .map((m) => m.menuItemId ?? idByNormName.get(this.normalizeName(m.itemKey)))
-      .filter((id): id is string => !!id);
+    const itemIds = rows.flatMap((m) => idsFor(m));
     const invUppByItemId = await this.resolveInventoryUnitsPerPack(itemIds, tenantId);
     const round2 = (n: number) => Math.round(n * 100) / 100;
 
     for (const m of rows) {
-      const itemId = m.menuItemId ?? idByNormName.get(this.normalizeName(m.itemKey));
-      if (!itemId) {
+      const ids = idsFor(m);
+      if (!ids.length) {
         unjoined.add(m.itemKey);
         continue;
       }
+      for (const itemId of ids) {
       const k = `${m.elementId}::${itemId}`;
       const invUpp = Number(invUppByItemId.get(itemId));
       // Conditionnement d'inventaire connu → delta en unités (paquet LOGISTIQUE
@@ -752,6 +857,7 @@ export class InventoryService {
           ? (m.packedDelta ?? 0) * (logUpp && logUpp > 0 ? logUpp : invUpp) + (m.looseDelta ?? 0)
           : (m.packedDelta ?? 0) + (m.looseDelta ?? 0);
       net.set(k, round2((net.get(k) ?? 0) + delta));
+      }
     }
     if (unjoined.size) {
       this.logger.warn(
@@ -908,6 +1014,11 @@ export class InventoryService {
     // Contexte de génération automatique (PreEventInventoryFlowService :
     // trigger, feuille remplacée...) archivé dans `meta` à côté du reste.
     extraMeta: Record<string, unknown> = {},
+    // Lignes de la feuille pre-event précédente du match : une ligne validée déjà
+    // poussée vers Logistic et inchangée depuis est REPRISE telle quelle (attendu et
+    // écart figés au moment du comptage). La recalculer relirait un attendu Logistic
+    // qui contient déjà ce comptage, et l'écart retomberait à 0 à chaque régénération.
+    previousLines: unknown = null,
   ) {
     this.logger.log(`POST /inventory/${spaceId}/pre-event-reconciliations eventId=${eventId}`);
     await this.assertSpace(spaceId, tenantId);
@@ -920,21 +1031,42 @@ export class InventoryService {
     // Compté = fusion existante (InventoryCount prioritaire sur snapshot).
     // Cast : la branche snapshot renvoie un Json Prisma, mais son écriture ne
     // passe que par upsertInventory (blob objet) — jamais un scalaire.
-    const merged = await this.getBySpaceAndEvent(spaceId, eventId, tenantId);
+    const merged = await this.getBySpaceAndEvent(spaceId, eventId, tenantId, 'pre-event');
     const countedBlob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
+    const pushState = await this.loadLogisticPushState(spaceId, eventId, tenantId);
+    const previousByKey = new Map<string, Record<string, any>>();
+    if (Array.isArray(previousLines)) {
+      for (const l of previousLines as Array<Record<string, any>>) {
+        if (l?.countedSource !== 'count') continue;
+        if (typeof l?.elementId !== 'string' || typeof l?.itemKey !== 'string') continue;
+        previousByKey.set(`${l.elementId}::${l.itemKey}`, l);
+      }
+    }
 
     // Attendus à l'instant de la sauvegarde — MÊME chemin que le GET
     // pre-event-baseline (PDF v3 2026-08-21 : Total Logistic) : hints à l'écran
     // et lignes de réconciliation ne peuvent pas diverger.
-    const { expected, asOf } = await this.computeLogisticExpected(spaceId, tenantId);
+    const { expected, asOf, aliasGroups } = await this.computeLogisticExpected(spaceId, tenantId);
 
-    // Union des clés attendu ∪ compté.
-    const keys = new Set<string>(expected.keys());
+    // Union des clés attendu ∪ compté. L'attendu Logistic est exposé sous TOUS les ids
+    // de catalogue du nom (MenuItem, MarketPrice, MenuComponent, cf. catalogIdsByNormName) :
+    // pour un (élément × nom) donné, on garde les ids COMPTÉS s'il y en a, sinon le seul id
+    // principal. Sans ce filtre, « Coca-Cola CAN 33cl » compté sous son id MarketPrice
+    // sortait deux fois : la ligne comptée, et une ligne « (L) » sous l'id MenuItem.
+    const keys = new Set<string>();
     for (const [shopId, byItem] of Object.entries(countedBlob)) {
       for (const itemId of Object.keys(byItem ?? {})) keys.add(`${shopId}::${itemId}`);
     }
+    for (const [groupKey, ids] of aliasGroups) {
+      const elementId = groupKey.split('::')[0];
+      const counted = ids.filter((id) => countedBlob?.[elementId]?.[id] != null);
+      if (counted.length) continue; // déjà dans keys via le blob compté
+      keys.add(`${elementId}::${ids[0]}`);
+    }
 
-    // Dénormalisation noms (éléments + items) pour l'affichage/export.
+    // Dénormalisation noms (éléments + items) pour l'affichage/export. Identité article
+    // résolue dans TOUS les catalogues (même chemin que le push Logistic) : une ligne
+    // comptée sous un id MarketPrice ou MenuComponent n'est plus une « orpheline ».
     const elementIds = new Set<string>();
     const itemIds = new Set<string>();
     for (const k of keys) {
@@ -942,33 +1074,28 @@ export class InventoryService {
       if (el) elementIds.add(el);
       if (item) itemIds.add(item);
     }
-    const [elements, items] = await Promise.all([
+    const [elements, identities] = await Promise.all([
       elementIds.size
         ? this.prisma.spaceElement.findMany({
             where: { id: { in: [...elementIds] } },
             select: { id: true, name: true },
           })
         : [],
-      itemIds.size
-        ? this.prisma.menuItem.findMany({
-            where: { tenantId, id: { in: [...itemIds] } },
-            select: { id: true, name: true },
-          })
-        : [],
+      this.resolveItemKeysByIds([...itemIds], tenantId),
     ]);
     const elementNameById = new Map<string, string>(
       (elements as Array<{ id: string; name: string }>).map((e) => [e.id, e.name]),
     );
     const itemNameById = new Map<string, string>(
-      (items as Array<{ id: string; name: string }>).map((i) => [i.id, i.name]),
+      [...identities].map(([id, v]) => [id, v.name]),
     );
 
     const round2 = (n: number) => Math.round(n * 100) / 100;
     // Exclusion des lignes orphelines : comptages dont l'itemId/elementId ne résout plus aucun
-    // MenuItem/SpaceElement courant (catalogue ré-importé → anciens ids supprimés). Sans nom
-    // récupérable en base, ces lignes s'affichaient « — » ; on les retire du document plutôt que
-    // de les afficher sans nom. Filtre sur la PRÉSENCE de l'id dans la map (`.has`), pas sur le
-    // nom : un article courant au nom légitimement vide reste conservé.
+    // article de catalogue / SpaceElement courant (catalogue ré-importé → anciens ids
+    // supprimés). Sans nom récupérable en base, ces lignes s'affichaient « — » ; on les retire
+    // du document plutôt que de les afficher sans nom. Filtre sur la PRÉSENCE de l'id dans la
+    // map (`.has`), pas sur le nom : un article courant au nom légitimement vide reste conservé.
     const resolvableKeys = [...keys].filter((k) => {
       const [elementId, itemId] = k.split('::');
       return elementNameById.has(elementId) && itemNameById.has(itemId);
@@ -990,6 +1117,7 @@ export class InventoryService {
       return v > 0 ? v : 1;
     };
 
+    let carriedCount = 0;
     const lines = resolvableKeys.map((k) => {
       const [elementId, itemId] = k.split('::');
       const exp = expected.get(k) ?? null;
@@ -1000,6 +1128,27 @@ export class InventoryService {
       // valeur (le push ne concerne que les lignes validées). Une saisie non cochée
       // « compté » n'est pas un comptage. Sans état Logistic ni comptage : 0, `'none'`.
       const isValidated = counted?.isCounted === true;
+      // Besoin prédit (Event Predict) : deuxième référence du document. L'attendu
+      // Logistic dit « ce que la Logistique pense qu'il y a », celui-ci « ce que
+      // le scénario demande d'avoir » — les deux écarts se lisent ensemble.
+      const predictedRaw = predictedUnits?.[elementId]?.[itemId];
+      const predicted = Number.isFinite(Number(predictedRaw)) ? round2(Number(predictedRaw)) : null;
+      // Ligne validée, déjà poussée, inchangée depuis : reprise de la feuille précédente
+      // (cf. `previousLines`). Seul le besoin prédit est rafraîchi s'il est fourni.
+      const previous = previousByKey.get(k);
+      if (isValidated && previous && !this.isPendingLogisticPush(pushState, elementId, itemId)) {
+        carriedCount += 1;
+        const prevCountedUnits = Number.isFinite(Number(previous.countedUnits))
+          ? Number(previous.countedUnits)
+          : null;
+        const keptPredicted = predicted ?? (Number.isFinite(Number(previous.predictedUnits)) ? Number(previous.predictedUnits) : null);
+        return {
+          ...previous,
+          predictedUnits: keptPredicted,
+          deltaVsPredicted:
+            keptPredicted == null || prevCountedUnits == null ? null : round2(prevCountedUnits - keptPredicted),
+        };
+      }
       const countedSource: 'count' | 'logistic' | 'none' = isValidated ? 'count' : exp ? 'logistic' : 'none';
       const countedPacked = isValidated ? Number(counted?.packedUnits) || 0 : exp ? exp.packed : 0;
       const countedLoose = round2(isValidated ? Number(counted?.looseUnits) || 0 : exp ? exp.loose : 0);
@@ -1016,16 +1165,13 @@ export class InventoryService {
       const expectedLoose = exp ? round2(exp.loose) : null;
       const expectedUnits =
         exp && unitsPerPack ? round2(exp.units ?? exp.packed * unitsPerPack + exp.loose) : null;
-      // Besoin prédit (Event Predict) : deuxième référence du document. L'attendu
-      // ci-dessus dit « ce que la Logistique pense qu'il y a », celui-ci « ce que
-      // le scénario demande d'avoir » — les deux écarts se lisent ensemble.
-      const predictedRaw = predictedUnits?.[elementId]?.[itemId];
-      const predicted = Number.isFinite(Number(predictedRaw)) ? round2(Number(predictedRaw)) : null;
       return {
         elementId,
         elementName: elementNameById.get(elementId) ?? '',
         itemKey: itemId,
         itemName: itemNameById.get(itemId) ?? '',
+        // Catalogue d'origine de l'id (menuItem | marketPrice | menuComponent | ingredient | packaging).
+        itemKind: identities.get(itemId)?.kind ?? null,
         unitsPerPack,
         expectedPacked,
         expectedLoose,
@@ -1062,6 +1208,8 @@ export class InventoryService {
           // Le document porte-t-il la comparaison au scénario ? Sans marqueur, une
           // colonne prédit vide se confond avec « rien n'était prédit ».
           predictedSource: predictedUnits ? 'event-predict-default-version' : 'none',
+          // Lignes reprises de la feuille précédente (déjà poussées, inchangées).
+          carriedLines: carriedCount,
           ...extraMeta,
         },
         createdBy: userId ?? null,
@@ -1069,8 +1217,28 @@ export class InventoryService {
     });
     // Le comptage devient la nouvelle référence du registre Logistic (PDF
     // 2026-08-21). Après la création du document : un échec de recalage ne doit
-    // jamais faire perdre la réconciliation.
-    await this.pushCountToLogistic(spaceId, tenantId, 'pre-event', event, countedBlob, userId);
+    // jamais faire perdre la réconciliation. Push incrémental : seules les lignes
+    // nouvelles ou modifiées depuis leur dernier push partent vers le registre.
+    const push = await this.pushCountToLogistic(
+      spaceId,
+      tenantId,
+      'pre-event',
+      event,
+      countedBlob,
+      userId,
+      pushState,
+    );
+    // Résultat du push archivé sur le document : ce qui est parti vers le registre à
+    // cette génération (les lignes reprises l'étaient déjà), ou pourquoi rien n'est parti.
+    const metaWithPush = {
+      ...((created as any).meta ?? {}),
+      logisticPush: { ok: push.ok, reason: push.reason ?? null, lineCount: push.lineCount ?? 0 },
+    };
+    await this.prisma.stockReconciliation.update({
+      where: { id: created.id },
+      data: { meta: metaWithPush as any },
+    });
+    (created as any).meta = metaWithPush;
 
     // BUG-233 : le document persisté est complet ; la RÉPONSE est expurgée pour
     // un appelant sans `front.fb.preInventoryExpected` (il a le droit de créer,
@@ -1102,21 +1270,34 @@ export class InventoryService {
     event: { id: string; name?: string | null },
     countedBlob: Record<string, Record<string, any>>,
     userId?: string,
+    // État de push des lignes (déjà chargé par l'appelant, sinon chargé ici).
+    pushState?: LogisticPushState,
   ): Promise<{ ok: boolean; reason?: string; lineCount?: number }> {
     // BUG-383-02 (règle Bertrand 2026-09-15) : seul ce qui a été COMPTÉ (validé) met à jour
     // Logistic ; le reste garde sa valeur courante. Sans ce filtre, en post-event les
     // propositions reportées du pre-event (`carriedFromPreEvent`, isCounted=false) étaient
     // poussées comme un comptage, écrasant le stock d'articles jamais recomptés.
+    //
+    // Push INCRÉMENTAL : une ligne validée déjà poussée et inchangée depuis
+    // (`logisticPushedAt >= updatedAt`) n'est pas repoussée. Un reset remet StockLevel à la
+    // valeur comptée et déplace l'ancre des ventes : repousser un comptage de la veille
+    // effacerait les livraisons saisies depuis, et repousser après l'ouverture des portes
+    // effacerait les ventes du début de match.
+    const state = pushState ?? (await this.loadLogisticPushState(spaceId, event.id, tenantId));
     const validated: Record<string, Record<string, any>> = {};
     const itemIds = new Set<string>();
+    let validatedCount = 0;
     for (const [elementId, byItem] of Object.entries(countedBlob ?? {})) {
       for (const [itemId, count] of Object.entries(byItem ?? {})) {
         if ((count as any)?.isCounted !== true) continue;
+        validatedCount += 1;
+        if (!this.isPendingLogisticPush(state, elementId, itemId)) continue;
         (validated[elementId] ??= {})[itemId] = count;
         itemIds.add(itemId);
       }
     }
-    if (!itemIds.size) return { ok: false, reason: 'no-counts' };
+    if (!validatedCount) return { ok: false, reason: 'no-counts' };
+    if (!itemIds.size) return { ok: false, reason: 'nothing-new' };
 
     const itemKeyById = await this.resolveItemKeysByIds([...itemIds], tenantId);
     const lines: Array<{
@@ -1156,12 +1337,59 @@ export class InventoryService {
       this.logger.log(
         `Stock Logistic recalé depuis le comptage ${phase} — space ${spaceId} / event ${event.id} (${lines.length} ligne(s))`,
       );
-      return { ok: true, lineCount: lines.length };
     } catch (error: any) {
       this.logger.warn(
         `Recalage Logistic depuis le comptage ${phase} échoué (document conservé) — space ${spaceId} / event ${event.id} : ${error?.message}`,
       );
       return { ok: false, reason: 'reset-failed' };
+    }
+    await this.markLogisticPushed(
+      lines.map((l) => state.get(`${l.elementId}::${l.itemRefId}`)?.id).filter((id): id is string => !!id),
+    );
+    return { ok: true, lineCount: lines.length };
+  }
+
+  /** État de push par ligne validée d'un match : clé `elementId::itemId`. */
+  private async loadLogisticPushState(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+  ): Promise<LogisticPushState> {
+    const rows = await this.prisma.inventoryCount.findMany({
+      where: { tenantId, spaceId, eventId },
+      select: { id: true, shopId: true, itemId: true, updatedAt: true, logisticPushedAt: true },
+    });
+    const state: LogisticPushState = new Map();
+    for (const r of rows) {
+      if (!r.shopId) continue;
+      state.set(`${r.shopId}::${r.itemId}`, {
+        id: r.id,
+        updatedAt: r.updatedAt,
+        logisticPushedAt: r.logisticPushedAt,
+      });
+    }
+    return state;
+  }
+
+  /** Une ligne est à pousser si elle n'a jamais été poussée, ou a été modifiée depuis.
+   *  Ligne absente de l'état (comptage issu d'un snapshot, sans `InventoryCount`) :
+   *  jamais poussée, donc à pousser. */
+  private isPendingLogisticPush(state: LogisticPushState, elementId: string, itemId: string): boolean {
+    const row = state.get(`${elementId}::${itemId}`);
+    if (!row) return true;
+    if (!row.logisticPushedAt) return true;
+    return row.updatedAt.getTime() > row.logisticPushedAt.getTime();
+  }
+
+  /** SQL brut : `update()` Prisma bumperait `updatedAt` (@updatedAt), et la ligne
+   *  repasserait aussitôt « modifiée depuis le push ». Hors transaction du reset :
+   *  un échec ici ne fait que repousser ces lignes au prochain push (delta 0). */
+  private async markLogisticPushed(ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    try {
+      await this.prisma.$executeRaw`UPDATE "InventoryCount" SET "logisticPushedAt" = NOW() WHERE "id" IN (${Prisma.join(ids)})`;
+    } catch (error: any) {
+      this.logger.warn(`Marquage logisticPushedAt échoué (${ids.length} ligne(s)) : ${error?.message}`);
     }
   }
 
@@ -1195,7 +1423,9 @@ export class InventoryService {
       throw new BadRequestException(
         result.reason === 'no-counts' || result.reason === 'no-addressable-lines'
           ? 'Aucun item compté à pousser vers Logistic'
-          : 'Échec de la mise à jour du registre Logistic',
+          : result.reason === 'nothing-new'
+            ? 'Registre Logistic déjà à jour : aucun comptage modifié depuis le dernier push'
+            : 'Échec de la mise à jour du registre Logistic',
       );
     }
     return result;

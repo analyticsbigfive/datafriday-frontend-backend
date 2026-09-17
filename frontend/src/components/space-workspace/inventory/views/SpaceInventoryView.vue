@@ -204,6 +204,15 @@
             <span v-else-if="preEventWindow.isAfterDoorsOpen" class="si-band-title__warn">
               · {{ t('preInvEditingAfterDoors').replace('{time}', preEventDeadlineLabel) }}
             </span>
+            <!-- Aucune heure d'ouverture des portes sur l'event (sessions.doorsOpening) :
+                 pas de passage automatique ni de verrou, le bouton « Ouverture des
+                 portes » le déclenche à la main. -->
+            <span v-else-if="preEventWindow.hasNoDoorsOpen && !preEventWindow.doorsOpenDone" class="si-band-title__warn">
+              · {{ t('preInvNoDoorsOpenTime') }}
+            </span>
+            <span v-else-if="preEventWindow.doorsOpenDone && !preEventWindow.isAfterDoorsOpen" class="si-band-title__warn">
+              · {{ t('preInvDoorsOpenDone') }}
+            </span>
           </template>
         </p>
         <p v-else-if="spaceLabel" class="si-band-title__sub">
@@ -290,6 +299,10 @@
               </v-btn>
             </template>
             <v-list density="compact" min-width="240">
+              <v-list-item v-if="canTriggerDoorsOpen" :disabled="doorsOpening" @click="onDoorsOpen">
+                <template #prepend><v-icon size="18">mdi-door-open</v-icon></template>
+                <v-list-item-title>{{ t('preInvDoorsOpenBtn') }}</v-list-item-title>
+              </v-list-item>
               <v-list-item v-if="selectedEventId" :disabled="pushingToLogistic" @click="onUpdateLogistic">
                 <template #prepend><v-icon size="18">mdi-warehouse</v-icon></template>
                 <v-list-item-title>{{ t('invUpdateLogistic') }}</v-list-item-title>
@@ -305,6 +318,20 @@
               </v-list-item>
             </v-list>
           </v-menu>
+          <!-- Passage « portes ouvertes » manuel (pre-event staff) : repli quand
+               l'event n'a pas d'heure d'ouverture, ou pour avancer le passage.
+               Disparaît une fois le passage fait (cron ou main). -->
+          <v-btn
+            v-if="canTriggerDoorsOpen"
+            variant="outlined"
+            class="si-band-btn si-band-btn--desktop"
+            :loading="doorsOpening"
+            :disabled="doorsOpening"
+            @click="onDoorsOpen"
+          >
+            <v-icon size="16" class="mr-1">mdi-door-open</v-icon>
+            {{ t('preInvDoorsOpenBtn') }}
+          </v-btn>
           <v-btn
             v-if="selectedEventId"
             variant="outlined"
@@ -904,6 +931,7 @@ import {
   getPostEventBaseline,
   createPreEventReconciliation,
   regeneratePreEventReconciliation,
+  triggerPreEventDoorsOpen,
   getEventSalesConsumption,
   pushInventoryCountToLogistic,
 } from '@/api/endpoints/inventory.api'
@@ -1000,14 +1028,15 @@ export default {
     // reactive() (pas l'objet brut) : auto-unwrap des refs imbriquées, en template
     // COMME en JS (`guestSession.isGuestMode` partout, jamais `.value` à la main).
     const guestSession = reactive(useGuestInventorySession())
-    // Verrou des 30 min après l'ouverture des portes (staff, pre-event). L'event
-    // ancré est une computed Options API (`contextEvent`) : on la reflète dans
-    // cette ref via un watcher, le composable ne lit que la ref.
-    const preEventAnchorEvent = ref(null)
+    // Verrou des 30 min après l'ouverture des portes (staff, pre-event) : état
+    // chargé depuis le serveur pour l'event ancré. L'event ancré est une computed
+    // Options API (`contextEvent`) : on reflète sa clé dans cette ref via un
+    // watcher, le composable ne lit que la ref.
+    const preEventAnchorKey = ref(null)
     const preEventWindow = reactive(
       usePreEventEditWindow(
-        () => preEventAnchorEvent.value,
-        () => route.meta?.inventoryMode === 'pre' && !route.meta?.guestMode,
+        () => preEventAnchorKey.value,
+        () => route.meta?.inventoryMode === 'pre' && !route.meta?.guestMode && !isDemoMode(),
       ),
     )
     // Rafraîchissement de fond pendant qu'une fenêtre PIN est ouverte (les
@@ -1043,7 +1072,7 @@ export default {
       contextError,
       contextWarning,
       guestSession,
-      preEventAnchorEvent,
+      preEventAnchorKey,
       preEventWindow,
       livePollingEnabled,
       livePollExtra,
@@ -1144,6 +1173,7 @@ export default {
       successSnackbar: false,
       successText: '',
       pushingToLogistic: false,
+      doorsOpening: false,
       mock: { shopsWithInventory: [], storagesWithInventory: [], merchWithInventory: [] },
       COUNTING_TABS,
       TOP_TABS,
@@ -1307,6 +1337,13 @@ export default {
       if (this.guestSession.isGuestMode || isDemoMode() || !this.selectedEventId) return false
       const win = this.$store.getters['guestPinAdmin/windowByPhase']?.(this.guestPinPhase)
       return win?.status === 'open'
+    },
+    /** Bouton « Ouverture des portes » : pre-event staff, event ancré, passage pas
+     *  encore fait (le serveur reste idempotent de toute façon). */
+    canTriggerDoorsOpen() {
+      if (!this.isPreMode || this.guestSession.isGuestMode || isDemoMode()) return false
+      if (!this.selectedEventId || this.preEventWindow.phase === 'unknown') return false
+      return !this.preEventWindow.doorsOpenDone
     },
     /** Heure de fin de la fenêtre d'édition (HH:MM locale) pour le bandeau. */
     preEventDeadlineLabel() {
@@ -2348,9 +2385,10 @@ export default {
         }
         return
       }
-      this.store.dispatch('inventory/upsertCount', { shopId, itemId, patch })
-      // La mutation UPSERT_COUNT est synchrone (avant l'await API) : l'état reflète
-      // déjà le nouveau isCounted ici. On notifie si le PDV/stockage est complet.
+      // Attendu : la régénération serveur relit InventoryCount, la ligne doit être
+      // persistée AVANT (sinon le dernier article du PDV manque à la feuille et au
+      // push Logistic). upsertCount n'étend pas les erreurs (toast via SET_ERROR).
+      await this.store.dispatch('inventory/upsertCount', { shopId, itemId, patch })
       if (counted) {
         this.notifyIfElementComplete(shopId)
         if (this.isPreMode && this.isElementComplete(shopId)) {
@@ -2423,6 +2461,43 @@ export default {
       // accessible par le dropdown Tools). Voir docs/modules/10_POST_EVENT_INVENTORY.md §7-8.
       if (this.isPreMode) await this.createPreReconciliationAfterSave()
       else await this.createReconciliationAfterSave()
+    },
+    /** Bouton « Ouverture des portes » : clôt la fenêtre PIN pre-event, génère la
+     *  feuille et pousse l'incrément vers Logistic (même chemin que le cron). */
+    async onDoorsOpen() {
+      if (!this.selectedEventId) return
+      const ok = await confirmDialog({
+        title: this.t('preInvDoorsOpenConfirmTitle'),
+        message: this.t('preInvDoorsOpenConfirmMsg'),
+        confirmText: this.t('preInvDoorsOpenBtn'),
+        cancelText: this.t('cancel') || 'Cancel',
+        confirmColor: 'deep-orange',
+        icon: 'mdi-door-open',
+        iconColor: 'warning',
+      })
+      if (!ok) return
+      const spaceId = this.route.params.spaceId
+      this.doorsOpening = true
+      try {
+        const result = await triggerPreEventDoorsOpen(spaceId, this.selectedEventId)
+        await Promise.all([
+          this.preEventWindow.refresh(),
+          this.loadReconciliations(spaceId, { silent: true }),
+          this.$store.dispatch('guestPinAdmin/fetchStatusBoard', { spaceId, eventId: this.selectedEventId }).catch(() => null),
+        ])
+        if (result?.ok) {
+          this.successText = this.t('preInvDoorsOpenSuccess')
+          this.successSnackbar = true
+        } else {
+          this.successText = this.t('preInvDoorsOpenNoop').replace('{reason}', result?.reason || '?')
+          this.successSnackbar = true
+        }
+      } catch (e) {
+        this.errorText = e?.userMessage || e?.response?.data?.message || this.t('preInvDoorsOpenError')
+        this.errorSnackbar = true
+      } finally {
+        this.doorsOpening = false
+      }
     },
     /** Bouton "Update Logistic" : pousse manuellement le comptage courant vers le
      *  registre Logistic (écrase les StockLevel avec les quantités comptées),
@@ -2505,7 +2580,9 @@ export default {
           ev.id,
           this.predictedUnitsBlobForReco(),
         )
-        this.reconciliations = [created, ...this.reconciliations.filter((r) => r.id !== created.id)]
+        // UNE feuille par match : le serveur a remplacé la précédente, on recharge
+        // la liste plutôt que d'empiler localement un document supprimé.
+        await this.loadReconciliations(spaceId, { silent: true })
         this.selectedReconciliationId = created.id
       } catch (e) {
         console.warn('[SpaceInventory] création réconciliation pre-event KO:', e?.message)
@@ -3330,7 +3407,8 @@ export default {
     contextEvent: {
       immediate: true,
       handler(ev) {
-        this.preEventAnchorEvent = ev || null
+        const spaceId = this.route.params.spaceId
+        this.preEventAnchorKey = ev?.id && spaceId ? { spaceId, eventId: String(ev.id) } : null
       },
     },
     livePollingActive: {

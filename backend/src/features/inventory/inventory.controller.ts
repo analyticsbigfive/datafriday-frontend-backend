@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Post,
@@ -10,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
@@ -168,14 +170,66 @@ export class InventoryController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /inventory/${spaceId}/pre-event-reconciliations eventId=${dto.eventId}`);
-    return this.inventoryService.createPreEventReconciliation(
+    // Même chemin que les générations automatiques (UNE feuille par match, lignes
+    // déjà poussées reprises, push Logistic incrémental) : le Save manuel ne crée
+    // plus une feuille de plus à côté de celle du flux.
+    const result = await this.preEventFlow.regenerate(
       spaceId,
       dto.eventId,
       user.tenantId,
       user.id,
-      this.canSeeExpected(user),
-      dto.predictedUnits ?? null,
+      'manual',
+      {},
+      { predictedUnits: dto.predictedUnits ?? null, canSeeExpected: this.canSeeExpected(user) },
     );
+    if (!result.ok) {
+      throw new BadRequestException(
+        result.reason === 'no-counts'
+          ? 'Aucun comptage pour cet événement'
+          : `Réconciliation non générée (${result.reason})`,
+      );
+    }
+    return result.document;
+  }
+
+  @Get(':spaceId/pre-event-window/:eventId')
+  @ApiOperation({
+    summary:
+      "État de la fenêtre d'édition pre-event (source unique, instants UTC) : heure d'ouverture des portes " +
+      "(sessions.doorsOpening, fuseau du space), fin des 30 min d'édition, phase, passage portes ouvertes déjà fait.",
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiParam({ name: 'eventId', description: "ID de l'événement" })
+  @ApiResponse({
+    status: 200,
+    description: "{ phase: 'no-doors-open'|'before'|'editing'|'locked', doorsOpenAt, editDeadline, doorsOpenDone }",
+  })
+  async getPreEventWindow(
+    @Param('spaceId') spaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.preEventFlow.getWindowState(spaceId, eventId, user.tenantId);
+  }
+
+  @Post(':spaceId/pre-event-doors-open')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      "Passage « portes ouvertes » manuel : clôt la fenêtre PIN pre-event, génère la feuille et pousse l'incrément " +
+      "vers Logistic. Idempotent (already-initialized si déjà passé, par le cron ou à la main).",
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiResponse({ status: 200, description: '{ ok, reconciliationId, lineCount } ou { ok: false, reason }' })
+  async triggerPreEventDoorsOpen(
+    @Param('spaceId') spaceId: string,
+    @Body() dto: RegeneratePreEventReconciliationDto,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`POST /inventory/${spaceId}/pre-event-doors-open eventId=${dto.eventId}`);
+    const event = await this.preEventFlow.findEvent(spaceId, dto.eventId, user.tenantId);
+    if (!event) throw new NotFoundException(`Event ${dto.eventId} not found in space ${spaceId}`);
+    return this.preEventFlow.runDoorsOpen(event, user.id ? `user:${user.id}` : 'manual-doors-open');
   }
 
   @Post(':spaceId/pre-event-reconciliations/regenerate')
