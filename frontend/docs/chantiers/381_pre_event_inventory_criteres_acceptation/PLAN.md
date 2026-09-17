@@ -103,3 +103,70 @@ Décisions prises avec Ulrich le 2026-09-14 :
 - Migration à appliquer (`prisma migrate deploy`) ; aucune variable d'env à ajouter.
 - Cron : passage de 5 min à 1 min. Au premier déploiement, tout event terminé depuis moins de 3h et sans
   marqueur passera par `runDoorsOpen` (même comportement que l'ancien cron).
+
+## Fix robuste du 2026-09-17 (branche `fix/pre-event-flow-robust`, base `develop`)
+
+Analyse du 2026-09-17 sur le flux mergé dans `develop` : trois causes racines.
+
+1. **"Doors Open" tombait à 02:00 du matin.** `eventStartDate ?? eventDate` sont des jours ancrés à minuit
+   UTC (110 events avec espace en base dev, 0 avec une heure). Conséquence : fenêtre PIN clôturée et PIN
+   effacé à 02:00 Paris, puis **403 sur tout comptage pre-event dès 02:30 le jour du match**.
+2. **Chaque régénération reconstruisait la feuille et re-poussait TOUT le comptage validé** vers Logistic.
+   Le reset remet `StockLevel = compté` et déplace l'ancre des ventes : effacement des ventes du début de
+   match à chaque `flushDirty`, des livraisons Logistic saisies entre comptage et match, et rattrapage tardif
+   du cron = reset complet en plein match. Pire : l'attendu est relu depuis Logistic, qui contient déjà le
+   comptage poussé, donc **les écarts des lignes déjà poussées retombaient à 0** à chaque régénération.
+3. Aucune sérialisation (deux PDV complets à la même seconde, cron + staff), marqueur find-then-create,
+   `markCounted` staff appelait `regenerate` sans attendre la persistance du comptage (race).
+
+### Ce qui a été fait
+
+Backend :
+- `resolveDoorsOpenAt(event, timezone)` dans `shared/utils/event-window.util.ts` : `sessions[].doorsOpening`
+  (la plus tôt, heure locale du space via `combineDayAndLocalTime`), **`null` sans heure, jamais minuit**.
+  `FlowEvent` porte `sessions` + `timezone` (select `space.timezone`).
+- `PreEventInventoryFlowService` : `doorsOpenAt`/`editDeadline` nullables ; sans heure → `saveCount` délègue
+  sans verrou, le cron ignore l'event ; `windowState`/`getWindowState` exposés
+  (`GET /inventory/:spaceId/pre-event-window/:eventId`, phases `no-doors-open|before|editing|locked`,
+  `doorsOpenDone`) ; `runDoorsOpen` réclame le marqueur AVANT le travail (P2002 = déjà fait, retiré si échec),
+  garde `late` (au-delà de la fin des 30 min + 5 min : fenêtre clôturée, marqueur posé, rien de poussé) ;
+  régénérations sérialisées par match (file de promesses en mémoire, cron et HTTP vivent dans le même
+  process) ; `regenerate` accepte `predictedUnits` client + `canSeeExpected` et renvoie `document`.
+- `POST /inventory/:spaceId/pre-event-doors-open` : passage manuel (repli sans heure, ou pour avancer).
+- Le Save manuel (`POST pre-event-reconciliations`) passe désormais par `regenerate('manual')` : une seule
+  feuille par match, partout.
+- `InventoryCount.logisticPushedAt` (migration `20260917100000`) : `pushCountToLogistic` ne pousse que les
+  lignes validées jamais poussées ou modifiées depuis (`updatedAt > logisticPushedAt`), marque les lignes
+  poussées en SQL brut (un `update()` Prisma bumperait `updatedAt`). `nothing-new` quand rien n'a changé
+  (bouton « Update Logistic » : message explicite). Vaut aussi pour le post-event et la clôture de fenêtre PIN.
+- `createPreEventReconciliation(..., previousLines)` : une ligne validée déjà poussée et inchangée est
+  **reprise telle quelle** de la feuille précédente (attendu et écart figés au moment du comptage), seul le
+  besoin prédit est rafraîchi ; `meta.carriedLines`, `meta.logisticPush` archivés.
+- Cron : borne de fin = `resolveEventTransactionWindow(e).end + 3h` (même règle que le Live, plus
+  `eventEndDate` brut) ; `INVENTORY_LIVE_INIT_CRON_ENABLED` déclaré dans `render.yaml` (web) avec la note
+  multi-instances.
+
+Frontend :
+- `utils/preEventEditWindow.js` + `composables/usePreEventEditWindow.js` : l'état vient du serveur
+  (`getPreEventWindow`), l'écran ne recalcule plus rien depuis l'event ; ré-évaluation de la phase à la minute,
+  `refresh()`.
+- `SpaceInventoryView.vue` : `await` du `upsertCount` avant `regenerate` ; bandeau « pas d'heure d'ouverture »
+  / « passage effectué » ; bouton « Ouverture des portes » (desktop + menu mobile, confirmation, masqué une
+  fois le passage fait) ; après un Save manuel, rechargement de la liste (le serveur a remplacé la feuille).
+- API : `getPreEventWindow`, `triggerPreEventDoorsOpen`.
+
+Tests : `event-window.util.spec` (`resolveDoorsOpenAt`), `pre-event-inventory-flow.service.spec` (réécrit,
+25 tests : heure réelle, sans heure, sérialisation, claim/late/rollback du marqueur), `inventory-live-init.cron.spec`
+(réécrit), `inventory.service.spec` (push incrémental, `nothing-new`, reprise de lignes), `preEventEditWindow.spec`
+(réécrit sur l'état serveur).
+
+### À savoir / à valider en test
+
+- Migration `20260917100000_inventory_count_logistic_pushed_at` appliquée sur la base dev le 2026-09-17 ;
+  à déployer avec le backend (`prisma migrate deploy`, additive, nullable).
+- Les comptages déjà poussés avant ce fix n'ont pas de `logisticPushedAt` : ils seront repoussés UNE fois à
+  la prochaine régénération (delta 0 si rien n'a bougé dans Logistic), puis marqués.
+- Un event sans `doorsOpening` (33 sur 110 en dev) : renseigner l'heure dans la fiche event (sessions), sinon
+  le bouton « Ouverture des portes » fait le passage à la main. Le verrou des 30 min n'existe pas sans heure.
+- La sérialisation des régénérations est en mémoire : si le web Render passe à plusieurs instances, n'activer
+  le cron que sur une seule (ou passer à un verrou `pg_advisory_xact_lock`).

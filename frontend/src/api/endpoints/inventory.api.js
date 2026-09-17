@@ -177,6 +177,28 @@ export async function regeneratePreEventReconciliation(spaceId, eventId, element
 }
 
 /**
+ * État de la fenêtre d'édition pre-event, seule source de vérité (instants UTC) :
+ * heure d'ouverture des portes (sessions.doorsOpening, fuseau du space), fin des
+ * 30 min d'édition staff, phase, passage « portes ouvertes » déjà effectué.
+ * GET /inventory/:spaceId/pre-event-window/:eventId
+ * @returns {Promise<{phase: 'no-doors-open'|'before'|'editing'|'locked', doorsOpenAt: string|null, editDeadline: string|null, doorsOpenDone: boolean}>}
+ */
+export async function getPreEventWindow(spaceId, eventId) {
+  return api.get(`/inventory/${spaceId}/pre-event-window/${eventId}`)
+}
+
+/**
+ * Passage « portes ouvertes » manuel : clôt la fenêtre PIN pre-event, génère la
+ * feuille et pousse l'incrément de comptage vers Logistic. Idempotent côté
+ * serveur (already-initialized si déjà passé, par le cron ou à la main).
+ * POST /inventory/:spaceId/pre-event-doors-open
+ * @returns {Promise<{ok: boolean, reconciliationId?: string, lineCount?: number, reason?: string}>}
+ */
+export async function triggerPreEventDoorsOpen(spaceId, eventId) {
+  return api.post(`/inventory/${spaceId}/pre-event-doors-open`, { eventId })
+}
+
+/**
  * Liste tous les types de packaging (carton, palette, etc.).
  * Route backend réelle = GET /packaging (il n'existe PAS de /packaging-types → 404).
  */
