@@ -1131,6 +1131,156 @@ describe('InventoryService', () => {
 
   // ── Suppression d'un document (repartir de zéro) ────────────────────────────
 
+  // ── Identité article « à 1 cran » (fix 2026-09-17, retour Bertrand sur Auxerre 6A) ──
+  // L'inventaire compte un ingrédient sous son id MarketPrice (componentIngredientId) et
+  // dédoublonne par NOM : « Coca-Cola CAN 33cl » en recette est compté sous son id
+  // MarketPrice même si un MenuItem homonyme existe. La feuille ne résolvait que MenuItem :
+  // ligne comptée exclue (« orpheline »), remplacée par la valeur Logistic « (L) » sous
+  // l'id MenuItem, et aucun hint « Attendu » à l'écran. 70 % des lignes comptées en base.
+  describe('identité article multi-catalogue (MenuItem / MarketPrice / MenuComponent)', () => {
+    const byIdOrName = <T extends Record<string, any>>(rows: T[], nameField: string) =>
+      ({ where }: any = {}) =>
+        Promise.resolve(
+          rows.filter((r) => {
+            if (where?.id?.in && !where.id.in.includes(r.id)) return false;
+            if (where?.[nameField]?.in && !where[nameField].in.includes(r[nameField])) return false;
+            return true;
+          }),
+        );
+
+    function wireCatalogs({
+      menuItems = [] as Array<{ id: string; name: string; inventoryNumberOfUnits?: number }>,
+      marketPrices = [] as Array<{ id: string; itemName: string; packedUnits?: number | null }>,
+      components = [] as Array<{ id: string; name: string; packedUnits?: number | null }>,
+    }) {
+      mockPrisma.menuItem.findMany.mockImplementation(
+        byIdOrName(menuItems.map((m) => ({ inventoryNumberOfUnits: 1, ...m })), 'name'),
+      );
+      mockPrisma.marketPrice.findMany.mockImplementation(
+        byIdOrName(marketPrices.map((m) => ({ packedUnits: null, ...m })), 'itemName'),
+      );
+      mockPrisma.menuComponent.findMany.mockImplementation(
+        byIdOrName(components.map((c) => ({ packedUnits: null, ...c })), 'name'),
+      );
+    }
+
+    const catalogs = {
+      menuItems: [
+        { id: 'mi-coca', name: 'Coca-Cola CAN 33cl' },
+        { id: 'mi-choco', name: 'Barre chocolatée' },
+        { id: 'mi-beer', name: 'Bière' },
+      ],
+      marketPrices: [
+        { id: 'mp-coca', itemName: 'Coca-Cola CAN 33cl', packedUnits: 24 },
+        { id: 'mp-frites', itemName: 'Frites', packedUnits: 10 },
+        { id: 'mp-beer', itemName: 'Bière' },
+      ],
+      components: [{ id: 'comp-sauce', name: 'Sauce pickle' }],
+    };
+
+    beforeEach(() => {
+      mockPrisma.event.findFirst.mockImplementation(({ where }: any) =>
+        Promise.resolve(where?.id ? { id: 'event-next', name: 'AJA-Brest' } : null),
+      );
+      mockPrisma.spaceElement.findMany.mockImplementation(({ where }: any) =>
+        Promise.resolve(where?.OR ? [{ id: '6A' }] : [{ id: '6A', name: '6A' }]),
+      );
+      wireCatalogs(catalogs);
+      mockPrisma.stockLevel.findMany.mockResolvedValue([
+        { elementId: '6A', itemKey: 'Coca-Cola CAN 33cl', packedUnits: 0, looseUnits: 10, unitsPerPack: null },
+        { elementId: '6A', itemKey: 'Frites', packedUnits: 0, looseUnits: 20, unitsPerPack: null },
+        { elementId: '6A', itemKey: 'Bière', packedUnits: 0, looseUnits: 5, unitsPerPack: null },
+      ]);
+      mockPrisma.stockReconciliation.create.mockImplementation(({ data }: any) =>
+        Promise.resolve({ id: 'reco-1', ...data }),
+      );
+      jest.spyOn(logistics, 'reset').mockResolvedValue({} as any);
+    });
+
+    it('feuille pre-event : une ligne comptée sous un id MarketPrice / MenuComponent est conservée, avec son attendu Logistic et son conditionnement', async () => {
+      mockPrisma.inventoryCount.findMany.mockResolvedValue([
+        makeCount({ id: 'c1', eventId: 'event-next', shopId: '6A', itemId: 'mp-coca', packedUnits: 0, looseUnits: 7, isCounted: true }),
+        makeCount({ id: 'c2', eventId: 'event-next', shopId: '6A', itemId: 'mp-frites', packedUnits: 1, looseUnits: 2, isCounted: true }),
+        makeCount({ id: 'c3', eventId: 'event-next', shopId: '6A', itemId: 'comp-sauce', packedUnits: 0, looseUnits: 3, isCounted: true }),
+        makeCount({ id: 'c4', eventId: 'event-next', shopId: '6A', itemId: 'mi-choco', packedUnits: 0, looseUnits: 4, isCounted: true }),
+      ]);
+
+      const reco = await service.createPreEventReconciliation('6A-space', 'event-next', 'tenant-1', 'user-1');
+      const lines = reco.lines as any[];
+      const byKey = (k: string) => lines.find((l) => l.itemKey === k);
+
+      // Coca : UNE ligne, sous l'id compté (MarketPrice), attendu joint par nom, pas de doublon (L) sous mi-coca.
+      expect(lines.filter((l) => l.itemName === 'Coca-Cola CAN 33cl')).toHaveLength(1);
+      expect(byKey('mp-coca')).toMatchObject({
+        itemName: 'Coca-Cola CAN 33cl',
+        itemKind: 'marketPrice',
+        countedSource: 'count',
+        countedLoose: 7,
+        expectedLoose: 10,
+        deltaLoose: -3,
+        unitsPerPack: 24,
+        countedUnits: 7,
+        expectedUnits: 10,
+        deltaUnits: -3,
+      });
+      expect(byKey('mi-coca')).toBeUndefined();
+      // Frites : MarketPrice seul (aucun MenuItem homonyme), conditionnement MarketPrice.
+      expect(byKey('mp-frites')).toMatchObject({ itemName: 'Frites', countedSource: 'count', unitsPerPack: 10, countedUnits: 12, expectedUnits: 20, deltaUnits: -8 });
+      // Composant compté, absent du registre : attendu « — », jamais 0 fabriqué.
+      expect(byKey('comp-sauce')).toMatchObject({ itemName: 'Sauce pickle', itemKind: 'menuComponent', countedSource: 'count', countedLoose: 3, expectedLoose: null, deltaLoose: null });
+      expect(byKey('mi-choco')).toMatchObject({ itemKind: 'menuItem', countedSource: 'count', countedLoose: 4 });
+      // Bière : Logistic seule, deux ids homonymes → UNE ligne (L) sous l'id principal (MenuItem).
+      expect(lines.filter((l) => l.itemName === 'Bière')).toHaveLength(1);
+      expect(byKey('mi-beer')).toMatchObject({ countedSource: 'logistic', countedLoose: 5 });
+      expect(byKey('mp-beer')).toBeUndefined();
+      expect((reco as any).meta.orphanLinesExcluded).toBe(0);
+      // Le push Logistic couvre les 4 lignes comptées (inchangé).
+      const [, dto] = (logistics.reset as jest.Mock).mock.calls[0];
+      expect(dto.lines.map((l: any) => l.itemRefId).sort()).toEqual(['comp-sauce', 'mi-choco', 'mp-coca', 'mp-frites']);
+    });
+
+    it("feuille pre-event : un id qui ne résout dans aucun catalogue reste exclu (vrai orphelin)", async () => {
+      mockPrisma.inventoryCount.findMany.mockResolvedValue([
+        makeCount({ id: 'c1', eventId: 'event-next', shopId: '6A', itemId: 'id-supprime', packedUnits: 0, looseUnits: 7, isCounted: true }),
+      ]);
+      const reco = await service.createPreEventReconciliation('6A-space', 'event-next', 'tenant-1', 'user-1');
+      expect((reco.lines as any[]).find((l) => l.itemKey === 'id-supprime')).toBeUndefined();
+      expect((reco as any).meta.orphanLinesExcluded).toBe(1);
+    });
+
+    it("attendus à l'écran (pre-event-baseline) : exposés sous TOUS les ids homonymes, dans le conditionnement de chaque id", async () => {
+      const result = await service.getPreEventBaseline('6A-space', 'event-next', 'tenant-1');
+      // Coca : sous l'id MenuItem ET l'id MarketPrice ; le pack de 24 du MarketPrice vaut
+      // pour les deux (repli par nom, parité front `mpByName.get(name)`).
+      expect(result.expected['6A']['mi-coca']).toEqual({ packed: 0, loose: 10, units: 10, unitsPerPack: 24 });
+      expect(result.expected['6A']['mp-coca']).toEqual({ packed: 0, loose: 10, units: 10, unitsPerPack: 24 });
+      // Frites : aucun MenuItem homonyme, ne doit plus être « non joignable ».
+      expect(result.expected['6A']['mp-frites']).toEqual({ packed: 2, loose: 0, units: 20, unitsPerPack: 10 });
+      expect(result.unjoinedItemKeys).toEqual([]);
+    });
+
+    it('conditionnement : MenuItem (intention) > MarketPrice par id ou nom > MenuComponent, sinon 1', async () => {
+      wireCatalogs({
+        menuItems: [
+          { id: 'mi-x', name: 'X', inventoryNumberOfUnits: 6 },
+          { id: 'mi-y', name: 'Y' },
+        ],
+        marketPrices: [
+          { id: 'mp-x', itemName: 'X', packedUnits: 24 },
+          { id: 'mp-y', itemName: 'Y', packedUnits: 12 },
+        ],
+        components: [{ id: 'comp-z', name: 'Z', packedUnits: 8 }],
+      });
+      const upp = await (service as any).resolveInventoryUnitsPerPack(['mi-x', 'mp-x', 'mi-y', 'mp-y', 'comp-z', 'inconnu'], 'tenant-1');
+      expect(upp.get('mi-x')).toBe(6); // intention du menu item
+      expect(upp.get('mp-x')).toBe(6); // même nom : le menu item prime aussi sur l'id MarketPrice (parité front)
+      expect(upp.get('mi-y')).toBe(12); // 1 = défaut, repli MarketPrice par nom
+      expect(upp.get('mp-y')).toBe(12);
+      expect(upp.get('comp-z')).toBe(8);
+      expect(upp.get('inconnu')).toBe(1);
+    });
+  });
+
   describe('deleteInventoryReconciliation', () => {
     it('supprime un document pre/post-event du space', async () => {
       mockPrisma.stockReconciliation.findFirst.mockResolvedValue({ id: 'reco-1', kind: 'post-event' });
