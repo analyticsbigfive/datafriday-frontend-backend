@@ -1,57 +1,52 @@
-// Fenêtre d'édition du Pre-event Inventory : Doors Open = eventStartDate ?? eventDate,
-// 30 minutes d'édition staff, puis verrou (miroir de PreEventInventoryFlowService).
-import {
-  doorsOpenAt,
-  parseEventDateTime,
-  preEventEditDeadline,
-  preEventEditState,
-} from '@/utils/preEventEditWindow'
+// Fenêtre d'édition du Pre-event Inventory : l'état vient du SERVEUR (instants UTC),
+// l'écran ne fait que ré-évaluer la phase à `now` (fix/pre-event-flow-robust).
+import { parseInstant, preEventEditState } from '@/utils/preEventEditWindow'
 
 const MIN = 60 * 1000
 
-describe('parseEventDateTime', () => {
-  it("garde l'heure d'un ISO date-heure (parseEventDate la tronquerait au jour)", () => {
-    expect(parseEventDateTime('2026-09-14T19:30:00.000Z').toISOString()).toBe('2026-09-14T19:30:00.000Z')
-  })
-
-  it('retombe sur parseEventDate pour une date seule (ISO ou DD/MM/YYYY)', () => {
-    expect(parseEventDateTime('2026-09-14')).toEqual(new Date(2026, 8, 14))
-    expect(parseEventDateTime('14/09/2026')).toEqual(new Date(2026, 8, 14))
-    expect(parseEventDateTime(null)).toBeNull()
-    expect(parseEventDateTime('n/a')).toBeNull()
-  })
-})
-
-describe('doorsOpenAt', () => {
-  it('eventStartDate prioritaire sur eventDate', () => {
-    const ev = { eventDate: '2026-09-14T00:00:00.000Z', eventStartDate: '2026-09-14T19:30:00.000Z' }
-    expect(doorsOpenAt(ev).toISOString()).toBe('2026-09-14T19:30:00.000Z')
-  })
-
-  it('eventDate quand eventStartDate manque, `date` (store analyse) en dernier recours', () => {
-    expect(doorsOpenAt({ eventDate: '2026-09-14T18:00:00.000Z' }).toISOString()).toBe('2026-09-14T18:00:00.000Z')
-    expect(doorsOpenAt({ date: '2026-09-14' })).toEqual(new Date(2026, 8, 14))
-    expect(doorsOpenAt(null)).toBeNull()
-    expect(doorsOpenAt({})).toBeNull()
+describe('parseInstant', () => {
+  it('lit un ISO ou une Date, null sinon', () => {
+    expect(parseInstant('2026-09-14T17:30:00.000Z').toISOString()).toBe('2026-09-14T17:30:00.000Z')
+    expect(parseInstant(new Date('2026-09-14T17:30:00.000Z')).toISOString()).toBe('2026-09-14T17:30:00.000Z')
+    expect(parseInstant(null)).toBeNull()
+    expect(parseInstant('n/a')).toBeNull()
   })
 })
 
 describe('preEventEditState', () => {
-  const start = new Date('2026-09-14T19:30:00.000Z')
-  const ev = { eventStartDate: start.toISOString(), eventDate: '2026-09-14T00:00:00.000Z' }
+  const doorsOpen = new Date('2026-09-14T17:30:00.000Z')
+  const win = {
+    phase: 'before',
+    doorsOpenAt: doorsOpen.toISOString(),
+    editDeadline: new Date(doorsOpen.getTime() + 30 * MIN).toISOString(),
+    doorsOpenDone: false,
+  }
 
-  it('deadline = doors open + 30 min', () => {
-    expect(preEventEditDeadline(ev)).toEqual(new Date(start.getTime() + 30 * MIN))
+  it("'before' avant les portes, 'editing' pendant 30 min, 'locked' après (ré-évalué à now, pas la phase serveur)", () => {
+    expect(preEventEditState(win, new Date(doorsOpen.getTime() - MIN)).phase).toBe('before')
+    expect(preEventEditState(win, doorsOpen).phase).toBe('editing')
+    expect(preEventEditState(win, new Date(doorsOpen.getTime() + 30 * MIN)).phase).toBe('editing')
+    expect(preEventEditState(win, new Date(doorsOpen.getTime() + 30 * MIN + 1)).phase).toBe('locked')
   })
 
-  it("'before' avant les portes, 'editing' pendant 30 min, 'locked' après", () => {
-    expect(preEventEditState(ev, new Date(start.getTime() - MIN)).phase).toBe('before')
-    expect(preEventEditState(ev, start).phase).toBe('editing')
-    expect(preEventEditState(ev, new Date(start.getTime() + 30 * MIN)).phase).toBe('editing')
-    expect(preEventEditState(ev, new Date(start.getTime() + 30 * MIN + 1)).phase).toBe('locked')
+  it('expose les instants et le drapeau doorsOpenDone', () => {
+    const s = preEventEditState({ ...win, doorsOpenDone: true }, doorsOpen)
+    expect(s.doorsOpen.toISOString()).toBe(doorsOpen.toISOString())
+    expect(s.deadline.getTime() - s.doorsOpen.getTime()).toBe(30 * MIN)
+    expect(s.doorsOpenDone).toBe(true)
   })
 
-  it("'unknown' sans date lisible : aucun verrou côté écran", () => {
-    expect(preEventEditState({ name: 'sans date' }, start)).toEqual({ phase: 'unknown', doorsOpen: null, deadline: null })
+  it('editDeadline absente : recalculée à +30 min', () => {
+    const s = preEventEditState({ doorsOpenAt: win.doorsOpenAt }, doorsOpen)
+    expect(s.deadline.getTime() - doorsOpen.getTime()).toBe(30 * MIN)
+  })
+
+  it("'no-doors-open' sans heure d'ouverture : aucun verrou, même le jour du match", () => {
+    const s = preEventEditState({ phase: 'no-doors-open', doorsOpenAt: null, editDeadline: null, doorsOpenDone: false }, doorsOpen)
+    expect(s).toEqual({ phase: 'no-doors-open', doorsOpen: null, deadline: null, doorsOpenDone: false })
+  })
+
+  it("'unknown' tant que l'état serveur n'est pas chargé", () => {
+    expect(preEventEditState(null, doorsOpen)).toEqual({ phase: 'unknown', doorsOpen: null, deadline: null, doorsOpenDone: false })
   })
 })
