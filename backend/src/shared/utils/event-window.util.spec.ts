@@ -1,4 +1,4 @@
-import { resolveEventTransactionWindow, combineDayAndLocalTime, EventDayFields } from './event-window.util';
+import { resolveEventTransactionWindow, combineDayAndLocalTime, resolveDoorsOpenAt, EventDayFields } from './event-window.util';
 
 const TZ = 'Europe/Paris';
 const day = (iso: string) => new Date(iso);
@@ -80,5 +80,33 @@ describe('resolveEventTransactionWindow', () => {
     // séparer, seul le découpage temporel évite le double comptage.
     expect(windowSoir.start).toEqual(finApresMidi);
     expect(windowSoir.end).toEqual(combineDayAndLocalTime(day('2025-12-06T00:00:00Z'), '23:00', TZ));
+  });
+});
+
+describe('resolveDoorsOpenAt', () => {
+  it("sessions.doorsOpening posée sur le jour de début, fuseau du space (heure d'hiver UTC+1)", () => {
+    const event = makeEvent({ id: 'e1', sessions: [{ doorsOpening: '19:00', showTime: '21:00' }] });
+    expect(resolveDoorsOpenAt(event, TZ)).toEqual(day('2025-12-06T18:00:00Z'));
+  });
+
+  it('plusieurs sessions : la plus tôt', () => {
+    const event = makeEvent({ id: 'e1', sessions: [{ doorsOpening: '19:00' }, { doorsOpening: '12:30' }] });
+    expect(resolveDoorsOpenAt(event, TZ)).toEqual(day('2025-12-06T11:30:00Z'));
+  });
+
+  it('sessions sérialisées, y compris double-encodées (string JSON par élément)', () => {
+    expect(resolveDoorsOpenAt(makeEvent({ id: 'e1', sessions: '[{"doorsOpening":"12:00"}]' }), TZ)).toEqual(day('2025-12-06T11:00:00Z'));
+    expect(
+      resolveDoorsOpenAt(makeEvent({ id: 'e1', sessions: '["{\\"doorsOpening\\":\\"12:00\\",\\"showTime\\":\\"14:00\\"}"]' }), TZ),
+    ).toEqual(day('2025-12-06T11:00:00Z'));
+  });
+
+  it("sans heure : null, JAMAIS minuit (eventDate/eventStartDate sont des jours, pas des heures)", () => {
+    expect(resolveDoorsOpenAt(makeEvent({ id: 'e1' }), TZ)).toBeNull();
+    expect(resolveDoorsOpenAt(makeEvent({ id: 'e1', sessions: null }), TZ)).toBeNull();
+    expect(resolveDoorsOpenAt(makeEvent({ id: 'e1', sessions: '[]' }), TZ)).toBeNull();
+    expect(resolveDoorsOpenAt(makeEvent({ id: 'e1', sessions: [{ doorsOpening: '' }] }), TZ)).toBeNull();
+    expect(resolveDoorsOpenAt(makeEvent({ id: 'e1', sessions: [{ showTime: '21:00' }] }), TZ)).toBeNull();
+    expect(resolveDoorsOpenAt(makeEvent({ id: 'e1', sessions: 'pas du json' }), TZ)).toBeNull();
   });
 });

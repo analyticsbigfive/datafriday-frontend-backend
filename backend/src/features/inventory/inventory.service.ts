@@ -1,11 +1,14 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { StockMovementReason } from '@prisma/client';
+import { Prisma, StockMovementReason } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { LogisticsService } from '../logistics/logistics.service';
 import { StockItemKind } from '../logistics/dto/logistics.dto';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
+
+/** État de push Logistic des lignes d'un match, clé `elementId::itemId` (cf. pushCountToLogistic). */
+type LogisticPushState = Map<string, { id: string; updatedAt: Date; logisticPushedAt: Date | null }>;
 
 @Injectable()
 export class InventoryService {
@@ -908,6 +911,11 @@ export class InventoryService {
     // Contexte de génération automatique (PreEventInventoryFlowService :
     // trigger, feuille remplacée...) archivé dans `meta` à côté du reste.
     extraMeta: Record<string, unknown> = {},
+    // Lignes de la feuille pre-event précédente du match : une ligne validée déjà
+    // poussée vers Logistic et inchangée depuis est REPRISE telle quelle (attendu et
+    // écart figés au moment du comptage). La recalculer relirait un attendu Logistic
+    // qui contient déjà ce comptage, et l'écart retomberait à 0 à chaque régénération.
+    previousLines: unknown = null,
   ) {
     this.logger.log(`POST /inventory/${spaceId}/pre-event-reconciliations eventId=${eventId}`);
     await this.assertSpace(spaceId, tenantId);
@@ -920,8 +928,17 @@ export class InventoryService {
     // Compté = fusion existante (InventoryCount prioritaire sur snapshot).
     // Cast : la branche snapshot renvoie un Json Prisma, mais son écriture ne
     // passe que par upsertInventory (blob objet) — jamais un scalaire.
-    const merged = await this.getBySpaceAndEvent(spaceId, eventId, tenantId);
+    const merged = await this.getBySpaceAndEvent(spaceId, eventId, tenantId, 'pre-event');
     const countedBlob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
+    const pushState = await this.loadLogisticPushState(spaceId, eventId, tenantId);
+    const previousByKey = new Map<string, Record<string, any>>();
+    if (Array.isArray(previousLines)) {
+      for (const l of previousLines as Array<Record<string, any>>) {
+        if (l?.countedSource !== 'count') continue;
+        if (typeof l?.elementId !== 'string' || typeof l?.itemKey !== 'string') continue;
+        previousByKey.set(`${l.elementId}::${l.itemKey}`, l);
+      }
+    }
 
     // Attendus à l'instant de la sauvegarde — MÊME chemin que le GET
     // pre-event-baseline (PDF v3 2026-08-21 : Total Logistic) : hints à l'écran
@@ -990,6 +1007,7 @@ export class InventoryService {
       return v > 0 ? v : 1;
     };
 
+    let carriedCount = 0;
     const lines = resolvableKeys.map((k) => {
       const [elementId, itemId] = k.split('::');
       const exp = expected.get(k) ?? null;
@@ -1000,6 +1018,27 @@ export class InventoryService {
       // valeur (le push ne concerne que les lignes validées). Une saisie non cochée
       // « compté » n'est pas un comptage. Sans état Logistic ni comptage : 0, `'none'`.
       const isValidated = counted?.isCounted === true;
+      // Besoin prédit (Event Predict) : deuxième référence du document. L'attendu
+      // Logistic dit « ce que la Logistique pense qu'il y a », celui-ci « ce que
+      // le scénario demande d'avoir » — les deux écarts se lisent ensemble.
+      const predictedRaw = predictedUnits?.[elementId]?.[itemId];
+      const predicted = Number.isFinite(Number(predictedRaw)) ? round2(Number(predictedRaw)) : null;
+      // Ligne validée, déjà poussée, inchangée depuis : reprise de la feuille précédente
+      // (cf. `previousLines`). Seul le besoin prédit est rafraîchi s'il est fourni.
+      const previous = previousByKey.get(k);
+      if (isValidated && previous && !this.isPendingLogisticPush(pushState, elementId, itemId)) {
+        carriedCount += 1;
+        const prevCountedUnits = Number.isFinite(Number(previous.countedUnits))
+          ? Number(previous.countedUnits)
+          : null;
+        const keptPredicted = predicted ?? (Number.isFinite(Number(previous.predictedUnits)) ? Number(previous.predictedUnits) : null);
+        return {
+          ...previous,
+          predictedUnits: keptPredicted,
+          deltaVsPredicted:
+            keptPredicted == null || prevCountedUnits == null ? null : round2(prevCountedUnits - keptPredicted),
+        };
+      }
       const countedSource: 'count' | 'logistic' | 'none' = isValidated ? 'count' : exp ? 'logistic' : 'none';
       const countedPacked = isValidated ? Number(counted?.packedUnits) || 0 : exp ? exp.packed : 0;
       const countedLoose = round2(isValidated ? Number(counted?.looseUnits) || 0 : exp ? exp.loose : 0);
@@ -1016,11 +1055,6 @@ export class InventoryService {
       const expectedLoose = exp ? round2(exp.loose) : null;
       const expectedUnits =
         exp && unitsPerPack ? round2(exp.units ?? exp.packed * unitsPerPack + exp.loose) : null;
-      // Besoin prédit (Event Predict) : deuxième référence du document. L'attendu
-      // ci-dessus dit « ce que la Logistique pense qu'il y a », celui-ci « ce que
-      // le scénario demande d'avoir » — les deux écarts se lisent ensemble.
-      const predictedRaw = predictedUnits?.[elementId]?.[itemId];
-      const predicted = Number.isFinite(Number(predictedRaw)) ? round2(Number(predictedRaw)) : null;
       return {
         elementId,
         elementName: elementNameById.get(elementId) ?? '',
@@ -1062,6 +1096,8 @@ export class InventoryService {
           // Le document porte-t-il la comparaison au scénario ? Sans marqueur, une
           // colonne prédit vide se confond avec « rien n'était prédit ».
           predictedSource: predictedUnits ? 'event-predict-default-version' : 'none',
+          // Lignes reprises de la feuille précédente (déjà poussées, inchangées).
+          carriedLines: carriedCount,
           ...extraMeta,
         },
         createdBy: userId ?? null,
@@ -1069,8 +1105,28 @@ export class InventoryService {
     });
     // Le comptage devient la nouvelle référence du registre Logistic (PDF
     // 2026-08-21). Après la création du document : un échec de recalage ne doit
-    // jamais faire perdre la réconciliation.
-    await this.pushCountToLogistic(spaceId, tenantId, 'pre-event', event, countedBlob, userId);
+    // jamais faire perdre la réconciliation. Push incrémental : seules les lignes
+    // nouvelles ou modifiées depuis leur dernier push partent vers le registre.
+    const push = await this.pushCountToLogistic(
+      spaceId,
+      tenantId,
+      'pre-event',
+      event,
+      countedBlob,
+      userId,
+      pushState,
+    );
+    // Résultat du push archivé sur le document : ce qui est parti vers le registre à
+    // cette génération (les lignes reprises l'étaient déjà), ou pourquoi rien n'est parti.
+    const metaWithPush = {
+      ...((created as any).meta ?? {}),
+      logisticPush: { ok: push.ok, reason: push.reason ?? null, lineCount: push.lineCount ?? 0 },
+    };
+    await this.prisma.stockReconciliation.update({
+      where: { id: created.id },
+      data: { meta: metaWithPush as any },
+    });
+    (created as any).meta = metaWithPush;
 
     // BUG-233 : le document persisté est complet ; la RÉPONSE est expurgée pour
     // un appelant sans `front.fb.preInventoryExpected` (il a le droit de créer,
@@ -1102,21 +1158,34 @@ export class InventoryService {
     event: { id: string; name?: string | null },
     countedBlob: Record<string, Record<string, any>>,
     userId?: string,
+    // État de push des lignes (déjà chargé par l'appelant, sinon chargé ici).
+    pushState?: LogisticPushState,
   ): Promise<{ ok: boolean; reason?: string; lineCount?: number }> {
     // BUG-383-02 (règle Bertrand 2026-09-15) : seul ce qui a été COMPTÉ (validé) met à jour
     // Logistic ; le reste garde sa valeur courante. Sans ce filtre, en post-event les
     // propositions reportées du pre-event (`carriedFromPreEvent`, isCounted=false) étaient
     // poussées comme un comptage, écrasant le stock d'articles jamais recomptés.
+    //
+    // Push INCRÉMENTAL : une ligne validée déjà poussée et inchangée depuis
+    // (`logisticPushedAt >= updatedAt`) n'est pas repoussée. Un reset remet StockLevel à la
+    // valeur comptée et déplace l'ancre des ventes : repousser un comptage de la veille
+    // effacerait les livraisons saisies depuis, et repousser après l'ouverture des portes
+    // effacerait les ventes du début de match.
+    const state = pushState ?? (await this.loadLogisticPushState(spaceId, event.id, tenantId));
     const validated: Record<string, Record<string, any>> = {};
     const itemIds = new Set<string>();
+    let validatedCount = 0;
     for (const [elementId, byItem] of Object.entries(countedBlob ?? {})) {
       for (const [itemId, count] of Object.entries(byItem ?? {})) {
         if ((count as any)?.isCounted !== true) continue;
+        validatedCount += 1;
+        if (!this.isPendingLogisticPush(state, elementId, itemId)) continue;
         (validated[elementId] ??= {})[itemId] = count;
         itemIds.add(itemId);
       }
     }
-    if (!itemIds.size) return { ok: false, reason: 'no-counts' };
+    if (!validatedCount) return { ok: false, reason: 'no-counts' };
+    if (!itemIds.size) return { ok: false, reason: 'nothing-new' };
 
     const itemKeyById = await this.resolveItemKeysByIds([...itemIds], tenantId);
     const lines: Array<{
@@ -1156,12 +1225,59 @@ export class InventoryService {
       this.logger.log(
         `Stock Logistic recalé depuis le comptage ${phase} — space ${spaceId} / event ${event.id} (${lines.length} ligne(s))`,
       );
-      return { ok: true, lineCount: lines.length };
     } catch (error: any) {
       this.logger.warn(
         `Recalage Logistic depuis le comptage ${phase} échoué (document conservé) — space ${spaceId} / event ${event.id} : ${error?.message}`,
       );
       return { ok: false, reason: 'reset-failed' };
+    }
+    await this.markLogisticPushed(
+      lines.map((l) => state.get(`${l.elementId}::${l.itemRefId}`)?.id).filter((id): id is string => !!id),
+    );
+    return { ok: true, lineCount: lines.length };
+  }
+
+  /** État de push par ligne validée d'un match : clé `elementId::itemId`. */
+  private async loadLogisticPushState(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+  ): Promise<LogisticPushState> {
+    const rows = await this.prisma.inventoryCount.findMany({
+      where: { tenantId, spaceId, eventId },
+      select: { id: true, shopId: true, itemId: true, updatedAt: true, logisticPushedAt: true },
+    });
+    const state: LogisticPushState = new Map();
+    for (const r of rows) {
+      if (!r.shopId) continue;
+      state.set(`${r.shopId}::${r.itemId}`, {
+        id: r.id,
+        updatedAt: r.updatedAt,
+        logisticPushedAt: r.logisticPushedAt,
+      });
+    }
+    return state;
+  }
+
+  /** Une ligne est à pousser si elle n'a jamais été poussée, ou a été modifiée depuis.
+   *  Ligne absente de l'état (comptage issu d'un snapshot, sans `InventoryCount`) :
+   *  jamais poussée, donc à pousser. */
+  private isPendingLogisticPush(state: LogisticPushState, elementId: string, itemId: string): boolean {
+    const row = state.get(`${elementId}::${itemId}`);
+    if (!row) return true;
+    if (!row.logisticPushedAt) return true;
+    return row.updatedAt.getTime() > row.logisticPushedAt.getTime();
+  }
+
+  /** SQL brut : `update()` Prisma bumperait `updatedAt` (@updatedAt), et la ligne
+   *  repasserait aussitôt « modifiée depuis le push ». Hors transaction du reset :
+   *  un échec ici ne fait que repousser ces lignes au prochain push (delta 0). */
+  private async markLogisticPushed(ids: string[]): Promise<void> {
+    if (!ids.length) return;
+    try {
+      await this.prisma.$executeRaw`UPDATE "InventoryCount" SET "logisticPushedAt" = NOW() WHERE "id" IN (${Prisma.join(ids)})`;
+    } catch (error: any) {
+      this.logger.warn(`Marquage logisticPushedAt échoué (${ids.length} ligne(s)) : ${error?.message}`);
     }
   }
 
@@ -1195,7 +1311,9 @@ export class InventoryService {
       throw new BadRequestException(
         result.reason === 'no-counts' || result.reason === 'no-addressable-lines'
           ? 'Aucun item compté à pousser vers Logistic'
-          : 'Échec de la mise à jour du registre Logistic',
+          : result.reason === 'nothing-new'
+            ? 'Registre Logistic déjà à jour : aucun comptage modifié depuis le dernier push'
+            : 'Échec de la mise à jour du registre Logistic',
       );
     }
     return result;

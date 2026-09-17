@@ -41,6 +41,13 @@ services:
       # web (ex. page Analyse Jean Bouin, cf. BUG-144-01) qui tue le scheduler avec lui.
       - key: WEEZEVENT_CRON_ENABLED
         value: "false"
+      # Flux Pre-event Inventory (InventoryLiveInitCronService, toutes les minutes) : tourne
+      # ICI (InventoryModule n'est pas importé par le worker). Le marqueur KvStore rend le
+      # passage « portes ouvertes » idempotent entre process, mais les régénérations ne sont
+      # sérialisées qu'en mémoire : si le web passe à plusieurs instances, ne laisser le cron
+      # actif que sur une seule (ou le déplacer dans le worker).
+      - key: INVENTORY_LIVE_INIT_CRON_ENABLED
+        value: "true"
 
   - type: worker
     name: datafriday-worker
