@@ -43,18 +43,28 @@ describe('StaffingService.getStaffing : horaires suggérés et recalage des lign
       space: { findFirst: jest.fn().mockResolvedValue({ timezone: 'Europe/Paris' }) },
       eventStaffLine: {
         findMany: jest.fn().mockResolvedValue(lines),
-        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+        // update() renvoie l'args : le $transaction générique ci-dessous les collecte.
+        update: jest.fn((args: any) => args),
       },
       hrGoal: { findMany: jest.fn() },
       hrStaffRatio: { findMany: jest.fn() },
       spaceElement: { findMany: jest.fn() },
       elementPerformance: { findMany: jest.fn() },
       hrRole: { findFirst: jest.fn().mockResolvedValue(null) },
-      // resolveSettings puis (elements, perfs) : les deux passent par $transaction([...]).
-      $transaction: jest
-        .fn()
-        .mockResolvedValueOnce([[], []])
-        .mockResolvedValueOnce([[{ id: 'el1', name: 'Buvette E', type: 'fnb_bar' }], []]),
+      // $transaction([...]) sert trois lookups : settings (hrGoal/hrStaffRatio), recalage des
+      // lignes (eventStaffLine.update), puis (spaceElement, elementPerformance). On les
+      // distingue par le premier élément du tableau.
+      $transaction: jest.fn(async (ops: any[]) => {
+        if (ops.length && ops[0]?.where?.id && ops[0]?.data) {
+          prisma._realigned = ops;
+          return ops;
+        }
+        if (prisma._settingsServed) return [[{ id: 'el1', name: 'Buvette E', type: 'fnb_bar' }], []];
+        prisma._settingsServed = true;
+        return [[], []];
+      }),
+      _realigned: [] as any[],
+      _settingsServed: false,
     };
     const service = new StaffingService(prisma, new StaffingCalculatorService(), {
       hasFullAccess: () => true,
@@ -85,10 +95,12 @@ describe('StaffingService.getStaffing : horaires suggérés et recalage des lign
     expect(out.schedule.endTime).toEqual(T('2026-09-19T21:50:00.000Z'));
     expect(DEFAULT_OFFSET_OPEN_MINUTES).toBe(-120);
     expect(DEFAULT_OFFSET_CLOSE_MINUTES).toBe(60);
-    expect(prisma.eventStaffLine.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ['l1'] } },
-      data: { startTime: T('2026-09-19T11:15:00.000Z'), endTime: T('2026-09-19T21:50:00.000Z') },
-    });
+    expect(prisma._realigned).toEqual([
+      {
+        where: { id: 'l1' },
+        data: { startTime: T('2026-09-19T11:15:00.000Z'), endTime: T('2026-09-19T21:50:00.000Z') },
+      },
+    ]);
     const l = out.elements[0].lines[0];
     expect(l.startTime).toEqual(T('2026-09-19T11:15:00.000Z'));
     expect(l.endTime).toEqual(T('2026-09-19T21:50:00.000Z'));
@@ -96,22 +108,42 @@ describe('StaffingService.getStaffing : horaires suggérés et recalage des lign
     expect(l.totalCost).toBeCloseTo(19.5 * (10 + 35 / 60), 2);
   });
 
-  it("une ligne userModified ou MANUAL garde ses horaires ; une ligne déjà alignée n'est pas réécrite", async () => {
+  it("une ligne userModified ou MANUAL garde ses horaires tant qu'ils tiennent dans la fenêtre ; une ligne déjà alignée n'est pas réécrite", async () => {
     const event = { ...baseEvent, sessions: JSON.stringify([{ doorsOpening: '15:15' }]) };
     const aligned = { start: T('2026-09-19T11:15:00.000Z'), end: T('2026-09-19T21:50:00.000Z') };
+    const inside = { start: T('2026-09-19T14:00:00.000Z'), end: T('2026-09-19T20:00:00.000Z') };
     const { prisma, service } = build(event, [
-      line({ id: 'u', userModified: true }),
-      line({ id: 'm', source: 'MANUAL' }),
+      line({ id: 'u', userModified: true, startTime: inside.start, endTime: inside.end }),
+      line({ id: 'm', source: 'MANUAL', startTime: inside.start, endTime: inside.end }),
       line({ id: 'ok', startTime: aligned.start, endTime: aligned.end }),
     ]);
 
     const out = await service.getStaffing('ev', 't1');
 
-    expect(prisma.eventStaffLine.updateMany).not.toHaveBeenCalled();
+    expect(prisma._realigned).toEqual([]);
     const byId = Object.fromEntries(out.elements[0].lines.map((l: any) => [l.id, l]));
-    expect(byId.u.startTime).toEqual(stale.start);
-    expect(byId.m.startTime).toEqual(stale.start);
+    expect(byId.u.startTime).toEqual(inside.start);
+    expect(byId.m.endTime).toEqual(inside.end);
     expect(byId.ok.startTime).toEqual(aligned.start);
+  });
+
+  it('une ligne modifiée à la main qui DÉBORDE de la fenêtre est ramenée dedans (curseur hors piste au chargement, retour Bertrand)', async () => {
+    const event = { ...baseEvent, sessions: JSON.stringify([{ doorsOpening: '15:15' }]) };
+    const { prisma, service } = build(event, [
+      // Réglée quand la fenêtre allait de 00:00 à 01:50 : 07:30 → 00:45 Paris.
+      line({ id: 'u', userModified: true, startTime: T('2026-09-19T05:30:00.000Z'), endTime: T('2026-09-19T22:45:00.000Z') }),
+      // Entièrement hors fenêtre : repart sur la fenêtre.
+      line({ id: 'x', source: 'MANUAL', startTime: T('2026-09-19T02:00:00.000Z'), endTime: T('2026-09-19T04:00:00.000Z') }),
+    ]);
+
+    const out = await service.getStaffing('ev', 't1');
+
+    const byId = Object.fromEntries(out.elements[0].lines.map((l: any) => [l.id, l]));
+    expect(byId.u.startTime).toEqual(T('2026-09-19T11:15:00.000Z')); // clampé au début de fenêtre
+    expect(byId.u.endTime).toEqual(T('2026-09-19T21:50:00.000Z')); // clampé à la fin de fenêtre
+    expect(byId.x.startTime).toEqual(T('2026-09-19T11:15:00.000Z'));
+    expect(byId.x.endTime).toEqual(T('2026-09-19T21:50:00.000Z'));
+    expect(prisma._realigned.map((o: any) => o.where.id).sort()).toEqual(['u', 'x']);
   });
 
   it("sans heure d'ouverture : repli sur le jour calendaire (comportement historique)", async () => {

@@ -561,21 +561,32 @@ export class StaffingService {
     // n'était connue) alors que la fenêtre affichée avait bougé (retour Bertrand 2026-09-17).
     // On les recale ici, en base, pour que coûts et curseurs restent cohérents ; une ligne
     // MANUAL ou userModified n'est jamais touchée.
-    const stale = lines.filter(
-      (l) =>
-        l.source === 'ALGO' &&
-        !l.userModified &&
-        (l.startTime.getTime() !== ctx.lineStart.getTime() ||
-          l.endTime.getTime() !== ctx.lineEnd.getTime()),
-    );
-    if (stale.length) {
-      await this.prisma.eventStaffLine.updateMany({
-        where: { id: { in: stale.map((l) => l.id) } },
-        data: { startTime: ctx.lineStart, endTime: ctx.lineEnd },
-      });
-      lines = lines.map((l) =>
-        stale.some((s) => s.id === l.id) ? { ...l, startTime: ctx.lineStart, endTime: ctx.lineEnd } : l,
+    // Une ligne MANUAL ou userModified garde ses horaires, mais reste CONTENUE dans la
+    // fenêtre : une ligne réglée à la main quand la fenêtre allait de 00:00 à 01:50 (aucune
+    // heure de portes connue) débordait de la nouvelle plage, et le curseur (borné à la
+    // fenêtre) affichait un segment hors piste jusqu'au premier mouvement.
+    const realigned = new Map<string, { startTime: Date; endTime: Date }>();
+    for (const l of lines) {
+      let next: { startTime: Date; endTime: Date } | null = null;
+      if (l.source === 'ALGO' && !l.userModified) {
+        next = { startTime: ctx.lineStart, endTime: ctx.lineEnd };
+      } else {
+        const start = new Date(Math.max(l.startTime.getTime(), ctx.lineStart.getTime()));
+        const end = new Date(Math.min(l.endTime.getTime(), ctx.lineEnd.getTime()));
+        next = end > start ? { startTime: start, endTime: end } : { startTime: ctx.lineStart, endTime: ctx.lineEnd };
+      }
+      if (
+        next.startTime.getTime() !== l.startTime.getTime() ||
+        next.endTime.getTime() !== l.endTime.getTime()
+      ) {
+        realigned.set(l.id, next);
+      }
+    }
+    if (realigned.size) {
+      await this.prisma.$transaction(
+        [...realigned].map(([id, data]) => this.prisma.eventStaffLine.update({ where: { id }, data })),
       );
+      lines = lines.map((l) => (realigned.has(l.id) ? { ...l, ...realigned.get(l.id)! } : l));
     }
 
     const elementIds = Array.from(new Set(lines.map((l) => l.elementId)));
