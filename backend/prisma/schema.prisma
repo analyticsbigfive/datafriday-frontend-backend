@@ -2996,6 +2996,38 @@ model SpaceRevenueMinuteAgg {
 // revenueHt ici NE soustrait PAS la remise, contrairement à SpaceRevenueMinuteAgg
 // (BUG-015) — formule alignée sur le comportement historique de getEventTimelineBatch,
 // à préserver pour ne pas changer les chiffres déjà affichés sur Analyse/Inventory/Live.
+/// Paniers pré-agrégés (Analyse, donuts « paniers ») : grain event × minute × PdV × composition.
+/// `productKeys` = clés produit distinctes triées d'UN panier (WeezeventProduct.id, ou
+/// 'name:<productName>' quand la ligne n'a pas de produit résolu) : deux transactions de même
+/// composition tombent sur la même ligne. Les libellés (article, type, catégorie) sont résolus à
+/// la LECTURE via WeezeventProductMapping, jamais dénormalisés (un re-mapping se voit sans
+/// ré-agréger), comme SpaceRevenueMinuteItemAgg. Remplace la lecture brute des transactions
+/// par getTransactionBasketsBatch (2026-09-21 : 6 s pour 15 events après index, 20 à 56 s avant).
+model SpaceBasketMinuteAgg {
+  id       String   @id @default(cuid())
+  tenantId String
+  spaceId  String
+  minute   DateTime
+
+  weezeventEventId      String
+  weezeventLocationId   String?
+  weezeventLocationName String?
+  spaceElementId        String?
+  integrationId         String?
+  productKeys           String[]
+
+  transactionsCount Int
+  itemsQuantity     Float
+  revenueHt         Decimal @db.Decimal(12, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, spaceId, minute, weezeventEventId, weezeventLocationId, spaceElementId, productKeys], map: "SpaceBasketMinuteAgg_key")
+  @@index([tenantId, spaceId, weezeventEventId, minute], map: "SpaceBasketMinuteAgg_tenant_space_event_minute_idx")
+  @@index([tenantId, spaceId, integrationId], map: "SpaceBasketMinuteAgg_tenant_space_integration_idx")
+}
+
 model SpaceRevenueMinuteItemAgg {
   id       String   @id @default(cuid())
   tenantId String

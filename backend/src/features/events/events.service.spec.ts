@@ -78,6 +78,10 @@ describe('EventsService', () => {
     spaceRevenueMinuteItemAgg: {
       deleteMany: jest.fn(),
     },
+    // Paniers pré-agrégés : purgés avec les deux tables minute au démappage / relink.
+    spaceBasketMinuteAgg: {
+      deleteMany: jest.fn(),
+    },
     $transaction: jest.fn((ops) => Promise.all(ops)),
     $queryRaw: jest.fn(),
   };
@@ -446,6 +450,10 @@ describe('EventsService', () => {
         where: { tenantId: 'tenant-1', spaceId: mockEvent.spaceId, weezeventEventId: 'evt-1' },
       });
       expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: 'tenant-1', spaceId: mockEvent.spaceId, weezeventEventId: 'evt-1' },
+      });
+      // Paniers pré-agrégés : même purge que les deux tables minute.
+      expect(mockPrisma.spaceBasketMinuteAgg.deleteMany).toHaveBeenCalledWith({
         where: { tenantId: 'tenant-1', spaceId: mockEvent.spaceId, weezeventEventId: 'evt-1' },
       });
     });
