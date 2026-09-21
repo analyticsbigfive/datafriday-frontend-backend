@@ -845,13 +845,13 @@ export class WeezeventIncrementalSyncService {
         if (itemsByTxWeezeventId.size > 0) {
             const allWeezeventIds = [...itemsByTxWeezeventId.keys()];
 
-            // Get DB ids for all V transactions in this batch (locationId : BUG-337-02, nécessaire
-            // pour regrouper les items par location et rafraîchir SalesPriceAgg ci-dessous)
+            // Get DB ids for all V transactions in this batch (locationId/transactionDate :
+            // BUG-337-02, nécessaires au delta SalesPriceAgg ci-dessous)
             const dbTxs = await this.prisma.salesTransaction.findMany({
                 where: { tenantId, integrationId, externalId: { in: allWeezeventIds } },
-                select: { id: true, externalId: true, locationId: true },
+                select: { id: true, externalId: true, locationId: true, transactionDate: true },
             });
-            const locationByTxId = new Map(dbTxs.map(t => [t.id, t.locationId]));
+            const txById = new Map(dbTxs.map(t => [t.id, t]));
 
             // Find which transactions already have items (to avoid duplicates)
             const txIdsWithItems = new Set<string>();
@@ -895,26 +895,20 @@ export class WeezeventIncrementalSyncService {
                     skipDuplicates: true,
                 });
 
-                // BUG-337-02 (docs/bugs/) : refresh ciblé de SalesPriceAgg par location touchée par
-                // ce lot — best-effort, ne doit jamais faire échouer le sync. Regroupe les items par
-                // locationId de leur transaction (résolu via locationByTxId), un refreshForKeys par
-                // location. Sauté en full-sync/premier-sync (`refreshPriceAgg=false`) : un refresh
-                // ciblé par petit lot serait pire qu'un unique refreshForIntegration en fin de run
-                // (cf. syncTransactionsIncremental) sur un import historique massif.
+                // BUG-337-02 (docs/bugs/) : delta SalesPriceAgg pour les items de ce lot (un seul
+                // upsert, aucun scan d'historique). Additif pur : seules les transactions sans items
+                // sont insérées ci-dessus (idempotence), rien à retirer. Best-effort, ne doit jamais
+                // faire échouer le sync. Sauté en full-sync/premier-sync (`refreshPriceAgg=false`) :
+                // un unique refreshForIntegration en fin de run (cf. syncTransactionsIncremental)
+                // couvre l'import historique.
                 if (refreshPriceAgg) {
-                    const itemsByLocation = new Map<string, Array<{ productId: string | null; itemWeezeventId: string | null; productName: string | null }>>();
-                    for (const item of itemsToInsert) {
-                        const locationId = locationByTxId.get(item.transactionId) ?? null;
-                        if (!locationId) continue;
-                        const itemWeezeventId = (item.rawData as any)?.item_id != null ? String((item.rawData as any).item_id) : null;
-                        const list = itemsByLocation.get(locationId) ?? [];
-                        list.push({ productId: item.productId, itemWeezeventId, productName: item.productName });
-                        itemsByLocation.set(locationId, list);
-                    }
-                    await Promise.all(
-                        [...itemsByLocation.entries()].map(([locationId, items]) =>
-                            this.priceAgg.refreshForKeysSafe(tenantId, integrationId, locationId, items),
-                        ),
+                    await this.priceAgg.applyDeltaSafe(
+                        tenantId,
+                        integrationId,
+                        itemsToInsert.map(item => {
+                            const tx = txById.get(item.transactionId);
+                            return { ...item, locationId: tx?.locationId ?? null, transactionDate: tx?.transactionDate ?? new Date() };
+                        }),
                     );
                 }
             }
