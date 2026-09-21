@@ -25,6 +25,7 @@ import {
   DATE_RANGE_LABEL_FR_MAP,
   PREDICT_DATE_RANGE_LABEL_FR_MAP,
   PRESET_I18N_KEYS,
+  DEFAULT_ANALYSE_DATE_RANGE,
 } from '@/constants/dateRangePresets'
 import { t as translate, getCurrentLocale } from '@/i18n/translations'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
@@ -474,6 +475,11 @@ export function isValidConfigId(id, list = []) {
   return Array.isArray(list) && list.some((c) => c?.id === id && !isDeletedConfig(c))
 }
 
+// Préférence de compte « période par défaut » (ConsolidatedAccountView → /preferences,
+// defaultDateRangePreset). Module-level : DEFAULT_FILTERS() la lit pour le montage ET pour
+// RESET_FILTERS (« effacer les filtres » revient à la période préférée, pas à 12 mois).
+let preferredDefaultTimeRange = null
+
 const DEFAULT_FILTERS = () => ({
   // Configuration active (null = All)
   selectedConfigurationId: null,
@@ -500,11 +506,13 @@ const DEFAULT_FILTERS = () => ({
   selectedOpeningActs: [],
 
   // Dates
-  // Défaut = 'all' (Tout l'historique) : au chargement TOUS les events du space
-  // sont analysés, aucun périmètre date implicite (avant : 'thisyear' donnait
-  // l'impression d'events « présélectionnés »). Valeurs alignées sur
-  // DATE_RANGE_PRESETS (cf. constants/dateRangePresets.js).
-  timeRange: 'all',
+  // Défaut (2026-09-21) = préférence de compte « période par défaut » si l'utilisateur en a
+  // une (SET_DEFAULT_TIME_RANGE, posée par AnalyseView avant le chargement), sinon 12 mois
+  // glissants (DEFAULT_ANALYSE_DATE_RANGE). Historique : 'thisyear' → 'all' (les events
+  // semblaient « présélectionnés ») → 12 mois : le coût du premier chargement est
+  // proportionnel au nombre d'events du périmètre, « Tout l'historique » reste à un clic
+  // et le chip de période dit explicitement quel périmètre est affiché.
+  timeRange: preferredDefaultTimeRange || DEFAULT_ANALYSE_DATE_RANGE,
   startDate: null,
   endDate: null,
   selectedDoorsOpenings: [],
@@ -762,6 +770,9 @@ const getters = {
     switch (timeRange) {
       case 'all':
         return { start: null, end: null }
+      case 'last12months':
+        // 12 mois glissants : même jour l'an dernier (00:00) → fin de journée.
+        return { start: new Date(y - 1, m, now.getDate()), end: eod(today) }
       case 'today':
         return { start: today, end: eod(today) }
       case 'yesterday': {
@@ -1433,6 +1444,8 @@ const getters = {
     const dow = (today.getDay() + 6) % 7 // lundi = 0
 
     switch (state.filters.timeRange) {
+      case 'last12months': // les 12 mois d'avant
+        return span(new Date(y - 2, m, now.getDate()), new Date(y - 1, m, now.getDate() - 1))
       case 'today':
         return day(new Date(y, m, now.getDate() - 1))
       case 'yesterday':
@@ -1754,6 +1767,13 @@ const mutations = {
   },
   RESET_FILTERS(state) {
     state.filters = DEFAULT_FILTERS()
+  },
+  /** Préférence de compte « période par défaut » (valeur de DATE_RANGE_PRESETS, ou null). */
+  SET_DEFAULT_TIME_RANGE(state, preset) {
+    const untouched = state.filters.timeRange === DEFAULT_FILTERS().timeRange
+    preferredDefaultTimeRange = preset || null
+    // Période encore au défaut (rien choisi par l'utilisateur) : suit la préférence.
+    if (untouched) state.filters.timeRange = DEFAULT_FILTERS().timeRange
   },
 
   // ---- Buckets API-shape ----

@@ -4,6 +4,9 @@
 
 export const DATE_RANGE_PRESETS = [
   { value: 'all', label: 'All Time', labelFr: "Tout l'historique" },
+  // Défaut de l'Analyse (2026-09-21) : 12 mois glissants. Le coût du chargement est
+  // proportionnel au nombre d'events du périmètre ; « Tout l'historique » reste à un clic.
+  { value: 'last12months', label: 'Last 12 Months', labelFr: '12 derniers mois' },
   { value: 'today', label: 'Today', labelFr: "Aujourd'hui" },
   { value: 'yesterday', label: 'Yesterday', labelFr: 'Hier' },
   { value: 'thisweek', label: 'This Week', labelFr: 'Cette semaine' },
@@ -62,6 +65,7 @@ export const PREFERENCE_PREDICT_DATE_RANGE_PRESETS = PREDICT_DATE_RANGE_PRESETS.
 // (titres presets) et le getter activeFilterChips (label de période).
 export const PRESET_I18N_KEYS = {
   all: 'anRangeAll',
+  last12months: 'anRangeLast12Months',
   today: 'anRangeToday',
   yesterday: 'anRangeYesterday',
   thisweek: 'anRangeThisWeek',
@@ -84,6 +88,9 @@ export const PRESET_I18N_KEYS = {
  * Returns the active preset list for the given toolbox.
  * @param {'analyse'|'predict'|'event-predict'|'inventory'} toolbox
  */
+/** Période par défaut de l'Analyse quand l'utilisateur n'a pas de préférence enregistrée. */
+export const DEFAULT_ANALYSE_DATE_RANGE = 'last12months'
+
 export function getDateRangePresets(toolbox) {
   return toolbox === 'predict' || toolbox === 'event-predict'
     ? PREDICT_DATE_RANGE_PRESETS
