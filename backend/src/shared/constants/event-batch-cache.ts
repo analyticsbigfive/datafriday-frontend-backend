@@ -16,7 +16,14 @@ export const eventBatchCachePatterns = (tenantId: string, spaceId: string): stri
   `spaces:evtimeline:${tenantId}:${spaceId}:*`,
   `spaces:baskets:${tenantId}:${spaceId}:*`,
   `spaces:unmapped:${tenantId}:${spaceId}:*`,
+  // KPI de la liste des espaces (SpaceRevenueSummaryService) : somme des agrégats minute,
+  // périmée dès qu'un job d'agrégation réécrit l'espace.
+  spaceRevenueSummaryCacheKey(tenantId, spaceId),
 ];
+
+/** Clé du résumé CA/transactions d'un espace pour la liste des espaces (cache 5 min). */
+export const spaceRevenueSummaryCacheKey = (tenantId: string, spaceId: string): string =>
+  `spaces:revsum:${tenantId}:${spaceId}`;
 
 /** Purge tenant-wide du volume non mappé (écriture de mapping : le spaceId touché n'est
  *  pas toujours connu du service des mappings — motif large, coût négligeable). */

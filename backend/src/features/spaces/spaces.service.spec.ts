@@ -6,6 +6,7 @@ import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { LogisticsService } from '../logistics/logistics.service';
+import { SpaceRevenueSummaryService } from './services/space-revenue-summary.service';
 import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 
 describe('SpacesService', () => {
@@ -134,6 +135,8 @@ describe('SpacesService', () => {
         // Passthrough : les tests d'image vérifient le comportement DTO→DB, pas l'upload Storage.
         { provide: SupabaseStorageService, useValue: { resolveImage: jest.fn((value) => Promise.resolve(value)) } },
         { provide: LogisticsService, useValue: mockLogisticsService },
+        // KPI de la liste des espaces : service dédié (cache par espace), hors périmètre de ces tests.
+        { provide: SpaceRevenueSummaryService, useValue: { getSummaries: jest.fn().mockResolvedValue(new Map()) } },
       ],
     }).compile();
 
