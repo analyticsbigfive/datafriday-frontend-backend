@@ -11,7 +11,8 @@ const mockPrisma: any = {
   locationSpaceMapping: { findUnique: jest.fn(), findMany: jest.fn() },
   locationShopMapping: { findMany: jest.fn(), count: jest.fn() },
   salesLocation: { findMany: jest.fn() },
-  salesTransaction: { findMany: jest.fn() },
+  // Couples (merchantId, integrationId) distincts : SELECT DISTINCT SQL (distinct-merchant-ids.query.ts)
+  $queryRaw: jest.fn(),
   productMapping: { count: jest.fn() },
   aggregationJobLog: { count: jest.fn(), groupBy: jest.fn() },
   event: { count: jest.fn(), groupBy: jest.fn() },
@@ -54,7 +55,7 @@ describe('MappingsService', () => {
       mockPrisma.salesLocation.findMany.mockResolvedValue([
         { id: LOCATION_CUID_1, integrationId: INT_A },
       ]);
-      mockPrisma.salesTransaction.findMany.mockResolvedValue([]);
+      mockPrisma.$queryRaw.mockResolvedValue([]);
       mockPrisma.locationShopMapping.findMany.mockResolvedValue([
         { salesLocationId: LOCATION_CUID_1 },
       ]);
@@ -64,7 +65,7 @@ describe('MappingsService', () => {
 
     it('détecte un mapping fait via la convention merchant id', async () => {
       mockPrisma.salesLocation.findMany.mockResolvedValue([]);
-      mockPrisma.salesTransaction.findMany.mockResolvedValue([
+      mockPrisma.$queryRaw.mockResolvedValue([
         { merchantId: MERCHANT_ID_1, integrationId: INT_A },
       ]);
       mockPrisma.locationShopMapping.findMany.mockResolvedValue([
@@ -78,7 +79,7 @@ describe('MappingsService', () => {
       mockPrisma.salesLocation.findMany.mockResolvedValue([
         { id: LOCATION_CUID_1, integrationId: INT_A },
       ]);
-      mockPrisma.salesTransaction.findMany.mockResolvedValue([
+      mockPrisma.$queryRaw.mockResolvedValue([
         { merchantId: MERCHANT_ID_1, integrationId: INT_A },
       ]);
       mockPrisma.locationShopMapping.findMany.mockResolvedValue([
@@ -93,7 +94,7 @@ describe('MappingsService', () => {
       mockPrisma.salesLocation.findMany.mockResolvedValue([
         { id: 'loc-b', integrationId: INT_B },
       ]);
-      mockPrisma.salesTransaction.findMany.mockResolvedValue([]);
+      mockPrisma.$queryRaw.mockResolvedValue([]);
       mockPrisma.locationShopMapping.findMany.mockResolvedValue([{ salesLocationId: 'loc-b' }]);
 
       await expect(service.hasShopMappingForIntegration(TENANT, INT_A)).resolves.toBe(false);
@@ -118,7 +119,7 @@ describe('MappingsService', () => {
         spaceId: 'space-1',
       });
       mockPrisma.salesLocation.findMany.mockResolvedValue([]);
-      mockPrisma.salesTransaction.findMany.mockResolvedValue([
+      mockPrisma.$queryRaw.mockResolvedValue([
         { merchantId: MERCHANT_ID_1, integrationId: INT_A },
       ]);
       mockPrisma.locationShopMapping.findMany.mockResolvedValue([
@@ -160,7 +161,7 @@ describe('MappingsService', () => {
       mockPrisma.salesLocation.findMany.mockResolvedValue([
         { id: LOCATION_CUID_1, integrationId: INT_A },
       ]);
-      mockPrisma.salesTransaction.findMany.mockResolvedValue([
+      mockPrisma.$queryRaw.mockResolvedValue([
         { merchantId: MERCHANT_ID_1, integrationId: INT_B },
       ]);
       mockPrisma.locationShopMapping.findMany.mockResolvedValue([
@@ -188,7 +189,7 @@ describe('MappingsService', () => {
       mockPrisma.salesLocation.findMany.mockResolvedValue([
         { id: LOCATION_CUID_1, integrationId: INT_A },
       ]);
-      mockPrisma.salesTransaction.findMany.mockResolvedValue([]);
+      mockPrisma.$queryRaw.mockResolvedValue([]);
       mockPrisma.locationShopMapping.findMany.mockResolvedValue([
         { salesLocationId: LOCATION_CUID_1 },
       ]);

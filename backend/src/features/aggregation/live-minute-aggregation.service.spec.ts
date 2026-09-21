@@ -61,7 +61,7 @@ describe('LiveMinuteAggregationService (BUG-379-02)', () => {
         service = new LiveMinuteAggregationService(
             prisma,
             redis,
-            new EventWindowResolverService(prisma),
+            new EventWindowResolverService(prisma, redis),
             new EventRollupService(prisma),
             new SpaceIntegrationScopeService(prisma),
         );
