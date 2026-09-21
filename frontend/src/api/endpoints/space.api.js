@@ -221,7 +221,13 @@ export async function getSpaceEventTimeline(spaceId, eventId, { bypassCache = fa
 // paquets en vol par endpoint, la mémoire backend reste bornée par
 // concurrence × taille de paquet (2 × 15 events, loin des 77 de l'OOM) et le
 // wall-clock redevient ≈ celui du paquet le plus lent.
-const BATCH_CHUNK_SIZE = 15
+// 2026-09-21 : 15 → 30. Les trois endpoints lisent désormais des pré-agrégats (event-timeline :
+// SpaceRevenueMinuteItemAgg, transaction-baskets : SpaceBasketMinuteAgg) en 0,2 à 0,3 s par
+// paquet, et un paquet de 30 events pèse quelques centaines de ko — loin des lectures brutes
+// de 20 à 56 s qui avaient motivé 15. « All history » (cap 100 events) passe de 7 à 4 paquets
+// par endpoint : la bande KPI, qui attend TOUS les paquets des deux sources canoniques
+// (BUG-350-01 / 354-01), sort du squelette deux fois plus tôt.
+const BATCH_CHUNK_SIZE = 30
 const _BATCH_CONCURRENCY = 2
 
 // BUG-364-01 (fiche backend 144-01) : _BATCH_CONCURRENCY borne chaque endpoint, mais la
@@ -233,22 +239,26 @@ const _BATCH_CONCURRENCY = 2
 // seul l'aller HTTP passe par le portillon global.
 const _GLOBAL_BATCH_CONCURRENCY = 2
 let _globalBatchInFlight = 0
-const _globalBatchQueue = []
-async function _acquireBatchSlot() {
+// Deux files : 'high' pour les sources qui débloquent la bande KPI (event-timeline,
+// transaction-baskets), 'low' pour analyse-unmapped (bandeau informatif, encore en lecture
+// brute). Sans priorité, la file FIFO entrelaçait les trois endpoints et un paquet unmapped
+// pouvait occuper un des deux créneaux pendant que les KPI attendaient leur dernier paquet.
+const _globalBatchQueue = { high: [], low: [] }
+async function _acquireBatchSlot(priority = 'high') {
   if (_globalBatchInFlight < _GLOBAL_BATCH_CONCURRENCY) {
     _globalBatchInFlight++
     return
   }
-  await new Promise(resolve => _globalBatchQueue.push(resolve))
+  await new Promise(resolve => _globalBatchQueue[priority].push(resolve))
   _globalBatchInFlight++
 }
 function _releaseBatchSlot() {
   _globalBatchInFlight--
-  const wake = _globalBatchQueue.shift()
+  const wake = _globalBatchQueue.high.shift() || _globalBatchQueue.low.shift()
   if (wake) wake()
 }
 
-async function _fetchBatchChunked(spaceId, path, ids, chunkSize = BATCH_CHUNK_SIZE, onChunk, extraParams) {
+async function _fetchBatchChunked(spaceId, path, ids, chunkSize = BATCH_CHUNK_SIZE, onChunk, extraParams, priority = 'high') {
   const chunks = []
   for (let i = 0; i < ids.length; i += chunkSize) chunks.push(ids.slice(i, i + chunkSize))
   const merged = {}
@@ -256,7 +266,7 @@ async function _fetchBatchChunked(spaceId, path, ids, chunkSize = BATCH_CHUNK_SI
   const worker = async () => {
     while (next < chunks.length) {
       const chunk = chunks[next++]
-      await _acquireBatchSlot()
+      await _acquireBatchSlot(priority)
       let response
       try {
         response = await api.get(`/spaces/${spaceId}/${path}`, {
@@ -685,7 +695,8 @@ export async function getSpaceAnalyseUnmappedBatch(spaceId, eventIds) {
     // BUG-364-01 : paquets alignés sur BATCH_CHUNK_SIZE (15) — l'endpoint scanne les
     // transactions brutes (le plus lourd des trois), un paquet de 30 doublait sa
     // fenêtre SQL par rapport aux deux autres endpoints.
-    const data = await _fetchBatchChunked(spaceId, 'analyse-unmapped', ids)
+    // Priorité basse : ne doit jamais retarder les paquets des sources KPI.
+    const data = await _fetchBatchChunked(spaceId, 'analyse-unmapped', ids, BATCH_CHUNK_SIZE, undefined, undefined, 'low')
     for (const id of ids) result.set(id, data[id] || null)
     return result
   } catch (error) {
