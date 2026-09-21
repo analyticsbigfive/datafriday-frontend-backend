@@ -928,6 +928,46 @@ describe('SpacesService', () => {
       expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
     });
 
+    // 2026-09-21 : la 1re requête lit SpaceBasketMinuteAgg (paniers pré-agrégés) ; les tests
+    // ci-dessous la laissent vide (mock []) pour exercer le repli brut, qui reste la référence.
+    it('lit d’abord la pré-agrégation SpaceBasketMinuteAgg et ne retombe pas sur le brut pour un event servi', async () => {
+      mockPrismaService.$queryRaw.mockReset().mockResolvedValueOnce([
+        { eventId: 'ev-1', minute: '19:05', minuteLocal: '2026-03-01T19:05', shopId: 'el-1', shopName: 'Buvette', shopType: 'shop', shopArea: null,
+          categoryCombo: ['Bières', null], typeCombo: ['Boisson'], itemCombo: ['Pinte'], transactionCount: 3, quantity: 4, revenueHt: '25.00' },
+      ]);
+
+      const res = await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
+
+      expect(mockPrismaService.$queryRaw).toHaveBeenCalledTimes(1);
+      const sql: string = (mockPrismaService.$queryRaw.mock.calls[0][0]?.strings ?? []).join('');
+      expect(sql).toContain('FROM "SpaceBasketMinuteAgg"');
+      expect(sql).toContain('AS MATERIALIZED');
+      expect(sql).not.toContain('"WeezeventTransaction" t');
+      expect(res['ev-1']).toEqual([expect.objectContaining({
+        shopId: 'el-1', categoryCombo: ['Bières', null], transactionCount: 3, quantity: 4, revenueHt: 25, revenue: 25,
+      })]);
+    });
+
+    it('repli brut UNIQUEMENT pour les events sans ligne pré-agrégée', async () => {
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'ev-1', eventDate: new Date('2026-03-01T18:00:00Z'), eventEndDate: null },
+        { id: 'ev-2', eventDate: new Date('2026-03-08T18:00:00Z'), eventEndDate: null },
+      ]);
+      mockPrismaService.$queryRaw.mockReset()
+        .mockResolvedValueOnce([{ eventId: 'ev-1', minute: '19:05', minuteLocal: '2026-03-01T19:05', shopId: 'el-1', shopName: 'Buvette',
+          categoryCombo: [], typeCombo: [], itemCombo: [], transactionCount: 1, quantity: 1, revenueHt: '5.00' }])
+        .mockResolvedValueOnce([]);
+
+      await service.getTransactionBasketsBatch(spaceId, ['ev-1', 'ev-2'], tenantId);
+
+      expect(mockPrismaService.$queryRaw).toHaveBeenCalledTimes(2);
+      const rawCall = mockPrismaService.$queryRaw.mock.calls[1][0];
+      expect((rawCall?.strings ?? []).join('')).toContain('INNER JOIN "WeezeventTransaction" t');
+      const values: any[] = rawCall?.values ?? [];
+      expect(values).toContain('ev-2');
+      expect(values).not.toContain('ev-1');
+    });
+
     it('applique les prédicats obligatoires de lecture des ventes (BUG-028 / BUG-108)', async () => {
       await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 

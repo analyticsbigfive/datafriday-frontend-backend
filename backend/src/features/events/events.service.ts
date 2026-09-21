@@ -610,9 +610,12 @@ export class EventsService {
     // orpheline par ce space/event — sinon elle ne sera plus jamais lue (l'event a quitté
     // la liste du space) mais reste en base jusqu'à une éventuelle synchronisation finale.
     if (dto.spaceId === null && existing.spaceId) {
-      await this.prisma.spaceRevenueMinuteAgg.deleteMany({
-        where: { tenantId, spaceId: existing.spaceId, weezeventEventId: id },
-      });
+      const orphanWhere = { tenantId, spaceId: existing.spaceId, weezeventEventId: id };
+      await Promise.all([
+        this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: orphanWhere }),
+        this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: orphanWhere }),
+        this.prisma.spaceBasketMinuteAgg.deleteMany({ where: orphanWhere }),
+      ]);
     }
 
     return updated;
@@ -682,6 +685,7 @@ export class EventsService {
       await Promise.all([
         this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere }),
         this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere }),
+        this.prisma.spaceBasketMinuteAgg.deleteMany({ where: deleteWhere }),
       ]);
     }
 
