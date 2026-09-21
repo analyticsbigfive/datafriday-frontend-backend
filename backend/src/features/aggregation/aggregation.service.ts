@@ -11,6 +11,7 @@ import { EventDayFields } from '../../shared/utils/event-window.util';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
+import { IntegrationTransactionStatsService } from './integration-transaction-stats.service';
 import {
   buildIntegrationClause,
   buildMatchClause,
@@ -35,6 +36,7 @@ export class AggregationService {
     private windowResolver: EventWindowResolverService,
     private eventRollup: EventRollupService,
     private spaceIntegrationScope: SpaceIntegrationScopeService,
+    private txStats: IntegrationTransactionStatsService,
   ) {}
 
   /**
@@ -110,69 +112,16 @@ export class AggregationService {
     } | null = null;
 
     if (integrationId) {
-      const integrationFilter = Prisma.sql`AND t."integrationId" = ${integrationId}`;
-      const eventDates = events.map((e) => new Date(e.eventDate).toISOString().slice(0, 10));
-
-      const [transactionDates, totalRow, unmappedRows] = await Promise.all([
-        this.prisma.$queryRaw<any[]>(Prisma.sql`
-          SELECT
-            DATE(t."transactionDate") as "date",
-            COUNT(*)::int as "transactionCount",
-            SUM(t."amount")::float as "revenue"
-          FROM "WeezeventTransaction" t
-          WHERE t."tenantId" = ${tenantId}
-            ${integrationFilter}
-            AND DATE(t."transactionDate") NOT IN (
-              -- BUG-368-02 : un Event qui déclare explicitement SON intégration ne peut plus
-              -- "couvrir" par coïncidence de date les transactions d'une AUTRE intégration du
-              -- même space (ex. SFP-Montauban ne couvre plus les transactions PFC du 06/09
-              -- s'il n'existe aucun event PFC ce jour-là) — les events legacy sans
-              -- integrationId gardent l'ancien comportement (coïncidence de date seule).
-              SELECT DATE(e."eventDate") FROM "Event" e
-              WHERE e."tenantId" = ${tenantId} AND e."spaceId" = ${spaceId}
-                AND (e."integrationId" IS NULL OR e."integrationId" = ${integrationId})
-            )
-          GROUP BY DATE(t."transactionDate")
-          ORDER BY DATE(t."transactionDate") DESC
-        `),
-        eventDates.length > 0
-          ? this.prisma.$queryRaw<Array<{ total: bigint; matched: bigint }>>(Prisma.sql`
-              SELECT
-                COUNT(*)::bigint as total,
-                COUNT(*) FILTER (
-                  WHERE DATE(t."transactionDate") = ANY(ARRAY[${Prisma.join(eventDates)}]::date[])
-                )::bigint as matched
-              FROM "WeezeventTransaction" t
-              WHERE t."tenantId" = ${tenantId}
-                ${integrationFilter}
-            `)
-          : this.prisma.$queryRaw<Array<{ total: bigint; matched: bigint }>>(Prisma.sql`
-              SELECT COUNT(*)::bigint as total, 0::bigint as matched
-              FROM "WeezeventTransaction" t
-              WHERE t."tenantId" = ${tenantId}
-                ${integrationFilter}
-            `),
-        this.prisma.$queryRaw<Array<{ locationId: string }>>(Prisma.sql`
-          SELECT DISTINCT t."locationId"
-          FROM "WeezeventTransaction" t
-          LEFT JOIN "WeezeventLocationShopMapping" m
-            ON m."tenantId" = ${tenantId}
-            AND m."weezeventLocationId" = t."locationId"
-          WHERE t."tenantId" = ${tenantId}
-            ${integrationFilter}
-            AND t."locationId" IS NOT NULL
-            AND m."id" IS NULL
-        `),
-      ]);
-
-      unregisteredDates = transactionDates;
-      const total = Number(totalRow[0]?.total ?? 0);
-      const matched = Number(totalRow[0]?.matched ?? 0);
+      // Un seul scan par date + EXISTS par PdV, en cache 60 s (IntegrationTransactionStatsService),
+      // à la place de trois parcours complets des transactions de l'intégration par affichage.
+      const pastEventDates = events.map((e) => new Date(e.eventDate).toISOString().slice(0, 10));
+      const stats = await this.txStats.compute({ tenantId, spaceId, integrationId, pastEventDates });
+      unregisteredDates = stats.unregisteredDates;
       transactionStats = {
-        total,
-        matched,
-        unmatched: total - matched,
-        unmappedLocationIds: unmappedRows.map((r) => r.locationId),
+        total: stats.total,
+        matched: stats.matched,
+        unmatched: stats.unmatched,
+        unmappedLocationIds: stats.unmappedLocationIds,
       };
     }
 
