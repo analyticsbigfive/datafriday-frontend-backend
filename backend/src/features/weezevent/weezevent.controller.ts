@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { findDistinctMerchantIds } from '../../shared/sales/distinct-merchant-ids.query';
 import { SyncWeezeventDto } from './dto/sync-weezevent.dto';
 import { StartSyncJobDto } from './dto/start-sync-job.dto';
 import { GetTransactionsQueryDto } from './dto/get-transactions-query.dto';
@@ -621,14 +622,11 @@ export class WeezeventController {
 
         // If locationId provided, find merchants via transactions at that location
         if (locationId) {
-            const txWhere: any = { tenantId, locationId, merchantId: { not: null } };
-            if (integrationId) txWhere.integrationId = integrationId;
-            const merchantIds = await this.prisma.salesTransaction.findMany({
-                where: txWhere,
-                select: { merchantId: true },
-                distinct: ['merchantId'],
+            const ids = await findDistinctMerchantIds(this.prisma, {
+                tenantId,
+                locationId,
+                integrationIds: integrationId ? [integrationId] : undefined,
             });
-            const ids = merchantIds.map(m => m.merchantId).filter(Boolean);
 
             if (ids.length > 0) {
                 const mWhere: any = { tenantId, id: { in: ids } };
