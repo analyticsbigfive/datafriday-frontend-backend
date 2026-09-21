@@ -111,6 +111,9 @@ describe('SpacesService', () => {
       findMany: jest.fn(),
     },
     $queryRaw: jest.fn(),
+    // queryWithWorkMem (lectures Analyse) : SET LOCAL work_mem puis $queryRaw dans la transaction
+    // (le `tx` est ce même mock, les assertions sur $queryRaw restent valables).
+    $executeRawUnsafe: jest.fn(),
     $transaction: jest.fn((callback) => callback(mockPrismaService)),
   };
 

@@ -19,6 +19,7 @@ import { resolveEventTransactionWindow } from '../../shared/utils/event-window.u
 import { Semaphore } from '../../shared/utils/semaphore';
 import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
 import { eventTimelineWindowCtes } from './event-timeline-window.sql';
+import { queryWithWorkMem } from '../../shared/db/query-with-work-mem';
 import { hasPermission, PermissionCheckableUser } from '../../core/rbac/permission.util';
 
 /**
@@ -1475,7 +1476,7 @@ export class SpacesService {
     // coup (plan étape 5.3) : pas de `minute`/`minuteLocal`, pas de doublon `revenue`
     // (les consommateurs lisent `revenueHt`, repli ajouté dans timelineBucketing.js).
     if (summary) {
-      const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
+      const rows: any[] = await this.analyseBatchSemaphore.run(() => queryWithWorkMem<any[]>(this.prisma, Prisma.sql`
         ${eventTimelineWindowCtes({ tenantId, spaceId, valuesSql, shopScopeClause })}
         SELECT
           dd."eventId"                                                      AS "eventId",
@@ -1576,7 +1577,7 @@ export class SpacesService {
     //    lieu du total → timeline réelle aplatie en plateau constant.
     // BUG-144-01 : section SQL sous sémaphore (2 en vol, file 32, 60 s -> 503) — les
     // hits cache plus haut ne font pas la queue.
-    const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
+    const rows: any[] = await this.analyseBatchSemaphore.run(() => queryWithWorkMem<any[]>(this.prisma, Prisma.sql`
       ${eventTimelineWindowCtes({ tenantId, spaceId, valuesSql, shopScopeClause })}
       SELECT
         dd."eventId"                                                      AS "eventId",
@@ -1738,7 +1739,7 @@ export class SpacesService {
     // et BUG-108. Un panier à N lignes ne produit qu'UNE ligne ici : c'est ce qui
     // évite le double comptage au dénominateur.
     // BUG-144-01 : même sémaphore que getEventTimelineBatch.
-    const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
+    const rows: any[] = await this.analyseBatchSemaphore.run(() => queryWithWorkMem<any[]>(this.prisma, Prisma.sql`
       WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql}),
       tx AS (
         SELECT
@@ -1902,7 +1903,7 @@ export class SpacesService {
     const { integrationClause, valuesSql, shopIds } = scope;
 
     // BUG-144-01 : même sémaphore que les deux autres endpoints batch.
-    const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
+    const rows: any[] = await this.analyseBatchSemaphore.run(() => queryWithWorkMem<any[]>(this.prisma, Prisma.sql`
       WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql})
       SELECT
         ev."eventId"                                                        AS "eventId",
