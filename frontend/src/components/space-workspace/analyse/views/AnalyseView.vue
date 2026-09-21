@@ -2380,7 +2380,12 @@ async function ensureAuthAndLoad(spaceId) {
     console.warn('[AnalyseView] Unable to fetch Supabase session:', e?.message)
   }
   try {
-    await store.dispatch('analyse/loadSpace', { spaceId })
+    // skipRecipeCatalog : l'Analyse ne lit ni ingrédients ni composants (Restock/Inventory
+    // seulement). Sans ce flag, la vague 2b paginait /ingredients et /menu-components puis
+    // faisait UN appel /menu-components/:id par composant (des dizaines à des centaines de
+    // requêtes), en concurrence avec les paquets event-timeline/baskets dans le navigateur
+    // et sur l'API (audit perf 2026-09-21). Même décision que Live (2026-09-03).
+    await store.dispatch('analyse/loadSpace', { spaceId, skipRecipeCatalog: true })
     // Prefetch market prices (catalogue global tenant, partagé Inventory/Logistic/
     // Restock) HORS chemin critique : la query coûte ~60s à froid. Le charger dès
     // l'entrée dans l'espace chauffe le cache (SWR) avant l'ouverture d'Inventory.
