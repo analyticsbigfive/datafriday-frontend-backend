@@ -18,6 +18,7 @@ import { resolveEventTransactionWindow } from '../../shared/utils/event-window.u
 // pages divergent à nouveau.
 import { Semaphore } from '../../shared/utils/semaphore';
 import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
+import { eventTimelineWindowCtes } from './event-timeline-window.sql';
 import { hasPermission, PermissionCheckableUser } from '../../core/rbac/permission.util';
 
 /**
@@ -1475,31 +1476,7 @@ export class SpacesService {
     // (les consommateurs lisent `revenueHt`, repli ajouté dans timelineBucketing.js).
     if (summary) {
       const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
-        WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql}),
-        dedup AS (
-          SELECT
-            ev."eventId"                 AS "eventId",
-            mem."minute"                 AS "minute",
-            mem."spaceElementId"         AS "spaceElementId",
-            mem."weezeventLocationId"    AS "weezeventLocationId",
-            mem."weezeventLocationName"  AS "weezeventLocationName",
-            mem."weezeventProductId"     AS "weezeventProductId",
-            MAX(mem."itemsCount")        AS "itemsCount",
-            MAX(mem."transactionsCount") AS "transactionsCount",
-            MAX(mem."revenueHt")         AS "revenueHt"
-          FROM ev
-          INNER JOIN "SpaceRevenueMinuteItemAgg" mem
-            ON mem."minute" >= ev."windowStart"
-           AND mem."minute" <  ev."windowEnd"
-           AND (ev."tagId" IS NULL OR mem."weezeventEventId" IN (ev."eventId", ev."tagId"))
-           AND mem."tenantId" = ${tenantId}
-           AND mem."spaceId"  = ${spaceId}
-          WHERE ${shopScopeClause}
-          GROUP BY
-            ev."eventId", mem."minute",
-            mem."spaceElementId", mem."weezeventLocationId", mem."weezeventLocationName",
-            mem."weezeventMerchantId", mem."weezeventProductId"
-        )
+        ${eventTimelineWindowCtes({ tenantId, spaceId, valuesSql, shopScopeClause })}
         SELECT
           dd."eventId"                                                      AS "eventId",
           COALESCE(dd."spaceElementId", dd."weezeventLocationId")           AS "shopId",
@@ -1600,37 +1577,7 @@ export class SpacesService {
     // BUG-144-01 : section SQL sous sémaphore (2 en vol, file 32, 60 s -> 503) — les
     // hits cache plus haut ne font pas la queue.
     const rows: any[] = await this.analyseBatchSemaphore.run(() => this.prisma.$queryRaw(Prisma.sql`
-      WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql}),
-      dedup AS (
-        SELECT
-          ev."eventId"                 AS "eventId",
-          mem."minute"                 AS "minute",
-          mem."spaceElementId"         AS "spaceElementId",
-          mem."weezeventLocationId"    AS "weezeventLocationId",
-          mem."weezeventLocationName"  AS "weezeventLocationName",
-          mem."weezeventProductId"     AS "weezeventProductId",
-          MAX(mem."itemsCount")        AS "itemsCount",
-          MAX(mem."transactionsCount") AS "transactionsCount",
-          MAX(mem."revenueHt")         AS "revenueHt"
-        FROM ev
-        INNER JOIN "SpaceRevenueMinuteItemAgg" mem
-          ON mem."minute" >= ev."windowStart"
-         AND mem."minute" <  ev."windowEnd"
-         -- BUG-146-01 : quand l'event est lié à son conteneur de club (ev."tagId"), ne
-         -- prendre que les lignes agrégées SOUS cet event (id Event DataFriday, writer
-         -- aggregation.service) ou sous le tag brut (id WeezeventEvent, writer
-         -- space-aggregation) — les fenêtres portes→fin de deux events le même jour se
-         -- recouvrent, seul le tag départage. tagId NULL → fenêtre seule, comportement
-         -- d'avant (BUG-123-01 : events qui n'existent qu'en WeezeventEvent).
-         AND (ev."tagId" IS NULL OR mem."weezeventEventId" IN (ev."eventId", ev."tagId"))
-         AND mem."tenantId" = ${tenantId}
-         AND mem."spaceId"  = ${spaceId}
-        WHERE ${shopScopeClause}
-        GROUP BY
-          ev."eventId", mem."minute",
-          mem."spaceElementId", mem."weezeventLocationId", mem."weezeventLocationName",
-          mem."weezeventMerchantId", mem."weezeventProductId"
-      )
+      ${eventTimelineWindowCtes({ tenantId, spaceId, valuesSql, shopScopeClause })}
       SELECT
         dd."eventId"                                                      AS "eventId",
         TO_CHAR(tz."minuteLocal", 'HH24:MI')                              AS minute,
