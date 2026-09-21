@@ -102,6 +102,7 @@ const activeConfig = computed(() => store.getters['analyse/activeConfiguration']
 
 const TIMERANGE_LABELS = computed(() => ({
   all: t('anRangeAll'),
+  last12months: t('anRangeLast12Months'),
   today: t('anRangeToday'),
   yesterday: t('anRangeYesterday'),
   thisweek: t('anRangeThisWeek'),

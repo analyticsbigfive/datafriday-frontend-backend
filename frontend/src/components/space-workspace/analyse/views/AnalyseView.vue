@@ -774,7 +774,7 @@ import MenuItemsByShopTable from '../tables/MenuItemsByShopTable.vue'
 import SummaryPanel from '../panels/SummaryPanel.vue'
 import FilterEditorPanel from '../panels/FilterEditorPanel.vue'
 import ShopPerformanceByTransactionRate from '../charts/ShopPerformanceByTransactionRate.vue'
-import { getDateRangePresets, PRESET_I18N_KEYS } from '@/constants/dateRangePresets'
+import { getDateRangePresets, PRESET_I18N_KEYS, VALID_DATE_RANGE_VALUES } from '@/constants/dateRangePresets'
 // PERF: chargé en async → le chunk de la monolithe EventPredictView (~71KB gz JS
 // + 13KB gz CSS) n'est téléchargé QUE lorsque l'overlay s'ouvre (v-if
 // showPredictOverlay), plus à chaque navigation vers space-analyse.
@@ -796,6 +796,7 @@ import { useReportJ1 } from '@/composables/useReportJ1'
 import ReportJ1Document from '../ReportJ1Document.vue'
 import store from '@/store'
 import { setAccessToken } from '@/api/client'
+import { getUserPreferences } from '@/utils/api'
 import { supabase } from '@/lib/supabase'
 import { parseEventDate as parseEventDateLocal, formatDateShort } from '@/utils/dateFr'
 import {
@@ -2104,12 +2105,23 @@ const futureEventsCount = computed(() => {
     return d && d.getTime() >= today.getTime()
   }).length
 })
+// La période est partagée entre outils, mais leurs listes de presets diffèrent : Predict
+// travaille sur les events FUTURS et n'a pas « 12 derniers mois » (défaut Analyse, borne
+// haute = aujourd'hui, qui le viderait). Un preset inconnu de l'outil cible retombe sur
+// « Tout l'historique », ancien défaut commun. Saisons et période personnalisée sont conservées.
+function ensureTimeRangeValidFor(toolbox) {
+  const current = String(store.state.analyse.filters?.timeRange || '')
+  if (current === 'custom' || current.startsWith('season:')) return
+  const allowed = getDateRangePresets(toolbox).map(p => p.value)
+  if (!allowed.includes(current)) setFilterImmediate('timeRange', 'all')
+}
 function onToolboxChange(v) {
   const current = store.state.analyse.selectedToolbox || 'analyse'
   if (v === current) return
   if (v === 'event-predict' && current !== 'event-predict') {
     previousToolbox.value = current
   }
+  ensureTimeRangeValidFor(v)
   // Bascule synchrone : le différé rAF+setTimeout et l'overlay de transition
   // provoquaient un flicker (voile 2 s aveugle + frame vide entre les vues).
   // Le contenu Analyse reste monté (v-show) et Event Predict gère son propre
@@ -2292,6 +2304,7 @@ onMounted(() => {
   // dans l'URL (bug « redirigé vers EventPredict », 2026-07-06).
   const tb = String(route.query?.toolbox || '').toLowerCase()
   if (tb === 'predict' || tb === 'event-predict') {
+    ensureTimeRangeValidFor(tb)
     if (store.state.analyse.selectedToolbox !== tb) {
       store.commit('analyse/SET_TOOLBOX', tb)
     }
@@ -2378,6 +2391,17 @@ async function ensureAuthAndLoad(spaceId) {
     if (token) setAccessToken(token)
   } catch (e) {
     console.warn('[AnalyseView] Unable to fetch Supabase session:', e?.message)
+  }
+  // Préférence de compte « période par défaut » (réglages → /preferences) : enregistrée depuis
+  // ConsolidatedAccountView mais jamais appliquée jusqu'ici. Posée AVANT loadSpace pour que le
+  // périmètre (filteredEvents) soit le bon dès le premier chargement des paquets, sans rechargement.
+  // Sans préférence valide : DEFAULT_ANALYSE_DATE_RANGE (12 mois glissants).
+  try {
+    const prefs = await getUserPreferences()
+    const preset = prefs?.defaultDateRangePreset
+    if (preset && VALID_DATE_RANGE_VALUES.includes(preset)) store.commit('analyse/SET_DEFAULT_TIME_RANGE', preset)
+  } catch (e) {
+    console.warn('[AnalyseView] préférences indisponibles, période par défaut appliquée:', e?.message)
   }
   try {
     // skipRecipeCatalog : l'Analyse ne lit ni ingrédients ni composants (Restock/Inventory
