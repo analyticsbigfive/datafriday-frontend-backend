@@ -538,6 +538,10 @@ const state = () => ({
   suppliers: [],               // SupplierItem[]
   ingredients: [],             // IngredientItem[]
   components: [],              // ComponentDefinition[]
+  // Catalogue recette (ingredients/components/packagings, vague 2b) présent pour CET espace.
+  // Analyse et Live chargent avec `skipRecipeCatalog` : le cache 15 min ne doit alors pas
+  // servir un store sans recette à Restock/Inventory/Predict, qui la lisent après `await`.
+  recipeCatalogLoaded: false,
   weezeventProducts: [],       // WeezeventProduct[] — prix réels (basePrice) pour Event Predict
   weezeventProductMappings: [], // [{ weezeventProductId, menuItemId }] — lien produit→MenuItem (coûts)
   // Taxonomie DataFriday (catalogue) — source UNIQUE des dimensions item (type/catégorie).
@@ -1683,6 +1687,7 @@ const mutations = {
   SET_SUPPLIERS(state, s) { state.suppliers = s || [] },
   SET_INGREDIENTS(state, i) { state.ingredients = i || [] },
   SET_COMPONENTS(state, c) { state.components = c || [] },
+  SET_RECIPE_CATALOG_LOADED(state, v) { state.recipeCatalogLoaded = !!v },
   SET_WEEZEVENT_PRODUCTS(state, p) { state.weezeventProducts = p || [] },
   SET_WEEZEVENT_PRODUCT_MAPPINGS(state, m) { state.weezeventProductMappings = m || [] },
   // Heavy arrays (>50k records on the Adidas Arena mock) — freeze so Vuex
@@ -1892,7 +1897,10 @@ const actions = {
       !force &&
       state.space?.id === spaceId &&
       state.spaceCachedAt &&
-      Date.now() - state.spaceCachedAt < CACHE_TTL
+      Date.now() - state.spaceCachedAt < CACHE_TTL &&
+      // Un espace chargé par Analyse/Live (sans recette) n'est pas « frais » pour un écran
+      // qui a besoin du catalogue recette : chargement complet, avec skeleton.
+      (skipRecipeCatalog || state.recipeCatalogLoaded)
 
     // BUG-285 : au CHANGEMENT d'espace (pas au simple re-load du même), on purge les
     // accumulateurs par clé (timeline/prédictions/menus/shops de l'ancien espace) et
@@ -1901,6 +1909,7 @@ const actions = {
     const prevSpaceId = state.spaceId || state.space?.id || null
     if (prevSpaceId && String(prevSpaceId) !== String(spaceId)) {
       commit('CLEAR_SPACE_KEYED_CACHES', { keepSpaceId: spaceId })
+      commit('SET_RECIPE_CATALOG_LOADED', false)
       // Import dynamique (comme useSpaceData ci-dessous) : un import statique de
       // space.api tirerait axios (ESM) dans les specs Jest du store — 3 suites
       // qui n'y touchent pas casseraient au parse.
@@ -1966,7 +1975,10 @@ const actions = {
       }
       if (enrichment.suppliers) commit('SET_SUPPLIERS', enrichment.suppliers)
       if (enrichment.ingredients) commit('SET_INGREDIENTS', enrichment.ingredients)
-      if (enrichment.components) commit('SET_COMPONENTS', enrichment.components)
+      if (enrichment.components) {
+        commit('SET_COMPONENTS', enrichment.components)
+        commit('SET_RECIPE_CATALOG_LOADED', true)
+      }
       // Coûts (MARGE) : complète le costMap de phase 1 (shop-details) avec les
       // coûts dérivés des menu items (phase 2). Shop-details prioritaire → on
       // n'écrase pas une valeur existante par celle des items.
