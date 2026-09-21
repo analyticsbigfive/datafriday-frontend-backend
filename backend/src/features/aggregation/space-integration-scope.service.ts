@@ -41,6 +41,7 @@ export class SpaceIntegrationScopeService {
     const minute = await this.prisma.spaceRevenueMinuteAgg.deleteMany({ where });
     const item = await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where });
     const daily = await this.prisma.spaceProductRevenueDailyAgg.deleteMany({ where });
-    return minute.count + item.count + daily.count;
+    const basket = await this.prisma.spaceBasketMinuteAgg.deleteMany({ where });
+    return minute.count + item.count + daily.count + basket.count;
   }
 }

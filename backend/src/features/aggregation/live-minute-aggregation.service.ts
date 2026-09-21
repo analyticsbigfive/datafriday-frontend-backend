@@ -10,6 +10,7 @@ import { livePendingKey, liveWatermarkKey } from '../../shared/constants/live-ag
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
+import { BasketAggregationService } from './basket-aggregation.service';
 import {
   buildIntegrationClause,
   buildMatchClause,
@@ -40,6 +41,7 @@ export class LiveMinuteAggregationService {
     private readonly windowResolver: EventWindowResolverService,
     private readonly eventRollup: EventRollupService,
     private readonly spaceIntegrationScope: SpaceIntegrationScopeService,
+    private readonly basketAgg: BasketAggregationService,
   ) {}
 
   async execute(job: Job<AggregationJobEnqueueData>) {
@@ -160,6 +162,8 @@ export class LiveMinuteAggregationService {
     const sqlInput = { tenantId, spaceId, eventId: event.id, integrationClause, matchClause, minuteClause: buildMinuteClause(minutes) };
     await this.prisma.$executeRaw(insertMinuteAggSql(sqlInput));
     await this.prisma.$executeRaw(insertMinuteItemAggSql(sqlInput));
+    // Paniers pré-agrégés (Analyse) : mêmes minutes touchées, même purge scopée.
+    await this.basketAgg.replaceForEvent(deleteWhere as Prisma.SpaceBasketMinuteAggWhereInput, sqlInput);
     await this.eventRollup.refresh(tenantId, spaceId, event, spaceIntegrationIds);
 
     const newWatermark = touched.reduce((max, r) => (new Date(r.lastUpdatedAt) > max ? new Date(r.lastUpdatedAt) : max), new Date(0));

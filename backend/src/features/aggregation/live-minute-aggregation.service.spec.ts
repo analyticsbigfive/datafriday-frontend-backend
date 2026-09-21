@@ -1,5 +1,6 @@
 import { LiveMinuteAggregationService } from './live-minute-aggregation.service';
 import { EventWindowResolverService } from './event-window-resolver.service';
+import { BasketAggregationService } from './basket-aggregation.service';
 import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { liveWatermarkKey } from '../../shared/constants/live-aggregation';
@@ -39,6 +40,7 @@ describe('LiveMinuteAggregationService (BUG-379-02)', () => {
             salesEvent: { findMany: jest.fn().mockResolvedValue([]) },
             spaceRevenueMinuteAgg: { deleteMany: jest.fn(), aggregate: jest.fn().mockResolvedValue({ _sum: { revenueHt: 100, transactionsCount: 10 } }) },
             spaceRevenueMinuteItemAgg: { deleteMany: jest.fn() },
+            spaceBasketMinuteAgg: { deleteMany: jest.fn() },
             // BUG-384-02 : intégration mappée à l'espace (étape 1 du wizard).
             locationSpaceMapping: { findMany: jest.fn().mockResolvedValue([{ salesLocationId: 'pfc' }]) },
             $queryRaw: jest.fn(),
@@ -64,6 +66,8 @@ describe('LiveMinuteAggregationService (BUG-379-02)', () => {
             new EventWindowResolverService(prisma, redis),
             new EventRollupService(prisma),
             new SpaceIntegrationScopeService(prisma),
+            // Paniers pré-agrégés : même mock Prisma ($executeRaw), purge via spaceBasketMinuteAgg.
+            new BasketAggregationService(prisma, new EventWindowResolverService(prisma, redis), new SpaceIntegrationScopeService(prisma)),
         );
     });
 
@@ -75,12 +79,18 @@ describe('LiveMinuteAggregationService (BUG-379-02)', () => {
             where: { tenantId: 'tenant', spaceId: 'jean-bouin', weezeventEventId: 'pfc-lyon', minute: { in: [minute1, minute2] } },
         });
         expect(prisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledTimes(1);
-        // Deux INSERT (minute agg + item agg), jamais la table jour par produit.
-        expect(prisma.$executeRaw).toHaveBeenCalledTimes(2);
+        // Trois INSERT (minute agg + item agg + paniers), jamais la table jour par produit.
+        expect(prisma.$executeRaw).toHaveBeenCalledTimes(3);
         const inserts = prisma.$executeRaw.mock.calls.map((c: any[]) => sqlText(c[0]));
         expect(inserts[0]).toContain('INSERT INTO "SpaceRevenueMinuteAgg"');
         expect(inserts[0]).toContain(`date_trunc('minute', t."transactionDate") IN (`);
         expect(inserts[1]).toContain('INSERT INTO "SpaceRevenueMinuteItemAgg"');
+        // Paniers : mêmes minutes touchées, purge scopée sur les mêmes minutes.
+        expect(inserts[2]).toContain('INSERT INTO "SpaceBasketMinuteAgg"');
+        expect(inserts[2]).toContain(`date_trunc('minute', t."transactionDate") IN (`);
+        expect(prisma.spaceBasketMinuteAgg.deleteMany).toHaveBeenCalledWith({
+            where: { tenantId: 'tenant', spaceId: 'jean-bouin', weezeventEventId: 'pfc-lyon', minute: { in: [minute1, minute2] } },
+        });
         expect(inserts.some((s: string) => s.includes('SpaceProductRevenueDailyAgg'))).toBe(false);
         expect(store.get(liveWatermarkKey('pfc-lyon'))).toBe('2026-09-12T17:03:40.000Z');
         expect(prisma.event.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'pfc-lyon' } }));

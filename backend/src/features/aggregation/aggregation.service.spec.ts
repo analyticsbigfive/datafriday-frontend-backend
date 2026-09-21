@@ -5,6 +5,7 @@ import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { IntegrationTransactionStatsService } from './integration-transaction-stats.service';
+import { BasketAggregationService } from './basket-aggregation.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { MappingsService } from '../mappings/mappings.service';
@@ -40,6 +41,7 @@ const mockPrisma: any = {
     deleteMany: jest.fn(),
     upsert: jest.fn(),
   },
+  spaceBasketMinuteAgg: { deleteMany: jest.fn() },
   salesLocation: { findMany: jest.fn() },
   locationSpaceMapping: { findFirst: jest.fn(), findMany: jest.fn() },
   locationShopMapping: { findMany: jest.fn(), count: jest.fn() },
@@ -120,6 +122,7 @@ describe('AggregationService', () => {
         // BUG-384-02 : frontière des intégrations mappées à l'espace, instance réelle.
         SpaceIntegrationScopeService,
         IntegrationTransactionStatsService,
+        BasketAggregationService,
       ],
     }).compile();
 
@@ -312,6 +315,7 @@ describe('AggregationService', () => {
       mockPrisma.$executeRaw.mockResolvedValue(0);
       mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.spaceRevenueMinuteItemAgg.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.spaceBasketMinuteAgg.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.salesEvent.findMany.mockResolvedValue([]);
       mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
         _sum: { revenueHt: '150.00', transactionsCount: 3 },
@@ -332,12 +336,16 @@ describe('AggregationService', () => {
       expect(mockPrisma.spaceRevenueMinuteAgg.upsert).not.toHaveBeenCalled();
     });
 
-    it('écrit aussi SpaceRevenueMinuteItemAgg (3 blocs $executeRaw par event)', async () => {
+    it('écrit aussi SpaceRevenueMinuteItemAgg et SpaceBasketMinuteAgg (4 blocs $executeRaw par event)', async () => {
       const job = makeBullJob();
       await service.executeProcessEvents(job);
 
-      // 1 event → 3 $executeRaw (SpaceRevenueMinuteAgg, SpaceProductRevenueDailyAgg, SpaceRevenueMinuteItemAgg)
-      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(3);
+      // 1 event → 4 $executeRaw (SpaceRevenueMinuteAgg, SpaceProductRevenueDailyAgg, SpaceRevenueMinuteItemAgg, SpaceBasketMinuteAgg)
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(4);
+      // Paniers : même purge scopée que la table item.
+      expect(mockPrisma.spaceBasketMinuteAgg.deleteMany).toHaveBeenCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1, integrationId: INT_ID },
+      });
       // BUG-317-02 : scopé par integrationId (makeBullJob() en fournit un par défaut) pour ne pas
       // effacer la contribution d'une AUTRE intégration partageant le même event/space.
       expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
@@ -400,7 +408,7 @@ describe('AggregationService', () => {
         await service.executeProcessEvents(makeBullJob({ integrationId: undefined }));
 
         const inserts = insertCalls();
-        expect(inserts.length).toBe(3);
+        expect(inserts.length).toBe(4);
         for (const call of inserts) {
           expect(sqlOf(call)).toContain('AND t."integrationId" = ANY(');
           expect(valuesOf(call)).toContainEqual([INT_ID, 'integration-digi']);
@@ -488,9 +496,9 @@ describe('AggregationService', () => {
       const job = makeBullJob();
       await service.executeProcessEvents(job);
 
-      // SQL GROUP BY handles the grouping — 1 event → exactly 3 $executeRaw calls
-      // (SpaceRevenueMinuteAgg, SpaceProductRevenueDailyAgg, SpaceRevenueMinuteItemAgg)
-      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(3);
+      // SQL GROUP BY handles the grouping — 1 event → exactly 4 $executeRaw calls
+      // (SpaceRevenueMinuteAgg, SpaceProductRevenueDailyAgg, SpaceRevenueMinuteItemAgg, SpaceBasketMinuteAgg)
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(4);
       expect(mockPrisma.spaceRevenueMinuteAgg.upsert).not.toHaveBeenCalled();
     });
 
@@ -502,8 +510,8 @@ describe('AggregationService', () => {
       const job = makeBullJob();
       await service.executeProcessEvents(job);
 
-      // SQL GROUP BY handles per-minute grouping — still 3 $executeRaw calls per event
-      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(3);
+      // SQL GROUP BY handles per-minute grouping — still 4 $executeRaw calls per event
+      expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(4);
       expect(mockPrisma.spaceRevenueMinuteAgg.upsert).not.toHaveBeenCalled();
     });
 
@@ -1005,10 +1013,10 @@ describe('AggregationService', () => {
         const job = makeBullJob({ eventIds: [EVENT_1, EVENT_2] });
         await service.executeProcessEvents(job);
 
-        // 2 events × 3 $executeRaw : le 1er bloc de chaque event porte SON conteneur
+        // 2 events × 4 $executeRaw : le 1er bloc de chaque event porte SON conteneur
         // et jamais celui de l'autre — les fenêtres se recouvrent, le tag départage.
         const firstEventSql = mockPrisma.$executeRaw.mock.calls[0][0];
-        const secondEventSql = mockPrisma.$executeRaw.mock.calls[3][0];
+        const secondEventSql = mockPrisma.$executeRaw.mock.calls[4][0];
         expect(firstEventSql.values).toContain(CONTAINER_PFC);
         expect(firstEventSql.values).not.toContain(CONTAINER_SFP);
         expect(secondEventSql.values).toContain(CONTAINER_SFP);
@@ -1043,9 +1051,9 @@ describe('AggregationService', () => {
         expect(datesOf(0).some((d: Date) => d.getTime() === combineDayAndLocalTime(pfc.eventDate, '00:00', 'Europe/Paris')!.getTime())).toBe(true);
         expect(datesOf(0).some((d: Date) => d.getTime() === pfcEnd.getTime())).toBe(true);
         // SFP : démarre à la fin de PFC (02:00 local le 15/02), pas à minuit ; finit 16/02 03:00 local.
-        expect(datesOf(3).some((d: Date) => d.getTime() === pfcEnd.getTime())).toBe(true);
-        expect(datesOf(3).some((d: Date) => d.getTime() === combineDayAndLocalTime(sfp.eventEndDate, '03:00', 'Europe/Paris')!.getTime())).toBe(true);
-        expect(datesOf(3).every((d: Date) => d.getTime() !== combineDayAndLocalTime(sfp.eventDate, '00:00', 'Europe/Paris')!.getTime())).toBe(true);
+        expect(datesOf(4).some((d: Date) => d.getTime() === pfcEnd.getTime())).toBe(true);
+        expect(datesOf(4).some((d: Date) => d.getTime() === combineDayAndLocalTime(sfp.eventEndDate, '03:00', 'Europe/Paris')!.getTime())).toBe(true);
+        expect(datesOf(4).every((d: Date) => d.getTime() !== combineDayAndLocalTime(sfp.eventDate, '00:00', 'Europe/Paris')!.getTime())).toBe(true);
       });
 
       it('fiche 147-01 : double affiche même jour SANS tag (mode range, CSV) → fenêtres disjointes, pas de double comptage (anti-145-01)', async () => {
@@ -1063,8 +1071,8 @@ describe('AggregationService', () => {
         // L'event de l'après-midi garde minuit → 18:00 ; celui du soir démarre à 18:00.
         expect(datesOf(0).some((d: Date) => d.getTime() === combineDayAndLocalTime(sameDay, '00:00', 'Europe/Paris')!.getTime())).toBe(true);
         expect(datesOf(0).some((d: Date) => d.getTime() === finApresMidi.getTime())).toBe(true);
-        expect(datesOf(3).some((d: Date) => d.getTime() === finApresMidi.getTime())).toBe(true);
-        expect(datesOf(3).some((d: Date) => d.getTime() === combineDayAndLocalTime(sameDay, '23:00', 'Europe/Paris')!.getTime())).toBe(true);
+        expect(datesOf(4).some((d: Date) => d.getTime() === finApresMidi.getTime())).toBe(true);
+        expect(datesOf(4).some((d: Date) => d.getTime() === combineDayAndLocalTime(sameDay, '23:00', 'Europe/Paris')!.getTime())).toBe(true);
       });
 
       it('fiche 147-01 : re-agrégation incrémentale → le voisin HORS batch borne quand même le début de fenêtre', async () => {
@@ -1135,14 +1143,14 @@ describe('AggregationService', () => {
       mockPrisma.spaceRevenueMinuteItemAgg.deleteMany.mockResolvedValue({ count: 0 });
     });
 
-    it('nettoie les 3 tables dans une transaction atomique (fix #9)', async () => {
+    it('nettoie les 4 tables dans une transaction atomique (fix #9)', async () => {
       const job = makeBullJob({ type: 'synchronize' });
       await service.executeSynchronize(job);
 
       expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
       const txOps = mockPrisma.$transaction.mock.calls[0][0];
-      // Les 3 deleteMany doivent être dans la même transaction
-      expect(txOps).toHaveLength(3);
+      // Les 4 deleteMany (minute, jour, item, paniers) doivent être dans la même transaction
+      expect(txOps).toHaveLength(4);
     });
 
     it('retourne un summary avec totalRevenue', async () => {
