@@ -4,6 +4,7 @@ import { AggregationService } from './aggregation.service';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
+import { IntegrationTransactionStatsService } from './integration-transaction-stats.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { MappingsService } from '../mappings/mappings.service';
@@ -118,6 +119,7 @@ describe('AggregationService', () => {
         EventRollupService,
         // BUG-384-02 : frontière des intégrations mappées à l'espace, instance réelle.
         SpaceIntegrationScopeService,
+        IntegrationTransactionStatsService,
       ],
     }).compile();
 
@@ -172,11 +174,15 @@ describe('AggregationService', () => {
       expect(result.events[1].dataPoints).toBe(0);
     });
 
+    // IntegrationTransactionStatsService : UN scan par date (mock $queryRaw n°1) dont total,
+    // matched et unregisteredDates sont dérivés ; $queryRaw n°2 = PdV non mappés (EXISTS).
     it('retourne transactionStats non null quand integrationId fourni et locations existent', async () => {
-      mockPrisma.salesLocation.findMany.mockResolvedValue([{ id: LOCATION_ID }]);
+      const day = (daysAgo: number) => new Date(Date.now() - daysAgo * 86400_000);
       mockPrisma.$queryRaw
-        .mockResolvedValueOnce([]) // unregisteredDates
-        .mockResolvedValueOnce([{ total: BigInt(100), matched: BigInt(80) }]) // totalRow
+        .mockResolvedValueOnce([
+          { date: day(10), transactionCount: 80, revenue: 800 }, // jour de EVENT_1 → matched
+          { date: day(3), transactionCount: 20, revenue: 200 }, // aucun event ce jour → non couvert
+        ])
         .mockResolvedValueOnce([]); // unmappedRows
 
       const result = await service.getEventsTimelineStatus(TENANT, SPACE, INT_ID);
@@ -185,14 +191,17 @@ describe('AggregationService', () => {
       expect(result.transactionStats!.total).toBe(100);
       expect(result.transactionStats!.matched).toBe(80);
       expect(result.transactionStats!.unmatched).toBe(20);
+      expect(result.unregisteredDates).toEqual([
+        { date: day(3).toISOString().slice(0, 10) + 'T00:00:00.000Z', transactionCount: 20, revenue: 200 },
+      ]);
+      // Un seul parcours des transactions par date, plus de COUNT FILTER ni de DISTINCT locationId.
+      expect(mockPrisma.$queryRaw).toHaveBeenCalledTimes(2);
     });
 
     it('ne plante pas quand aucun event passé (régression join([]))', async () => {
       mockPrisma.event.findMany.mockResolvedValue([]);
-      mockPrisma.salesLocation.findMany.mockResolvedValue([{ id: LOCATION_ID }]);
       mockPrisma.$queryRaw
-        .mockResolvedValueOnce([]) // unregisteredDates
-        .mockResolvedValueOnce([{ total: BigInt(12), matched: BigInt(0) }]) // totalRow sans événements
+        .mockResolvedValueOnce([{ date: new Date('2026-02-14T00:00:00.000Z'), transactionCount: 12, revenue: 120 }])
         .mockResolvedValueOnce([]); // unmappedRows
 
       const result = await service.getEventsTimelineStatus(TENANT, SPACE, INT_ID);
