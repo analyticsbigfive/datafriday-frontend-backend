@@ -114,11 +114,20 @@ export class DigifoodIngestionService {
             rawData: { ...item.raw, parentItemId: item.parentItemId, depth: item.depth } as Prisma.InputJsonValue,
         }));
 
-        const [transaction, existedBefore] = await this.prisma.$transaction(async (tx) => {
+        const [transaction, existedBefore, previousItems] = await this.prisma.$transaction(async (tx) => {
             const existing = await tx.salesTransaction.findUnique({
                 where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId } },
-                select: { id: true },
+                select: { id: true, locationId: true, transactionDate: true },
             });
+
+            // BUG-337-02 (docs/bugs/) : items en place AVANT suppression, pour retirer leur
+            // contribution de SalesPriceAgg (ré-émission d'un order v24 mutable).
+            const previous = existing
+                ? await tx.salesTransactionItem.findMany({
+                    where: { transactionId: existing.id },
+                    select: { productId: true, productName: true, rawData: true, unitPrice: true, vat: true },
+                })
+                : [];
 
             const row = await tx.salesTransaction.upsert({
                 where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId } },
@@ -163,23 +172,22 @@ export class DigifoodIngestionService {
                 });
             }
 
-            return [row, !!existing] as const;
+            const previousItems = existing
+                ? previous.map((d) => ({ ...d, locationId: existing.locationId, transactionDate: existing.transactionDate }))
+                : [];
+            return [row, !!existing, previousItems] as const;
         });
 
-        // BUG-337-02 (docs/bugs/) : refresh ciblé de SalesPriceAgg pour les items de cet order —
-        // best-effort, ne doit jamais faire échouer l'ingestion webhook/CSV. `productKey` est
-        // l'équivalent Digifood du `item_id` Weezevent (identité produit stable, indépendante du
-        // FK `productId` — sert la même cascade de repli productId → item_id → nom).
-        if (itemsData.length > 0) {
-            void this.priceAgg.refreshForKeysSafe(
+        // BUG-337-02 (docs/bugs/) : delta SalesPriceAgg = -items précédents +items de cet order
+        // (un seul upsert, aucun scan d'historique). Best-effort, ne doit jamais faire échouer
+        // l'ingestion webhook/CSV. La clé itemWeezeventId est dérivée de rawData.item_id comme
+        // dans le recalcul complet (vide pour Digifood : la cascade de repli passe par le nom).
+        if (itemsData.length > 0 || previousItems.length > 0) {
+            void this.priceAgg.applyDeltaSafe(
                 tenantId,
                 integrationId,
-                salesLocation?.id ?? null,
-                itemsData.map((d, i) => ({
-                    productId: d.productId,
-                    itemWeezeventId: order.items[i]?.productKey ?? null,
-                    productName: d.productName,
-                })),
+                itemsData.map((d) => ({ ...d, locationId: salesLocation?.id ?? null, transactionDate: order.placedAt })),
+                previousItems,
             );
         }
 

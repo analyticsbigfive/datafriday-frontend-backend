@@ -410,7 +410,14 @@ export class WeezeventTransactionSyncService {
             },
         });
 
-        await this.upsertTransactionItems(tenantId, integrationId, locationDbId, transaction.id, apiTransaction.rows, productIdMap);
+        await this.upsertTransactionItems(
+            tenantId,
+            integrationId,
+            { id: transaction.id, locationId: locationDbId, transactionDate },
+            existing ? { locationId: existing.locationId, transactionDate: existing.transactionDate } : null,
+            apiTransaction.rows,
+            productIdMap,
+        );
 
         return { created: !existing, updated: !!existing };
     }
@@ -418,11 +425,23 @@ export class WeezeventTransactionSyncService {
     private async upsertTransactionItems(
         tenantId: string,
         integrationId: string,
-        locationDbId: string | null,
-        transactionId: string,
+        tx: { id: string; locationId: string | null; transactionDate: Date },
+        previous: { locationId: string | null; transactionDate: Date } | null,
         rows: ApiTransaction['rows'],
         productIdMap: Map<string, string>,
     ): Promise<void> {
+        const transactionId = tx.id;
+
+        // BUG-337-02 (docs/bugs/) : items en place AVANT suppression, pour retirer leur contribution
+        // de SalesPriceAgg (ré-émission webhook : la transaction existait déjà). Lookup par
+        // transactionId indexé, quelques lignes.
+        const previousItems = previous
+            ? await this.prisma.salesTransactionItem.findMany({
+                where: { transactionId },
+                select: { productId: true, productName: true, rawData: true, unitPrice: true, vat: true },
+            })
+            : [];
+
         // Delete existing items (cascade deletes payments)
         await this.prisma.salesTransactionItem.deleteMany({ where: { transactionId } });
 
@@ -446,20 +465,15 @@ export class WeezeventTransactionSyncService {
 
         await this.prisma.salesTransactionItem.createMany({ data: itemsData });
 
-        // BUG-337-02 (docs/bugs/) : refresh ciblé de SalesPriceAgg pour les items de CETTE
-        // transaction (1-20 lignes typiquement, bon marché) — best-effort, ne doit jamais faire
-        // échouer le webhook. `item_id` (résolution produit) est le même champ que `productWid`
-        // ci-dessus, pas `externalItemId` (l'id de la ligne elle-même).
-        if (itemsData.length > 0) {
-            void this.priceAgg.refreshForKeysSafe(
+        // BUG-337-02 (docs/bugs/) : delta SalesPriceAgg = -items précédents +items de CETTE
+        // transaction (1-20 lignes, un seul upsert, aucun scan d'historique). Best-effort, ne doit
+        // jamais faire échouer le webhook.
+        if (itemsData.length > 0 || previousItems.length > 0) {
+            void this.priceAgg.applyDeltaSafe(
                 tenantId,
                 integrationId,
-                locationDbId,
-                itemsData.map(d => ({
-                    productId: d.productId,
-                    itemWeezeventId: (d.rawData as any)?.item_id != null ? String((d.rawData as any).item_id) : null,
-                    productName: d.productName,
-                })),
+                itemsData.map(d => ({ ...d, locationId: tx.locationId, transactionDate: tx.transactionDate })),
+                previousItems.map(d => ({ ...d, locationId: previous!.locationId, transactionDate: previous!.transactionDate })),
             );
         }
 

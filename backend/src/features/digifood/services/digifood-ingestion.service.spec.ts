@@ -1,5 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
 import { DigifoodIngestionService } from './digifood-ingestion.service';
 import { NormalizedOrder } from './digifood-order-normalizer';
 
@@ -53,6 +54,7 @@ function makePrismaMock() {
             upsert: jest.fn().mockResolvedValue({ id: 'tx-row' }),
         },
         salesTransactionItem: {
+            findMany: jest.fn().mockResolvedValue([]),
             deleteMany: jest.fn().mockResolvedValue({}),
             createMany: jest.fn().mockResolvedValue({}),
         },
@@ -72,13 +74,16 @@ function makePrismaMock() {
 describe('DigifoodIngestionService', () => {
     let service: DigifoodIngestionService;
     let prisma: ReturnType<typeof makePrismaMock>;
+    let priceAgg: { applyDeltaSafe: jest.Mock };
 
     beforeEach(async () => {
         prisma = makePrismaMock();
+        priceAgg = { applyDeltaSafe: jest.fn().mockResolvedValue(undefined) };
         const module = await Test.createTestingModule({
             providers: [
                 DigifoodIngestionService,
                 { provide: PrismaService, useValue: prisma },
+                { provide: SalesPriceAggService, useValue: priceAgg },
             ],
         }).compile();
         service = module.get(DigifoodIngestionService);
@@ -128,5 +133,33 @@ describe('DigifoodIngestionService', () => {
         expect(prisma.salesEvent.upsert).toHaveBeenCalledTimes(2);
         expect(prisma.salesLocation.upsert).toHaveBeenCalledTimes(2);
         expect(prisma.salesProduct.upsert).toHaveBeenCalledTimes(2);
+    });
+
+    it('nouvel order : delta SalesPriceAgg additif, sans lignes à retirer', async () => {
+        await service.ingestOrder(TENANT, INTEGRATION, makeOrder('order_1'), 'webhook');
+
+        expect(priceAgg.applyDeltaSafe).toHaveBeenCalledTimes(1);
+        const [tenant, integration, added, removed] = priceAgg.applyDeltaSafe.mock.calls[0];
+        expect(tenant).toBe(TENANT);
+        expect(integration).toBe(INTEGRATION);
+        expect(added).toHaveLength(1);
+        expect(added[0]).toMatchObject({ locationId: 'location-1', productName: 'Burger' });
+        expect(removed).toEqual([]);
+    });
+
+    it('ré-émission d\'un order existant : les anciens items sont retirés du delta', async () => {
+        const placedBefore = new Date('2026-09-01T10:00:00Z');
+        prisma._tx.salesTransaction.findUnique.mockResolvedValue({ id: 'tx-row', locationId: 'location-old', transactionDate: placedBefore });
+        prisma._tx.salesTransactionItem.findMany.mockResolvedValue([
+            { productId: 'product-1', productName: 'Burger', rawData: {}, unitPrice: 9, vat: 10 },
+        ]);
+
+        await service.ingestOrder(TENANT, INTEGRATION, makeOrder('order_1'), 'webhook');
+
+        const [, , added, removed] = priceAgg.applyDeltaSafe.mock.calls[0];
+        expect(added).toHaveLength(1);
+        expect(removed).toEqual([
+            expect.objectContaining({ productName: 'Burger', unitPrice: 9, locationId: 'location-old', transactionDate: placedBefore }),
+        ]);
     });
 });
