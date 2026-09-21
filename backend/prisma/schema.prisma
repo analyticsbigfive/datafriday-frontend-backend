@@ -1659,6 +1659,10 @@ model SalesTransactionItem {
   @@index([externalItemId])
   // Composite index for product analytics
   @@index([productId, transactionId])
+  // Lecture des paniers par transaction (transaction-baskets / analyse-unmapped) : toutes les
+  // colonnes lues sont dans la clé, index-only, plus d'accès aux lignes de 769 octets (rawData).
+  // 2026-09-21 : 6 Go lus sur disque par paquet d'events avant, quasi zéro après.
+  @@index([transactionId, productId, productName, quantity, unitPrice, vat], map: "WeezeventTransactionItem_tx_basket_cover_idx")
   @@map("WeezeventTransactionItem")
 }
 
