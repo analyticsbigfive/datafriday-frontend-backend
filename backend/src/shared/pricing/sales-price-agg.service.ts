@@ -81,6 +81,10 @@ export class SalesPriceAggService {
    * réplication. La brève fenêtre table-vide s'auto-corrige (les lecteurs retombent sur
    * priceSource:'catalog' quelques secondes) — même arbitrage que le précédent
    * AggregationService.executeProcessEvents, qui ne wrap pas non plus ses delete+insert.
+   *
+   * ON CONFLICT : un webhook peut insérer une clé via applyDelta entre le DELETE et la fin de
+   * l'INSERT ; sans lui, l'INSERT entier échouait sur la contrainte unique et l'intégration
+   * restait vide jusqu'au prochain recalcul. GREATEST garde le compteur le plus complet.
    */
   async refreshForIntegration(tenantId: string, integrationId: string): Promise<void> {
     await this.prisma.$executeRaw(Prisma.sql`
@@ -98,6 +102,11 @@ export class SalesPriceAggService {
       WHERE t."tenantId" = ${tenantId} AND t."integrationId" = ${integrationId}
         AND ti."unitPrice" > 0 AND t."locationId" IS NOT NULL
       GROUP BY t."locationId", COALESCE(ti."productId",''), COALESCE(ti."rawData"->>'item_id',''), COALESCE(LOWER(TRIM(ti."productName")),''), ti."unitPrice", ti."vat"
+      ON CONFLICT ("tenantId","locationId","productId","itemWeezeventId","productNameNorm","unitPrice","vat")
+      DO UPDATE SET
+        "salesCount" = GREATEST("SalesPriceAgg"."salesCount", EXCLUDED."salesCount"),
+        "lastSoldAt" = GREATEST("SalesPriceAgg"."lastSoldAt", EXCLUDED."lastSoldAt"),
+        "updatedAt" = NOW()
     `);
   }
 

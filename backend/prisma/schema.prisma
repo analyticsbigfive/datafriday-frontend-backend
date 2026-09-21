@@ -1543,6 +1543,10 @@ model SalesTransaction {
   // BUG-128-01 : rend le scan _space_event_ids de la RPC index-only (eventId dans la clé) —
   // sans lui, le planner passait par locationId seul + re-filtre heap (185k lignes, ~11 s).
   @@index([tenantId, locationId, status, eventId])
+  // Span observé par event (EventWindowResolverService.resolveSeasonContainerEventIds) : GROUP BY
+  // eventId, MIN/MAX(transactionDate) filtré deletedAt IS NULL. Toutes les colonnes lues sont dans
+  // la clé : index-only scan au lieu d'un seq scan de la table (4,6 GB, 22 s, 2026-09-21).
+  @@index([tenantId, eventId, transactionDate, deletedAt], map: "WeezeventTransaction_tenant_event_txdate_deleted_idx")
   @@map("WeezeventTransaction")
 }
 
