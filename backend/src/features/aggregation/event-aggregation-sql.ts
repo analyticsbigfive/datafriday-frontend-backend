@@ -193,6 +193,90 @@ export function insertMinuteItemAggSql(i: EventAggregationSqlInput): Prisma.Sql 
   `;
 }
 
+/**
+ * Clé produit d'une ligne de panier : WeezeventProduct.id, ou 'name:<productName>' quand la ligne
+ * n'a pas de produit résolu (libellé figé au moment de la vente, comme le faisait la lecture brute
+ * avec COALESCE(mi.name, ti.productName)). Partagée writer/lecteur (SpaceBasketMinuteAgg).
+ */
+export const BASKET_UNRESOLVED_PREFIX = 'name:';
+
+/**
+ * SpaceBasketMinuteAgg : grain event × minute × PdV × composition de panier (productKeys triées,
+ * distinctes). UNE ligne source par transaction (sous-requête `b`), puis regroupement des paniers
+ * de même composition. Mêmes prédicats et même revenueHtExpr que insertMinuteItemAggSql : les
+ * donuts paniers et la timeline lisent désormais le même CA (BUG-352-01 appliqué aux paniers).
+ */
+export function insertMinuteBasketAggSql(i: EventAggregationSqlInput): Prisma.Sql {
+  const minuteClause = i.minuteClause ?? Prisma.sql``;
+  return Prisma.sql`
+    INSERT INTO "SpaceBasketMinuteAgg"
+      ("id","tenantId","spaceId","minute","weezeventEventId","weezeventLocationId","weezeventLocationName","spaceElementId","integrationId","productKeys","transactionsCount","itemsQuantity","revenueHt","createdAt","updatedAt")
+    SELECT
+      gen_random_uuid(),
+      ${i.tenantId},
+      ${i.spaceId},
+      b."minute",
+      ${i.eventId},
+      b."locationId",
+      b."locationName",
+      b."spaceElementId",
+      MAX(b."integrationId"),
+      b."productKeys",
+      COUNT(*)::int,
+      SUM(b."quantity")::float8,
+      SUM(b."revenueHt"),
+      NOW(),
+      NOW()
+    FROM (
+      -- Une ligne par transaction ; la clé produit est calculée dans la sous-requête l pour que
+      -- ARRAY_AGG(DISTINCT k ORDER BY k) porte deux fois la MÊME expression (Postgres l'exige,
+      -- et deux paramètres liés distincts ne sont pas « la même expression »).
+      SELECT
+        l."id",
+        l."minute",
+        l."locationId",
+        l."locationName",
+        l."spaceElementId",
+        l."integrationId",
+        ARRAY_AGG(DISTINCT l."productKey" ORDER BY l."productKey") AS "productKeys",
+        SUM(l."quantity") AS "quantity",
+        SUM(l."lineRevenueHt") AS "revenueHt"
+      FROM (
+        SELECT
+          t."id",
+          date_trunc('minute', t."transactionDate") AS "minute",
+          t."locationId",
+          t."locationName",
+          lsm."spaceElementId",
+          t."integrationId",
+          COALESCE(ti."productId", ${BASKET_UNRESOLVED_PREFIX} || COALESCE(ti."productName", '')) AS "productKey",
+          ti."quantity",
+          ${revenueHtExpr} AS "lineRevenueHt"
+        FROM "WeezeventTransaction" t
+        JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t."id"
+        LEFT JOIN "WeezeventLocationShopMapping" lsm
+          ON lsm."weezeventLocationId" = t."locationId" AND lsm."tenantId" = ${i.tenantId}
+        WHERE t."tenantId" = ${i.tenantId}
+          ${i.integrationClause}
+          AND ${i.matchClause}
+          ${minuteClause}
+          AND t."deletedAt" IS NULL
+          AND t."status" = 'V'
+      ) l
+      GROUP BY l."id", l."minute", l."locationId", l."locationName", l."spaceElementId", l."integrationId"
+    ) b
+    GROUP BY b."minute", b."locationId", b."locationName", b."spaceElementId", b."productKeys"
+    ON CONFLICT ("tenantId","spaceId","minute","weezeventEventId","weezeventLocationId","spaceElementId","productKeys")
+    DO UPDATE SET
+      "weezeventLocationName" = EXCLUDED."weezeventLocationName",
+      "integrationId" = EXCLUDED."integrationId",
+      "transactionsCount" = EXCLUDED."transactionsCount",
+      "itemsQuantity" = EXCLUDED."itemsQuantity",
+      "revenueHt" = EXCLUDED."revenueHt",
+      "updatedAt" = NOW()
+  `;
+}
+
 /** SpaceProductRevenueDailyAgg : grain jour × produit, toujours recalculée sur la journée entière. */
 export function insertDailyProductAggSql(i: Omit<EventAggregationSqlInput, 'minuteClause'> & { eventDate: Date }): Prisma.Sql {
   return Prisma.sql`

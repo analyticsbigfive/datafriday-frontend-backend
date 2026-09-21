@@ -7,6 +7,7 @@ import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
 import { LiveMinuteAggregationService } from './live-minute-aggregation.service';
 import { IntegrationTransactionStatsService } from './integration-transaction-stats.service';
+import { BasketAggregationService } from './basket-aggregation.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { PrismaModule } from '../../core/database/prisma.module';
 import { QUEUES } from '../../core/queue/queue.constants';
@@ -28,6 +29,7 @@ import { MappingsModule } from '../mappings/mappings.module';
     EventRollupService,
     LiveMinuteAggregationService,
     IntegrationTransactionStatsService,
+    BasketAggregationService,
     SpaceIntegrationScopeService,
   ],
   exports: [AggregationService],

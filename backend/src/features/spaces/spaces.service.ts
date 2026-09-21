@@ -20,6 +20,7 @@ import { Semaphore } from '../../shared/utils/semaphore';
 import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
 import { eventTimelineWindowCtes } from './event-timeline-window.sql';
 import { queryWithWorkMem } from '../../shared/db/query-with-work-mem';
+import { readBasketAggSql } from './basket-agg-read.sql';
 import { hasPermission, PermissionCheckableUser } from '../../core/rbac/permission.util';
 
 /**
@@ -1729,7 +1730,53 @@ export class SpacesService {
 
     const scope = await this.resolveEventSalesScope(spaceId, missing, tenantId);
     if (!scope) return out;
-    const { integrationClause, shopScopeClause, valuesSql, spaceTimezone } = scope;
+    const { integrationClause, shopScopeClause, spaceTimezone } = scope;
+    const scopedIds = scope.windows.map(w => w.id);
+
+    // 1. Paniers pré-agrégés (SpaceBasketMinuteAgg, écrits par les pipelines d'agrégation) :
+    //    lecture par event, libellés résolus à la lecture. 2026-09-21 : la lecture brute coûtait
+    //    6 s par paquet de 15 events même après index (20 à 56 s avant), 502 du proxy à 30 s.
+    const pushRow = (r: any) => {
+      const bucket = out[r.eventId];
+      if (!bucket) return;
+      bucket.push({
+        minute:      r.minute,
+        minuteLocal: r.minuteLocal ?? null,
+        shopId:   r.shopId,
+        shopName: r.shopName,
+        shopType: r.shopType ?? null,
+        shopArea: r.shopArea ?? null,
+        // `null` conservé DANS le tableau (produit non mappé / catégorie absente) :
+        // le front le rend en « Non rattachés ». Ne pas compacter ici.
+        categoryCombo:    Array.isArray(r.categoryCombo) ? r.categoryCombo : [],
+        typeCombo:        Array.isArray(r.typeCombo)     ? r.typeCombo     : [],
+        itemCombo:        Array.isArray(r.itemCombo)     ? r.itemCombo     : [],
+        transactionCount: Number(r.transactionCount || 0),
+        quantity:         Number(r.quantity         || 0),
+        revenueHt:        Number(r.revenueHt        || 0),
+        revenue:          Number(r.revenueHt        || 0),
+      });
+    };
+    const preAggregated = new Set<string>();
+    if (scopedIds.length) {
+      const aggRows: any[] = await this.analyseBatchSemaphore.run(() => queryWithWorkMem<any[]>(
+        this.prisma,
+        readBasketAggSql({ tenantId, spaceId, eventIds: scopedIds, shopScopeClause, spaceTimezone }),
+      ));
+      for (const r of aggRows) { preAggregated.add(r.eventId); pushRow(r); }
+    }
+
+    // 2. Repli brut pour les events sans ligne pré-agrégée (pas encore ré-agrégés depuis la
+    //    création de la table, ou sans vente) : ancienne requête, inchangée, sur ce reste seul.
+    const rawWindows = scope.windows.filter(w => !preAggregated.has(w.id));
+    if (!rawWindows.length) {
+      await this.writeBasketsCache(tenantId, spaceId, missing, out, scope.windows);
+      return out;
+    }
+    const valuesSql = Prisma.join(
+      rawWindows.map(w => Prisma.sql`(${w.id}::text, ${w.windowStart}::timestamp, ${w.windowEnd}::timestamp, ${w.tagId}::text, ${w.eventIntegrationId}::text)`),
+      ', ',
+    );
 
     // CTE `tx` : UNE ligne par transaction, avec ses deux ensembles de libellés.
     // `ARRAY_AGG(DISTINCT … ORDER BY …)` garantit que « Bières, Consigne » et
@@ -1819,36 +1866,9 @@ export class SpacesService {
       ORDER BY "eventId", "minuteLocal" ASC
     `));
 
-    for (const r of rows) {
-      const bucket = out[r.eventId];
-      if (!bucket) continue;
-      bucket.push({
-        minute:      r.minute,
-        minuteLocal: r.minuteLocal ?? null,
-        shopId:   r.shopId,
-        shopName: r.shopName,
-        shopType: r.shopType ?? null,
-        shopArea: r.shopArea ?? null,
-        // `null` conservé DANS le tableau (produit non mappé / catégorie absente) :
-        // le front le rend en « Non rattachés ». Ne pas compacter ici.
-        categoryCombo:    Array.isArray(r.categoryCombo) ? r.categoryCombo : [],
-        typeCombo:        Array.isArray(r.typeCombo)     ? r.typeCombo     : [],
-        itemCombo:        Array.isArray(r.itemCombo)     ? r.itemCombo     : [],
-        transactionCount: Number(r.transactionCount || 0),
-        quantity:         Number(r.quantity         || 0),
-        revenueHt:        Number(r.revenueHt        || 0),
-        revenue:          Number(r.revenueHt        || 0),
-      });
-    }
+    for (const r of rows) pushRow(r);
 
-    // BUG-143-01 : même écriture par event que getEventTimelineBatch.
-    await Promise.all(
-      missing.map(id =>
-        this.redis.set(this.EVENT_BASKETS_CACHE_KEY(tenantId, spaceId, id), out[id], {
-          ttl: this.eventBatchCacheTtl(scope.windows, id),
-        }),
-      ),
-    );
+    await this.writeBasketsCache(tenantId, spaceId, missing, out, scope.windows);
     return out;
   }
 
@@ -1871,6 +1891,23 @@ export class SpacesService {
    * Retourne { [eventId]: { unmappedLines, unmappedUnits, unmappedRevenueHt,
    * unmappedProductLines, unmappedPosLines } } — ids demandés absents → zéros.
    */
+  /** BUG-143-01 : même écriture par event que getEventTimelineBatch. */
+  private async writeBasketsCache(
+    tenantId: string,
+    spaceId: string,
+    eventIds: string[],
+    out: Record<string, any[]>,
+    windows: { id: string; windowStart: Date; windowEnd: Date }[],
+  ): Promise<void> {
+    await Promise.all(
+      eventIds.map(id =>
+        this.redis.set(this.EVENT_BASKETS_CACHE_KEY(tenantId, spaceId, id), out[id], {
+          ttl: this.eventBatchCacheTtl(windows, id),
+        }),
+      ),
+    );
+  }
+
   async getAnalyseUnmappedBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any>> {
     const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
     const zero = () => ({

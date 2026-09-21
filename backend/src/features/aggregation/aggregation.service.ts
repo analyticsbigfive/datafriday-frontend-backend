@@ -12,6 +12,7 @@ import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { IntegrationTransactionStatsService } from './integration-transaction-stats.service';
+import { BasketAggregationService } from './basket-aggregation.service';
 import {
   buildIntegrationClause,
   buildMatchClause,
@@ -37,6 +38,7 @@ export class AggregationService {
     private eventRollup: EventRollupService,
     private spaceIntegrationScope: SpaceIntegrationScopeService,
     private txStats: IntegrationTransactionStatsService,
+    private basketAgg: BasketAggregationService,
   ) {}
 
   /**
@@ -333,6 +335,8 @@ export class AggregationService {
           await updateEventSubProgress(2);
 
           await this.prisma.$executeRaw(insertMinuteItemAggSql(sqlInput));
+          // Paniers pré-agrégés (Analyse) : même purge scopée, même fenêtre que les tables minute.
+          await this.basketAgg.replaceForEvent(deleteWhere, sqlInput);
           await updateEventSubProgress(3);
 
           await this.eventRollup.refresh(tenantId, spaceId, event, spaceIntegrationIds);
@@ -516,6 +520,7 @@ export class AggregationService {
       this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: cleanupWhere }),
       this.prisma.spaceProductRevenueDailyAgg.deleteMany({ where: cleanupWhere }),
       this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: cleanupWhere }),
+      this.prisma.spaceBasketMinuteAgg.deleteMany({ where: cleanupWhere }),
     ]);
     await job.updateProgress(5);
 
