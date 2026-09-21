@@ -3,6 +3,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenEx
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
+import { findDistinctMerchantIds, findDistinctMerchantIntegrations } from '../../shared/sales/distinct-merchant-ids.query';
 import { SpacesService } from '../spaces/spaces.service';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
@@ -386,12 +387,8 @@ export class MappingsService {
 
     // If locationId provided, filter by merchants seen in transactions at this location
     if (weezeventLocationId) {
-      const merchantTxs = await this.prisma.salesTransaction.findMany({
-        where: { tenantId, locationId: weezeventLocationId, merchantId: { not: null } },
-        select: { merchantId: true },
-        distinct: ['merchantId'],
-      });
-      where.salesLocationId = { in: merchantTxs.map((m) => m.merchantId).filter(Boolean) };
+      const merchantIds = await findDistinctMerchantIds(this.prisma, { tenantId, locationId: weezeventLocationId });
+      where.salesLocationId = { in: merchantIds };
     }
 
     const safeLimit = Math.min(Math.max(limit, 1), 1000);
@@ -855,11 +852,7 @@ export class MappingsService {
         where: { tenantId, integrationId: { in: integrationIds } },
         select: { id: true, integrationId: true },
       }),
-      this.prisma.salesTransaction.findMany({
-        where: { tenantId, integrationId: { in: integrationIds }, merchantId: { not: null } },
-        select: { merchantId: true, integrationId: true },
-        distinct: ['merchantId'],
-      }),
+      findDistinctMerchantIntegrations(this.prisma, { tenantId, integrationIds }),
       this.prisma.locationShopMapping.findMany({
         where: { tenantId },
         select: { salesLocationId: true },
@@ -1067,12 +1060,8 @@ export class MappingsService {
       throw new NotFoundException(`Location ${weezeventLocationId} not mapped to a space`);
     }
 
-    const [merchantTxs, merchantMappings, productMappings, totalProducts, eventsCount] = await Promise.all([
-      this.prisma.salesTransaction.findMany({
-        where: { tenantId, locationId: weezeventLocationId, merchantId: { not: null } },
-        select: { merchantId: true },
-        distinct: ['merchantId'],
-      }),
+    const [merchantIds, merchantMappings, productMappings, totalProducts, eventsCount] = await Promise.all([
+      findDistinctMerchantIds(this.prisma, { tenantId, locationId: weezeventLocationId }),
       this.prisma.locationShopMapping.count({ where: { tenantId } }),
       this.prisma.productMapping.count({ where: { tenantId } }),
       this.prisma.salesProduct.count({ where: { tenantId } }),
@@ -1085,7 +1074,7 @@ export class MappingsService {
       weezeventLocationId,
       spaceId: locationMapping.spaceId,
       merchants: {
-        total: merchantTxs.length,
+        total: merchantIds.length,
         mapped: merchantMappings,
       },
       products: {
