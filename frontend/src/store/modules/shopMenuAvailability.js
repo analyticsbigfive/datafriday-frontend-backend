@@ -1,4 +1,5 @@
 import { getShopAvailableMenuItems } from '@/api/endpoints/menu.api'
+import { applyEnabledChanges } from '@/utils/shopMenuAssignmentMaps'
 
 /**
  * Catalogue d'un shop avec DISPONIBILITÉ calculée côté serveur — BUG-291-02.
@@ -66,6 +67,21 @@ export default {
     SET_FETCHING_FOR_SHOP(state, { shopId, configId, val }) {
       state.fetching = { ...state.fetching, [cacheKey(shopId, configId)]: val }
     },
+    /**
+     * BUG-387-02 : reflète en mémoire une activation/désactivation DÉJÀ écrite en base,
+     * au lieu de purger l'entrée. Purger obligeait chaque écran à re-télécharger le
+     * menu du shop (Event Predict relisait ceux de TOUS les PdV de la config à chaque
+     * case cochée) ; seul `enabled` bouge ici, `assigned` et `available` restent les
+     * vérités serveur. `cachedAt` est CONSERVÉ : la fraîcheur de la donnée n'a pas
+     * changé, on vient d'y appliquer exactement ce que le serveur a enregistré.
+     */
+    PATCH_ENABLED_FOR_SHOP(state, { shopId, configId, changes } = {}) {
+      const k = cacheKey(shopId, configId)
+      const entry = state.cache[k]
+      if (!entry) return
+      const { rows } = applyEnabledChanges(entry.rows, changes)
+      state.cache = { ...state.cache, [k]: { rows, cachedAt: entry.cachedAt } }
+    },
     INVALIDATE_FOR_SHOP(state, { shopId, configId } = {}) {
       const cache = { ...state.cache }
       if (configId !== undefined) {
@@ -100,6 +116,11 @@ export default {
       })()
       inflight.set(key, p)
       return p
+    },
+
+    /** Voir `PATCH_ENABLED_FOR_SHOP`. No-op si le shop n'est pas en cache. */
+    patchEnabledForShop({ commit }, payload) {
+      commit('PATCH_ENABLED_FOR_SHOP', payload || {})
     },
 
     invalidateForShop({ commit }, payload) {
