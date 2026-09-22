@@ -25,6 +25,13 @@ export function useMetricsCalculator({
   // `overrideTransactionRate` (Lot 4.1) qui ne s'activait qu'à l'ouverture du
   // panneau Shop Performance et faisait sauter la carte au clic.
   perShopTransactionRate,
+  // BUG-386-02 — la source des paniers est en ÉCHEC : pas de taux, et surtout PAS de
+  // repli. `perShopTransactionRate` vaut `null` dans deux cas opposés : mode Predict
+  // (où le repli transactions/minutes nominales est la formule légitime) et batch KO
+  // (où il n'y a rien à publier). Sans ce drapeau, un batch paniers en échec faisait
+  // réapparaître à l'écran l'ancienne formule abandonnée par BUG-358-01, avec l'écart
+  // de sémantique qui avait justifié son retrait.
+  transactionRateUnavailable = false,
   // BUG-146-01 (décision Bertrand 25/08) — CA/transactions de la bande KPI lus depuis
   // le ROLLUP `Event.revenue`/`Event.transactionCount` (la même donnée qu'Events
   // Library et que la carte d'accueil) quand le périmètre affiché est « des events
@@ -50,6 +57,7 @@ export function useMetricsCalculator({
   const _ops = () => unref(operatingMinutes) || 0
   const _selectedEventIds = () => unref(selectedEventIds) || []
   const _perShop = () => unref(perShopTransactionRate)
+  const _rateUnavailable = () => !!unref(transactionRateUnavailable)
   const _rollup = () => unref(eventRollupTotals)
 
   // Lot 3.1 — Mode «single event» : un seul event sélectionné dans les filtres.
@@ -177,6 +185,8 @@ export function useMetricsCalculator({
     // jamais visible (règle « zéro valeur provisoire », BUG-350-01).
     const v = _perShop()
     if (v != null) return v
+    // BUG-386-02 : source paniers en échec, aucune valeur à publier (voir le paramètre).
+    if (_rateUnavailable()) return null
     return _ops() ? displayTransactions.value / _ops() : 0
   })
 

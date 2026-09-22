@@ -234,3 +234,34 @@ describe('sumShopTransactionRates', () => {
     expect(() => sumShopTransactionRates(frozen)).not.toThrow()
   })
 })
+
+// BUG-386-02 — un PdV absent de la source PANIERS a une cadence INCONNUE, pas nulle.
+// Le batch transaction-baskets échouait (42 Mo par paquet de 30 events) et le panneau
+// « Shop Performance » affichait « 0,00 txn/min / Operating Minutes 0 » à côté d'un CA
+// et d'un nombre de transactions bien réels : lu comme une mesure, pas comme un trou.
+describe('BUG-386-02 — cadence inconnue vs cadence nulle', () => {
+  const events = [{ id: 'ev-1' }]
+  const baseShops = [
+    { elementId: 'Bar A', shopName: 'Bar A', totalRevenue: 6291, totalTransactions: 509, eventCount: 1, transactionRate: 0, operatingMinutes: 0 },
+  ]
+
+  it('aucune ligne panier pour le PdV → transactionRate et operatingMinutes à null', () => {
+    const out = computeRatesFromTimeline(baseShops, events, [])
+    expect(out[0].transactionRate).toBeNull()
+    expect(out[0].operatingMinutes).toBeNull()
+    expect(out[0].peakTransactionRate).toBeNull()
+    // Les agrégats de base (CA, transactions) restent ceux de leur propre source.
+    expect(out[0].totalRevenue).toBe(6291)
+    expect(out[0].totalTransactions).toBe(509)
+  })
+
+  it('des lignes panier → cadence chiffrée, comme avant', () => {
+    const rows = [
+      { eventId: 'ev-1', shopName: 'Bar A', minute: '20:00', transactionCount: 2 },
+      { eventId: 'ev-1', shopName: 'Bar A', minute: '20:01', transactionCount: 4 },
+    ]
+    const out = computeRatesFromTimeline(baseShops, events, rows)
+    expect(out[0].transactionRate).toBe(3)
+    expect(out[0].operatingMinutes).toBe(2)
+  })
+})

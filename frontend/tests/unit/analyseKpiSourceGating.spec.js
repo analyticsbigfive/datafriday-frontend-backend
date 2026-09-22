@@ -311,12 +311,65 @@ describe('useTransactionBaskets.sourceState — chargement complet requis', () =
     expect(sourceState.value).toBe('loading')
   })
 
-  it("batch KO : events marqués tentés → 'empty' terminal, pas de squelette éternel", async () => {
+  // BUG-386-02 : l'état terminal d'un batch KO vaut 'error', plus 'empty'. « Tenté, zéro
+  // panier » et « jamais livré » avaient la même écriture (`[]` en cache), donc la même
+  // lecture à l'écran : TX/MIN publiait 0,00/min, valeur EXACTE dans un cas, FAUSSE dans
+  // l'autre, et figée pour la session faute de refetch possible.
+  it("batch KO : état terminal 'error', ni 'empty' ni squelette éternel", async () => {
+    getSpaceTransactionBasketsBatch.mockRejectedValueOnce(new Error('KO'))
+    const events = ref([{ id: 'ev-0' }])
+    const { sourceState, basketRecords } = useTransactionBaskets(computed(() => events.value))
+    await flush()
+    expect(sourceState.value).toBe('error')
+    expect(basketRecords.value).toEqual([])
+  })
+
+  it('batch KO : un changement de périmètre RETENTE l\'event en échec', async () => {
     getSpaceTransactionBasketsBatch.mockRejectedValueOnce(new Error('KO'))
     const events = ref([{ id: 'ev-0' }])
     const { sourceState } = useTransactionBaskets(computed(() => events.value))
     await flush()
-    expect(sourceState.value).toBe('empty')
+    expect(sourceState.value).toBe('error')
+
+    // L'utilisateur clique un event : la même liste repasse par `load`, qui ne voyait
+    // plus rien à faire tant que l'échec était écrit `[]` dans le cache.
+    getSpaceTransactionBasketsBatch.mockResolvedValueOnce(new Map([['ev-0', rows]]))
+    events.value = [{ id: 'ev-0' }]
+    await flush()
+    expect(sourceState.value).toBe('ready')
+  })
+
+  it("un chargement ANNULÉ ne consomme pas le budget de rattrapage", async () => {
+    // Chargement superseded (la sélection s'élargit pendant le vol) : il ne conclut rien.
+    // Compter une tentative sur son dos laisserait l'event ni livré ni marqué en échec,
+    // donc en 'loading' éternel une fois le plafond atteint.
+    getSpaceTransactionBasketsBatch.mockReturnValueOnce(new Promise(() => {}))
+    const events = ref([{ id: 'ev-0' }])
+    const { sourceState } = useTransactionBaskets(computed(() => events.value))
+    await flush()
+
+    getSpaceTransactionBasketsBatch.mockRejectedValueOnce(new Error('KO'))
+    events.value = [{ id: 'ev-0' }, { id: 'ev-1' }]
+    await flush()
+    expect(sourceState.value).toBe('error')
+
+    getSpaceTransactionBasketsBatch.mockResolvedValueOnce(new Map([['ev-0', rows], ['ev-1', rows]]))
+    events.value = [{ id: 'ev-0' }, { id: 'ev-1' }]
+    await flush()
+    expect(sourceState.value).toBe('ready')
+  })
+
+  it('échecs répétés : le rattrapage est borné, pas de boucle de refetch', async () => {
+    getSpaceTransactionBasketsBatch.mockRejectedValue(new Error('KO'))
+    const events = ref([{ id: 'ev-0' }])
+    const { sourceState } = useTransactionBaskets(computed(() => events.value))
+    await flush()
+    for (let i = 0; i < 4; i++) {
+      events.value = [{ id: 'ev-0' }]
+      await flush()
+    }
+    expect(sourceState.value).toBe('error')
+    expect(getSpaceTransactionBasketsBatch.mock.calls.length).toBeLessThanOrEqual(2)
   })
 
   it("tous les events tentés et des records présents → 'ready'", async () => {
@@ -327,5 +380,39 @@ describe('useTransactionBaskets.sourceState — chargement complet requis', () =
     const { sourceState } = useTransactionBaskets(computed(() => events.value))
     await flush()
     expect(sourceState.value).toBe('ready')
+  })
+})
+
+// BUG-386-02 — la carte TX/MIN ne doit RIEN publier quand sa source a échoué. Le repli
+// « transactions / minutes nominales » (180 min par event) est l'ancienne formule
+// retirée par BUG-358-01 : la laisser reprendre la main sur un batch KO ramènerait à
+// l'écran la valeur d'une autre sémantique, sans que rien ne le dise.
+describe('BUG-386-02 — TX/MIN sans valeur quand les paniers ont échoué', () => {
+  const args = (over = {}) => ({
+    filteredShopGranularData: ref([{ eventId: 'ev-0', revenue: 100, transactionCount: 10 }]),
+    chartFilteredEvents: ref([{ id: 'ev-0' }]),
+    menuItemCostMap: ref({}),
+    operatingMinutes: ref(180),
+    selectedEventIds: ref([]),
+    perShopTransactionRate: ref(null),
+    ...over,
+  })
+
+  it('source en échec : null (rendu « — »), pas de repli', () => {
+    const m = useMetricsCalculator(args({ transactionRateUnavailable: ref(true) }))
+    expect(m.displayTransactionRate.value).toBeNull()
+  })
+
+  it('Predict (pas d\'échec) : le repli nominal reste en place', () => {
+    const m = useMetricsCalculator(args())
+    expect(m.displayTransactionRate.value).toBeCloseTo(10 / 180)
+  })
+
+  it('taux disponible : publié tel quel', () => {
+    const m = useMetricsCalculator(args({
+      perShopTransactionRate: ref(29.92),
+      transactionRateUnavailable: ref(true),
+    }))
+    expect(m.displayTransactionRate.value).toBe(29.92)
   })
 })
