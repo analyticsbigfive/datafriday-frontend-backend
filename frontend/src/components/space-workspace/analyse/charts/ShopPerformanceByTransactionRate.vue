@@ -81,8 +81,11 @@
               <div class="d-flex align-center ga-2">
                 <v-icon color="#7C4DFF" size="16">mdi-pulse</v-icon>
                 <span class="text-body-2">
+                  <!-- BUG-386-02 : cadence INCONNUE (source paniers en échec ou PdV absent
+                       de cette source) rendue « — » et non « 0,00 », qui se lisait comme
+                       une mesure à côté d'un CA et d'un nombre de transactions réels. -->
                   <span class="font-weight-bold spr-rate">
-                    {{ (shop.transactionRate || 0).toFixed(2) }}
+                    {{ shop.transactionRate == null ? NO_VALUE : shop.transactionRate.toFixed(2) }}
                   </span>
                   <span class="text-medium-emphasis ml-1">{{ t('anShopPerfTxnPerMin') }}</span>
                 </span>
@@ -117,7 +120,7 @@
               <div class="d-flex justify-space-between">
                 <span>{{ t('anShopPerfOperatingMinutes') }}</span>
                 <span class="text-high-emphasis font-weight-medium">
-                  {{ Math.round(shop.operatingMinutes || 0) }}
+                  {{ shop.operatingMinutes == null ? NO_VALUE : Math.round(shop.operatingMinutes) }}
                 </span>
               </div>
               <div
@@ -169,6 +172,9 @@ const theme = useTheme()
 const isDark = computed(() => !!theme.global.current.value.dark)
 
 const PAGE_SIZE = 20
+
+// BUG-386-02 : même glyphe « valeur absente » que la bande KPI (FinancialMetricsGrid).
+const NO_VALUE = '\u2014'
 
 const props = defineProps({
   shops: { type: Array, default: () => [] },
