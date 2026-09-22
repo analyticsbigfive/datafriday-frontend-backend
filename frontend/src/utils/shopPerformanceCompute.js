@@ -218,7 +218,20 @@ export function computeRatesFromTimeline(baseShops, events, allTimelineData, { t
       aliasToPrimary.get(shop.shopName) ??
       shop.elementId
     const shopMap = stats.get(primary)
-    if (!shopMap) return shop
+    // BUG-386-02 : aucune ligne PANIER pour ce PdV. Ce n'est PAS « zéro transaction par
+    // minute », c'est une cadence INCONNUE (source en échec, ou PdV absent de la source).
+    // Les valeurs par défaut de `makeShopEntry` valaient 0 et s'affichaient « 0,00 txn/min
+    // / Operating Minutes 0 » à côté d'un CA et d'un nombre de transactions bien réels,
+    // ce qui se lisait comme une mesure. `null` se rend « — » chez les consommateurs.
+    if (!shopMap) {
+      return {
+        ...shop,
+        transactionRate: null,
+        operatingMinutes: null,
+        first60MinTransactionRate: null,
+        peakTransactionRate: null,
+      }
+    }
 
     let totalTxn = 0
     let totalMinutes = 0
