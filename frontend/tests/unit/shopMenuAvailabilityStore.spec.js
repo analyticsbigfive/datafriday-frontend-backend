@@ -117,6 +117,40 @@ describe('store shopMenuAvailability — BUG-291-02', () => {
     expect(getShopAvailableMenuItems).not.toHaveBeenCalled()
   })
 
+  // BUG-387-02 : reflète une activation déjà écrite en base au lieu de purger. Purger
+  // obligeait Event Predict à relire le menu de TOUS les PdV de la config à chaque case
+  // cochée ; patcher garde l'entrée utilisable pour le clic suivant.
+  it('patch `enabled` sans purger ni changer la fraîcheur du cache', async () => {
+    getShopAvailableMenuItems.mockResolvedValue(payload)
+    const { commit, live, state } = makeStore()
+    await shopMenuAvailability.actions.fetchForShop(
+      { commit, getters: { isCacheValidForShop: () => false } },
+      { shopId: SHOP, configId: CFG },
+    )
+    const cachedAtBefore = state.cache[`${SHOP}::${CFG}`].cachedAt
+
+    shopMenuAvailability.actions.patchEnabledForShop(
+      { commit },
+      { shopId: SHOP, configId: CFG, changes: { 'mi-coca': false } },
+    )
+
+    const rows = live.forShop(SHOP, CFG)
+    expect(rows).toHaveLength(3)
+    expect(rows.find((r) => r.id === 'mi-coca').enabled).toBe(false)
+    // `available` intact : la produisibilité ne dépend pas de l'activation.
+    expect(rows.find((r) => r.id === 'mi-coca').available).toBe(true)
+    expect(state.cache[`${SHOP}::${CFG}`].cachedAt).toBe(cachedAtBefore)
+  })
+
+  it('patch sur un shop absent du cache : no-op, pas de crash', () => {
+    const { commit, live } = makeStore()
+    shopMenuAvailability.actions.patchEnabledForShop(
+      { commit },
+      { shopId: 'inconnu', configId: CFG, changes: { 'mi-coca': true } },
+    )
+    expect(live.forShop('inconnu', CFG)).toEqual([])
+  })
+
   it('purge le cache d\'un shop sur invalidation', async () => {
     getShopAvailableMenuItems.mockResolvedValue(payload)
     const { commit, live } = makeStore()
