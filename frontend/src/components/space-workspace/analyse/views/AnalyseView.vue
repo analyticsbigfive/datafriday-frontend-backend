@@ -1075,8 +1075,12 @@ const filteredBaskets = computed(() =>
 // au clic faisait sauter la carte d'une formule à l'autre). `null` = pas de
 // valeur (predict, ou source paniers pas terminale → squelette via
 // kpiSourceState) ; un périmètre chargé sans ticket donne 0, terminal et exact.
+// BUG-386-02 — 'error' rejoint 'loading' dans les états SANS valeur. Un paquet paniers
+// en échec (42 Mo par paquet de 30 events avant le correctif, cf. space.api.js) faisait
+// publier 0,00/min comme un résultat, indistinguable d'un périmètre réellement sans
+// ticket, et figé pour la session. C'est le faux zéro qu'interdit BUG-350-01.
 const perShopTransactionRateSum = computed(() =>
-  isPredictRecords.value || basketsSourceState.value === 'loading'
+  isPredictRecords.value || basketsSourceState.value === 'loading' || basketsSourceState.value === 'error'
     ? null
     : sumShopTransactionRates(filteredBaskets.value),
 )
@@ -1652,8 +1656,13 @@ const metrics = useMetricsCalculator({
   // pas parti, et `filteredBaskets` vaut `[]` (donc « 0 transaction »). L'état à 3
   // valeurs distingue « pas encore » de « rien à afficher ». Pendant 'loading', la
   // bande KPI est de toute façon en squelette (`kpiSourceState`).
+  // BUG-386-02 : 'error' aussi, même raison que `perShopTransactionRateSum`. Sans ça, un
+  // batch paniers KO ramenait les transactions à 0 dès qu'un filtre intra-event désactive
+  // le rollup, et le panier moyen avec elles.
   transactionRecords: computed(() =>
-    isPredictRecords.value || basketsSourceState.value === 'loading'
+    isPredictRecords.value
+    || basketsSourceState.value === 'loading'
+    || basketsSourceState.value === 'error'
       ? null
       : filteredBaskets.value,
   ),
@@ -1661,6 +1670,11 @@ const metrics = useMetricsCalculator({
   // définition de `perShopTransactionRateSum`) : plus d'override conditionné à
   // l'ouverture du panneau, le chiffre de la carte ne bouge plus au clic.
   perShopTransactionRate: perShopTransactionRateSum,
+  // BUG-386-02 : batch paniers KO → la carte rend « — ». Le repli legacy
+  // (transactions / minutes nominales) reste réservé au mode Predict.
+  transactionRateUnavailable: computed(
+    () => !isPredictRecords.value && basketsSourceState.value === 'error',
+  ),
 })
 
 // ---- KPI de la bande centre du header (WorkspaceAppHeader) -----------------

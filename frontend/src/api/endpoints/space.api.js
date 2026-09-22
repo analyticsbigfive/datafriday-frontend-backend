@@ -230,6 +230,18 @@ export async function getSpaceEventTimeline(spaceId, eventId, { bypassCache = fa
 const BATCH_CHUNK_SIZE = 30
 const _BATCH_CONCURRENCY = 2
 
+// BUG-386-02 : les PANIERS n'ont PAS suivi. Le grain summary de BUG-364-01 n'a porté que
+// event-timeline (fiche : « paniers summary différés, TX/MIN/peak exigent la minute ») :
+// transaction-baskets reste au grain (minute × PdV × combinaison). Mesuré en prod sur
+// Stade Jean Bouin le 2026-09-22 : 2,0 Mo de JSON pour UN event (4 782 lignes), 42 Mo pour
+// un paquet de 30 (102 659 lignes). La borne à 30, calibrée sur des réponses « de quelques
+// centaines de ko », demandait donc à l'API (instance 512 Mo, 2 paquets en vol) de
+// sérialiser jusqu'à 84 Mo simultanés : le paquet échouait, et un paquet en échec se lisait
+// à l'écran comme « TX/MIN 0,00/min » (les paniers sont sa SEULE source, alors que le CA
+// vient du rollup `Event.revenue` et reste juste, d'où un écran qui semble correct partout
+// ailleurs). Paquet dédié ~12 Mo tant que l'endpoint n'expose pas de grain summary.
+const BASKET_CHUNK_SIZE = 6
+
 // BUG-364-01 (fiche backend 144-01) : _BATCH_CONCURRENCY borne chaque endpoint, mais la
 // page Analyse monte 4 chargeurs en `watch { immediate: true }` — soit jusqu'à
 // 4 × 2 = 8 requêtes SQL lourdes simultanées côté backend (512 Mo Render) : récidive de
@@ -442,7 +454,7 @@ export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypas
     }
   }
   try {
-    await _fetchBatchChunked(spaceId, 'transaction-baskets', missing, BATCH_CHUNK_SIZE,
+    await _fetchBatchChunked(spaceId, 'transaction-baskets', missing, BASKET_CHUNK_SIZE,
       (chunkIds, data) => {
         for (const eventId of chunkIds) settle(eventId, data[eventId] || [])
       })

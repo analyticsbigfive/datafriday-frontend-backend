@@ -337,11 +337,13 @@ export function buildShopPerfRows(shops, h) {
     [h.shop]: s.elementName || s.shopName,
     [h.revenue]: round2(s.totalRevenue),
     [h.transactions]: Math.round(s.totalTransactions || 0),
-    [h.rate]: round2(s.transactionRate),
+    // BUG-386-02 : cellule VIDE quand la cadence est inconnue (aucune ligne panier pour
+    // ce PdV). `round2(null)` valait 0, soit un débit mesuré à zéro dans le classeur.
+    [h.rate]: s.transactionRate == null ? null : round2(s.transactionRate),
     [h.firstHour]: s.first60MinTransactionRate ? round2(s.first60MinTransactionRate) : null,
     [h.peak]: s.peakTransactionRate ? round2(s.peakTransactionRate) : null,
     [h.events]: s.eventCount,
-    [h.minutes]: Math.round(s.operatingMinutes || 0),
+    [h.minutes]: s.operatingMinutes == null ? null : Math.round(s.operatingMinutes),
   }))
 }
 
