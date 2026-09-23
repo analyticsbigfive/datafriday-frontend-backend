@@ -1242,7 +1242,7 @@ export class SpaceMenusService {
     spaceId: string,
     configId: string,
     tenantId: string,
-    options: { itemsScope?: 'config' | 'space' } = {},
+    options: { itemsScope?: 'config' | 'space'; shopsScope?: 'config' | 'space' } = {},
   ) {
     const config = await this.prisma.config.findFirst({
       where: { id: configId, spaceId, space: { tenantId } },
@@ -1260,13 +1260,17 @@ export class SpaceMenusService {
         ? { enabled: true, menuItem: { deletedAt: null }, config: { spaceId } }
         : { configId, enabled: true, menuItem: { deletedAt: null } };
 
+    // « Voir tout l'inventaire » (post-event) : dans certains cas il faut tout compter, donc
+    // les PdV de TOUTES les configurations de l'espace, pas seulement ceux de l'event.
+    // Défaut 'config' : les PdV ouverts pour l'event (règle BUG-383-02 inchangée).
+    const elementConfig = options.shopsScope === 'space' ? { config: { spaceId } } : { configId };
     const elements = await this.prisma.spaceElement.findMany({
       where: {
         OR: [
-          { floor: { configId } },
-          { forecourt: { configId } },
-          { externalMerch: { configId } },
-          { configurationElements: { some: { configId } } }, // Builder v2
+          { floor: elementConfig },
+          { forecourt: elementConfig },
+          { externalMerch: elementConfig },
+          { configurationElements: { some: elementConfig } }, // Builder v2
         ],
       },
       select: {
