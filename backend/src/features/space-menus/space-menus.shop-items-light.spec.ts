@@ -39,6 +39,18 @@ describe('SpaceMenusService.getConfigShopMenuItemsLight (BUG-383-02 : articles =
         expect(out['shop-1'].items.map((i) => i.id)).toEqual(['mi-beer', 'mi-hotdog']);
     });
 
+    it("shopsScope 'space' (« Voir tout l'inventaire ») : PdV de toutes les configurations de l'espace", async () => {
+        await service.getConfigShopMenuItemsLight('space-1', 'cfg-pfc', 'tenant-1', { itemsScope: 'space', shopsScope: 'space' });
+        const args = prisma.spaceElement.findMany.mock.calls[0][0];
+        const bySpace = { config: { spaceId: 'space-1' } };
+        expect(args.where.OR).toEqual([
+            { floor: bySpace },
+            { forecourt: bySpace },
+            { externalMerch: bySpace },
+            { configurationElements: { some: bySpace } },
+        ]);
+    });
+
     it('configuration inconnue ou hors tenant : réponse vide', async () => {
         prisma.config.findFirst.mockResolvedValue(null);
         expect(await service.getConfigShopMenuItemsLight('space-1', 'nope', 'tenant-1', { itemsScope: 'space' })).toEqual({});

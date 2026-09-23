@@ -469,6 +469,22 @@
                 @click="toggleShopStatus('closed')"
               >{{ t('invShopClosed') }} <span class="si-sort-chip-count">{{ closedShopsCount }}</span></button>
             </template>
+
+            <!-- « Voir tout l'inventaire » (post-event) : dans certains cas il faut
+                 tout compter, pas seulement les PdV de la configuration de l'event. -->
+            <template v-if="canToggleFullInventory">
+              <span class="si-sort-sep" />
+              <button
+                type="button"
+                class="si-sort-chip"
+                :class="{ 'si-sort-chip-active': isFullInventory }"
+                :disabled="contextLoading"
+                @click="toggleFullInventory"
+              >
+                <v-icon size="14" class="mr-1">mdi-view-grid-plus-outline</v-icon>
+                {{ t('invShowFullInventory') }}
+              </button>
+            </template>
           </div>
         </div>
 
@@ -765,6 +781,16 @@
                 <v-icon size="16" class="mr-1">mdi-file-delimited-outline</v-icon>
                 {{ t('invExportInventory') }}
               </v-btn>
+              <v-btn
+                v-if="canToggleFullInventory"
+                :variant="isFullInventory ? 'flat' : 'outlined'"
+                :color="isFullInventory ? 'primary' : undefined"
+                :disabled="contextLoading"
+                @click="mobileActionsSheet = false; toggleFullInventory()"
+              >
+                <v-icon size="16" class="mr-1">mdi-view-grid-plus-outline</v-icon>
+                {{ t('invShowFullInventory') }}
+              </v-btn>
             </div>
           </v-card-text>
           <v-card-actions>
@@ -894,6 +920,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from '@/i18n/useI18n'
 import { COUNTING_STATUS, COUNTING_TABS as RAW_TABS, emptyInventoryCount } from '@/types/inventoryCount'
 import { useInventoryData } from '@/composables/useInventoryData'
+import { useInventoryScope } from '@/composables/useInventoryScope'
 import { useGuestInventorySession } from '@/composables/useGuestInventorySession'
 import { usePreEventEditWindow } from '@/composables/usePreEventEditWindow'
 import { useInventoryLivePolling } from '@/composables/useInventoryLivePolling'
@@ -1025,6 +1052,8 @@ export default {
       contextError,
       contextWarning,
     } = useInventoryData(selectedConfigId)
+    // « Voir tout l'inventaire » (post-event) : PdV de toutes les configurations de l'espace.
+    const { isFullInventory, setFullInventory, scopeFor } = useInventoryScope()
     // reactive() (pas l'objet brut) : auto-unwrap des refs imbriquées, en template
     // COMME en JS (`guestSession.isGuestMode` partout, jamais `.value` à la main).
     const guestSession = reactive(useGuestInventorySession())
@@ -1071,6 +1100,9 @@ export default {
       contextLoading,
       contextError,
       contextWarning,
+      isFullInventory,
+      setFullInventory,
+      scopeFor,
       guestSession,
       preEventAnchorKey,
       preEventWindow,
@@ -1327,6 +1359,10 @@ export default {
      *  Porté par la meta de route — même composant, 2 routes (docs modules/10 §8). */
     inventoryMode() {
       return this.route?.meta?.inventoryMode === 'pre' ? 'pre' : 'post'
+    },
+    /** Bouton « Voir tout l'inventaire » : post-event staff, event résolu. */
+    canToggleFullInventory() {
+      return !this.isPreMode && !this.guestSession.isGuestMode && !!this.selectedConfigId && !this.activeReconciliation
     },
     isPreMode() {
       return this.inventoryMode === 'pre'
@@ -2136,7 +2172,7 @@ export default {
         this.store.dispatch('inventory/loadPackagingTypes')
 
         await Promise.all([
-          this.loadContext(spaceId, ctx.configId),
+          this.loadContext(spaceId, ctx.configId, { scope: this.scopeFor(!this.isPreMode) }),
           this.store.dispatch('inventory/loadInventory', {
             spaceId,
             eventId: this.selectedEventId,
@@ -2177,6 +2213,18 @@ export default {
       } finally {
         this.loading = false
       }
+    },
+    /** « Voir tout l'inventaire » (post-event) : recharge les PdV/réserves sur le
+     *  périmètre choisi. Les comptages déjà saisis sont keyés par PdV : rien n'est
+     *  perdu en revenant aux PdV de l'event. Le besoin prédit dépend des PdV affichés. */
+    async toggleFullInventory() {
+      if (this.isPreMode || !this.selectedConfigId || this.contextLoading) return
+      this.setFullInventory(!this.isFullInventory)
+      this.countingShop = null
+      await this.loadContext(this.route.params.spaceId, this.selectedConfigId, {
+        scope: this.scopeFor(true),
+      })
+      this.fetchPredictedNeed()
     },
     resetInventoryFilters() {
       this.clearFacetSelections()
@@ -3458,6 +3506,8 @@ export default {
       async handler() {
         this.countingShop = null
         this.search = ''
+        // Nouveau match : on repart des PdV de l'event.
+        this.setFullInventory(false)
         if (this.guestSession.isGuestMode) {
           await this.loadForGuest()
           return

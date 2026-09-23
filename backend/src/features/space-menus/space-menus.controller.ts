@@ -479,15 +479,18 @@ export class SpaceMenusController {
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   @ApiParam({ name: 'configId', description: 'ID de la configuration' })
   @ApiQuery({ name: 'itemsScope', required: false, enum: ['config', 'space'], description: "'space' (inventaire pre/post-event, BUG-383-02) : PdV de cette configuration, mais articles = union de toutes les configurations de l'espace. Défaut 'config'." })
+  @ApiQuery({ name: 'shopsScope', required: false, enum: ['config', 'space'], description: "'space' (« Voir tout l'inventaire » post-event) : PdV de toutes les configurations de l'espace. Défaut 'config' : PdV de cette configuration." })
   @ApiResponse({ status: 200, description: '{ [shopId]: { shopName, items: [{id,name,category,basePrice}] } }' })
   async getConfigShopMenuItemsLight(
     @Param('spaceId') spaceId: string,
     @Param('configId') configId: string,
     @Query('itemsScope') itemsScope: string | undefined,
+    @Query('shopsScope') shopsScope: string | undefined,
     @CurrentUser() user: any,
   ) {
     return this.spaceMenusService.getConfigShopMenuItemsLight(spaceId, configId, user.tenantId, {
       itemsScope: itemsScope === 'space' ? 'space' : 'config',
+      shopsScope: shopsScope === 'space' ? 'space' : 'config',
     });
   }
 
