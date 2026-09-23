@@ -7,6 +7,10 @@
         <span v-if="entry?.element?.isOpen === false" class="si-row-closed-chip">
           {{ t('invShopClosed') }}
         </span>
+        <!-- « Voir tout l'inventaire » : PdV d'une autre configuration que celle de l'event. -->
+        <span v-if="entry?.element?.outsideEventConfig" class="si-row-closed-chip si-row-outside-chip">
+          {{ t('invOutsideEventConfig') }}
+        </span>
       </span>
       <span v-if="metaText" class="si-row-meta">{{ metaText }}</span>
       <!-- PdV sans article assigné : visible mais clairement marqué (jamais masqué). -->
@@ -156,6 +160,10 @@ const actionIcon = computed(() =>
   font-size: 0.66rem;
   font-weight: 650;
   vertical-align: 1px;
+}
+.si-row-outside-chip {
+  background: #FEF3C7;
+  color: #92400E;
 }
 .si-row-progress {
   display: flex;

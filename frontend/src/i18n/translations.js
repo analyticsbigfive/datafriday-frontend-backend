@@ -4600,6 +4600,8 @@ export const translations = {
     // inv — all F&B shops of the config visible (zero-item shops marked, not hidden)
     invCardNoMenuAssigned: 'No menu items assigned to this shop.',
     invShopClosed: 'Closed',
+    invShowFullInventory: 'Show full inventory',
+    invOutsideEventConfig: 'Not in event config',
     invShopOpen: 'Open',
     invSort: 'Sort',
     invSortName: 'Name',
@@ -9390,6 +9392,8 @@ export const translations = {
     // inv — tous les PdV F&B de la config visibles (PdV sans article marqués, jamais masqués)
     invCardNoMenuAssigned: 'Aucun article de menu assigné à ce point de vente.',
     invShopClosed: 'Fermé',
+    invShowFullInventory: "Voir tout l'inventaire",
+    invOutsideEventConfig: "Hors config de l'événement",
     invShopOpen: 'Ouvert',
     invSort: 'Tri',
     invSortName: 'Nom',
