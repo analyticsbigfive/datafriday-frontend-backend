@@ -5,6 +5,8 @@
         <h3 class="si-card-name">{{ entry?.element?.name }}</h3>
         <!-- Étage : distingue 2 Storage de même nom (la vraie clé reste element.id). -->
         <span v-if="entry?.element?.floorName" class="si-card-floor">{{ entry.element.floorName }}</span>
+        <!-- « Voir tout l'inventaire » : réserve d'une autre configuration que celle de l'event. -->
+        <span v-if="entry?.element?.outsideEventConfig" class="si-card-outside">{{ t('invOutsideEventConfig') }}</span>
       </div>
       <span class="si-card-item-count">{{ countedItems }} / {{ items.length }} {{ t('invCardItems') }}</span>
     </header>
@@ -144,6 +146,16 @@ export default {
   padding: 12px 16px 4px;
 }
 .si-card-name { font-size: 1rem; font-weight: 700; margin: 0; color: #212121; }
+.si-card-outside {
+  display: inline-block;
+  margin-top: 2px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #FEF3C7;
+  color: #92400E;
+  font-size: 0.66rem;
+  font-weight: 650;
+}
 .si-card-floor { display: block; font-size: 0.72rem; color: #94a3b8; font-weight: 500; margin-top: 1px; }
 .si-card-item-count { font-size: 0.78rem; color: #6B7280; white-space: nowrap; }
 .si-storage-count { padding: 4px 16px 8px; display: flex; flex-direction: column; gap: 8px; }

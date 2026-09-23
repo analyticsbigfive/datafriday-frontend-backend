@@ -1378,6 +1378,11 @@ import {
   normalizeStr,
 } from "@/utils/predictiveAnalytics";
 import { findBestMatch } from "@/utils/menuItemMatching";
+import {
+  applyEnabledChanges,
+  deriveShopMenuEntry,
+  patchShopMenuMaps,
+} from "@/utils/shopMenuAssignmentMaps";
 import { getShopMenus } from "@/api/endpoints/space-menu.api";
 import { getTeams as restGetTeams } from "@/api/endpoints/team.api";
 import { getAllMenuItems as restGetAllMenuItems } from "@/api/endpoints/menu-item.api";
@@ -4561,94 +4566,20 @@ export default {
         // Ids/noms NON DISPONIBLES par shop (BUG-291-02) — même forme que
         // `membershipMap` pour permettre l'appariement id PUIS nom normalisé.
         const unavailableMap = new Map();
+        // BUG-387-02 : dérivation par shop extraite dans `utils/shopMenuAssignmentMaps`
+        // (`deriveShopMenuEntry`), partagée avec le patch local d'une activation. Les
+        // règles d'inclusion (activés, assignés-désactivés-improduisibles, membership
+        // complet, index d'indisponibilité) ont déjà bougé deux fois : deux copies
+        // divergeraient, et l'écran afficherait un article différent selon qu'on vient
+        // de le cocher ou qu'on a rechargé la page.
         for (const { name, items: rawItems } of results) {
-          const items = Array.isArray(rawItems) ? rawItems : [];
           const key = normalizeStr(name);
-          if (key && items.length) {
-            membershipMap.set(key, {
-              ids: new Set(items.map((it) => String(it.id))),
-              names: new Set(
-                items.map((it) => normalizeStr(it.name)).filter(Boolean),
-              ),
-            });
-          }
-          // BUG-291-02 — un article marqué NON DISPONIBLE par le serveur (pas de
-          // recette, ingrédient inactif, fournisseur non résolu ou ne livrant pas
-          // l'espace) ne doit compter dans AUCUNE vente prédite, ni entrer dans le
-          // stock-up, ni dans le réarmement. Décision JLH 2026-08-04 : c'est
-          // `available` qui fait foi — PAS `unmapped`, qui signifie « vendu sur
-          // Weezevent mais non assigné », un tout autre sujet.
-          //
-          // Le filtre était appliqué AUX DEUX maps, ce qui sortait l'article du
-          // menu assigné → `getGroupedMenuItems` le reclassait en « non attaché »
-          // AVEC sa quantité intacte : il ressortait par une autre porte. On sépare
-          // donc les deux usages :
-          //  - `itemMap` (liste AFFICHÉE) garde les indisponibles, pour qu'ils
-          //    restent visibles dans « Sans ventes prévues » avec leur raison ;
-          //  - `idMap` (ids AUTO-SÉLECTIONNABLES, aussi lu par
-          //    `derivedMenuConfigFromRecords`) les exclut : jamais cochés d'office ;
-          //  - `unavailableMap` porte l'index d'indisponibilité pour le Stock-up,
-          //    qui ne reçoit que des ids et n'a aucun objet portant `available`.
-          //
-          // Correctif v2 (même jour, capture Cookie 1 A) : `available === false`
-          // fait foi SEUL, sans condition `enabled`. Un article à la fois
-          // désactivé ET improduisible passait entre les mailles du filtre
-          // `enabled === true` et ressortait en « Non attachés » avec ses 7
-          // ventes. Calculé AVANT les `continue` (comme `membershipMap`) : un
-          // shop sans item activé doit quand même enregistrer ses indisponibles.
-          // Strict `=== false` conservé (garde anti-backend-legacy — un backend
-          // qui n'enverrait pas le champ ne doit pas tout déclarer indisponible).
-          const unavailable = items.filter((it) => it && it.available === false);
-          if (key && unavailable.length) {
-            unavailableMap.set(key, {
-              ids: new Set(unavailable.map((it) => String(it.id))),
-              names: new Set(unavailable.map((it) => normalizeStr(it.name)).filter(Boolean)),
-            });
-          }
-          const assignedEnabled = items.filter((it) => it && it.enabled === true);
-          if (!assignedEnabled.length) continue;
           if (!key) continue;
-          // `available !== false` (et non `=== true`) : un backend antérieur qui
-          // n'enverrait pas le champ ne doit pas vider tous les menus.
-          idMap.set(
-            key,
-            new Set(assignedEnabled.filter((it) => it.available !== false).map((it) => it.id)),
-          );
-          // Liste affichée = activés + assignés-désactivés-IMPRODUISIBLES (v2) :
-          // ces derniers doivent apparaître en « Sans ventes prévues » avec badge
-          // « indisponible » et raison, pas en « Non attachés » avec le flux
-          // réactiver. Un non-assigné improduisible reste, lui, hors liste.
-          const displayItems = items.filter(
-            (it) =>
-              it &&
-              (it.enabled === true ||
-                (it.assigned === true && it.available === false)),
-          );
-          itemMap.set(
-            key,
-            // `price` de /items est TTC ; `basePrice` reste lu en premier au cas où
-            // le backend l'expose — on ne substitue JAMAIS l'un à l'autre en silence
-            // (cela injecterait de la TVA dans le CA des items synthétiques).
-            displayItems.map((it) => ({
-              id: it.id,
-              name: it.name,
-              basePrice: it.basePrice,
-              category: it.productCategory?.name || it.category || "",
-              picture: it.picture || null,
-              // Vérité SERVEUR de disponibilité, transportée jusqu'à la section
-              // Menus qui l'oppose à sa propre dérivation front (obsolète : elle
-              // applique encore « fournisseur sans sites = livre tous les espaces »).
-              // `missingIngredients` est APLATI EN NOMS : le backend renvoie des
-              // objets { kind, name, reason, … } et le template fait `.join(', ')`.
-              available: it.available,
-              hasRecipe: it.hasRecipe,
-              missingIngredients: Array.isArray(it.missingIngredients)
-                ? it.missingIngredients
-                    .map((m) => (typeof m === "string" ? m : m?.name))
-                    .filter(Boolean)
-                : [],
-            })),
-          );
+          const entry = deriveShopMenuEntry(rawItems);
+          if (entry.membership) membershipMap.set(key, entry.membership);
+          if (entry.unavailable) unavailableMap.set(key, entry.unavailable);
+          if (entry.enabledIds) idMap.set(key, entry.enabledIds);
+          if (entry.displayItems) itemMap.set(key, entry.displayItems);
         }
         cache[cfgId] = {
           ids: idMap,
@@ -4676,6 +4607,77 @@ export default {
       } finally {
         this._assignmentLoaded = true;
       }
+    },
+    /**
+     * BUG-387-02 — applique EN MÉMOIRE des activations déjà écrites en base, au lieu
+     * de relire le menu de tous les PdV de la config.
+     *
+     * Avant : cocher un article purgeait le cache d'assignation et rappelait
+     * `loadShopMenuAssignment()`, soit `/shops` puis `/space-menu/shop/:id/items` pour
+     * CHAQUE PdV de la config, 3 en vol (53 éléments PdV sur Stade Jean Bouin). Le
+     * correctif du 17/09 avait supprimé le démontage de la section (l'utilisateur ne
+     * perd plus sa place) mais pas l'attente, qui reste lue comme un rechargement.
+     *
+     * Seul `enabled` a bougé, et on sait exactement où : le shop touché est le SEUL à
+     * reconstruire, depuis les lignes déjà en cache dans `shopMenuAvailability`
+     * (patchées du même delta, pour que les autres écrans lisent la même chose).
+     *
+     * Le lot est vérifié À SEC avant toute écriture : un patch à moitié appliqué serait
+     * pire qu'un rechargement.
+     *
+     * @param {Array<{shopName:string, shopId:string, changes:Record<string,boolean>}>} entries
+     * @returns {boolean} false = patch impossible (assignation pas encore chargée,
+     *   cache du shop vide/expiré, ou article hors roster comme après un remap) :
+     *   l'appelant retombe alors sur le rechargement complet.
+     */
+    _patchAssignmentForShops(entries) {
+      const cfgId = this.selectedEvent?.configurationId || null;
+      // Assignation jamais chargée : patcher fabriquerait des index à un seul shop,
+      // où tous les autres PdV paraîtraient sans menu.
+      if (!cfgId || !(this.shopMenuAssignment instanceof Map)) return false;
+      const forShop = store.getters["shopMenuAvailability/forShop"];
+      if (typeof forShop !== "function") return false;
+      const planned = [];
+      for (const { shopName, shopId, changes } of entries || []) {
+        if (!shopName || !shopId || !changes) return false;
+        const rows = forShop(shopId, cfgId) || [];
+        if (!rows.length) return false;
+        const { rows: nextRows, applied } = applyEnabledChanges(rows, changes);
+        if (!applied) return false;
+        planned.push({ shopName, shopId, changes, rows: nextRows });
+      }
+      if (!planned.length) return false;
+      let maps = {
+        ids: this.shopMenuAssignment,
+        items: this.shopMenuAssignmentItems,
+        membership: this.shopMenuMembership,
+        unavailable: this.shopMenuUnavailable,
+      };
+      for (const p of planned) {
+        store.dispatch("shopMenuAvailability/patchEnabledForShop", {
+          shopId: p.shopId,
+          configId: cfgId,
+          changes: p.changes,
+        });
+        maps = patchShopMenuMaps(maps, p.shopName, deriveShopMenuEntry(p.rows));
+      }
+      this.shopMenuAssignment = maps.ids;
+      this.shopMenuAssignmentItems = maps.items;
+      this.shopMenuMembership = maps.membership;
+      this.shopMenuUnavailable = maps.unavailable;
+      // Le cache par config partage les MÊMES références : sans cette écriture, un
+      // aller-retour vers un autre event ressservirait l'assignation d'avant le clic.
+      const cache =
+        this._shopMenuAssignmentCache || (this._shopMenuAssignmentCache = {});
+      cache[cfgId] = {
+        ids: maps.ids,
+        items: maps.items,
+        membership: maps.membership,
+        unavailable: maps.unavailable,
+      };
+      this._assignmentConfigId = cfgId;
+      this._assignmentLoaded = true;
+      return true;
     },
     /** Ligne spaceShops (NestJS) correspondant au nom de shop, filtrée par config. */
     resolveShopRow(name) {
@@ -4937,17 +4939,30 @@ export default {
           return { ...r, menuItemsCount: count, isOpen: count > 0 };
         });
         this._spaceShopsCache = { ...this._spaceShopsCache, [spaceId]: nextRows };
-        // Invalidation caches assignation (même refresh que applyRemap).
+        // Store LOURD (recettes, Inventaire/Restock) : purgé, il n'alimente pas cet écran.
         try {
           store.dispatch("shopMenuItems/invalidateForShop", shopId);
-          // BUG-291-02 : la disponibilité est cachée à part — sans cette purge,
-          // un article réactivé resterait exclu jusqu'à expiration du TTL (15 min).
-          store.dispatch("shopMenuAvailability/invalidateForShop", shopId);
         } catch (_) {
           /* noop */
         }
-        if (this._shopMenuAssignmentCache) delete this._shopMenuAssignmentCache[cfgId];
-        await this.loadShopMenuAssignment();
+        // BUG-387-02 : le delta est connu (un article, un PdV) → patch en mémoire du
+        // store de disponibilité ET des index d'assignation, sans relire le menu des
+        // autres PdV. La purge d'avant (BUG-291-02, pour qu'un article réactivé ne
+        // reste pas exclu jusqu'au TTL) est rendue inutile par ce patch, qui écrit
+        // exactement ce que le serveur vient d'enregistrer. Repli inchangé si l'état
+        // local ne permet pas le patch.
+        const patched = this._patchAssignmentForShops([
+          { shopName, shopId, changes: { [menuItemId]: enabled === true } },
+        ]);
+        if (!patched) {
+          try {
+            store.dispatch("shopMenuAvailability/invalidateForShop", shopId);
+          } catch (_) {
+            /* noop */
+          }
+          if (this._shopMenuAssignmentCache) delete this._shopMenuAssignmentCache[cfgId];
+          await this.loadShopMenuAssignment();
+        }
         // Auto-sélection : si l'utilisateur a déjà une sélection explicite sur
         // ce PDV, la clé explicite masque la sélection dérivée du refetch —
         // on y répercute donc l'assignation pour que l'article réactivé
@@ -4998,14 +5013,21 @@ export default {
         await assignMenuItemsToShop(spaceId, cfgId, shopId, changes);
         try {
           store.dispatch("shopMenuItems/invalidateForShop", shopId);
-          // BUG-291-02 : la disponibilité est cachée à part — sans cette purge,
-          // un article réactivé resterait exclu jusqu'à expiration du TTL (15 min).
-          store.dispatch("shopMenuAvailability/invalidateForShop", shopId);
         } catch (_) {
           /* noop */
         }
-        if (this._shopMenuAssignmentCache) delete this._shopMenuAssignmentCache[cfgId];
-        await this.loadShopMenuAssignment();
+        // BUG-387-02 : même patch en mémoire que le toggle unitaire, le lot de
+        // changements porte sur un seul PdV et tous ses articles sont dans son roster.
+        const patched = this._patchAssignmentForShops([{ shopName, shopId, changes }]);
+        if (!patched) {
+          try {
+            store.dispatch("shopMenuAvailability/invalidateForShop", shopId);
+          } catch (_) {
+            /* noop */
+          }
+          if (this._shopMenuAssignmentCache) delete this._shopMenuAssignmentCache[cfgId];
+          await this.loadShopMenuAssignment();
+        }
         this.snackbarColor = "success";
         this.snackbarText = `Menu de « ${shopName} » mis à jour (${Object.keys(changes).length} article(s), Space Menus synchro).`;
         this.snackbar = true;
@@ -5058,18 +5080,42 @@ export default {
           menuItems[String(r.id ?? r._id ?? r.shopId)] = { [menuItemId]: true };
         }
         await saveSpaceMenuConfiguration({ spaceId, configId: cfgId, menuItems });
-        // Même séquence d'invalidation que `handleAssignShopItems`, par shop ciblé.
+        // Même séquence que `handleAssignShopItems`, par shop ciblé.
         try {
           for (const r of targets) {
-            const shopId = String(r.id ?? r._id ?? r.shopId);
-            store.dispatch("shopMenuItems/invalidateForShop", shopId);
-            store.dispatch("shopMenuAvailability/invalidateForShop", shopId);
+            store.dispatch(
+              "shopMenuItems/invalidateForShop",
+              String(r.id ?? r._id ?? r.shopId),
+            );
           }
         } catch (_) {
           /* noop */
         }
-        if (this._shopMenuAssignmentCache) delete this._shopMenuAssignmentCache[cfgId];
-        await this.loadShopMenuAssignment();
+        // BUG-387-02 : patch en mémoire des seuls PdV ciblés. Un PdV dont le roster ne
+        // contient pas l'article (jamais assigné) fait échouer le lot entier, donc
+        // rechargement complet : c'est le seul cas où les index ne sont pas dérivables
+        // de ce qu'on a déjà.
+        const patched = this._patchAssignmentForShops(
+          targets.map((r) => ({
+            shopName: r?.name ?? r?.shopName ?? "",
+            shopId: String(r.id ?? r._id ?? r.shopId),
+            changes: { [menuItemId]: true },
+          })),
+        );
+        if (!patched) {
+          try {
+            for (const r of targets) {
+              store.dispatch(
+                "shopMenuAvailability/invalidateForShop",
+                String(r.id ?? r._id ?? r.shopId),
+              );
+            }
+          } catch (_) {
+            /* noop */
+          }
+          if (this._shopMenuAssignmentCache) delete this._shopMenuAssignmentCache[cfgId];
+          await this.loadShopMenuAssignment();
+        }
         // Sélection explicite : répercuter l'assignation sur chaque élément de
         // config correspondant (pont par nom normalisé, comme l'assignation).
         const targetNames = new Set(

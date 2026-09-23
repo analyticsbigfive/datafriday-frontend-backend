@@ -14,6 +14,13 @@ import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { getConfiguration } from '@/api/endpoints/configuration.api'
 import { runWithConcurrency } from '@/utils/asyncPool'
 import {
+  INVENTORY_SCOPE_EVENT,
+  INVENTORY_SCOPE_SPACE,
+  rowsForScope,
+  mergeConfigFloors,
+  eventConfigElementIds,
+} from '@/utils/inventoryScope'
+import {
   buildConsolidatedInventory,
   buildStorageInventory,
   buildMerchStorageInventory,
@@ -113,7 +120,7 @@ export function useInventoryData(selectedConfigId) {
 
   // Jeton anti-race LOCAL à l'instance + single-flight in-flight par space::config.
   let reqSeq = 0
-  const inflight = new Map() // `${spaceId}::${configId}` → Promise
+  const inflight = new Map() // `${spaceId}::${configId}::${scope}` → Promise
 
   const menuItems = computed(() => store.state.analyse?.menuItems || [])
   const components = computed(() => store.state.analyse?.components || [])
@@ -145,7 +152,33 @@ export function useInventoryData(selectedConfigId) {
     contextWarning.value = null
   }
 
-  async function loadContext(spaceId, configId) {
+  /** Plans des autres configurations de l'espace (périmètre 'space'). Une config
+   *  en échec est ignorée : le périmètre élargi reste best-effort. */
+  async function loadOtherConfigFloors(configId) {
+    const others = (store.state.analyse?.configurations || [])
+      .map((c) => String(c?.id ?? ''))
+      .filter((id) => id && id !== String(configId))
+    // Indexé par position (pas push à l'arrivée) : ordre stable d'un chargement à l'autre.
+    const floorsByConfig = others.map(() => [])
+    await runWithConcurrency(others, 4, async (id) => {
+      try {
+        const res = await getConfiguration(id)
+        floorsByConfig[others.indexOf(id)] = res?.data?.floors ?? res?.floors ?? []
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(`[inventory] plan de la config ${id} indisponible (tout l'inventaire):`, e?.message)
+      }
+    })
+    return floorsByConfig
+  }
+
+  /**
+   * @param {string} spaceId
+   * @param {string} configId configuration de l'event
+   * @param {{ scope?: 'event'|'space' }} [opts] 'space' = « Voir tout l'inventaire »
+   *   (PdV et réserves de toutes les configurations de l'espace).
+   */
+  async function loadContext(spaceId, configId, { scope = INVENTORY_SCOPE_EVENT } = {}) {
     if (!spaceId || !configId) {
       resetContext()
       return
@@ -155,7 +188,8 @@ export function useInventoryData(selectedConfigId) {
     // chargement staff réel a lieu — ce composable est aussi instancié en mode
     // invité (SpaceInventoryView.vue), qui n'appelle jamais loadContext.
     store.dispatch('storageTypes/fetchStorageTypes')
-    const key = `${spaceId}::${configId}`
+    const allSpace = scope === INVENTORY_SCOPE_SPACE
+    const key = `${spaceId}::${configId}::${allSpace ? INVENTORY_SCOPE_SPACE : INVENTORY_SCOPE_EVENT}`
     if (inflight.has(key)) return inflight.get(key)
     const myReq = ++reqSeq
     const stale = () => myReq !== reqSeq
@@ -166,9 +200,12 @@ export function useInventoryData(selectedConfigId) {
     const run = (async () => {
       // --- Rows NestJS + détail config en parallèle : les floors servent à
       //     l'union des shops, pas seulement au storage/merch. ---------------
-      const [rowsRes, configRes] = await Promise.allSettled([
-        store.dispatch('spaceShops/fetchForSpace', { spaceId, configId }),
+      // Périmètre 'space' : rows de toutes les configs (sans ?configId=) et plans
+      // des autres configurations, en plus de celui de l'event.
+      const [rowsRes, configRes, otherFloorsRes] = await Promise.allSettled([
+        store.dispatch('spaceShops/fetchForSpace', { spaceId, configId: allSpace ? null : configId }),
         getConfiguration(configId),
+        allSpace ? loadOtherConfigFloors(configId) : Promise.resolve([]),
       ])
       if (stale()) return
 
@@ -177,9 +214,7 @@ export function useInventoryData(selectedConfigId) {
       if (!rowsFailed) {
         const all = Array.isArray(rowsRes.value) ? rowsRes.value : []
         // Filtre client conservé : le backend peut ignorer ?configId= (anciens déploiements).
-        rows = all.filter(
-          (r) => String(r?.configId ?? r?._raw?.configId ?? '') === String(configId),
-        )
+        rows = rowsForScope(all, configId, allSpace ? INVENTORY_SCOPE_SPACE : INVENTORY_SCOPE_EVENT)
       } else {
         // eslint-disable-next-line no-console
         console.warn('[inventory] échec chargement liste shops:', rowsRes.reason?.message)
@@ -197,6 +232,14 @@ export function useInventoryData(selectedConfigId) {
         )
       }
 
+      // Éléments de la config de l'event, pour signaler les ajouts du périmètre 'space'.
+      const eventElementIds = eventConfigElementIds(rows, configId, floors)
+      if (allSpace) {
+        const otherFloors = otherFloorsRes.status === 'fulfilled' ? otherFloorsRes.value : []
+        floors = mergeConfigFloors([floors, ...otherFloors])
+      }
+      const outsideEventConfig = (id) => allSpace && !eventElementIds.has(String(id))
+
       if (rowsFailed && configFailed) {
         contextError.value = rowsRes.reason?.message || 'shops-load-failed'
         shops.value = []
@@ -212,7 +255,7 @@ export function useInventoryData(selectedConfigId) {
       const merch = []
       for (const floor of floors) {
         for (const el of floor?.elements || []) {
-          const withFloor = { ...el, floorName: floor?.name }
+          const withFloor = { ...el, floorName: floor?.name, outsideEventConfig: outsideEventConfig(el?.id) }
           if (el?.type === 'storage') {
             // storageShopIds (builder v2, seule source écrite aujourd'hui) prime sur
             // selectedShops (v1, nested ou top-level) conservé pour les anciennes configs.
@@ -263,7 +306,11 @@ export function useInventoryData(selectedConfigId) {
         // configuration de l'event, mais les articles à compter par PdV sont l'union de
         // toutes les configurations de l'espace (le stock est physique, foot et rugby
         // mélangés, assumé). Le fallback per-shop ci-dessous reste scopé par configuration.
-        const byShop = (await getConfigShopMenuItemsLight(spaceId, configId, { itemsScope: 'space' })) || {}
+        const byShop =
+          (await getConfigShopMenuItemsLight(spaceId, configId, {
+            itemsScope: 'space',
+            ...(allSpace ? { shopsScope: 'space' } : {}),
+          })) || {}
         // Le batch omet les shops sans item activé : absence = « 0 item » (l'union
         // des shops est déjà connue), PAS un échec.
         for (const entry of union) {
@@ -321,11 +368,15 @@ export function useInventoryData(selectedConfigId) {
           shopId: entry.shopId,
           name: entry.name,
           slug: entry.slug ?? null,
-          isOpen: entry.isOpen, // statut d'affichage uniquement (true/false/null)
+          // Statut d'affichage uniquement (true/false/null). Hors config de l'event
+          // (« Voir tout l'inventaire ») : le statut lu est celui d'une autre
+          // configuration, sans rapport avec ce match, donc inconnu.
+          isOpen: outsideEventConfig(entry.shopId) ? null : entry.isOpen,
           floorName: entry.floorName,
           shopType: entry.shopType,
           shopArea: entry.shopArea,
           source: entry.source,
+          outsideEventConfig: outsideEventConfig(entry.shopId),
           // Pas de `picture` ici : le batch ne la porte plus (BUG-227) et elle
           // n'était de toute façon jamais lue — `enrichForBuild` reconstruit chaque
           // item depuis le catalogue (`...catalog`), d'où viennent les vignettes.
@@ -419,6 +470,7 @@ export function useInventoryData(selectedConfigId) {
           shopArea: shop.shopArea ?? null,
           floorName: shop.floorName ?? null,
           isOpen: shop.isOpen,
+          outsideEventConfig: shop.outsideEventConfig === true,
         },
         availableMenuItems,
         consolidatedInventory,

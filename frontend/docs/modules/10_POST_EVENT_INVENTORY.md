@@ -236,6 +236,14 @@ Ici, le **flux vu de l'écran** :
 - **Mise à jour Logistic = uniquement ce qui a été compté** (`isCounted`) : une proposition
   reportée du pre-event ou une saisie non validée ne touche jamais le registre, le reste garde sa
   valeur courante (`InventoryService.pushCountToLogistic`, BUG-383-02).
+- **Bouton « Voir tout l'inventaire » (post-event uniquement, demande Bertrand 2026-09-23)** :
+  dans certains cas il faut tout compter. Le bouton élargit le périmètre aux PdV et réserves de
+  **toutes** les configurations de l'espace (`useInventoryScope` + `utils/inventoryScope.js`,
+  `?shopsScope=space` sur le même endpoint). Les éléments ajoutés portent le badge « Hors config de
+  l'événement » et leur statut ouvert/fermé est inconnu (celui d'une autre config). Le compteur
+  X/Y et le périmètre de la réconciliation suivent les PdV affichés. Par défaut et à chaque
+  changement d'event, retour aux PdV de la configuration de l'event. Le pre-event n'a pas ce
+  bouton.
 
 ### 4.7 AppHeader / navigation globale
 
