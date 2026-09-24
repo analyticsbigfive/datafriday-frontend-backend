@@ -760,15 +760,7 @@
               <!-- Allergens -->
               <div class="mb-3">
                 <label class="field-label">{{ t('menuItemCreate.labelAllergens') }}</label>
-                <div class="checkbox-grid">
-                  <v-checkbox v-model="form.allergens" value="GLUTEN" :label="t('menuItemCreate.allergenGluten')" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="LACTOSE" :label="t('menuItemCreate.allergenLactose')" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="EGGS" :label="t('menuItemCreate.allergenEggs')" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="NUTS" :label="t('menuItemCreate.allergenNuts')" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="FISH" :label="t('menuItemCreate.allergenFish')" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="SHELLFISH" :label="t('menuItemCreate.allergenShellfish')" hide-details density="compact" />
-                  <v-checkbox v-model="form.allergens" value="SOY" :label="t('menuItemCreate.allergenSoy')" hide-details density="compact" />
-                </div>
+                <AllergenCheckboxes v-model="form.allergens" />
               </div>
 
 
@@ -890,10 +882,11 @@ import BrandNameFormDrawer from '@/components/brand-name/drawers/BrandNameFormDr
 import DisplayNameFormDrawer from '@/components/display-name/drawers/DisplayNameFormDrawer.vue';
 import CreatePackingTypeDialog from '../dialogs/CreatePackingTypeDialog.vue';
 import CreatePromotionTypeDialog from '../dialogs/CreatePromotionTypeDialog.vue';
+import AllergenCheckboxes from '@/components/menu-fb/common/AllergenCheckboxes.vue';
 
 export default {
   name: "MenuItemCreateView",
-  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, Recycle, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, ComboItemPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog, CreatePromotionTypeDialog },
+  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, Recycle, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, ComboItemPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog, CreatePromotionTypeDialog, AllergenCheckboxes },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
