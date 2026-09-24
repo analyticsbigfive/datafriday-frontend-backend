@@ -18,7 +18,7 @@
             <span class="cc-item-count__label">{{ t('compCreateStatTotalItems') }}</span>
           </div>
           <button class="cc-cancel-btn" @click="onCancel">
-            <X :size="15" /> {{ t('compCreateCancel') }}
+            <X :size="15" /> {{ t('menuItemCreate.close') }}
           </button>
         </div>
       </div>
@@ -346,17 +346,7 @@
 
                 <div class="ccf-field-wrap mb-3">
                   <label class="ccf-field-label">{{ t('compCreateFieldAllergens') }}</label>
-                  <v-combobox
-                    v-model="form.allergens"
-                    variant="outlined"
-                    density="compact"
-                    hide-details="auto"
-                    multiple
-                    chips
-                    closable-chips
-                    class="ccf-field"
-                    :menu-props="{ zIndex: 10000 }"
-                  />
+                  <AllergenCheckboxes v-model="form.allergens" />
                 </div>
 
                 <div class="ccf-field-wrap">
@@ -377,7 +367,7 @@
             <div class="cc-right-section-footer">
               <div class="cc-footer-actions">
                 <button class="cc-footer-btn cc-footer-btn--ghost" @click="onCancel">
-                  {{ t('compCreateCancel') }}
+                  {{ hasUnsavedChanges ? t('compCreateCancel') : t('menuItemCreate.close') }}
                 </button>
                 <button
                   v-if="isEditMode"
@@ -440,6 +430,9 @@ import { getIngredient } from "@/api/endpoints/ingredient.api";
 import { createPackingType } from "@/api/endpoints/packing-type.api";
 import { formatCurrencyDetailed, formatUnits } from '@/composables/useFormatters';
 import { duplicateComponentById } from '@/composables/useComponentDuplicate';
+import { useUnsavedChanges } from '@/composables/useUnsavedChanges';
+import { confirmDialog } from '@/composables/useConfirmDialog';
+import AllergenCheckboxes from '@/components/menu-fb/common/AllergenCheckboxes.vue';
 import NumberField from '@/components/common/NumberField.vue';
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
 import ComponentPickerDrawer from '../drawers/ComponentPickerDrawer.vue';
@@ -461,12 +454,15 @@ export default {
     ComponentPickerDrawer,
     NewCategoryDialog,
     NewTypeDialog,
+    AllergenCheckboxes,
   },
   setup() {
     const { t, locale } = useI18n();
     const theme = useTheme();
     const isDark = computed(() => !!theme.global.current.value.dark);
-    return { t, locale, isDark };
+    // Modifications non enregistrées : même comportement que la fiche Menu Item.
+    const { takeSnapshot, isDirty, askLeave } = useUnsavedChanges();
+    return { t, locale, isDark, takeSnapshot, isDirty, askLeave };
   },
   data() {
     return {
@@ -523,6 +519,10 @@ export default {
     };
   },
   computed: {
+    /** Fiche modifiée depuis le chargement ou le dernier enregistrement. */
+    hasUnsavedChanges() {
+      return this.isDirty(this.form);
+    },
     kitchenTypeOptions() {
       return [
         { title: this.t('compKitchenCentral'), value: 'Central' },
@@ -788,13 +788,34 @@ export default {
       if (!targetId) return;
       this.form.ingredients = (this.form.ingredients || []).filter((i) => i?.marketPriceId !== targetId);
     },
-    onCancel() {
+    async onCancel() {
+      if (this.hasUnsavedChanges) {
+        const result = await this.askLeave(this.t);
+        if (result === false) return;
+        if (result === 'save') {
+          // La création revient déjà à la liste ; l'édition reste sur la fiche.
+          if ((await this.onSave()) && this.isEditMode) this.$router.push({ path: "/components" });
+          return;
+        }
+        // 'leave' : on oublie les modifications, sinon beforeRouteLeave redemanderait.
+        this.takeSnapshot(this.form);
+      }
       this.$router.push({ path: "/components" });
     },
 
     // Duplique la fiche courante (par id, données serveur). Redirige vers l'édition de la copie.
     async onDuplicate() {
       if (!this.componentId || this.duplicating || this.saving) return;
+      // La copie part des données serveur : les modifications en cours n'y sont pas.
+      if (this.hasUnsavedChanges) {
+        const ok = await confirmDialog({
+          title: this.t('menuItemDuplicateUnsavedTitle'),
+          message: this.t('menuItemDuplicateUnsavedMessage'),
+          confirmText: this.t('menuItemDuplicateConfirm'),
+          cancelText: this.t('cancel'),
+        });
+        if (!ok) return;
+      }
       this.duplicating = true;
       this.error = "";
       try {
@@ -958,6 +979,9 @@ export default {
           this.form.children = await Promise.all(childPromises);
         }
 
+        // Référence « non modifié » : après que les watchers du préremplissage ont tourné.
+        await this.$nextTick();
+        this.takeSnapshot(this.form);
       } catch (error) {
         console.error('Error loading component:', error);
         this.loadingError = error?.userMessage || error?.message || "Failed to load component";
@@ -966,17 +990,17 @@ export default {
       }
     },
 
+    /** @returns {Promise<boolean>} true si l'enregistrement a réussi. */
     async onSave() {
       if (this.isEditMode) {
-        await this.onUpdate();
-      } else {
-        await this.onCreate();
+        return this.onUpdate();
       }
+      return this.onCreate();
     },
 
     async onUpdate() {
-      if (!this.formValid) return;
-      if (!this.componentId) return;
+      if (!this.formValid) return false;
+      if (!this.componentId) return false;
 
       this.saving = true;
       this.error = "";
@@ -1027,15 +1051,18 @@ export default {
         this.$store.dispatch('menuComponents/invalidate');
         // Édition : on reste sur la page et on affiche l'alerte de succès (pas de retour arrière).
         this.saveSuccess = this.t('compCreateSaved');
+        this.takeSnapshot(this.form);
+        return true;
       } catch (e) {
         this.error = e?.userMessage || e?.message || "Failed to update component";
+        return false;
       } finally {
         this.saving = false;
       }
     },
 
     async onCreate() {
-      if (!this.formValid) return;
+      if (!this.formValid) return false;
       this.saving = true;
       this.error = "";
       try {
@@ -1083,9 +1110,13 @@ export default {
 
         await createMenuComponent(payload);
         this.$store.dispatch('menuComponents/invalidate');
+        // Enregistré : plus rien à confirmer en quittant la fiche.
+        this.takeSnapshot(this.form);
         this.$router.push({ path: "/components" });
+        return true;
       } catch (e) {
         this.error = e?.userMessage || e?.message || "Failed to create component";
+        return false;
       } finally {
         this.saving = false;
       }
@@ -1104,15 +1135,36 @@ export default {
     this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true });
     this.$store.dispatch('storageTypes/fetchStorageTypes');
 
-    // Charger les données du composant si en mode édition
+    // Charger les données du composant si en mode édition ; en création, la référence
+    // « non modifié » est le formulaire vide.
     if (this.isEditMode) {
       this.loadComponentData();
+    } else {
+      this.$nextTick(() => this.takeSnapshot(this.form));
     }
 
     // Bloquer le scroll de la page (v-main)
     const mainWrap = document.querySelector('.v-main');
     if (mainWrap) { this._mainWrap = mainWrap; mainWrap.style.overflow = 'hidden'; }
     document.documentElement.style.overflow = 'hidden';
+  },
+
+  // Sortie par le menu, un lien ou le bouton retour du navigateur : même confirmation
+  // que le bouton Fermer/Annuler (parité fiche Menu Item).
+  async beforeRouteLeave(to, from, next) {
+    if (!this.hasUnsavedChanges) {
+      next();
+      return;
+    }
+    const result = await this.askLeave(this.t);
+    if (result === 'leave') {
+      next(true);
+      return;
+    }
+    next(false);
+    if (result === 'save' && (await this.onSave()) && to.fullPath !== from.fullPath) {
+      this.$router.push(to.fullPath);
+    }
   },
 
   beforeUnmount() {
