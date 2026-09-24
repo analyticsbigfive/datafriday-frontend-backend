@@ -1709,6 +1709,7 @@ import {
 } from '@/api/endpoints/inventory.api'
 import { fetchReferenceSales } from '@/composables/useReferenceSales'
 import { aggregateSalesToPredictedRecords } from '@/utils/salesAggregation'
+import { restrictRecordsToMenuConfig } from '@/utils/predictionPerimeter'
 import { getShopElementMappings } from '@/utils/api'
 // Réconciliation menu (« non rattachés ») — assignation NestJS par shop + matcher
 // nom (mêmes utilitaires qu'EventPredict, clé = nom de shop normalisé).
@@ -4125,7 +4126,8 @@ export default {
      * (encore) échoé predictedRecords → le picker masque alors le compteur.
      */
     scenarioTotalUnits(version) {
-      const recs = Array.isArray(version?.predictedRecords) ? version.predictedRecords : []
+      // Même périmètre que le réarmement : les PdV de la menuConfig du scénario.
+      const recs = restrictRecordsToMenuConfig(version?.predictedRecords, version?.menuConfig)
       let sum = 0
       recs.forEach((r) => {
         sum += Number(r.totalQuantity ?? r.adjustedQuantity ?? r.quantity ?? r.qty) || 0
@@ -4459,6 +4461,13 @@ export default {
         }
       })
 
+      // Périmètre du scénario : seuls les PdV de sa menuConfig (ceux qu'Event Predict
+      // affiche, PdV du Space Menu de la config du match). Les records portent aussi
+      // les PdV ayant vendu pendant les matchs de référence sans être ouverts pour
+      // celui-ci : ils étaient réarmés à tort (PAUC/CAEN, 1664 : 94,1 L au lieu de 72,8 L).
+      Object.keys(next).forEach((eventId) => {
+        next[eventId] = restrictRecordsToMenuConfig(next[eventId], meta[eventId]?.menuConfig)
+      })
       this.predictionRecordsByEventId = next
       this.predictionMetaByEventId = meta
       this.ensureStockItemDefaults()
