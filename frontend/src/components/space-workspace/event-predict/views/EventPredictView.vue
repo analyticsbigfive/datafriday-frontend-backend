@@ -1425,6 +1425,7 @@ import TabsContent from "@/ui/tabsContent.vue";
 import { parseEventDate as parseDDMMYYYY } from "@/utils/dateFr";
 import { isDemoMode } from "@/utils/demoMode";
 import { mergeEffectiveMenuConfig, applyAssignToExplicit } from "@/utils/menuConfigSelection";
+import { restrictRecordsToMenuConfig } from "@/utils/predictionPerimeter";
 import { resolveItemsContext, isEstimationEligible } from "@/utils/estimationMode";
 import { resolveInventoryRouteName } from "@/utils/inventoryRouteTarget";
 import { setLastPredictedEvent, setPredictedRecords } from "@/data/localDb";
@@ -5315,7 +5316,11 @@ export default {
           isManual: true,
         });
       }
-      return Array.from(agg.values());
+      // Périmètre du scénario : seuls les PdV de la menuConfig effective (ceux affichés
+      // ici). La timeline porte aussi les PdV ayant vendu pendant les matchs de
+      // référence sans être dans le Space Menu de ce match ; les persister faisait
+      // réarmer ces PdV par Restock (PAUC/CAEN 2026-09-25).
+      return restrictRecordsToMenuConfig(Array.from(agg.values()), this.effectiveMenuConfig);
     },
     persistPredictedRecordsForRestock(versionId) {
       const spaceId = this.space?.id || this.$route?.params?.spaceId;
