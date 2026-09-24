@@ -381,12 +381,18 @@ export class MenuComponentsService {
         include: this.includeRelations,
       });
 
+      this.logger.log(`Menu component created: ${component.id}`);
+
       if (ingredientsLines || childrenLines) {
         await this.refreshCosts(tenantId, { componentIds: [component.id] });
+        // Même patron que update() : un composant créé avec des ingrédients ou des
+        // sous-composants (le cas courant) sortait ici SANS invalider le cache liste
+        // (`findAll`, TTL 1 h) et n'apparaissait pas dans la liste Composants avant
+        // expiration. Purge après refreshCosts, pour ne pas remettre en cache un coût à 0.
+        await this.invalidateCache(tenantId);
         return this.findOne(component.id, tenantId);
       }
 
-      this.logger.log(`Menu component created: ${component.id}`);
       await this.invalidateCache(tenantId);
       return component;
     } catch (error) {

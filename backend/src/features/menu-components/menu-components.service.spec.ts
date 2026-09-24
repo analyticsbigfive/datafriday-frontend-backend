@@ -58,3 +58,43 @@ describe('MenuComponentsService computeComponentUnitCost', () => {
     expect(unitCostZero).toBe(20);
   });
 });
+
+describe('MenuComponentsService.create : purge du cache liste', () => {
+  const created = { id: 'mc-new', name: 'Sauce maison' };
+  let prisma: any;
+  let redis: any;
+  let service: MenuComponentsService;
+
+  beforeEach(() => {
+    prisma = {
+      menuComponent: {
+        create: jest.fn().mockResolvedValue(created),
+        findFirst: jest.fn().mockResolvedValue(created),
+      },
+    };
+    redis = { deletePattern: jest.fn().mockResolvedValue(1) };
+    service = new MenuComponentsService(prisma, redis);
+    // Validations de références et recalcul des coûts hors sujet ici.
+    jest.spyOn(service as any, 'assertIngredientsExist').mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'assertChildrenExist').mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'assertComponentTypeAccessible').mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'assertComponentCategoryAccessible').mockResolvedValue(undefined);
+    jest.spyOn(service, 'refreshCosts').mockResolvedValue(undefined as any);
+  });
+
+  // Bug liste Composants (2026-09-24) : créé avec des ingrédients, le composant sortait par le
+  // retour anticipé sans purger le cache `findAll` (TTL 1 h) et restait absent de la liste.
+  it('purge le cache quand le composant est créé avec des ingrédients', async () => {
+    await service.create(
+      { name: 'Sauce maison', ingredients: [{ ingredientId: 'ing-1', quantity: 2, unit: 'g' }] } as any,
+      'tenant-1',
+    );
+    expect(service.refreshCosts).toHaveBeenCalled();
+    expect(redis.deletePattern).toHaveBeenCalledWith('menu-components:tenant-1:*');
+  });
+
+  it('purge le cache quand le composant est créé sans ligne', async () => {
+    await service.create({ name: 'Sauce maison' } as any, 'tenant-1');
+    expect(redis.deletePattern).toHaveBeenCalledWith('menu-components:tenant-1:*');
+  });
+});

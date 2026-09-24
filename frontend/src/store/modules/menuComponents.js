@@ -28,6 +28,9 @@ async function fetchAllPages() {
   return rows
 }
 
+const nameCollator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true })
+const compareByName = (a, b) => nameCollator.compare(String(a?.name ?? ''), String(b?.name ?? ''))
+
 // Fetch en vol + refetch en attente, partagés entre toutes les instances de composant (le module
 // Vuex est un singleton) — variables de module plutôt que state, pour ne pas rendre une Promise
 // réactive.
@@ -57,12 +60,13 @@ export default {
     // (création/duplication/suppression) — évite de dépendre d'un refetch réseau (latence,
     // cache backend, concurrence) juste pour refléter un changement qu'on vient de faire
     // nous-mêmes. UPSERT : remplace la ligne si l'id existe déjà, l'ajoute sinon.
+    // La liste reste triée par nom (même ordre que le backend, `orderBy: { name: 'asc' }`) :
+    // un composant dupliqué s'ajoutait en fin de liste au lieu de sa place alphabétique.
     UPSERT_ROW(state, row) {
       const id = row?.id ?? row?._id
       if (!id) return
-      const idx = state.rows.findIndex((r) => (r?.id ?? r?._id) === id)
-      if (idx === -1) state.rows = [...state.rows, row]
-      else state.rows = [...state.rows.slice(0, idx), row, ...state.rows.slice(idx + 1)]
+      const rest = state.rows.filter((r) => (r?.id ?? r?._id) !== id)
+      state.rows = [...rest, row].sort(compareByName)
     },
     REMOVE_ROW(state, id) {
       state.rows = state.rows.filter((r) => (r?.id ?? r?._id) !== id)
