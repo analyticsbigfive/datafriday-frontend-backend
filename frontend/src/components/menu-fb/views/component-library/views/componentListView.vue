@@ -830,6 +830,19 @@ export default {
     if (this.$route.query.category) this.selectedCategory = String(this.$route.query.category);
     this.loadComponents();
   },
+  // Route keep-alive (meta.keepAlive) : au retour depuis la fiche (création, édition,
+  // duplication), mounted() ne se rejoue pas et la liste restait celle d'avant. On la
+  // recharge à chaque réactivation, sans spinner (les lignes actuelles restent affichées).
+  // La toute première activation suit mounted(), qui charge déjà : on l'ignore.
+  activated() {
+    if (!this._activatedOnce) {
+      this._activatedOnce = true;
+      return;
+    }
+    this.$store.dispatch('menuComponents/fetchComponents').catch((e) => {
+      this.error = e?.userMessage || e?.message || "Failed to load components";
+    });
+  },
 };
 </script>
 
