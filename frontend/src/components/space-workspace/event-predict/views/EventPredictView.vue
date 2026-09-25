@@ -39,6 +39,7 @@
 
       <div class="ep-header-actions">
         <!-- Cluster droit standard : notifications + réglages + profil. -->
+        <LiveBadge />
         <NotificationBell :aria-label="t('epNotifications')" />
         <v-btn
           icon
@@ -1417,6 +1418,7 @@ import WorkspaceMobileToolDrawer from "@/components/WorkspaceMobileToolDrawer.vu
 import WorkspaceUserMenu from "@/components/WorkspaceUserMenu.vue";
 import WorkspaceSpaceSwitcher from "@/components/WorkspaceSpaceSwitcher.vue";
 import NotificationBell from "@/components/NotificationBell.vue";
+import LiveBadge from "@/components/common/LiveBadge.vue";
 import AlgoTraceTerminal from "@/components/space-workspace/event-predict/AlgoTraceTerminal.vue";
 import Tabs from "@/ui/tabs.vue";
 import TabsList from "@/ui/tabsList.vue";
@@ -1564,6 +1566,7 @@ export default {
     Link2,
     Settings,
     NotificationBell,
+    LiveBadge,
     EventPredictMenusSection,
     EventPredictStaffSection,
     EventPredictStockUpSection,

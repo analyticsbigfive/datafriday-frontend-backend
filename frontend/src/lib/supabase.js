@@ -2,15 +2,23 @@
 // Client Supabase pour l'authentification
 
 import { createClient } from '@supabase/supabase-js'
+import { createQuotaSafeStorage, pruneIfNearQuota } from '@/utils/storageQuota'
 
 const supabaseUrl = process.env.VUE_APP_SUPABASE_URL
 const supabaseAnonKey = process.env.VUE_APP_SUPABASE_ANON_KEY
+
+// Session prioritaire sur les caches de l'application : un localStorage plein
+// empêchait d'enregistrer la session après la connexion (déconnexion à chaque
+// rechargement). Purge préventive au démarrage + purge au moment de l'écriture.
+const browserStorage = typeof window !== 'undefined' ? window.localStorage : null
+if (browserStorage) pruneIfNearQuota(browserStorage)
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     persistSession: true,
     autoRefreshToken: true,
     detectSessionInUrl: true,
+    ...(browserStorage ? { storage: createQuotaSafeStorage(browserStorage) } : {}),
   }
 })
 
