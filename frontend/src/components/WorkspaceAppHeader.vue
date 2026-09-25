@@ -64,6 +64,7 @@
 
     <!-- Droite : notifications + réglages + profil — cluster à PARITÉ .ep-header
          (cloche partagée branchée, boutons size=small, pas de séparateur). -->
+    <LiveBadge />
     <NotificationBell />
     <v-btn icon variant="text" size="small" class="mr-1" aria-label="Réglages" @click="openSettings">
       <Settings :size="20" />
@@ -93,6 +94,7 @@ import { ChevronRight, Settings } from 'lucide-vue-next'
 import WorkspaceSpaceSwitcher from '@/components/WorkspaceSpaceSwitcher.vue'
 import WorkspaceUserMenu from '@/components/WorkspaceUserMenu.vue'
 import NotificationBell from '@/components/NotificationBell.vue'
+import LiveBadge from '@/components/common/LiveBadge.vue'
 
 const props = defineProps({
   spaceName: { type: String, default: '' },
