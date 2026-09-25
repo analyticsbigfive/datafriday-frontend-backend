@@ -104,8 +104,33 @@ export function getPredictedRecords(spaceId, eventId, versionId) {
   return v && typeof v === 'object' && Array.isArray(v.records) ? v : null
 }
 
+// Plafond du pont : chaque entrée porte tous les records d'un event (jusqu'à ~160 Ko),
+// écrite deux fois (`current` + version). Sans plafond, le pont remplissait le quota du
+// localStorage et empêchait d'enregistrer la session (déconnexion au rechargement,
+// 2026-09-25). Restock relit `predictedRecords` en base quand l'entrée a été écartée.
+export const MAX_PREDICTED_RECORDS_ENTRIES = 12
+const PREDICTED_RECORDS_PREFIX = 'datafriday:predicted-records:'
+
+/** Garde les `max` entrées du pont les plus récentes (par `ts`), supprime les autres. */
+export function prunePredictedRecords(max = MAX_PREDICTED_RECORDS_ENTRIES) {
+  try {
+    const entries = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (!key || !key.startsWith(PREDICTED_RECORDS_PREFIX)) continue
+      entries.push({ key, ts: Number(read(key, null)?.ts) || 0 })
+    }
+    entries.sort((a, b) => b.ts - a.ts)
+    entries.slice(max).forEach((e) => localStorage.removeItem(e.key))
+  } catch (_) {
+    /* stockage indisponible : rien à purger */
+  }
+}
+
 export function setPredictedRecords(spaceId, eventId, versionId, payload) {
-  return write(predictedRecordsKey(spaceId, eventId, versionId), payload || null)
+  const ok = write(predictedRecordsKey(spaceId, eventId, versionId), payload || null)
+  prunePredictedRecords()
+  return ok
 }
 
 /**
@@ -161,7 +186,15 @@ export function getEventPredictDefaultVersionId(eventId) {
  */
 export function setEventPredictVersionsMirror(eventId, versions, defaultVersionId) {
   if (!eventId) return
-  write(`analyse:event-predict-versions:${eventId}`, Array.isArray(versions) ? versions : [])
+  // Sans `predictedRecords` : le plus gros champ d'une version, déjà en base et gardé
+  // en mémoire par l'appelant. Le miroir ne sert qu'à lister les scénarios hors ligne.
+  const light = (Array.isArray(versions) ? versions : []).map((v) => {
+    if (!v || !Array.isArray(v.predictedRecords)) return v
+    const { predictedRecords, ...rest } = v
+    void predictedRecords
+    return rest
+  })
+  write(`analyse:event-predict-versions:${eventId}`, light)
   if (defaultVersionId !== undefined) {
     write(`analyse:event-predict-default-version:${eventId}`, { defaultVersionId: defaultVersionId || null })
   }

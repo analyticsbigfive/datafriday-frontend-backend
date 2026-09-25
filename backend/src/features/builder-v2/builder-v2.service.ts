@@ -1206,6 +1206,26 @@ export class BuilderV2Service {
           skipDuplicates: true,
         });
       }
+
+      // Menus (Space Menu) des PdV : scopés par configuration (MenuAssignment.configId),
+      // donc NON portés par les adhésions. Sans cette copie, une config clonée avait ses
+      // PdV mais aucun article (Aix Arena 2026-09-23/24 : 10 configs vides, Event Predict
+      // « No items available »). Copie à l'identique, cochés comme décochés.
+      const sourceAssignments = await this.prisma.menuAssignment.findMany({
+        where: { configId: dto.cloneFromConfigId, elementId: { not: null } },
+        select: { elementId: true, menuItemId: true, enabled: true },
+      });
+      if (sourceAssignments.length > 0) {
+        await this.prisma.menuAssignment.createMany({
+          data: sourceAssignments.map((a) => ({
+            configId: config.id,
+            elementId: a.elementId,
+            menuItemId: a.menuItemId,
+            enabled: a.enabled,
+          })),
+          skipDuplicates: true,
+        });
+      }
     }
 
     await this.invalidate(tenantId, spaceId);
