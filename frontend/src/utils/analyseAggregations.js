@@ -374,6 +374,20 @@ export function buildShopPerfRows(shops, h) {
  *   intacts, surtout pas écrire 0 (l'item-level se charge en asynchrone, un 0
  *   transitoire serait un faux chiffre affiché).
  */
+/**
+ * Marge d'un event en %, même formule que le KPI MARGE d'Analyse
+ * (`useMetricsCalculator` : (CA - coût) / CA). `null` quand le coût de l'event
+ * n'est pas connu (pas de grain article chargé) : un coût à 0 afficherait une
+ * fausse marge de 100 % (même garde-fou que BUG-350-01).
+ * @param {{ revenue?: number, cost?: number, costKnown?: boolean }} row
+ * @returns {number|null}
+ */
+export function eventMarginPct(row) {
+  const revenue = Number(row?.revenue) || 0
+  if (!row?.costKnown || !revenue) return null
+  return ((revenue - (Number(row.cost) || 0)) / revenue) * 100
+}
+
 export function itemLevelTotalsByEvent(records, costMap = {}) {
   const byEvent = new Map()
   for (const r of records || []) {

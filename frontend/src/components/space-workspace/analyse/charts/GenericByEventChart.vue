@@ -31,7 +31,7 @@ import { computed, ref, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import '@/lib/chartjs'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
-import { itemLevelTotalsByEvent } from '@/utils/analyseAggregations'
+import { itemLevelTotalsByEvent, eventMarginPct } from '@/utils/analyseAggregations'
 import { useI18n } from '@/i18n/useI18n'
 
 const { t } = useI18n()
@@ -63,6 +63,7 @@ const METRICS = computed(() => [
   { key: 'avgTransaction', label: t('anMetricAvgBasket'),    format: formatCurrencyDetailed },
   { key: 'perCap',         label: t('anMetricPerCap'),       format: formatCurrencyDetailed },
   { key: 'transferRate',   label: t('anMetricTransferRate'), format: (v) => `${v.toFixed(1)}%` },
+  { key: 'margin',         label: t('anMetricMargin'),       format: (v) => `${v.toFixed(1)}%` },
 ])
 
 const metric = ref(props.initialMetric)
@@ -121,13 +122,16 @@ const eventRows = computed(() => {
     // → `cost` y est nul pour TOUS les events (barres plates alors que le KPI
     // COÛT affiche un montant). On superpose le coût item-level quand il est
     // disponible ; sinon on ne touche à rien (chargement asynchrone en cours).
-    // Seul `cost` est réécrit : `margin` n'est pas une métrique de ce graphe, et
-    // la dériver ici croiserait deux grains (CA shop-level / coût item-level).
+    // Seul `cost` est réécrit. La marge par event suit la formule du KPI MARGE
+    // (CA de l'event, coût item-level) : `costKnown` dit si ce coût existe, sans
+    // quoi la marge reste null (jamais une fausse marge de 100 %).
     const totals = itemTotalsByEvent.value
-    if (!totals.size) return props.eventAggregates
-    return props.eventAggregates.map((row) =>
-      totals.has(row.eventId) ? { ...row, cost: totals.get(row.eventId).cost } : row
-    )
+    return props.eventAggregates.map((row) => {
+      const withCost = totals.has(row.eventId)
+        ? { ...row, cost: totals.get(row.eventId).cost, costKnown: true }
+        : { ...row, costKnown: false }
+      return { ...withCost, margin: eventMarginPct(withCost) }
+    })
   }
 
   const byEvent = new Map()
@@ -144,9 +148,11 @@ const eventRows = computed(() => {
       revenue: 0,
       cost: 0,
       transactions: 0,
+      costKnown: false,
     })
   }
 
+  const costMapLoaded = Object.keys(costMap).length > 0
   for (const record of props.records || []) {
     if (!record?.eventId) continue
     if (!byEvent.has(record.eventId)) {
@@ -159,9 +165,12 @@ const eventRows = computed(() => {
         revenue: 0,
         cost: 0,
         transactions: 0,
+        costKnown: false,
       })
     }
     const entry = byEvent.get(record.eventId)
+    // Coût connu seulement avec le grain article (menuItemId) et le catalogue chargé.
+    if (record.menuItemId && costMapLoaded) entry.costKnown = true
     const quantity = record.quantity || 0
     entry.revenue += record.revenue || 0
     entry.cost += (costMap[record.menuItemId] || 0) * quantity
@@ -175,6 +184,7 @@ const eventRows = computed(() => {
     avgTransaction: row.transactions ? row.revenue / row.transactions : 0,
     perCap: row.attendees ? row.revenue / row.attendees : 0,
     transferRate: row.attendees ? (row.transactions / row.attendees) * 100 : 0,
+    margin: eventMarginPct(row),
   }))
 })
 
@@ -188,6 +198,8 @@ function valueForEvent(row) {
     case 'avgTransaction': return row.avgTransaction || 0
     case 'perCap':         return row.perCap || 0
     case 'transferRate':   return row.transferRate || 0
+    // null = coût inconnu pour cet event : pas de barre plutôt qu'une fausse marge.
+    case 'margin':         return row.margin ?? null
     default:               return 0
   }
 }
@@ -202,6 +214,7 @@ function rowDateValue(row) {
 }
 
 const METRIC_COLORS = {
+  margin: { r: 59, g: 130, b: 246 },         // blue (couleur du KPI MARGE)
   revenue: { r: 16, g: 185, b: 129 },        // green
   cost: { r: 239, g: 68, b: 68 },            // red
   transactions: { r: 59, g: 130, b: 246 },   // blue
@@ -212,19 +225,22 @@ const METRIC_COLORS = {
 }
 
 const chartData = computed(() => {
+  // Valeur null (marge d'un event sans coût connu) : triée en dernier, sans barre.
+  const sortValue = (row) => valueForEvent(row) ?? -Infinity
   const sortedEvents = [...eventRows.value].sort((a, b) =>
     sortMode.value === 'value'
-      ? valueForEvent(b) - valueForEvent(a)
+      ? sortValue(b) - sortValue(a)
       : rowDateValue(a) - rowDateValue(b)
   )
   const values = sortedEvents.map((e) => valueForEvent(e))
-  const max = Math.max(0, ...values)
-  const min = Math.min(0, ...values)
+  const known = values.filter((v) => v != null)
+  const max = Math.max(0, ...known)
+  const min = Math.min(0, ...known)
   const span = max - min || 1
   const c = METRIC_COLORS[metric.value] || { r: 124, g: 77, b: 255 }
   const colors = values.map((v) => {
     // Lot 0.5 — opacité proportionnelle à l'importance (0.25 → 1.0)
-    const ratio = (v - min) / span
+    const ratio = ((v ?? min) - min) / span
     const alpha = 0.25 + ratio * 0.75
     return `rgba(${c.r}, ${c.g}, ${c.b}, ${alpha.toFixed(3)})`
   })

@@ -33,4 +33,9 @@ const { t } = useI18n()
   grid-template-columns: 1fr 1fr;
   gap: 0 4px;
 }
+/* Même taille de libellé que les autres cases de la fiche Menu Item : portée par le
+   composant pour que la fiche Composant, qui n'a pas cette règle, l'ait aussi. */
+.allergen-grid :deep(.v-label) {
+  font-size: 0.82rem;
+}
 </style>
