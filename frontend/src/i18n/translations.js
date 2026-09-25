@@ -2042,6 +2042,7 @@ export const translations = {
     anMetricAvgBasket: 'Basket',
     anMetricPerCap: 'Per cap',
     anMetricTransferRate: 'Trans. rate',
+    anMetricMargin: 'Margin',
     anSortDate: 'Date',
     // GenericByEventChart – config strings
     anChartPerEvent: 'per event',
@@ -6852,6 +6853,7 @@ export const translations = {
     anMetricAvgBasket: 'Panier',
     anMetricPerCap: 'Per cap',
     anMetricTransferRate: 'Taux transact.',
+    anMetricMargin: 'Marge',
     anSortDate: 'Date',
     // GenericByEventChart – config strings
     anChartPerEvent: 'par événement',
