@@ -236,6 +236,7 @@
            codé en dur — compteur réel + panneau + navigation par item, comme
            sur les routes self-headed (WorkspaceAppHeader). Masquée en mobile
            pour libérer de la place (comportement conservé). -->
+      <LiveBadge />
       <NotificationBell v-if="!isMobile" />
 
       <v-btn icon variant="text" class="action-btn" @click="openSettingsDrawer">
@@ -335,6 +336,7 @@ import { mapActions, mapGetters } from "vuex";
 import { t as translate } from '@/i18n';
 import isMobileMixin from "@/ui/useMobile";
 import NotificationBell from "@/components/NotificationBell.vue";
+import LiveBadge from "@/components/common/LiveBadge.vue";
 import {
   Carrot,
   Settings,
@@ -423,6 +425,7 @@ export default {
     Building,
     Coffee,
     NotificationBell,
+    LiveBadge,
     Settings,
     LogOut,
     Building2,
