@@ -2187,7 +2187,7 @@ function onOpenChart(kind) {
     cost: 'cost',
     revenue: 'revenue',
     'avg-revenue': 'revenue',
-    margin: 'revenue',
+    margin: 'margin',
     transactions: 'transactions',
     'avg-trans': 'avgTransaction',
     attendees: 'attendees',
