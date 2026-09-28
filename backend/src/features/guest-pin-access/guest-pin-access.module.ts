@@ -11,6 +11,7 @@ import { JwtGuestPinStrategy } from '../../core/auth/strategies/jwt-guest-pin.st
 import { GuestPinAccessService } from './guest-pin-access.service';
 import { GuestPinAuthController } from './guest-pin-auth.controller';
 import { GuestPinAdminController } from './guest-pin-admin.controller';
+import { InventoryWindowLifecycleCronService } from './inventory-window-lifecycle.cron';
 
 @Module({
   imports: [
@@ -35,6 +36,6 @@ import { GuestPinAdminController } from './guest-pin-admin.controller';
     }),
   ],
   controllers: [GuestPinAuthController, GuestPinAdminController],
-  providers: [GuestPinAccessService, JwtGuestPinStrategy],
+  providers: [GuestPinAccessService, JwtGuestPinStrategy, InventoryWindowLifecycleCronService],
 })
 export class GuestPinAccessModule {}

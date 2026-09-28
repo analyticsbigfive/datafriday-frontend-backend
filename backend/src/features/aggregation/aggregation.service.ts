@@ -7,7 +7,7 @@ import { RedisService } from '../../core/redis/redis.service';
 import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
 import { liveWatermarkKey } from '../../shared/constants/live-aggregation';
 import { MappingsService } from '../mappings/mappings.service';
-import { EventDayFields } from '../../shared/utils/event-window.util';
+import { EventDayFields, isEventOver } from '../../shared/utils/event-window.util';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
@@ -49,7 +49,7 @@ export class AggregationService {
 
     // Vague 1 — toutes les requêtes indépendantes en parallèle (y compris la résolution des locationIds)
     const now = new Date();
-    const [space, events, futureEventsCount, allJobs, dataPointGroups] = await Promise.all([
+    const [space, startedEvents, notStartedCount, allJobs, dataPointGroups] = await Promise.all([
       this.prisma.space.findFirst({ where: { id: spaceId, tenantId } }),
       this.prisma.event.findMany({
         where: { tenantId, spaceId, eventDate: { lte: now } },
@@ -70,6 +70,13 @@ export class AggregationService {
     if (!space) {
       throw new NotFoundException(`Space ${spaceId} not found`);
     }
+
+    // Passé = TERMINÉ (fin réelle), pas `eventDate <= now` : le match du jour était listé
+    // « en attente d'agrégation » dès minuit, avant la moindre vente. Un match en cours
+    // compte avec les events à venir.
+    const spaceTimezone = space.timezone || 'Europe/Paris';
+    const events = startedEvents.filter((e) => isEventOver(e, spaceTimezone, now));
+    const futureEventsCount = notStartedCount + (startedEvents.length - events.length);
 
     const dataPointsByEvent = new Map(
       dataPointGroups.map((g) => [g.weezeventEventId, Number(g._count._all ?? 0)]),

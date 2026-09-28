@@ -20,6 +20,13 @@ import { MarketPricesService } from '../market-prices/market-prices.service';
 import { MenuComponentsService } from '../menu-components/menu-components.service';
 import { CreateWindowDto } from './dto/create-window.dto';
 import { SaveGuestCountDto } from './dto/save-guest-count.dto';
+import {
+  InventoryWindowPhase,
+  inventoryWindowPeriod,
+  inventoryWindowPeriodState,
+  periodRefusalMessage,
+} from './inventory-window-period';
+import type { InventoryWindow } from '@prisma/client';
 import type { GuestPinUser } from '../../core/auth/strategies/jwt-guest-pin.strategy';
 import type { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 
@@ -507,10 +514,78 @@ export class GuestPinAccessService {
 
   // ── Directeur : gestion des fenêtres et des PIN ─────────────────────────────
 
+  /**
+   * Période de la fenêtre `phase` de cet event (cf. inventory-window-period.ts) et son
+   * état à `now`. Lève 404 si l'event n'appartient pas à cet espace/tenant.
+   */
+  private async resolvePeriod(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+    phase: InventoryWindowPhase,
+    now: Date = new Date(),
+  ) {
+    const event = await this.preEventFlow.findEvent(spaceId, eventId, tenantId);
+    if (!event) throw new NotFoundException('Événement introuvable pour cet espace');
+    const period = inventoryWindowPeriod(event, phase, event.timezone);
+    return { period, state: inventoryWindowPeriodState(period, now), timezone: event.timezone };
+  }
+
+  /** Périodes pre/post-event d'un event, pour que l'écran directeur affiche quand le
+   *  PIN est générable (et désactive le bouton hors période) sans recalculer. */
+  async getPeriods(spaceId: string, eventId: string, user: CurrentUserData) {
+    await this.assertSpaceAccess(user, spaceId);
+    const tenantId = user.tenantId!;
+    const [pre, post] = await Promise.all([
+      this.resolvePeriod(spaceId, eventId, tenantId, 'pre-event'),
+      this.resolvePeriod(spaceId, eventId, tenantId, 'post-event'),
+    ]);
+    const view = (p: typeof pre, phase: InventoryWindowPhase) => ({
+      opensAt: p.period.opensAt,
+      closesAt: p.period.closesAt,
+      state: p.state,
+      message: p.state === 'open' ? null : periodRefusalMessage(phase, p.state, p.period, p.timezone),
+    });
+    return { 'pre-event': view(pre, 'pre-event'), 'post-event': view(post, 'post-event') };
+  }
+
+  private async assertPeriodOpen(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+    phase: InventoryWindowPhase,
+  ): Promise<void> {
+    const { period, state, timezone } = await this.resolvePeriod(spaceId, eventId, tenantId, phase);
+    if (state !== 'open') {
+      throw new BadRequestException(periodRefusalMessage(phase, state, period, timezone));
+    }
+  }
+
   async createOrReopenWindow(dto: CreateWindowDto, user: CurrentUserData) {
     await this.assertSpaceAccess(user, dto.spaceId);
     const tenantId = user.tenantId!;
     const actorUserId = user.id;
+    await this.assertPeriodOpen(dto.spaceId, dto.eventId, tenantId, dto.phase);
+
+    // Une seule fenêtre ouverte par espace et par phase (index partiel
+    // InventoryWindow_one_open_per_space_phase) : une fenêtre d'un AUTRE match restée
+    // ouverte (cron arrêté, fenêtre antérieure à la clôture automatique) bloquait
+    // silencieusement l'ouverture du match suivant (incident Jean Bouin 26/09). Elle
+    // est hors période par construction : clôturée sans push Logistic, un vieux
+    // comptage ne doit pas recaler le registre d'aujourd'hui.
+    const stale = await this.prisma.inventoryWindow.findMany({
+      where: {
+        tenantId,
+        spaceId: dto.spaceId,
+        phase: dto.phase,
+        status: 'open',
+        eventId: { not: dto.eventId },
+      },
+    });
+    for (const w of stale) {
+      await this.closeWindowRecord(w, actorUserId, { pushToLogistic: false, reason: 'superseded' });
+    }
+
     const window = await this.prisma.inventoryWindow.upsert({
       where: {
         uniq_inventory_window: {
@@ -618,6 +693,15 @@ export class GuestPinAccessService {
     const window = await this.prisma.inventoryWindow.findFirst({ where: { id: windowId, tenantId } });
     if (!window) throw new NotFoundException('Fenêtre introuvable');
     await this.assertSpaceAccess(user, window.spaceId);
+    if (window.status !== 'open') {
+      throw new BadRequestException('Fenêtre clôturée : impossible de générer un PIN.');
+    }
+    await this.assertPeriodOpen(
+      window.spaceId,
+      window.eventId,
+      tenantId,
+      window.phase as InventoryWindowPhase,
+    );
 
     for (let attempt = 0; attempt < PIN_GENERATION_MAX_RETRIES; attempt++) {
       const pin = this.generatePin();
@@ -777,6 +861,23 @@ export class GuestPinAccessService {
     if (window.status !== 'open') {
       throw new ForbiddenException('Fenêtre déjà clôturée');
     }
+    const push = await this.closeWindowRecord(window, actorUserId, { pushToLogistic: true, reason: 'manual' });
+    return { windowClosed: true, push };
+  }
+
+  /**
+   * Clôture effective d'une fenêtre, partagée par le bouton directeur, l'ouverture d'un
+   * autre match (fenêtre périmée) et le cron de fin de période
+   * (InventoryWindowLifecycleCronService). `pushToLogistic: false` pour toute clôture
+   * tardive : un comptage d'un match passé ne doit pas recaler le registre actuel.
+   */
+  async closeWindowRecord(
+    window: InventoryWindow,
+    actorId: string,
+    options: { pushToLogistic: boolean; reason: 'manual' | 'superseded' | 'period-end' },
+  ): Promise<{ ok: boolean; reason?: string }> {
+    const tenantId = window.tenantId;
+    const windowId = window.id;
 
     // La clôture (= révocation de tous les accès invité de cette fenêtre) est
     // inconditionnelle : elle prend effet même si le push logistique échoue
@@ -785,46 +886,59 @@ export class GuestPinAccessService {
     // unique) pour qu'une future fenêtre puisse retomber sur le même PIN à 6
     // chiffres sans collision — le login le rejette de toute façon déjà via
     // `window.status === 'open'`, ce n'est qu'une libération de la valeur.
-    await this.prisma.inventoryWindow.update({
-      where: { id: windowId },
+    // Conditionnel sur status 'open' : le cron et un clic directeur simultanés ne
+    // clôturent (et ne poussent) qu'une fois.
+    const closed = await this.prisma.inventoryWindow.updateMany({
+      where: { id: windowId, status: 'open' },
       data: {
         status: 'closed',
         closedAt: new Date(),
-        closedBy: actorUserId,
+        closedBy: actorId,
         pinLookupHash: null,
         pinCiphertext: null,
       },
     });
+    if (!closed.count) return { ok: false, reason: 'already-closed' };
 
     let pushResult: { ok: boolean; reason?: string } = { ok: false, reason: 'not-attempted' };
-    try {
-      pushResult = await this.inventoryService.pushCurrentCountToLogistic(
-        window.spaceId,
-        window.eventId,
-        tenantId,
-        window.phase as 'pre-event' | 'post-event',
-        actorUserId,
-      );
-      await this.prisma.inventoryWindow.update({
-        where: { id: windowId },
-        data: { pushedToLogisticAt: new Date() },
-      });
-    } catch (error: any) {
-      this.logger.warn(
-        `Fenêtre ${windowId} clôturée mais push logistique en échec : ${error?.message}`,
-      );
-      pushResult = { ok: false, reason: error?.message ?? 'push-failed' };
+    if (options.pushToLogistic) {
+      try {
+        pushResult = await this.inventoryService.pushCurrentCountToLogistic(
+          window.spaceId,
+          window.eventId,
+          tenantId,
+          window.phase as 'pre-event' | 'post-event',
+          actorId,
+        );
+        await this.prisma.inventoryWindow.update({
+          where: { id: windowId },
+          data: { pushedToLogisticAt: new Date() },
+        });
+      } catch (error: any) {
+        this.logger.warn(
+          `Fenêtre ${windowId} clôturée mais push logistique en échec : ${error?.message}`,
+        );
+        pushResult = { ok: false, reason: error?.message ?? 'push-failed' };
+      }
     }
 
+    // Les acteurs système ('system-…') ne sont pas des User : l'audit exige un userId
+    // réel ou rien.
+    const isSystemActor = actorId.startsWith('system-');
     await this.audit.log({
       tenantId,
-      userId: actorUserId,
+      userId: isSystemActor ? undefined : actorId,
       action: 'UPDATE',
       entity: 'InventoryWindow',
       entityId: windowId,
-      metadata: { action: 'close-and-push-logistic', pushResult },
+      metadata: {
+        action: options.pushToLogistic ? 'close-and-push-logistic' : 'close',
+        reason: options.reason,
+        actor: actorId,
+        pushResult,
+      },
     });
 
-    return { windowClosed: true, push: pushResult };
+    return pushResult;
   }
 }

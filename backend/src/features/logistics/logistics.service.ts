@@ -10,6 +10,7 @@ import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.s
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto, StockItemKind } from './dto/logistics.dto';
 import { StartSimulationRunDto } from './dto/simulation-run.dto';
+import { pickNextEventBeforeDoorsOpen } from '../../shared/utils/event-window.util';
 
 export interface SimulationTickJobData {
   runId: string;
@@ -1699,6 +1700,31 @@ export class LogisticsService {
     return { index, asOf: new Date(), anchorAt };
   }
 
+  /** Prochain event de l'espace dont les portes ne sont pas encore ouvertes
+   *  (cf. pickNextEventBeforeDoorsOpen). Candidats bornés à partir de la veille : un
+   *  event qui finit après minuit (fin 03:00) reste candidat jusqu'à sa fin. */
+  private async findNextEventBeforeDoorsOpen(spaceId: string, tenantId: string): Promise<{ id: string } | null> {
+    const now = new Date();
+    const [space, candidates] = await Promise.all([
+      this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { timezone: true } }),
+      this.prisma.event.findMany({
+        where: { spaceId, tenantId, eventDate: { gte: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000) } },
+        orderBy: { eventDate: 'asc' },
+        take: 10,
+        select: {
+          id: true,
+          eventDate: true,
+          eventStartDate: true,
+          eventEndDate: true,
+          eventEndTime: true,
+          sessions: true,
+        },
+      }),
+    ]);
+    const next = pickNextEventBeforeDoorsOpen(candidates, space?.timezone || 'Europe/Paris', now);
+    return next ? { id: next.id } : null;
+  }
+
   async getStock(spaceId: string, tenantId: string, configId?: string, eventId?: string) {
     const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true, name: true } });
     if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
@@ -1707,15 +1733,12 @@ export class LogisticsService {
       // Config n'a pas de tenantId propre (scoping via spaceId, déjà vérifié tenant plus haut).
       this.prisma.config.findMany({ where: { spaceId }, select: { id: true, name: true }, orderBy: { createdAt: 'asc' } }),
       eventId ? this.prisma.event.findFirst({ where: { id: eventId, spaceId, tenantId }, select: { configurationId: true } }) : null,
-      // Event le plus proche dans le futur pour cet espace — calibre le "besoin
-      // prédit" par défaut (retour PO, sans ?event= explicite dans l'URL) sur la
-      // feuille de réarmement du prochain match plutôt que rien. Miroir du calcul
-      // fait côté front par SpaceInventoryView.resolveEventContext (mode pré-event).
-      this.prisma.event.findFirst({
-        where: { spaceId, tenantId, eventDate: { gt: new Date() } },
-        orderBy: { eventDate: 'asc' },
-        select: { id: true },
-      }),
+      // Prochain match pour cet espace : calibre le "besoin prédit" par défaut (retour
+      // PO, sans ?event= explicite dans l'URL) sur la feuille de réarmement du prochain
+      // match plutôt que rien. Même règle que SpaceInventoryView.resolveEventContext
+      // (mode pré-event) : le match du jour reste « prochain » jusqu'à l'ouverture des
+      // portes (eventDate est à minuit, `eventDate > now` l'excluait dès 00:00).
+      this.findNextEventBeforeDoorsOpen(spaceId, tenantId),
       this.getLevelsAndConsumption(spaceId, tenantId),
     ]);
     const { levels, consumption, anchorAt, lastRecoId } = stockState;

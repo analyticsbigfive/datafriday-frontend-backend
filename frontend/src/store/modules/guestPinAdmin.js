@@ -7,6 +7,7 @@
 import {
   createOrReopenWindow,
   getStatusBoard,
+  getPeriods,
   setWindowPin,
   revokeAccess,
   reactivateAccess,
@@ -20,11 +21,14 @@ const state = {
   fetching: false,
   spaceId: null,
   eventId: null,
+  // Périodes pre/post-event de l'event affiché (cf. getPeriods), null tant que non chargées.
+  periods: null,
 }
 
 const getters = {
   windows: (state) => state.windows,
   windowByPhase: (state) => (phase) => state.windows.find((w) => w.phase === phase) ?? null,
+  periodByPhase: (state) => (phase) => state.periods?.[phase] ?? null,
 }
 
 const mutations = {
@@ -32,6 +36,9 @@ const mutations = {
     state.spaceId = spaceId
     state.eventId = eventId
     state.windows = windows
+  },
+  SET_PERIODS(state, periods) {
+    state.periods = periods
   },
   SET_FETCHING(state, value) {
     state.fetching = value
@@ -48,6 +55,13 @@ const actions = {
     } finally {
       commit('SET_FETCHING', false)
     }
+  },
+
+  async fetchPeriods({ commit }, { spaceId, eventId }) {
+    commit('SET_PERIODS', null)
+    const periods = await getPeriods(spaceId, eventId)
+    commit('SET_PERIODS', periods)
+    return periods
   },
 
   async openWindow({ dispatch }, { spaceId, eventId, phase, showExpected }) {

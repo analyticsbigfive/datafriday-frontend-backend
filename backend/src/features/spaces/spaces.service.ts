@@ -2035,18 +2035,26 @@ export class SpacesService {
         spaceId,
         eventDate: { lte: now, gte: new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000) },
       },
-      select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true },
+      select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, eventEndTime: true },
       orderBy: { eventDate: 'desc' },
     });
+
+    // Fenêtre RÉELLE de l'event (minuit local du jour → heure de fin déclarée), même règle
+    // que l'agrégation. Les dates d'event sont toutes à minuit UTC : l'ancien calcul
+    // `eventEndDate + 3 h` fermait la fenêtre à 03:00 UTC le jour du match, aucun event
+    // n'était donc rattaché pendant le match (eventId null, badge Live masqué côté écran).
+    const space = candidates.length
+      ? await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { timezone: true } })
+      : null;
+    const tz = space?.timezone || 'Europe/Paris';
 
     // Ne bloque plus sur l'absence d'Event : `event` peut rester `undefined` — le live sera
     // alors détecté (ou non) sur la seule base des ventes réelles, cf. doc de la méthode.
     const event = candidates.find((e) => {
-      const start = e.eventStartDate ?? e.eventDate;
-      const end = e.eventEndDate ?? e.eventDate;
-      const graceEnd = new Date(end.getTime() + graceMs);
-      return now >= start && now <= graceEnd;
+      const { start, end } = resolveEventTransactionWindow(e, tz);
+      return now >= start && now <= new Date(end.getTime() + graceMs);
     });
+    const eventStart = event ? resolveEventTransactionWindow(event, tz).start : null;
 
     const [locationMapping, shopIds] = await Promise.all([
       this.prisma.locationSpaceMapping.findFirst({
@@ -2072,7 +2080,6 @@ export class SpacesService {
     // dans la fenêtre de l'event (pas une vente de test pré-event) — définition tranchée #20,
     // inchangée. Sans Event : fenêtre glissante de 30 min pure, aucun ancrage supplémentaire —
     // une vente isolée suffit, et le live retombe naturellement 30 min après la dernière vente.
-    const eventStart = event ? (event.eventStartDate ?? event.eventDate) : null;
     const effectiveWindowStart = eventStart && eventStart > windowStart ? eventStart : windowStart;
 
     const rows: { since: Date | null }[] = await this.prisma.$queryRaw(Prisma.sql`

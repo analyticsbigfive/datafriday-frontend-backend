@@ -168,3 +168,41 @@ export function resolveEventTransactionWindow(
   }
   return { start, end };
 }
+
+/**
+ * Fin de la période « avant-match » : ouverture des portes, sinon fin de l'event. Tant que
+ * `now` est avant cet instant, l'event est LE prochain match (Inventaire pre-event, besoin
+ * prédit Logistic). Jamais `eventDate > now` : `eventDate` est à minuit, le match du jour
+ * passait pour « passé » dès 00:00 (incident Jean Bouin, SFP-Lyon 26/09/2026).
+ */
+export function resolvePreEventDeadline(e: EventDayFields, timeZone: string): Date {
+  return resolveDoorsOpenAt(e, timeZone) ?? resolveEventTransactionWindow(e, timeZone).end;
+}
+
+/** Prochain event dont la période avant-match n'est pas terminée (tri par échéance). */
+export function pickNextEventBeforeDoorsOpen<T extends EventDayFields>(
+  events: ReadonlyArray<T>,
+  timeZone: string,
+  now: Date = new Date(),
+): T | null {
+  let best: { e: T; at: number } | null = null;
+  for (const e of events) {
+    const at = resolvePreEventDeadline(e, timeZone).getTime();
+    if (Number.isNaN(at) || at <= now.getTime()) continue;
+    if (!best || at < best.at) best = { e, at };
+  }
+  return best?.e ?? null;
+}
+
+/**
+ * Event TERMINÉ à `now` : sa fenêtre de ventes (fin déclarée, sinon minuit local suivant)
+ * est close. Pour tout ce qui dit « event passé » (agrégation à faire, onboarding) :
+ * `eventDate <= now` comptait le match du jour comme passé dès 00:00, avant la moindre vente.
+ */
+export function isEventOver(e: EventDayFields, timeZone: string, now: Date = new Date()): boolean {
+  return resolveEventTransactionWindow(e, timeZone).end.getTime() <= now.getTime();
+}
+
+/** Au-delà de ce recul, un event est forcément terminé (fin après minuit comprise) : seuls
+ *  les events plus récents sont évalués un par un. */
+export const EVENT_OVER_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;

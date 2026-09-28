@@ -985,6 +985,7 @@ import { normalizeStr } from '@/utils/predictiveAnalytics'
 // Contexte évènement du bandeau (nom + date + règle d'ancrage).
 import { describeAnchorEvent, matchLabel } from '@/utils/inventoryEventContext'
 import { parseEventDate } from '@/utils/dateFr'
+import { isPostEventStarted, pickInventoryAnchorEvent } from '@/utils/eventLifecycle'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 
 const TOP_TABS = [
@@ -1324,13 +1325,16 @@ export default {
     countsAreEventIndependent() {
       return !!this.contextEventId && !this.selectedEventId
     },
+    /** Fuseau du space, dans lequel sont saisies ouverture des portes et heure de fin. */
+    spaceTimeZone() {
+      return this.currentSpace?.timezone || 'Europe/Paris'
+    },
+    /** Matchs dont les portes sont ouvertes (pas « eventDate <= now » : eventDate est
+     *  un jour ancré à minuit, cf. utils/eventLifecycle.js). */
     pastEvents() {
-      const now = Date.now()
+      const now = new Date()
       return (this.events || [])
-        .filter((e) => {
-          const d = new Date(e.eventDate || e.date)
-          return !Number.isNaN(d.getTime()) && d.getTime() <= now
-        })
+        .filter((e) => isPostEventStarted(e, now, this.spaceTimeZone))
         .sort((a, b) => new Date(a.eventDate || a.date) - new Date(b.eventDate || b.date))
     },
     inventoryCounts() {
@@ -1570,12 +1574,9 @@ export default {
       return list.map((e) => this.normalizeCountingEntry(e))
     },
     eventOptions() {
-      const today = Date.now()
+      const now = new Date()
       const past = this.events
-        .filter((e) => {
-          const d = new Date(e.date || e.eventDate)
-          return !Number.isNaN(d.getTime()) && d.getTime() <= today
-        })
+        .filter((e) => isPostEventStarted(e, now, this.spaceTimeZone))
         .sort((a, b) => {
           const da = new Date(a.date || a.eventDate).getTime()
           const db = new Date(b.date || b.eventDate).getTime()
@@ -2034,27 +2035,28 @@ export default {
       //   FUTUR (deep-link Event Predict) est ignoré → repli dernier passé ;
       //   un ?event= passé explicite reste respecté (réconcilier un vieux match
       //   est un choix délibéré, pas une bascule silencieuse).
+      // Bascule à l'OUVERTURE DES PORTES, pas à minuit (eventDate est un jour ancré à
+      // 00:00 : le match du jour passait pour « passé » dès le matin, cf.
+      // utils/eventLifecycle.js). Mêmes instants que les fenêtres PIN côté serveur.
+      const tz = this.spaceTimeZone
       if (ev && this.isPreMode) ev = null
-      if (ev && !this.isPreMode) {
-        const t = new Date(ev.eventDate || ev.date).getTime()
-        if (Number.isNaN(t) || t > Date.now()) ev = null
-      }
+      if (ev && !this.isPreMode && !isPostEventStarted(ev, new Date(), tz)) ev = null
       // Ancrage par défaut (entrée directe ou ?event= rejeté ci-dessus). L'URL
       // est synchronisée (replace, pas de watcher route ici → pas de re-run)
       // pour rester partageable.
       if (!ev) {
         const okCfg = (e) => inConfigs(urlCfg) || inConfigs(e?.configurationId)
-        const now = Date.now()
-        const dated = (this.events || [])
-          .map((e) => ({ e, t: new Date(e.eventDate || e.date).getTime() }))
-          .filter((x) => !Number.isNaN(x.t) && okCfg(x.e))
-        const future = dated.filter((x) => x.t > now).sort((a, b) => a.t - b.t)
-        const past = dated.filter((x) => x.t <= now).sort((a, b) => b.t - a.t)
-        // PRE : prochain futur STRICT (aucun repli passé — sans event à venir,
-        // état vide preInvNoUpcoming). POST : dernier passé STRICT (aucun repli
-        // futur — un comptage post-event tagué sur un match à venir empoisonnait
-        // la baseline du pre-event suivant, écart §11.3 clos).
-        ev = this.isPreMode ? (future[0]?.e || null) : (past[0]?.e || null)
+        // PRE : prochain match dont les portes ne sont pas encore ouvertes (aucun
+        // repli passé : sans event à venir, état vide preInvNoUpcoming). POST :
+        // dernier match dont les portes sont ouvertes (aucun repli futur : un
+        // comptage post-event tagué sur un match à venir empoisonnait la baseline
+        // du pre-event suivant, écart §11.3 clos).
+        ev = pickInventoryAnchorEvent(
+          (this.events || []).filter(okCfg),
+          this.isPreMode ? 'pre' : 'post',
+          new Date(),
+          tz,
+        )
         if (ev && this.router) {
           this.router
             .replace({ query: { ...this.route.query, event: ev.id } })
@@ -2912,8 +2914,7 @@ export default {
     resolveReconciliationEvent() {
       const current = (this.events || []).find((e) => String(e.id) === String(this.selectedEventId))
       if (!current) return null
-      const d = new Date(current.date || current.eventDate)
-      return !Number.isNaN(d.getTime()) && d.getTime() <= Date.now() ? current : null
+      return isPostEventStarted(current, new Date(), this.spaceTimeZone) ? current : null
     },
     async createReconciliationAfterSave() {
       const spaceId = this.route.params.spaceId
