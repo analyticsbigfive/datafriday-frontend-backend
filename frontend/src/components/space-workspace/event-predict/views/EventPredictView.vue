@@ -1431,6 +1431,7 @@ import { restrictRecordsToMenuConfig } from "@/utils/predictionPerimeter";
 import { resolveItemsContext, isEstimationEligible } from "@/utils/estimationMode";
 import { resolveInventoryRouteName } from "@/utils/inventoryRouteTarget";
 import { setLastPredictedEvent, setPredictedRecords } from "@/data/localDb";
+import { eventDoorsOpenAt } from "@/utils/eventLifecycle";
 
 // PERF : les Edge Functions de mappings (shop-element / menu-item) sont lentes
 // (5-10 s) et leurs données changent rarement → cache localStorage par space,
@@ -1481,28 +1482,24 @@ const TOOLBOX_ITEMS = [
 ];
 
 /**
- * « Évènement déjà en cours (live) » — sa fenêtre a démarré. Un évènement live a
- * déjà été prédit : il ne doit plus être proposé comme CIBLE dans EventPredict
- * (il reste utilisable comme base de scoring, cf. `pastEventOptions`).
+ * « Évènement déjà en cours » : ses portes sont ouvertes. Un tel évènement a déjà
+ * été prédit : il ne doit plus être proposé comme CIBLE dans EventPredict (il reste
+ * utilisable comme base de scoring, cf. `pastEventOptions`).
  *
- * On teste la fenêtre localement au lieu d'appeler `GET /spaces/:id/live-status` :
- * cet endpoint exige la permission `front.fb.live`, que peut ne pas avoir un
- * utilisateur d'EventPredict (403), et le calendrier ne doit pas dépendre d'un
- * aller-retour réseau. Même instant de départ que `SpacesService.getLiveStatus`
- * (`eventStartDate`), sans sa requête ventes.
+ * Même bascule que l'Inventaire pre-event et les fenêtres PIN (utils/eventLifecycle.js) :
+ * l'ouverture des portes, pas `eventStartDate`. Ce dernier est un jour ancré à minuit
+ * (100 % des events en base) : le comparer à `now` retirait le match du jour des cibles
+ * dès 00:00, impossible de prédire le matin un match du soir.
  *
- * Sans `eventStartDate`, impossible de savoir qu'un évènement du jour a commencé
- * (`eventDate` est à minuit) : on le GARDE, sinon prédire le matin un match du
- * soir deviendrait impossible. Volontairement conservateur — on ne masque jamais
- * un évènement encore prédictible.
+ * Sans heure d'ouverture des portes, on ne peut pas savoir que l'évènement a commencé :
+ * on le GARDE (conservateur, on ne masque jamais un évènement encore prédictible).
  *
  * NB : évalué au calcul du computed, pas à la seconde. Un évènement qui démarre
  * pendant que la page est ouverte disparaît au prochain rechargement des events.
  */
 function isEventUnderway(ev) {
-  if (!ev?.eventStartDate) return false;
-  const start = new Date(ev.eventStartDate);
-  return !Number.isNaN(start.getTime()) && start.getTime() <= Date.now();
+  const doorsOpen = eventDoorsOpenAt(ev);
+  return !!doorsOpen && doorsOpen.getTime() <= Date.now();
 }
 
 /**

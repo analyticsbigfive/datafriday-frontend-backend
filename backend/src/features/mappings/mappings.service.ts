@@ -9,6 +9,7 @@ import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.s
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { unmappedCachePattern } from '../../shared/constants/event-batch-cache';
+import { countEndedEventsBySpace } from '../../shared/utils/count-ended-events';
 import {
   CreateLocationSpaceMappingDto,
   CreateMerchantElementMappingDto,
@@ -906,9 +907,10 @@ export class MappingsService {
         this.prisma.aggregationJobLog.count({
           where: { tenantId, spaceId: locationMapping.spaceId, status: 'completed' },
         }),
-        this.prisma.event.count({
-          where: { tenantId, spaceId: locationMapping.spaceId, eventDate: { lte: new Date() } },
-        }),
+        // Events TERMINÉS seulement : le match du jour n'est pas « à agréger » dès minuit.
+        countEndedEventsBySpace(this.prisma, { tenantId, spaceId: locationMapping.spaceId }).then(
+          (bySpace) => bySpace.get(locationMapping.spaceId) ?? 0,
+        ),
       ]);
       step4 = pastEventCount > 0 && completedJobs >= pastEventCount;
 
@@ -985,11 +987,7 @@ export class MappingsService {
         where: { tenantId, status: 'completed' },
         _count: true,
       }),
-      this.prisma.event.groupBy({
-        by: ['spaceId'],
-        where: { tenantId, eventDate: { lte: new Date() } },
-        _count: true,
-      }),
+      countEndedEventsBySpace(this.prisma, { tenantId }),
       this.prisma.spaceRevenueMinuteAgg.groupBy({
         by: ['spaceId'],
         where: { tenantId },
@@ -1000,7 +998,7 @@ export class MappingsService {
     // Index en Maps pour lookups O(1)
     const integSpaceMap = new Map(locationMappings.map((m) => [m.salesLocationId, m.spaceId]));
     const aggJobCountBySpace = new Map(aggJobs.filter((j) => j.spaceId).map((j) => [j.spaceId as string, j._count]));
-    const pastEventCountBySpace = new Map(pastEvents.filter((e) => e.spaceId).map((e) => [e.spaceId as string, e._count]));
+    const pastEventCountBySpace = pastEvents;
     const revenueBySpace = new Set(revenueAggs.map((r) => r.spaceId).filter(Boolean));
 
     // 3. Calcul par intégration

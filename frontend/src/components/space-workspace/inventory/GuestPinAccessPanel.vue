@@ -22,12 +22,21 @@
           color="#ff3131"
           rounded="lg"
           :loading="opening"
+          :disabled="periodBlocked"
           @click="onGeneratePin"
         >
           <KeyRound :size="14" class="mr-1" />
           {{ hasPin ? t('guestPinAdminResetPin') : t('guestPinAdminGeneratePin') }}
         </v-btn>
       </div>
+
+      <!-- Période (règle 2026-09-28) : pre-event jusqu'à l'ouverture des portes,
+           post-event de l'ouverture des portes à la fin de l'event. Le serveur refuse
+           hors période ; ici on le dit AVANT le clic. -->
+      <p v-if="periodLabel" class="gpp-period" :class="{ 'gpp-period--blocked': periodBlocked }">
+        {{ periodLabel }}
+      </p>
+      <p v-if="error" class="gpp-error">{{ error }}</p>
 
       <template v-if="isWindowOpen">
         <!-- PIN en cours, retrouvable après fermeture du popup (critère
@@ -77,6 +86,8 @@
 <script>
 import { Check, Copy, Info, KeyRound } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
+import { parseInstant } from '@/utils/preEventEditWindow';
+import { windowPeriodState } from '@/utils/eventLifecycle';
 import SetWindowPinDialog from '@/components/guest-pin-manage/dialogs/SetWindowPinDialog.vue';
 
 /**
@@ -109,6 +120,11 @@ export default {
       opening: false,
       pinDialogOpen: false,
       copied: false,
+      error: null,
+      // Horloge du panneau : la période bascule (ouverture des portes, fin de
+      // l'event) sans nouvelle requête.
+      now: new Date(),
+      clockTimer: null,
     };
   },
 
@@ -121,6 +137,33 @@ export default {
     },
     window() {
       return this.$store.getters['guestPinAdmin/windowByPhase'](this.phase);
+    },
+    period() {
+      return this.$store.getters['guestPinAdmin/periodByPhase'](this.phase);
+    },
+    periodState() {
+      return windowPeriodState(this.period, this.now);
+    },
+    /** Hors période : ouverture et PIN refusés par le serveur, bouton désactivé. */
+    periodBlocked() {
+      return this.periodState === 'not-yet' || this.periodState === 'over';
+    },
+    periodLabel() {
+      const fmt = (value) => {
+        const d = parseInstant(value);
+        return d
+          ? d.toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+          : '';
+      };
+      const isPre = this.phase === 'pre-event';
+      const key = {
+        'not-yet': 'guestPinPeriodPostNotYet',
+        over: isPre ? 'guestPinPeriodPreClosed' : 'guestPinPeriodPostClosed',
+        open: isPre ? 'guestPinPeriodPreClosesAt' : 'guestPinPeriodPostClosesAt',
+      }[this.periodState];
+      if (!key) return '';
+      const at = this.periodState === 'not-yet' ? this.period?.opensAt : this.period?.closesAt;
+      return this.t(key).replace('{time}', fmt(at));
     },
     isWindowOpen() {
       return this.window?.status === 'open';
@@ -160,12 +203,23 @@ export default {
 
   created() {
     this.maybeFetch();
+    this.clockTimer = setInterval(() => { this.now = new Date(); }, 30 * 1000);
+  },
+
+  beforeUnmount() {
+    clearInterval(this.clockTimer);
   },
 
   methods: {
     maybeFetch() {
+      this.error = null;
       if (this.spaceId && this.eventId) {
-        this.$store.dispatch('guestPinAdmin/fetchStatusBoard', { spaceId: this.spaceId, eventId: this.eventId });
+        const ctx = { spaceId: this.spaceId, eventId: this.eventId };
+        this.$store.dispatch('guestPinAdmin/fetchStatusBoard', ctx).catch((e) => {
+          this.error = e?.response?.data?.message || this.t('guestPinAdminGenerateError');
+        });
+        // Non bloquant : sans périodes, le serveur reste l'arbitre au clic.
+        this.$store.dispatch('guestPinAdmin/fetchPeriods', ctx).catch(() => null);
       }
     },
 
@@ -184,6 +238,7 @@ export default {
      *  store : on attend le prochain tick avant de basculer modelValue, sinon
      *  son watcher (non immediate) ne verrait pas l'ouverture. */
     async onGeneratePin() {
+      this.error = null;
       if (!this.isWindowOpen) {
         this.opening = true;
         try {
@@ -193,10 +248,18 @@ export default {
             phase: this.phase,
           });
           await this.$nextTick();
+        } catch (e) {
+          // Jamais silencieux : un refus serveur (hors période, fenêtre d'un autre
+          // match) laissait le bouton sans effet ni message (incident Jean Bouin 26/09).
+          this.error = e?.response?.data?.message || this.t('guestPinAdminGenerateError');
+          return;
         } finally {
           this.opening = false;
         }
-        if (!this.isWindowOpen) return;
+        if (!this.isWindowOpen) {
+          this.error = this.t('guestPinAdminGenerateError');
+          return;
+        }
       }
       this.pinDialogOpen = true;
     },
@@ -300,6 +363,18 @@ export default {
   border-radius: 10px;
   color: #92400e;
   font-size: 11.5px;
+}
+.gpp-period {
+  margin: 8px 0 0;
+  font-size: 11px;
+  color: #6b7280;
+}
+.gpp-period--blocked { color: #b45309; font-weight: 600; }
+.gpp-error {
+  margin: 8px 0 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: #b91c1c;
 }
 .gpp-note svg { flex-shrink: 0; margin-top: 1px; color: #b45309; }
 </style>

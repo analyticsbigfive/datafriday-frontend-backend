@@ -36,6 +36,16 @@ export class GuestPinAdminController {
     return this.service.getStatusBoard(spaceId, eventId, user);
   }
 
+  @Get(':spaceId/:eventId/periods')
+  @ApiOperation({ summary: 'Périodes pre/post-event (ouverture des portes, fin de l\'event) et leur état actuel' })
+  async periods(
+    @Param('spaceId') spaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.service.getPeriods(spaceId, eventId, user);
+  }
+
   @Post(':windowId/pin')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Génère (ou régénère) LE PIN partagé de cette fenêtre — vaut pour tous les PDV, affiché une seule fois' })

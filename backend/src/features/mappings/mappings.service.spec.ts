@@ -15,7 +15,7 @@ const mockPrisma: any = {
   $queryRaw: jest.fn(),
   productMapping: { count: jest.fn() },
   aggregationJobLog: { count: jest.fn(), groupBy: jest.fn() },
-  event: { count: jest.fn(), groupBy: jest.fn() },
+  event: { count: jest.fn(), groupBy: jest.fn(), findMany: jest.fn() },
   spaceRevenueMinuteAgg: { count: jest.fn(), groupBy: jest.fn() },
   integration: { findMany: jest.fn() },
 };
@@ -127,7 +127,8 @@ describe('MappingsService', () => {
       ]);
       mockPrisma.productMapping.count.mockResolvedValue(0);
       mockPrisma.aggregationJobLog.count.mockResolvedValue(0);
-      mockPrisma.event.count.mockResolvedValue(0);
+      mockPrisma.event.groupBy.mockResolvedValue([]);
+      mockPrisma.event.findMany.mockResolvedValue([]);
       mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
 
       const result = await service.getIntegrationProgress(TENANT, INT_A);
@@ -171,6 +172,7 @@ describe('MappingsService', () => {
       mockPrisma.productMapping.count.mockResolvedValue(0);
       mockPrisma.aggregationJobLog.groupBy.mockResolvedValue([]);
       mockPrisma.event.groupBy.mockResolvedValue([]);
+      mockPrisma.event.findMany.mockResolvedValue([]);
       mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([]);
 
       const result = await service.getAllIntegrationProgress(TENANT);
@@ -196,6 +198,7 @@ describe('MappingsService', () => {
       mockPrisma.productMapping.count.mockResolvedValue(0);
       mockPrisma.aggregationJobLog.groupBy.mockResolvedValue([]);
       mockPrisma.event.groupBy.mockResolvedValue([]);
+      mockPrisma.event.findMany.mockResolvedValue([]);
       mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([]);
 
       const result = await service.getAllIntegrationProgress(TENANT);
