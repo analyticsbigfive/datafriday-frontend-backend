@@ -2,27 +2,21 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../core/database/prisma.service';
 import { GuestPinAccessService } from './guest-pin-access.service';
-import {
-  InventoryWindowPhase,
-  inventoryWindowPeriod,
-  inventoryWindowPeriodState,
-} from './inventory-window-period';
+import { inventoryWindowPeriod, inventoryWindowPeriodState } from './inventory-window-period';
 
 /**
- * Clôture automatique des fenêtres invité (PIN) à la fin de leur période
- * (cf. inventory-window-period.ts) : pre-event à l'ouverture des portes, post-event à
- * l'heure de fin de l'event.
+ * Clôture automatique des fenêtres invité (PIN) PRE-EVENT à l'ouverture des portes
+ * (cf. inventory-window-period.ts). Le post-event n'est jamais fermé ici : c'est
+ * l'utilisateur qui le clôture (« Update Logistic »), décision Ulrich 2026-09-28.
  *
  * Piloté par les FENÊTRES OUVERTES, pas par les events récents : l'ancien seul
  * mécanisme (InventoryLiveInitCronService, candidats bornés à 7 jours et marqueur déjà
- * posé) laissait des fenêtres ouvertes indéfiniment, qui bloquaient ensuite le match
- * suivant (index unique une fenêtre ouverte par espace et par phase, incident Jean Bouin
- * 26/09). Chaque tick rattrape donc aussi toute fenêtre oubliée.
+ * posé) laissait des fenêtres pre-event ouvertes indéfiniment, qui bloquaient ensuite le
+ * match suivant (index unique une fenêtre ouverte par espace et par phase, incident Jean
+ * Bouin 26/09). Chaque tick rattrape donc aussi toute fenêtre oubliée.
  *
- * Push Logistic : seulement pour un post-event clôturé à l'heure (au plus
- * LATE_PUSH_GRACE_MS après la fin), comme le bouton « Clôturer ». Le pre-event n'est
- * jamais poussé ici, le flux « portes ouvertes » (PreEventInventoryFlowService.runDoorsOpen)
- * s'en charge.
+ * Jamais de push Logistic ici : le flux « portes ouvertes »
+ * (PreEventInventoryFlowService.runDoorsOpen) régénère et pousse la feuille pre-event.
  */
 @Injectable()
 export class InventoryWindowLifecycleCronService implements OnModuleInit {
@@ -31,7 +25,6 @@ export class InventoryWindowLifecycleCronService implements OnModuleInit {
   private running = false;
 
   static readonly ACTOR = 'system-window-lifecycle';
-  static readonly LATE_PUSH_GRACE_MS = 3 * 60 * 60 * 1000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -57,7 +50,9 @@ export class InventoryWindowLifecycleCronService implements OnModuleInit {
   }
 
   async closeExpiredWindows(now: Date = new Date()): Promise<number> {
-    const windows = await this.prisma.inventoryWindow.findMany({ where: { status: 'open' } });
+    const windows = await this.prisma.inventoryWindow.findMany({
+      where: { status: 'open', phase: 'pre-event' },
+    });
     if (!windows.length) return 0;
 
     const events = await this.prisma.event.findMany({
@@ -77,29 +72,20 @@ export class InventoryWindowLifecycleCronService implements OnModuleInit {
     let closedCount = 0;
     for (const window of windows) {
       const event = eventById.get(window.eventId);
-      let pushToLogistic = false;
+      // Event supprimé : fenêtre orpheline, clôturée elle aussi.
       if (event) {
-        const period = inventoryWindowPeriod(
-          event,
-          window.phase as InventoryWindowPhase,
-          event.space?.timezone || 'Europe/Paris',
-        );
+        const period = inventoryWindowPeriod(event, 'pre-event', event.space?.timezone || 'Europe/Paris');
         if (inventoryWindowPeriodState(period, now) !== 'over') continue;
-        pushToLogistic =
-          window.phase === 'post-event' &&
-          now.getTime() - period.closesAt.getTime() <= InventoryWindowLifecycleCronService.LATE_PUSH_GRACE_MS;
       }
-      // Event supprimé : fenêtre orpheline, clôturée sans push.
       try {
         const push = await this.guestPin.closeWindowRecord(window, InventoryWindowLifecycleCronService.ACTOR, {
-          pushToLogistic,
+          pushToLogistic: false,
           reason: 'period-end',
         });
         if (push.reason === 'already-closed') continue;
         closedCount++;
         this.logger.log(
-          `Fenêtre ${window.phase} clôturée en fin de période : space ${window.spaceId} / event ${window.eventId}` +
-            (pushToLogistic ? ` (push Logistic ${push.ok ? 'ok' : `échec : ${push.reason}`})` : ''),
+          `Fenêtre pre-event clôturée à l'ouverture des portes : space ${window.spaceId} / event ${window.eventId}`,
         );
       } catch (error: any) {
         this.logger.warn(`Clôture de la fenêtre ${window.id} en échec : ${error?.message}`);

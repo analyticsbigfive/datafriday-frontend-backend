@@ -156,13 +156,16 @@ export default {
           : '';
       };
       const isPre = this.phase === 'pre-event';
+      // Post-event : aucune fermeture automatique, c'est l'utilisateur qui clôture
+      // (« Update Logistic »), décision 2026-09-28.
       const key = {
         'not-yet': 'guestPinPeriodPostNotYet',
-        over: isPre ? 'guestPinPeriodPreClosed' : 'guestPinPeriodPostClosed',
-        open: isPre ? 'guestPinPeriodPreClosesAt' : 'guestPinPeriodPostClosesAt',
+        over: 'guestPinPeriodPreClosed',
+        open: isPre ? 'guestPinPeriodPreClosesAt' : 'guestPinPeriodPostManualClose',
       }[this.periodState];
       if (!key) return '';
-      const at = this.periodState === 'not-yet' ? this.period?.opensAt : this.period?.closesAt;
+      const at = this.periodState === 'open' && !isPre ? this.period?.opensAt
+        : this.periodState === 'not-yet' ? this.period?.opensAt : this.period?.closesAt;
       return this.t(key).replace('{time}', fmt(at));
     },
     isWindowOpen() {

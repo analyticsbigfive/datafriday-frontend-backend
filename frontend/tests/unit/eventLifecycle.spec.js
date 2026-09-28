@@ -72,6 +72,12 @@ describe('windowPeriodState', () => {
     expect(windowPeriodState(post, at('2026-09-26T21:00:00Z'))).toBe('over')
   })
 
+  it('post-event sans fermeture automatique : ouvert après la fin du match', () => {
+    const manual = { opensAt: '2026-09-26T13:00:00.000Z', closesAt: null }
+    expect(windowPeriodState(manual, at('2026-09-26T12:59:00Z'))).toBe('not-yet')
+    expect(windowPeriodState(manual, at('2026-09-28T10:00:00Z'))).toBe('open')
+  })
+
   it('période inconnue', () => {
     expect(windowPeriodState(null)).toBe('unknown')
   })

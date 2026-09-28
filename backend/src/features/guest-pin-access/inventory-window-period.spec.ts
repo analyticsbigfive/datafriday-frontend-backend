@@ -38,30 +38,15 @@ describe('inventoryWindowPeriod', () => {
   describe('post-event', () => {
     const period = inventoryWindowPeriod(sfpLyon, 'post-event', TZ);
 
-    it("s'ouvre à l'ouverture des portes et se ferme à l'heure de fin", () => {
+    it("s'ouvre à l'ouverture des portes, sans fermeture automatique", () => {
       expect(period.opensAt?.toISOString()).toBe('2026-09-26T13:00:00.000Z');
-      expect(period.closesAt.toISOString()).toBe('2026-09-26T21:00:00.000Z');
+      expect(period.closesAt).toBeNull();
     });
 
-    it('états avant / pendant / après', () => {
+    it("reste ouvert après la fin de l'event : c'est l'utilisateur qui clôture", () => {
       expect(inventoryWindowPeriodState(period, at('2026-09-26T12:59:00Z'))).toBe('not-yet');
       expect(inventoryWindowPeriodState(period, at('2026-09-26T14:15:00Z'))).toBe('open');
-      expect(inventoryWindowPeriodState(period, at('2026-09-26T21:00:00Z'))).toBe('over');
-    });
-
-    it('fin après minuit (SFP-Vannes, fin 03:00 le lendemain)', () => {
-      const p = inventoryWindowPeriod(
-        {
-          eventDate: new Date('2026-11-28T00:00:00.000Z'),
-          eventEndDate: new Date('2026-11-29T00:00:00.000Z'),
-          eventEndTime: '03:00',
-          sessions: '[{"doorsOpening":"19:00"}]',
-        },
-        'post-event',
-        TZ,
-      );
-      expect(p.opensAt?.toISOString()).toBe('2026-11-28T18:00:00.000Z');
-      expect(p.closesAt.toISOString()).toBe('2026-11-29T02:00:00.000Z');
+      expect(inventoryWindowPeriodState(period, at('2026-09-28T10:00:00Z'))).toBe('open');
     });
 
     it("sans heure d'ouverture des portes : dès minuit local le jour du match", () => {

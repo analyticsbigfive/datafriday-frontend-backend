@@ -27,7 +27,7 @@ describe('InventoryWindowLifecycleCronService', () => {
     };
     const guestPin = { closeWindowRecord: jest.fn().mockResolvedValue({ ok: true }) };
     const cron = new InventoryWindowLifecycleCronService(prisma as any, guestPin as any);
-    return { cron, guestPin };
+    return { cron, guestPin, prisma };
   };
 
   // Situation réelle de Jean Bouin le 26/09 à 16:15 Paris (14:15 UTC).
@@ -39,22 +39,16 @@ describe('InventoryWindowLifecycleCronService', () => {
     event('sfp-montpellier', '2026-10-10', '13:00', '23:50'),
   ];
 
-  it('clôture les fenêtres oubliées des matchs passés, sans push Logistic', async () => {
-    const { cron, guestPin } = setup(
-      [window('w-pre-12', 'pfc-lyon', 'pre-event'), window('w-post-19', 'pfc-strasbourg', 'post-event')],
-      events,
-    );
-    await expect(cron.closeExpiredWindows(now)).resolves.toBe(2);
-    for (const call of guestPin.closeWindowRecord.mock.calls) {
-      expect(call[2]).toEqual({ pushToLogistic: false, reason: 'period-end' });
-    }
+  it('clôture les fenêtres pre-event oubliées des matchs passés, sans push Logistic', async () => {
+    const { cron, guestPin, prisma } = setup([window('w-pre-12', 'pfc-lyon', 'pre-event')], events);
+    await expect(cron.closeExpiredWindows(now)).resolves.toBe(1);
+    expect(guestPin.closeWindowRecord.mock.calls[0][2]).toEqual({ pushToLogistic: false, reason: 'period-end' });
+    // Le post-event n'est jamais lu : il est clôturé par l'utilisateur.
+    expect(prisma.inventoryWindow.findMany).toHaveBeenCalledWith({ where: { status: 'open', phase: 'pre-event' } });
   });
 
-  it('laisse ouverts le post-event du match en cours et le pre-event du match suivant', async () => {
-    const { cron, guestPin } = setup(
-      [window('w-post-26', 'sfp-lyon', 'post-event'), window('w-pre-10', 'sfp-montpellier', 'pre-event')],
-      events,
-    );
+  it('laisse ouvert le pre-event du match suivant', async () => {
+    const { cron, guestPin } = setup([window('w-pre-10', 'sfp-montpellier', 'pre-event')], events);
     await expect(cron.closeExpiredWindows(now)).resolves.toBe(0);
     expect(guestPin.closeWindowRecord).not.toHaveBeenCalled();
   });
@@ -67,15 +61,9 @@ describe('InventoryWindowLifecycleCronService', () => {
     expect(guestPin.closeWindowRecord.mock.calls[0][2]).toEqual({ pushToLogistic: false, reason: 'period-end' });
   });
 
-  it("ferme le post-event à l'heure de fin et pousse vers Logistic", async () => {
-    const { cron, guestPin } = setup([window('w-post-26', 'sfp-lyon', 'post-event')], events);
-    await cron.closeExpiredWindows(new Date('2026-09-26T21:01:00Z'));
-    expect(guestPin.closeWindowRecord.mock.calls[0][2]).toEqual({ pushToLogistic: true, reason: 'period-end' });
-  });
-
-  it('clôture sans push une fenêtre dont l\'event a disparu', async () => {
-    const { cron, guestPin } = setup([window('w-orphan', 'deleted', 'post-event')], events);
+  it("clôture une fenêtre pre-event dont l'event a disparu", async () => {
+    const { cron, guestPin } = setup([window('w-orphan', 'deleted', 'pre-event')], events);
     await cron.closeExpiredWindows(now);
-    expect(guestPin.closeWindowRecord.mock.calls[0][2]).toEqual({ pushToLogistic: false, reason: 'period-end' });
+    expect(guestPin.closeWindowRecord).toHaveBeenCalledTimes(1);
   });
 });
