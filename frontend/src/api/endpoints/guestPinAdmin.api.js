@@ -11,6 +11,14 @@ export async function getStatusBoard(spaceId, eventId) {
   return response.data
 }
 
+/** Périodes pre/post-event de cet event : `{ 'pre-event': { opensAt, closesAt, state,
+ *  message }, 'post-event': {...} }`, state = 'not-yet' | 'open' | 'over'. Le serveur
+ *  refuse l'ouverture et le PIN hors période, ceci sert à l'expliquer avant le clic. */
+export async function getPeriods(spaceId, eventId) {
+  const response = await api.get(`/inventory-windows/${spaceId}/${eventId}/periods`)
+  return response.data
+}
+
 /** Génère (ou régénère) LE PIN partagé de cette fenêtre — vaut pour TOUS les PDV,
  *  pas un par PDV (décision produit 2026-09-08). */
 export async function setWindowPin(windowId) {

@@ -20,6 +20,7 @@ import { getSpaceLiveStatus, getSpaceEventTimelineBatch, getSpaceTransactionBask
 import { getEvents } from '@/api/endpoints/event.api'
 import { useLiveStream } from '@/composables/useLiveStream'
 import { buildShopTotals, buildTimelineByMinute, sumBasketTransactions, txPerMinuteFromBaskets } from '@/utils/liveKpis'
+import { isEventInProgress } from '@/utils/eventLifecycle'
 
 // Décision utilisateur (2026-09-01) : pas de "front qui va demander" en boucle, même
 // espacé — le backend sait déjà exactement quand quelque chose change (il publie sur
@@ -56,6 +57,13 @@ export function useLiveData(spaceId) {
   // dépendre d'aucun état déjà chargé côté store Analyse (zéro couplage, décision
   // utilisateur 2026-09-01).
   function findTodayEvent(events) {
+    // D'abord l'event EN COURS (minuit local du jour → fin réelle, cf.
+    // utils/eventLifecycle.js) : un match fini à 03:00 le lendemain reste l'event du
+    // Live après minuit. Repli jour calendaire : après la fin, le Live montre encore
+    // le match du jour.
+    const now = new Date()
+    const inProgress = (events || []).find((e) => isEventInProgress(e, now))
+    if (inProgress) return inProgress
     const today = new Date(); today.setHours(0, 0, 0, 0)
     const todayEnd = new Date(today); todayEnd.setHours(23, 59, 59, 999)
     for (const e of events || []) {
