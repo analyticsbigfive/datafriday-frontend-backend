@@ -132,15 +132,16 @@ export function isPostEventStarted(event, now = new Date(), timeZone = DEFAULT_T
  * État d'une période de fenêtre PIN renvoyée par le serveur
  * (GET /inventory-windows/:spaceId/:eventId/periods), ré-évalué à `now` pour que le
  * panneau bascule à la minute sans re-requêter.
- * @param {{ opensAt?: string|null, closesAt?: string }|null} period
+ * @param {{ opensAt?: string|null, closesAt?: string|null }|null} period
  * @returns {'unknown'|'not-yet'|'open'|'over'}
  */
 export function windowPeriodState(period, now = new Date()) {
-  const closesAt = parseInstant(period?.closesAt)
-  if (!closesAt) return 'unknown'
-  const opensAt = parseInstant(period?.opensAt)
+  if (!period || typeof period !== 'object') return 'unknown'
+  // closesAt null = aucune fermeture automatique (post-event, clôturé par l'utilisateur).
+  const closesAt = parseInstant(period.closesAt)
+  const opensAt = parseInstant(period.opensAt)
   if (opensAt && now < opensAt) return 'not-yet'
-  if (now >= closesAt) return 'over'
+  if (closesAt && now >= closesAt) return 'over'
   return 'open'
 }
 
