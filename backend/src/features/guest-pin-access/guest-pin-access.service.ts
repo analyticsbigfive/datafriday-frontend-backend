@@ -922,12 +922,13 @@ export class GuestPinAccessService {
       }
     }
 
-    // Les acteurs système ('system-…') ne sont pas des User : l'audit exige un userId
-    // réel ou rien.
-    const isSystemActor = actorId.startsWith('system-');
+    // Acteur système (cron) : AuditLog.userId est obligatoire, l'écriture échouait à chaque
+    // fermeture automatique. La trace reste sur la fenêtre (closedBy/closedAt) et dans les
+    // logs du cron, comme pour la clôture « portes ouvertes » (runDoorsOpen).
+    if (actorId.startsWith('system-')) return pushResult;
     await this.audit.log({
       tenantId,
-      userId: isSystemActor ? undefined : actorId,
+      userId: actorId,
       action: 'UPDATE',
       entity: 'InventoryWindow',
       entityId: windowId,
