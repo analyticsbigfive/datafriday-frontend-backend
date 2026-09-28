@@ -1763,6 +1763,7 @@ import MarketPriceEditSupplierDrawer from '@/components/menu-fb/views/market-pri
 import RestockPlansPanel from '@/components/space-workspace/restock/RestockPlansPanel.vue'
 import NumberField from '@/components/common/NumberField.vue'
 import { isDemoMode } from '@/utils/demoMode'
+import { isEventOver } from '@/utils/eventLifecycle'
 
 // Garde-fou client AVANT le POST d'un plan — marge sous la garde backend
 // (restock-plans.service.ts : 1 000 000). Même métrique (JSON.stringify).
@@ -2016,25 +2017,24 @@ export default {
     ingredients() { return this.store.state.analyse?.ingredients || [] },
     components() { return this.store.state.analyse?.components || [] },
     marketPrices() { return this.store.state.inventory?.marketPrices || [] },
-    today() {
-      const d = new Date()
-      d.setHours(0, 0, 0, 0)
-      return d
+    spaceTimeZone() {
+      return this.currentSpace?.timezone || 'Europe/Paris'
     },
+    /** Cibles de réarmement : events pas encore TERMINÉS (fin réelle, cf.
+     *  utils/eventLifecycle.js). Un match en cours reste réarmable ; un match fini à
+     *  03:00 le lendemain le reste jusqu'à 03:00 (l'ancienne bascule à minuit local
+     *  l'en sortait en plein match). */
     futureEvents() {
+      const now = new Date()
       return this.events
-        .filter((event) => {
-          const ts = dateOnlyTs(event.eventDate || event.date)
-          return ts != null && ts >= this.today.getTime()
-        })
+        .filter((event) => dateOnlyTs(event.eventDate || event.date) != null && !isEventOver(event, now, this.spaceTimeZone))
         .sort((a, b) => dateOnlyTs(a.eventDate || a.date) - dateOnlyTs(b.eventDate || b.date))
     },
+    /** Références de ventes : events TERMINÉS uniquement (données de ventes complètes). */
     pastEvents() {
+      const now = new Date()
       return this.events
-        .filter((event) => {
-          const ts = dateOnlyTs(event.eventDate || event.date)
-          return ts != null && ts < this.today.getTime()
-        })
+        .filter((event) => dateOnlyTs(event.eventDate || event.date) != null && isEventOver(event, now, this.spaceTimeZone))
         .sort((a, b) => dateOnlyTs(a.eventDate || a.date) - dateOnlyTs(b.eventDate || b.date))
     },
     selectedEvents() {
