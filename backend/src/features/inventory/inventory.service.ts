@@ -248,12 +248,22 @@ export class InventoryService {
   }
 
   // ── POST /inventory/:spaceId/reconciliations ─────────────────────────────────
+  /**
+   * UNE feuille post-event par match (même système que le pre-event, demande Bertrand
+   * 2026-09-29) : chaque génération remplace la précédente.
+   *  - `draft` (PDV complet, recomptage) : feuille seule, Logistic et fenêtre PIN intacts ;
+   *  - final (« Générer la réconciliation ») : pousse le comptage vers Logistic et clôt le
+   *    post-event.
+   * Les lignes restent construites côté écran (mêmes sources et mêmes calculs qu'avant).
+   */
   async createPostEventReconciliation(
     spaceId: string,
     dto: CreatePostEventReconciliationDto,
     tenantId: string,
     userId?: string,
+    options: { draft?: boolean } = {},
   ) {
+    const draft = !!options.draft;
     this.logger.log(
       `POST /inventory/${spaceId}/reconciliations eventId=${dto.eventId} lines=${dto.lines?.length ?? 0}`,
     );
@@ -300,10 +310,20 @@ export class InventoryService {
           predictedSource: dto.predictedSource ?? null,
           predictedUnjoined: dto.predictedUnjoined ?? null,
           perimeterExcluded: dto.perimeterExcluded ?? null,
+          // Brouillon régénéré en cours de comptage : Logistic pas encore mis à jour.
+          draft,
         },
         createdBy: userId ?? null,
       } as any,
     });
+
+    // Remplace les feuilles post-event précédentes du match (après création : un échec
+    // ne fait jamais perdre la dernière feuille).
+    await this.prisma.stockReconciliation.deleteMany({
+      where: { tenantId, spaceId, eventId: event.id, kind: 'post-event', id: { not: created.id } },
+    });
+
+    if (draft) return created;
 
     // Le comptage d'après-match devient la nouvelle référence du registre
     // Logistic (PDF 2026-08-21) — jusqu'ici le post-event ne touchait JAMAIS aux
@@ -1455,6 +1475,51 @@ export class InventoryService {
       );
     }
     return result;
+  }
+
+  /**
+   * « Recompter » un PDV en post-event (demande Bertrand 2026-09-29) : ses articles repassent
+   * à compter, quantités remises à 0. Le comptage d'avant-match reste intact (snapshot
+   * pre-event, base de la réconciliation). Si un manager PIN avait déjà dit « J'ai terminé »
+   * ou été validé, son accès redevient modifiable pour qu'il recompte.
+   */
+  async resetElementForRecount(
+    spaceId: string,
+    eventId: string,
+    elementId: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<{ resetCount: number }> {
+    await this.assertSpace(spaceId, tenantId);
+    const event = await this.prisma.event.findFirst({
+      where: { id: eventId, spaceId, tenantId },
+      select: { id: true },
+    });
+    if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
+
+    const reset = await this.prisma.inventoryCount.updateMany({
+      where: { tenantId, spaceId, eventId, shopId: elementId },
+      data: {
+        isCounted: false,
+        countingStatus: 'pending',
+        packedUnits: 0,
+        looseUnits: 0,
+        countedBy: userId ?? null,
+      },
+    });
+
+    const windows = await this.prisma.inventoryWindow.findMany({
+      where: { tenantId, spaceId, eventId, phase: 'post-event', status: 'open' },
+      select: { id: true },
+    });
+    if (windows.length) {
+      await this.prisma.guestPinAccess.updateMany({
+        where: { windowId: { in: windows.map((w) => w.id) }, elementId },
+        data: { submittedAt: null, validatedAt: null, validatedBy: null },
+      });
+    }
+    this.logger.log(`Recomptage post-event : space ${spaceId} / event ${eventId} / PDV ${elementId} (${reset.count} ligne(s))`);
+    return { resetCount: reset.count };
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────

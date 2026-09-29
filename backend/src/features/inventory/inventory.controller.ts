@@ -22,6 +22,7 @@ import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
 import { CreatePreEventReconciliationDto } from './dto/create-pre-event-reconciliation.dto';
+import { RecountElementDto } from './dto/recount-element.dto';
 import { PushToLogisticDto } from './dto/push-to-logistic.dto';
 import { RegeneratePreEventReconciliationDto } from './dto/regenerate-pre-event-reconciliation.dto';
 import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
@@ -312,6 +313,37 @@ export class InventoryController {
   ) {
     this.logger.log(`POST /inventory/${spaceId}/reconciliations eventId=${dto.eventId}`);
     return this.inventoryService.createPostEventReconciliation(spaceId, dto, user.tenantId, user.id);
+  }
+
+  // Brouillon de la feuille post-event (PDV complet, recomptage) : ne touche ni Logistic
+  // ni la fenêtre PIN, ouvert à tous ceux qui comptent (permission de classe).
+  @Post(':spaceId/reconciliations/draft')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Régénère la feuille post-event du match en brouillon (sans Logistic ni clôture)' })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  async createPostEventReconciliationDraft(
+    @Param('spaceId') spaceId: string,
+    @Body() dto: CreatePostEventReconciliationDto,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`POST /inventory/${spaceId}/reconciliations/draft eventId=${dto.eventId}`);
+    return this.inventoryService.createPostEventReconciliation(spaceId, dto, user.tenantId, user.id, {
+      draft: true,
+    });
+  }
+
+  @Post(':spaceId/recount-element')
+  @RequirePermissions('front.fb.logisticReconcile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: '« Recompter » un point de vente en post-event : articles remis à compter' })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  async recountElement(
+    @Param('spaceId') spaceId: string,
+    @Body() dto: RecountElementDto,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`POST /inventory/${spaceId}/recount-element eventId=${dto.eventId} element=${dto.elementId}`);
+    return this.inventoryService.resetElementForRecount(spaceId, dto.eventId, dto.elementId, user.tenantId, user.id);
   }
 
   @Post(':spaceId/push-to-logistic')
