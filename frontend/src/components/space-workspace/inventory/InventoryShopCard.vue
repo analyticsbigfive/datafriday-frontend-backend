@@ -53,6 +53,18 @@
       :has-counts="countedItems > 0"
     />
 
+    <!-- « Recompter » ce PDV : post-event seulement, même droit que la mise à jour
+         Logistic. Composant à part entière, cf. PdvRecountButton.vue. -->
+    <PdvRecountButton
+      v-if="logisticUpdate && logisticUpdate.phase === 'post-event'"
+      :space-id="logisticUpdate.spaceId"
+      :event-id="logisticUpdate.eventId"
+      :element-id="entry.element.id"
+      :element-name="entry.element.name"
+      :has-counts="countedItems > 0"
+      @recounted="$emit('recounted', entry)"
+    />
+
     <!-- Action : libellé selon l'avancement (rien / en cours / terminé) -->
     <v-btn
       :color="isCounted ? 'grey-darken-2' : 'primary'"
@@ -73,6 +85,7 @@ import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import GuestPinBadge from './GuestPinBadge.vue'
 import PdvLogisticUpdateButton from './PdvLogisticUpdateButton.vue'
+import PdvRecountButton from './PdvRecountButton.vue'
 
 const { t } = useI18n()
 
@@ -94,7 +107,7 @@ const props = defineProps({
   logisticUpdate: { type: Object, default: null },
 })
 
-defineEmits(['start-count'])
+defineEmits(['start-count', 'recounted'])
 
 const shopTypeText = computed(() => {
   const v = props.entry?.element?.shopType
