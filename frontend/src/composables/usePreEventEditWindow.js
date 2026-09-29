@@ -26,12 +26,15 @@ export function usePreEventEditWindow(getKey, isActive, deps = {}) {
   let requestSeq = 0
 
   const state = computed(() => {
-    if (!isActive()) return { phase: 'unknown', doorsOpen: null, deadline: null, doorsOpenDone: false }
+    if (!isActive()) return { phase: 'unknown', opensAt: null, doorsOpen: null, deadline: null, doorsOpenDone: false }
     return preEventEditState(serverWindow.value, now.value)
   })
 
   const phase = computed(() => state.value.phase)
   const isLocked = computed(() => state.value.phase === 'locked')
+  /** Avant le début de la période pre-event : lecture seule. */
+  const isNotOpen = computed(() => state.value.phase === 'not-open')
+  const opensAt = computed(() => state.value.opensAt)
   const isAfterDoorsOpen = computed(() => state.value.phase === 'editing' || state.value.phase === 'locked')
   const hasNoDoorsOpen = computed(() => state.value.phase === 'no-doors-open')
   const doorsOpenDone = computed(() => state.value.doorsOpenDone)
@@ -89,6 +92,8 @@ export function usePreEventEditWindow(getKey, isActive, deps = {}) {
     state,
     phase,
     isLocked,
+    isNotOpen,
+    opensAt,
     isAfterDoorsOpen,
     hasNoDoorsOpen,
     doorsOpenDone,

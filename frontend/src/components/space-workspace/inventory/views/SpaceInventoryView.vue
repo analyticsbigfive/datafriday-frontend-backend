@@ -198,7 +198,12 @@
             <!-- Fenêtre des 30 min après l'ouverture des portes (critère
                  d'acceptation 2026-09-14) : modifications encore possibles, feuille
                  et Logistique régénérées automatiquement ; puis verrou. -->
-            <span v-if="preEventWindow.isLocked" class="si-band-title__warn si-band-title__lock">
+            <!-- Avant minuit le jour du match (ou la fin du match précédent s'il finit
+                 après minuit) : lecture seule (règle Bertrand 2026-09-29). -->
+            <span v-if="preEventWindow.isNotOpen" class="si-band-title__warn si-band-title__lock">
+              · {{ t('preInvNotOpenYet').replace('{time}', preEventOpensLabel) }}
+            </span>
+            <span v-else-if="preEventWindow.isLocked" class="si-band-title__warn si-band-title__lock">
               · {{ t('preInvLockedAfterDoors') }}
             </span>
             <span v-else-if="preEventWindow.isAfterDoorsOpen" class="si-band-title__warn">
@@ -303,11 +308,11 @@
                 <template #prepend><v-icon size="18">mdi-door-open</v-icon></template>
                 <v-list-item-title>{{ t('preInvDoorsOpenBtn') }}</v-list-item-title>
               </v-list-item>
-              <v-list-item v-if="selectedEventId" :disabled="pushingToLogistic" @click="onUpdateLogistic">
+              <v-list-item v-if="selectedEventId && canUpdateLogistic" :disabled="pushingToLogistic" @click="onUpdateLogistic">
                 <template #prepend><v-icon size="18">mdi-warehouse</v-icon></template>
                 <v-list-item-title>{{ t('invUpdateLogistic') }}</v-list-item-title>
               </v-list-item>
-              <v-list-item :disabled="!isCountComplete || saving || recoCreating" @click="onSaveAll">
+              <v-list-item v-if="canUpdateLogistic" :disabled="!isCountComplete || saving || recoCreating" @click="onSaveAll">
                 <template #prepend><v-icon size="18">mdi-content-save</v-icon></template>
                 <v-list-item-title>
                   {{ t('invSave') }}
@@ -332,8 +337,11 @@
             <v-icon size="16" class="mr-1">mdi-door-open</v-icon>
             {{ t('preInvDoorsOpenBtn') }}
           </v-btn>
+          <!-- Mise à jour Logistic et réconciliation : responsable logistique ou
+               administrateur du site (front.fb.logisticReconcile, règle Bertrand
+               2026-09-29). Les autres comptent, sans toucher au registre. -->
           <v-btn
-            v-if="selectedEventId"
+            v-if="selectedEventId && canUpdateLogistic"
             variant="outlined"
             class="si-band-btn si-band-btn--desktop"
             :loading="pushingToLogistic"
@@ -344,6 +352,7 @@
             {{ t('invUpdateLogistic') }}
           </v-btn>
           <v-btn
+            v-if="canUpdateLogistic"
             :loading="saving || recoCreating"
             :disabled="saving || recoCreating"
             class="si-band-btn si-band-btn--save si-band-btn--desktop"
@@ -505,7 +514,7 @@
           :expected-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedForField : null)"
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
-          :readonly="guestSession.isReadonly || preEventWindow.isLocked"
+          :readonly="guestSession.isReadonly || preEventWindow.isLocked || preEventWindow.isNotOpen"
           :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="countingShop = null"
@@ -625,6 +634,7 @@
                   :status-color="statusColor(entry)"
                   :show-guest-pin="canManageGuestPin"
                   :phase="guestPinPhase"
+                  :logistic-update="pdvLogisticUpdate"
                   @start-count="startCount"
                 />
               </template>
@@ -824,7 +834,7 @@
           :expected-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedForField : null)"
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
-          :readonly="guestSession.isReadonly || preEventWindow.isLocked"
+          :readonly="guestSession.isReadonly || preEventWindow.isLocked || preEventWindow.isNotOpen"
           :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="closeMobileCounting"
@@ -1380,12 +1390,32 @@ export default {
     },
     /** Bouton « Ouverture des portes » : pre-event staff, event ancré, passage pas
      *  encore fait (le serveur reste idempotent de toute façon). */
+    /** Contexte du bouton « Mettre à jour la Logistique » par PDV (cartes), null sans droit. */
+    pdvLogisticUpdate() {
+      if (!this.canUpdateLogistic || !this.selectedEventId || isDemoMode()) return null
+      const spaceId = this.route?.params?.spaceId
+      if (!spaceId) return null
+      return { spaceId: String(spaceId), eventId: String(this.selectedEventId), phase: this.guestPinPhase }
+    },
+    /** Mise à jour de Logistic et génération de réconciliation : responsable logistique
+     *  ou administrateur du site (règle Bertrand 2026-09-29), refusé sinon par le serveur. */
+    canUpdateLogistic() {
+      if (this.guestSession.isGuestMode) return false
+      const can = this.store.getters['auth/can']
+      return typeof can === 'function' ? can('front.fb.logisticReconcile') : false
+    },
     canTriggerDoorsOpen() {
+      if (!this.canUpdateLogistic) return false
       if (!this.isPreMode || this.guestSession.isGuestMode || isDemoMode()) return false
       if (!this.selectedEventId || this.preEventWindow.phase === 'unknown') return false
       return !this.preEventWindow.doorsOpenDone
     },
     /** Heure de fin de la fenêtre d'édition (HH:MM locale) pour le bandeau. */
+    preEventOpensLabel() {
+      const d = this.preEventWindow.opensAt
+      if (!d) return ''
+      return d.toLocaleString(this.intlLocale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+    },
     preEventDeadlineLabel() {
       const d = this.preEventWindow.deadline
       if (!d) return ''
@@ -2579,19 +2609,14 @@ export default {
       const spaceId = this.route.params.spaceId
       this.pushingToLogistic = true
       try {
-        // Une fenêtre d'accès PIN invité ouverte pour cette phase → clôture combinée
-        // (révoque tous les accès + pousse la logistique en un seul appel serveur),
-        // sinon simple push logistique (aucun accès invité créé pour cet event/phase).
-        const guestWindow = this.$store.getters['guestPinAdmin/windowByPhase']?.(this.guestPinPhase)
-        if (guestWindow?.status === 'open') {
-          await this.$store.dispatch('guestPinAdmin/close', guestWindow.id)
-        } else {
-          await pushInventoryCountToLogistic(
-            spaceId,
-            this.selectedEventId,
-            this.isPreMode ? 'pre-event' : 'post-event',
-          )
-        }
+        // Simple mise à jour du registre : ne clôt plus la fenêtre PIN (règle Bertrand
+        // 2026-09-29). Le post-event se termine à la génération de la réconciliation
+        // (serveur), le pre-event à l'ouverture des portes.
+        await pushInventoryCountToLogistic(
+          spaceId,
+          this.selectedEventId,
+          this.isPreMode ? 'pre-event' : 'post-event',
+        )
         this.successText = this.t('invUpdateLogisticSuccess')
         this.successSnackbar = true
       } catch (e) {
@@ -2993,6 +3018,11 @@ export default {
         // La réponse API est le document complet (lines incluses) → en tête de liste.
         this.reconciliations = [created, ...this.reconciliations.filter((r) => r.id !== created.id)]
         this.selectedReconciliationId = created.id
+        // La réconciliation post-event clôt le post-event côté serveur (fenêtre PIN
+        // comprise, règle Bertrand 2026-09-29) : le panneau PIN doit le refléter.
+        this.$store
+          .dispatch('guestPinAdmin/fetchStatusBoard', { spaceId, eventId: this.selectedEventId })
+          .catch(() => null)
       } catch (e) {
         console.warn('[SpaceInventory] création réconciliation KO:', e?.message)
         // Ventes indisponibles (réseau) : message dédié — pas de document créé,

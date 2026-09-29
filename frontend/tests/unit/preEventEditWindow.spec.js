@@ -43,10 +43,17 @@ describe('preEventEditState', () => {
 
   it("'no-doors-open' sans heure d'ouverture : aucun verrou, même le jour du match", () => {
     const s = preEventEditState({ phase: 'no-doors-open', doorsOpenAt: null, editDeadline: null, doorsOpenDone: false }, doorsOpen)
-    expect(s).toEqual({ phase: 'no-doors-open', doorsOpen: null, deadline: null, doorsOpenDone: false })
+    expect(s).toEqual({ phase: 'no-doors-open', opensAt: null, doorsOpen: null, deadline: null, doorsOpenDone: false })
   })
 
   it("'unknown' tant que l'état serveur n'est pas chargé", () => {
-    expect(preEventEditState(null, doorsOpen)).toEqual({ phase: 'unknown', doorsOpen: null, deadline: null, doorsOpenDone: false })
+    expect(preEventEditState(null, doorsOpen)).toEqual({ phase: 'unknown', opensAt: null, doorsOpen: null, deadline: null, doorsOpenDone: false })
+  })
+
+  it("'not-open' avant le début de la période (règle Bertrand 2026-09-29) : lecture seule", () => {
+    const opensAt = new Date(doorsOpen.getTime() - 15 * 60 * 60 * 1000)
+    const server = { opensAt: opensAt.toISOString(), doorsOpenAt: doorsOpen.toISOString(), doorsOpenDone: false }
+    expect(preEventEditState(server, new Date(opensAt.getTime() - 60 * 1000)).phase).toBe('not-open')
+    expect(preEventEditState(server, new Date(opensAt.getTime() + 60 * 1000)).phase).toBe('before')
   })
 })
