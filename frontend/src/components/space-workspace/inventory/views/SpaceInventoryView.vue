@@ -636,6 +636,7 @@
                   :phase="guestPinPhase"
                   :logistic-update="pdvLogisticUpdate"
                   @start-count="startCount"
+                  @recounted="onElementRecounted"
                 />
               </template>
               <template v-else>
@@ -961,6 +962,7 @@ import InventoryReconciliationSection from '@/components/space-workspace/invento
 import InventoryReconciliationView from '@/components/space-workspace/inventory/InventoryReconciliationView.vue'
 import {
   createPostEventReconciliation,
+  createPostEventReconciliationDraft,
   listInventoryReconciliations,
   deleteInventoryReconciliation,
   getPreEventInventory,
@@ -996,6 +998,7 @@ import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { describeAnchorEvent, matchLabel } from '@/utils/inventoryEventContext'
 import { parseEventDate } from '@/utils/dateFr'
 import { isPostEventStarted, pickInventoryAnchorEvent } from '@/utils/eventLifecycle'
+import { newlyCompletedElements, usePostEventDraftScheduler } from '@/composables/usePostEventDraftScheduler'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 
 const TOP_TABS = [
@@ -1388,8 +1391,18 @@ export default {
       const win = this.$store.getters['guestPinAdmin/windowByPhase']?.(this.guestPinPhase)
       return win?.status === 'open'
     },
-    /** Bouton « Ouverture des portes » : pre-event staff, event ancré, passage pas
-     *  encore fait (le serveur reste idempotent de toute façon). */
+    /** PDV entièrement comptés en post-event (ids triés), pour régénérer la feuille en
+     *  brouillon quand un nouveau PDV se complète (staff ou manager PIN). null hors
+     *  post-event staff. */
+    postEventCompletedKey() {
+      if (this.isPreMode || this.guestSession.isGuestMode || isDemoMode() || !this.selectedEventId) return null
+      const ids = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
+        .map((e) => e?.element?.id)
+        .filter((id) => id && this.isElementComplete(id))
+        .map(String)
+        .sort()
+      return `${this.selectedEventId}|${ids.join(',')}`
+    },
     /** Contexte du bouton « Mettre à jour la Logistique » par PDV (cartes), null sans droit. */
     pdvLogisticUpdate() {
       if (!this.canUpdateLogistic || !this.selectedEventId || isDemoMode()) return null
@@ -1404,18 +1417,21 @@ export default {
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.logisticReconcile') : false
     },
+    /** Bouton « Ouverture des portes » : pre-event staff, event ancré, passage pas
+     *  encore fait (le serveur reste idempotent de toute façon). */
     canTriggerDoorsOpen() {
       if (!this.canUpdateLogistic) return false
       if (!this.isPreMode || this.guestSession.isGuestMode || isDemoMode()) return false
       if (!this.selectedEventId || this.preEventWindow.phase === 'unknown') return false
       return !this.preEventWindow.doorsOpenDone
     },
-    /** Heure de fin de la fenêtre d'édition (HH:MM locale) pour le bandeau. */
+    /** Début de la période pre-event (JJ/MM HH:MM locale) pour le bandeau « pas encore ouvert ». */
     preEventOpensLabel() {
       const d = this.preEventWindow.opensAt
       if (!d) return ''
       return d.toLocaleString(this.intlLocale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
     },
+    /** Heure de fin de la fenêtre d'édition (HH:MM locale) pour le bandeau. */
     preEventDeadlineLabel() {
       const d = this.preEventWindow.deadline
       if (!d) return ''
@@ -2990,21 +3006,7 @@ export default {
         }
         let created
         try {
-          created = await createPostEventReconciliation(spaceId, {
-            ...basePayload,
-            preEventSource: meta.preEventSource,
-            ...(meta.salesUnjoined ? { salesUnjoined: meta.salesUnjoined } : {}),
-            countedProgress: meta.countedProgress,
-            // Q35 : grain de la source « Vendu » — un backend antérieur le rejette
-            // en 400 « should not exist » → repli basePayload ci-dessous (BUG-228).
-            salesSource: meta.salesSource,
-            // BUG-378-02 : même réflexe, mêmes champs optionnels côté DTO.
-            predictedSource: meta.predictedSource,
-            ...(meta.predictedUnjoined ? { predictedUnjoined: meta.predictedUnjoined } : {}),
-            ...(meta.perimeterExcluded ? { perimeterExcluded: meta.perimeterExcluded } : {}),
-            ...(meta.baselineFallback ? { baselineFallback: meta.baselineFallback } : {}),
-            baselineUncoveredElements: meta.baselineUncoveredElements,
-          })
+          created = await createPostEventReconciliation(spaceId, this.postEventReconciliationPayload(basePayload, meta))
         } catch (e) {
           // Réflexe BUG-228 : le DTO backend est en whitelist stricte
           // (`forbidNonWhitelisted`). Sur un serveur pas encore redéployé, les
@@ -3015,8 +3017,9 @@ export default {
           console.warn('[SpaceInventory] backend sans contexte de réconciliation — repli sans meta:', msg)
           created = await createPostEventReconciliation(spaceId, basePayload)
         }
-        // La réponse API est le document complet (lines incluses) → en tête de liste.
-        this.reconciliations = [created, ...this.reconciliations.filter((r) => r.id !== created.id)]
+        // La réponse API est le document complet (lines incluses) → en tête de liste,
+        // à la place de la feuille post-event précédente du match (supprimée côté serveur).
+        this.replacePostEventSheet(created)
         this.selectedReconciliationId = created.id
         // La réconciliation post-event clôt le post-event côté serveur (fenêtre PIN
         // comprise, règle Bertrand 2026-09-29) : le panneau PIN doit le refléter.
@@ -3034,6 +3037,54 @@ export default {
       } finally {
         this.recoCreating = false
       }
+    },
+    /** Payload complet (contexte de fabrication inclus) d'une feuille post-event. */
+    postEventReconciliationPayload(basePayload, meta) {
+      return {
+        ...basePayload,
+        preEventSource: meta.preEventSource,
+        ...(meta.salesUnjoined ? { salesUnjoined: meta.salesUnjoined } : {}),
+        countedProgress: meta.countedProgress,
+        // Q35 : grain de la source « Vendu ». Un backend antérieur le rejette
+        // en 400 « should not exist » → repli basePayload (BUG-228).
+        salesSource: meta.salesSource,
+        // BUG-378-02 : même réflexe, mêmes champs optionnels côté DTO.
+        predictedSource: meta.predictedSource,
+        ...(meta.predictedUnjoined ? { predictedUnjoined: meta.predictedUnjoined } : {}),
+        ...(meta.perimeterExcluded ? { perimeterExcluded: meta.perimeterExcluded } : {}),
+        ...(meta.baselineFallback ? { baselineFallback: meta.baselineFallback } : {}),
+        baselineUncoveredElements: meta.baselineUncoveredElements,
+      }
+    },
+    /** UNE feuille post-event par match : la nouvelle remplace la précédente dans la liste. */
+    replacePostEventSheet(doc) {
+      const sameMatch = (r) =>
+        r.id === doc.id || (r.kind === 'post-event' && String(r.eventId) === String(doc.eventId))
+      this.reconciliations = [doc, ...this.reconciliations.filter((r) => !sameMatch(r))]
+    },
+    /**
+     * Feuille post-event du match régénérée en BROUILLON (PDV complet, recomptage) :
+     * mêmes lignes que la version finale, sans Logistic ni clôture du post-event.
+     * Silencieuse : n'ouvre pas le document, la version finale reste « Générer la
+     * réconciliation ».
+     */
+    async regeneratePostEventDraft() {
+      if (this.isPreMode || this.guestSession.isGuestMode || isDemoMode()) return
+      const spaceId = this.route.params.spaceId
+      const recoEvent = this.resolveReconciliationEvent()
+      if (!spaceId || !recoEvent) return
+      const { lines, meta } = await this.buildReconciliationLines(spaceId, recoEvent)
+      const payload = this.postEventReconciliationPayload(
+        { eventId: recoEvent.id, eventName: recoEvent.name || recoEvent.eventName || undefined, lines },
+        meta,
+      )
+      const draft = await createPostEventReconciliationDraft(spaceId, payload)
+      if (draft?.id) this.replacePostEventSheet(draft)
+    },
+    /** Un PDV vient d'être remis à compter (« Recompter ») : comptages rechargés. */
+    async onElementRecounted() {
+      // minIdleMs 0 : la remise à zéro vient d'être faite côté serveur, rien en vol.
+      await this.store.dispatch('inventory/refreshInventorySilently', { minIdleMs: 0 })
     },
     /**
      * Collecte les 4 sources et construit les lignes (util pur
@@ -3490,6 +3541,15 @@ export default {
         this.preEventAnchorKey = ev?.id && spaceId ? { spaceId, eventId: String(ev.id) } : null
       },
     },
+    // Un PDV vient d'être entièrement compté en post-event : la feuille du match est
+    // régénérée en brouillon (même système que le pre-event, demande Bertrand
+    // 2026-09-29). Changement d'event = nouvel état de référence, rien de régénéré.
+    postEventCompletedKey(key, previous) {
+      const [eventId, ids] = key ? key.split('|') : [null, null]
+      const [prevEventId, prevIds] = previous ? previous.split('|') : [null, null]
+      if (!key || eventId !== prevEventId) return
+      if (newlyCompletedElements(prevIds, ids).length) this.postDraftScheduler?.schedule()
+    },
     livePollingActive: {
       immediate: true,
       handler(on) {
@@ -3551,6 +3611,7 @@ export default {
     // Rechargement des réconciliations à chaque tick du polling live (méthode de
     // la vue, hors de portée du setup).
     this.livePollExtra = () => this.loadReconciliations(this.route?.params?.spaceId, { silent: true })
+    this.postDraftScheduler = usePostEventDraftScheduler(() => this.regeneratePostEventDraft())
   },
   mounted() {
     this.updateViewportMode()
@@ -3558,6 +3619,7 @@ export default {
   },
   beforeUnmount() {
     window.removeEventListener('resize', this.updateViewportMode)
+    this.postDraftScheduler?.cancel()
   },
 }
 </script>

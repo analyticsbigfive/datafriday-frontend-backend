@@ -30,6 +30,11 @@
             <span class="irs-item-kind" :class="{ 'irs-item-kind--pre': reco.kind === 'pre-event' }">
               {{ t(reco.kind === 'pre-event' ? 'invRecoKindPre' : 'invRecoKindPost') }}
             </span>
+            <!-- Feuille post-event régénérée en cours de comptage : Logistic pas encore
+                 mis à jour, la version finale vient de « Générer la réconciliation ». -->
+            <span v-if="reco.meta && reco.meta.draft" class="irs-item-kind irs-item-kind--draft">
+              {{ t('invRecoDraft') }}
+            </span>
             <span class="irs-item-date">{{ formatDate(reco.createdAt) }}</span>
           </button>
           <!-- Suppression (« repartir de zéro » : supprimer puis regénérer). -->
@@ -199,5 +204,9 @@ function formatDate(v) {
 .irs-item-kind--pre {
   color: var(--fb-warning, #B45309);
   background: var(--fb-warning-soft, #FFF3E0);
+}
+.irs-item-kind--draft {
+  background: #f3f4f6;
+  color: #4b5563;
 }
 </style>
