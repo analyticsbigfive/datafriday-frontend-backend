@@ -5,6 +5,7 @@ import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import {
   resolveDoorsOpenAt,
   resolveEventTransactionWindow,
+  resolvePreEventStart,
 } from '../../shared/utils/event-window.util';
 
 /** Événement tel que lu pour le flux (sélection minimale, partagée cron/service). */
@@ -36,13 +37,18 @@ export interface PreEventRegenerateResult {
   lineCount?: number;
   /** Document créé (expurgé selon `canSeeExpected`), pour l'appel manuel. */
   document?: unknown;
+  /** Résultat du push vers Logistic archivé sur la feuille (meta.logisticPush). */
+  logisticPush?: { ok: boolean; reason: string | null; lineCount: number } | null;
 }
 
-export type PreEventWindowPhase = 'no-doors-open' | 'before' | 'editing' | 'locked';
+export type PreEventWindowPhase = 'not-open' | 'no-doors-open' | 'before' | 'editing' | 'locked';
 
 /** État de la fenêtre d'édition pre-event, exposé au front (instants UTC). */
 export interface PreEventWindowState {
   phase: PreEventWindowPhase;
+  /** Début de la période pre-event (minuit du jour du match, ou fin du match précédent
+   *  s'il finit après minuit). Avant : lecture seule. */
+  opensAt: Date | null;
   doorsOpenAt: Date | null;
   editDeadline: Date | null;
   doorsOpenDone: boolean;
@@ -61,8 +67,13 @@ export interface PreEventWindowState {
  *     n'écrivent plus.
  *  3. Pendant les 30 minutes qui suivent, les utilisateurs avec login peuvent
  *     encore modifier ; chaque écriture marque la feuille "à régénérer"
- *     (KvStore), et le cron la régénère à la minute suivante, Logistique
- *     comprise. Au-delà, l'écriture pre-event est refusée (403).
+ *     (KvStore), et le cron la régénère à la minute suivante, SANS toucher à la
+ *     Logistique : après l'ouverture des portes, la mise à jour de Logistic est
+ *     manuelle, point de vente par point de vente, par le responsable logistique
+ *     ou l'administrateur (règle Bertrand 2026-09-29). Au-delà des 30 minutes,
+ *     l'écriture pre-event est refusée (403).
+ *  4. Avant le début de la période (minuit le jour du match, ou fin du match
+ *     précédent s'il finit après minuit), l'écriture pre-event est refusée.
  *
  * "Doors Open" = `sessions[].doorsOpening` (heure locale du space) posée sur le
  * jour de l'event. `eventDate`/`eventStartDate` sont des jours calendaires ancrés
@@ -124,15 +135,54 @@ export class PreEventInventoryFlowService {
   windowState(
     event: FlowEvent,
     now: Date = new Date(),
+    opensAt: Date | null = null,
   ): Omit<PreEventWindowState, 'doorsOpenDone'> {
     const doorsOpenAt = this.doorsOpenAt(event);
     const editDeadline = this.editDeadline(event);
+    if (opensAt && now < opensAt) {
+      return { phase: 'not-open', opensAt, doorsOpenAt, editDeadline };
+    }
     if (!doorsOpenAt || !editDeadline) {
-      return { phase: 'no-doors-open', doorsOpenAt: null, editDeadline: null };
+      return { phase: 'no-doors-open', opensAt, doorsOpenAt: null, editDeadline: null };
     }
     const phase: PreEventWindowPhase =
       now < doorsOpenAt ? 'before' : now <= editDeadline ? 'editing' : 'locked';
-    return { phase, doorsOpenAt, editDeadline };
+    return { phase, opensAt, doorsOpenAt, editDeadline };
+  }
+
+  /**
+   * Début de la période pre-event (cf. resolvePreEventStart) : lit les events du même
+   * espace qui peuvent finir le jour du match (fin après minuit).
+   */
+  async preEventOpensAt(event: FlowEvent): Promise<Date> {
+    const day = new Date(event.eventStartDate ?? event.eventDate);
+    const neighbors = await this.prisma.event.findMany({
+      where: {
+        tenantId: event.tenantId,
+        spaceId: event.spaceId,
+        id: { not: event.id },
+        eventDate: { gte: new Date(day.getTime() - 3 * 24 * 60 * 60 * 1000), lte: day },
+      },
+      select: {
+        id: true,
+        eventDate: true,
+        eventStartDate: true,
+        eventEndDate: true,
+        eventEndTime: true,
+      },
+    });
+    return resolvePreEventStart(event, event.timezone || 'Europe/Paris', neighbors);
+  }
+
+  /** Portes déjà ouvertes (heure passée, ou passage « portes ouvertes » déjà fait). */
+  private async isAfterDoorsOpen(event: FlowEvent, now: Date = new Date()): Promise<boolean> {
+    const doorsOpen = this.doorsOpenAt(event);
+    if (doorsOpen && now >= doorsOpen) return true;
+    const marker = await this.prisma.kvStore.findUnique({
+      where: { uniq_kv_store: { tenantId: event.tenantId, key: this.doorsOpenKey(event.spaceId, event.id) } },
+      select: { id: true },
+    });
+    return !!marker;
   }
 
   /** État de la fenêtre pour le front (une seule source de vérité, instants UTC). */
@@ -143,7 +193,7 @@ export class PreEventInventoryFlowService {
   ): Promise<PreEventWindowState> {
     const event = await this.findEvent(spaceId, eventId, tenantId);
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
-    const state = this.windowState(event);
+    const state = this.windowState(event, new Date(), await this.preEventOpensAt(event));
     const marker = await this.prisma.kvStore.findUnique({
       where: { uniq_kv_store: { tenantId, key: this.doorsOpenKey(spaceId, eventId) } },
       select: { id: true },
@@ -165,12 +215,20 @@ export class PreEventInventoryFlowService {
       return this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
     }
     const event = await this.findEvent(dto.spaceId, dto.eventId, tenantId);
+    const now = new Date();
+    if (event) {
+      const opensAt = await this.preEventOpensAt(event);
+      if (now < opensAt) {
+        throw new ForbiddenException(
+          `Inventaire pré-événement pas encore ouvert : disponible à partir du ${formatLocal(opensAt, event.timezone)}.`,
+        );
+      }
+    }
     const doorsOpen = event ? this.doorsOpenAt(event) : null;
     const deadline = event ? this.editDeadline(event) : null;
     if (!event || !doorsOpen || !deadline) {
       return this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
     }
-    const now = new Date();
     if (now > deadline) {
       throw new ForbiddenException(
         `Inventaire pré-événement verrouillé : plus de ${PreEventInventoryFlowService.EDIT_WINDOW_MINUTES} minutes après l'ouverture des portes.`,
@@ -229,6 +287,8 @@ export class PreEventInventoryFlowService {
       /** Besoin prédit fourni par le client (appel manuel) ; sinon celui de la feuille précédente. */
       predictedUnits?: Record<string, Record<string, number>> | null;
       canSeeExpected?: boolean;
+      /** PDV poussés vers Logistic (undefined = tous, [] = aucun : feuille seule). */
+      pushElementIds?: string[];
     } = {},
   ): Promise<PreEventRegenerateResult> {
     const key = `${tenantId}:${spaceId}:${eventId}`;
@@ -257,6 +317,7 @@ export class PreEventInventoryFlowService {
     options: {
       predictedUnits?: Record<string, Record<string, number>> | null;
       canSeeExpected?: boolean;
+      pushElementIds?: string[];
     },
   ): Promise<PreEventRegenerateResult> {
     const event = await this.findEvent(spaceId, eventId, tenantId);
@@ -289,6 +350,7 @@ export class PreEventInventoryFlowService {
       predictedUnits,
       { trigger, regeneratedFrom: previous[0]?.id ?? null, ...extraMeta },
       previousLines,
+      options.pushElementIds,
     );
 
     if (previous.length) {
@@ -309,7 +371,13 @@ export class PreEventInventoryFlowService {
     this.logger.log(
       `Feuille pre-event régénérée (${trigger}) : space ${spaceId} / event ${eventId} (${lineCount ?? '?'} ligne(s))`,
     );
-    return { ok: true, reconciliationId: (created as any).id, lineCount, document: created };
+    return {
+      ok: true,
+      reconciliationId: (created as any).id,
+      lineCount,
+      document: created,
+      logisticPush: (created as any)?.meta?.logisticPush ?? null,
+    };
   }
 
   /** Besoin prédit archivé sur une feuille existante → blob attendu par
@@ -333,6 +401,48 @@ export class PreEventInventoryFlowService {
       found = true;
     }
     return found ? out : null;
+  }
+
+  /**
+   * Tous les articles d'un PDV sont comptés (staff ou invité PIN). Avant l'ouverture des
+   * portes : feuille régénérée et Logistic recalée (critère 2026-09-14). Après : feuille
+   * seule, Logistic reste à mettre à jour à la main (règle Bertrand 2026-09-29).
+   */
+  async regenerateOnPdvComplete(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+    actor: string,
+    elementId?: string | null,
+  ): Promise<PreEventRegenerateResult> {
+    const event = await this.findEvent(spaceId, eventId, tenantId);
+    if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
+    const afterDoors = await this.isAfterDoorsOpen(event);
+    return this.regenerate(
+      spaceId,
+      eventId,
+      tenantId,
+      actor,
+      'pdv-complete',
+      elementId ? { elementId } : {},
+      afterDoors ? { pushElementIds: [] } : {},
+    );
+  }
+
+  /**
+   * Mise à jour MANUELLE de Logistic pour un PDV en pre-event (responsable logistique ou
+   * administrateur) : la feuille est régénérée, seul ce PDV part vers le registre.
+   */
+  async pushElementToLogistic(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+    actor: string,
+    elementId: string,
+  ): Promise<PreEventRegenerateResult> {
+    return this.regenerate(spaceId, eventId, tenantId, actor, 'manual', { elementId, manualPush: true }, {
+      pushElementIds: [elementId],
+    });
   }
 
   // ── Ouverture des portes (cron ou manuel) ───────────────────────────────────
@@ -476,12 +586,15 @@ export class PreEventInventoryFlowService {
     if (!dirty) return { ok: false, reason: 'clean' };
     await this.prisma.kvStore.delete({ where: { id: dirty.id } });
     try {
+      // Feuille seule : après l'ouverture des portes, Logistic est mis à jour à la main.
       return await this.regenerate(
         event.spaceId,
         event.id,
         event.tenantId,
         'system-post-doors-open-edit',
         'post-doors-open-edit',
+        {},
+        { pushElementIds: [] },
       );
     } catch (error) {
       await this.markDirty(event.spaceId, event.id, event.tenantId);
@@ -510,3 +623,12 @@ export class PreEventInventoryFlowService {
     return { ...rest, tenantId, spaceId, timezone: space?.timezone || 'Europe/Paris' };
   }
 }
+
+const formatLocal = (instant: Date, timeZone: string): string =>
+  new Intl.DateTimeFormat('fr-FR', {
+    timeZone: timeZone || 'Europe/Paris',
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(instant);

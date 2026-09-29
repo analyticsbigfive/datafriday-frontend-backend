@@ -445,6 +445,14 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
       deltaLoose: -1,
     });
     expect(line(sheet, 'pdv1', ITEM.cookie)).toMatchObject({ deltaLoose: -3 }); // toujours l'écart d'origine
+    // Règle Bertrand 2026-09-29 : après l'ouverture des portes, la feuille est régénérée
+    // mais Logistic n'est PAS recalé automatiquement.
+    expect(logistics.resets).toHaveLength(3);
+    expect(sheet.meta.logisticPush).toMatchObject({ ok: false, reason: 'no-counts' });
+
+    // Mise à jour manuelle du PDV 1 par le responsable logistique : seul ce PDV part.
+    const manual = await flow.pushElementToLogistic(SPACE, EVENT_A, TENANT, 'resp-logistique', 'pdv1');
+    expect(manual.logisticPush).toMatchObject({ ok: true });
     expect(logistics.resets).toHaveLength(4);
     expect(resetKeys(lastReset())).toEqual([`pdv1::${ITEM.water}`]);
     expect(logistics.looseOf('pdv1', NAME.cookie)).toBe(4); // la vente du début de match n'est pas effacée

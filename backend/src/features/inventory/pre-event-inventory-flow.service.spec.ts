@@ -24,7 +24,8 @@ describe('PreEventInventoryFlowService', () => {
     upsertInventory: jest.fn().mockResolvedValue({ id: 'snap-1' }),
   };
   const mockPrisma = {
-    event: { findFirst: jest.fn() },
+    // findMany : events voisins lus pour le début de la période pre-event.
+    event: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     stockReconciliation: {
       findMany: jest.fn().mockResolvedValue([]),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -154,6 +155,7 @@ describe('PreEventInventoryFlowService', () => {
       expect(service.editDeadline(event)).toBeNull();
       expect(service.windowState(event)).toEqual({
         phase: 'no-doors-open',
+        opensAt: null,
         doorsOpenAt: null,
         editDeadline: null,
       });
@@ -261,6 +263,7 @@ describe('PreEventInventoryFlowService', () => {
         reconciliationId: 'reco-new',
         lineCount: 2,
         document: { id: 'reco-new', lines: [{}, {}] },
+        logisticPush: null,
       });
       expect(mockInventory.getBySpaceAndEvent).toHaveBeenCalledWith(
         'space-1',
@@ -279,6 +282,7 @@ describe('PreEventInventoryFlowService', () => {
         { 'shop-1': { 'mi-cookie': 40 } },
         { trigger: 'pdv-complete', regeneratedFrom: 'reco-old', elementId: 'shop-1' },
         previousLines,
+        undefined,
       );
       expect(mockPrisma.stockReconciliation.deleteMany).toHaveBeenCalledWith({
         where: { id: { in: ['reco-old'] } },
@@ -318,6 +322,7 @@ describe('PreEventInventoryFlowService', () => {
         { 'shop-1': { 'mi-cookie': 55 } },
         expect.objectContaining({ trigger: 'manual' }),
         expect.any(Array),
+        undefined,
       );
     });
 
@@ -409,6 +414,8 @@ describe('PreEventInventoryFlowService', () => {
         null,
         expect.objectContaining({ trigger: 'doors-open' }),
         null,
+        // Ouverture des portes : TOUS les PDV partent vers Logistic.
+        undefined,
       );
       expect(mockPrisma.kvStore.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -473,7 +480,7 @@ describe('PreEventInventoryFlowService', () => {
       expect(mockInventory.createPreEventReconciliation).not.toHaveBeenCalled();
     });
 
-    it('dirty : retire le marqueur puis régénère', async () => {
+    it('dirty : retire le marqueur puis régénère la feuille SANS pousser Logistic (manuel après les portes)', async () => {
       mockPrisma.kvStore.findUnique.mockResolvedValue({ id: 'kv-dirty' });
       const result = await service.flushDirty(flowEvent(5));
       expect(mockPrisma.kvStore.delete).toHaveBeenCalledWith({ where: { id: 'kv-dirty' } });
@@ -487,6 +494,7 @@ describe('PreEventInventoryFlowService', () => {
         null,
         expect.objectContaining({ trigger: 'post-doors-open-edit' }),
         null,
+        [],
       );
     });
 

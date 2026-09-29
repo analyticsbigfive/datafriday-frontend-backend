@@ -484,13 +484,12 @@ export class GuestPinAccessService {
    */
   async notifyElementComplete(user: GuestPinUser) {
     if (user.phase !== 'pre-event') return { ok: false, reason: 'not-pre-event' };
-    return this.preEventFlow.regenerate(
+    return this.preEventFlow.regenerateOnPdvComplete(
       user.spaceId,
       user.eventId,
       user.tenantId,
       `guest-pin:${user.elementId}`,
-      'pdv-complete',
-      { elementId: user.elementId },
+      user.elementId,
     );
   }
 
@@ -527,7 +526,8 @@ export class GuestPinAccessService {
   ) {
     const event = await this.preEventFlow.findEvent(spaceId, eventId, tenantId);
     if (!event) throw new NotFoundException('Événement introuvable pour cet espace');
-    const period = inventoryWindowPeriod(event, phase, event.timezone);
+    const preEventStart = phase === 'pre-event' ? await this.preEventFlow.preEventOpensAt(event) : null;
+    const period = inventoryWindowPeriod(event, phase, event.timezone, preEventStart);
     return { period, state: inventoryWindowPeriodState(period, now), timezone: event.timezone };
   }
 

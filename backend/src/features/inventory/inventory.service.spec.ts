@@ -60,6 +60,8 @@ const mockSimulationQueue = {
 // ── Mock Prisma ───────────────────────────────────────────────────────────────
 
 const mockPrisma = {
+  // Clôture du post-event à la création de la réconciliation (règle Bertrand 2026-09-29).
+  inventoryWindow: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
   inventorySnapshot: {
     findFirst: jest.fn(),
     create: jest.fn(),
