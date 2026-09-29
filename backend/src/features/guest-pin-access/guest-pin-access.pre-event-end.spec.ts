@@ -38,7 +38,7 @@ describe('GuestPinAccessService : fin de l\'inventaire pre-event (invité)', () 
             },
             guestPinAccess: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
         };
-        preEventFlow = { regenerate: jest.fn().mockResolvedValue({ ok: true, reconciliationId: 'reco-1', lineCount: 3 }) };
+        preEventFlow = { regenerateOnPdvComplete: jest.fn().mockResolvedValue({ ok: true, reconciliationId: 'reco-1', lineCount: 3 }) };
         redis = { get: jest.fn().mockResolvedValue(0), ttl: jest.fn().mockResolvedValue(0), set: jest.fn(), incr: jest.fn() };
         service = new GuestPinAccessService(
             prisma, redis, {} as any, {} as any, preEventFlow, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
@@ -46,22 +46,21 @@ describe('GuestPinAccessService : fin de l\'inventaire pre-event (invité)', () 
     });
 
     describe('Comptage terminé (PDV complet)', () => {
-        it('régénère la feuille pre-event du match et pousse Logistic, avec le PDV en contexte', async () => {
+        it('délègue au flux PDV complet (feuille + Logistic avant les portes), avec le PDV en contexte', async () => {
             const result = await service.notifyElementComplete(guest);
             expect(result).toEqual({ ok: true, reconciliationId: 'reco-1', lineCount: 3 });
-            expect(preEventFlow.regenerate).toHaveBeenCalledWith(
+            expect(preEventFlow.regenerateOnPdvComplete).toHaveBeenCalledWith(
                 'space-1',
                 'event-1',
                 'tenant-1',
                 'guest-pin:shop-1',
-                'pdv-complete',
-                { elementId: 'shop-1' },
+                'shop-1',
             );
         });
 
         it('sans effet en post-event', async () => {
             expect(await service.notifyElementComplete({ ...guest, phase: 'post-event' })).toEqual({ ok: false, reason: 'not-pre-event' });
-            expect(preEventFlow.regenerate).not.toHaveBeenCalled();
+            expect(preEventFlow.regenerateOnPdvComplete).not.toHaveBeenCalled();
         });
     });
 

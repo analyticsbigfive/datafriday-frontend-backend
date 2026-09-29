@@ -8,8 +8,10 @@
 // match). Ici seulement : relecture des instants et re-évaluation de la phase à `now`, pour
 // que le bandeau bascule à la minute sans re-requêter.
 //
-// Phases : 'no-doors-open' (aucune heure renseignée : aucun verrou, déclenchement manuel),
-// 'before', 'editing' (30 min après les portes), 'locked', 'unknown' (état non chargé).
+// Phases : 'not-open' (avant minuit le jour du match, ou avant la fin du match précédent
+// s'il finit après minuit : lecture seule, règle Bertrand 2026-09-29), 'no-doors-open'
+// (aucune heure renseignée : aucun verrou, déclenchement manuel), 'before', 'editing'
+// (30 min après les portes), 'locked', 'unknown' (état non chargé).
 
 export const PRE_EVENT_EDIT_WINDOW_MINUTES = 30
 
@@ -22,22 +24,26 @@ export function parseInstant(value) {
 
 /**
  * État de la fenêtre à l'instant `now`, depuis la réponse serveur.
- * @param {{ phase?: string, doorsOpenAt?: string|Date|null, editDeadline?: string|Date|null, doorsOpenDone?: boolean }|null} serverWindow
+ * @param {{ phase?: string, opensAt?: string|Date|null, doorsOpenAt?: string|Date|null, editDeadline?: string|Date|null, doorsOpenDone?: boolean }|null} serverWindow
  * @param {Date} now
- * @returns {{ phase: 'no-doors-open'|'before'|'editing'|'locked'|'unknown', doorsOpen: Date|null, deadline: Date|null, doorsOpenDone: boolean }}
+ * @returns {{ phase: 'not-open'|'no-doors-open'|'before'|'editing'|'locked'|'unknown', opensAt: Date|null, doorsOpen: Date|null, deadline: Date|null, doorsOpenDone: boolean }}
  */
 export function preEventEditState(serverWindow, now = new Date()) {
   if (!serverWindow || typeof serverWindow !== 'object') {
-    return { phase: 'unknown', doorsOpen: null, deadline: null, doorsOpenDone: false }
+    return { phase: 'unknown', opensAt: null, doorsOpen: null, deadline: null, doorsOpenDone: false }
   }
   const doorsOpenDone = !!serverWindow.doorsOpenDone
+  const opensAt = parseInstant(serverWindow.opensAt)
   const doorsOpen = parseInstant(serverWindow.doorsOpenAt)
-  if (!doorsOpen) return { phase: 'no-doors-open', doorsOpen: null, deadline: null, doorsOpenDone }
+  if (opensAt && now.getTime() < opensAt.getTime()) {
+    return { phase: 'not-open', opensAt, doorsOpen, deadline: parseInstant(serverWindow.editDeadline), doorsOpenDone }
+  }
+  if (!doorsOpen) return { phase: 'no-doors-open', opensAt, doorsOpen: null, deadline: null, doorsOpenDone }
   const deadline =
     parseInstant(serverWindow.editDeadline) ||
     new Date(doorsOpen.getTime() + PRE_EVENT_EDIT_WINDOW_MINUTES * 60 * 1000)
   const t = now.getTime()
-  if (t < doorsOpen.getTime()) return { phase: 'before', doorsOpen, deadline, doorsOpenDone }
-  if (t <= deadline.getTime()) return { phase: 'editing', doorsOpen, deadline, doorsOpenDone }
-  return { phase: 'locked', doorsOpen, deadline, doorsOpenDone }
+  if (t < doorsOpen.getTime()) return { phase: 'before', opensAt, doorsOpen, deadline, doorsOpenDone }
+  if (t <= deadline.getTime()) return { phase: 'editing', opensAt, doorsOpen, deadline, doorsOpenDone }
+  return { phase: 'locked', opensAt, doorsOpen, deadline, doorsOpenDone }
 }

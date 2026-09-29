@@ -92,8 +92,12 @@ export async function deleteInventoryReconciliation(spaceId, id) {
  * Post-event) vers le registre Logistic, sans créer de document de réconciliation.
  * POST /inventory/:spaceId/push-to-logistic
  */
-export async function pushInventoryCountToLogistic(spaceId, eventId, phase) {
-  return api.post(`/inventory/${spaceId}/push-to-logistic`, { eventId, phase })
+/** `elementId` : un seul point de vente (mise à jour manuelle par PDV, règle Bertrand
+ *  2026-09-29) ; absent = tous. Réservé à front.fb.logisticReconcile. */
+export async function pushInventoryCountToLogistic(spaceId, eventId, phase, elementId = null) {
+  const body = { eventId, phase }
+  if (elementId) body.elementId = elementId
+  return api.post(`/inventory/${spaceId}/push-to-logistic`, body)
 }
 
 /**

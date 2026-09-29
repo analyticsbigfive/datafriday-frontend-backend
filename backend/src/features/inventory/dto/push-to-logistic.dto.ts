@@ -1,5 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsIn, IsString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { IsIn, IsOptional, IsString } from 'class-validator';
 
 /** Déclenchement manuel du recalage Logistic depuis un écran Pre/Post-event Inventory. */
 export class PushToLogisticDto {
@@ -10,4 +10,11 @@ export class PushToLogisticDto {
   @ApiProperty({ enum: ['pre-event', 'post-event'], description: "Écran d'origine" })
   @IsIn(['pre-event', 'post-event'])
   phase: 'pre-event' | 'post-event';
+
+  @ApiPropertyOptional({
+    description: 'Un seul PDV (mise à jour manuelle par point de vente) ; absent = tous les PDV',
+  })
+  @IsOptional()
+  @IsString()
+  elementId?: string;
 }
