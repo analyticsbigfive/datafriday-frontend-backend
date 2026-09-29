@@ -323,6 +323,23 @@ export class InventoryService {
       userId,
     );
 
+    // Fin du post-event (règle Bertrand 2026-09-29) : quand le responsable logistique ou
+    // l'administrateur met à jour Logistic ET génère la réconciliation, c'est-à-dire ici
+    // (la réconciliation vient de pousser le comptage). La fenêtre PIN invité est close,
+    // les managers PDV n'écrivent plus. Écrit directement (GuestPinAccessModule dépend de
+    // ce module, pas l'inverse), même forme que la clôture « portes ouvertes ».
+    await this.prisma.inventoryWindow.updateMany({
+      where: { tenantId, spaceId, eventId: event.id, phase: 'post-event', status: 'open' },
+      data: {
+        status: 'closed',
+        closedAt: new Date(),
+        closedBy: userId ?? 'post-event-reconciliation',
+        pinLookupHash: null,
+        pinCiphertext: null,
+        pushedToLogisticAt: new Date(),
+      },
+    });
+
     return created;
   }
 
@@ -1019,6 +1036,10 @@ export class InventoryService {
     // écart figés au moment du comptage). La recalculer relirait un attendu Logistic
     // qui contient déjà ce comptage, et l'écart retomberait à 0 à chaque régénération.
     previousLines: unknown = null,
+    // PDV à pousser vers Logistic (undefined = tous, [] = aucun). Après l'ouverture des
+    // portes, la mise à jour de Logistic est manuelle et par PDV (règle Bertrand 2026-09-29) :
+    // la feuille reste régénérée pour tous, seul le PDV demandé part vers le registre.
+    pushElementIds?: string[],
   ) {
     this.logger.log(`POST /inventory/${spaceId}/pre-event-reconciliations eventId=${eventId}`);
     await this.assertSpace(spaceId, tenantId);
@@ -1224,7 +1245,7 @@ export class InventoryService {
       tenantId,
       'pre-event',
       event,
-      countedBlob,
+      pickElements(countedBlob, pushElementIds),
       userId,
       pushState,
     );
@@ -1408,6 +1429,8 @@ export class InventoryService {
     tenantId: string,
     phase: 'pre-event' | 'post-event',
     userId?: string,
+    // Un seul PDV (mise à jour manuelle par PDV, règle Bertrand 2026-09-29) ; sinon tous.
+    elementId?: string | null,
   ) {
     await this.assertSpace(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
@@ -1417,7 +1440,10 @@ export class InventoryService {
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
 
     const merged = await this.getBySpaceAndEvent(spaceId, event.id, tenantId, phase);
-    const countedBlob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
+    const countedBlob = pickElements(
+      (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>,
+      elementId ? [elementId] : undefined,
+    );
     const result = await this.pushCountToLogistic(spaceId, tenantId, phase, event, countedBlob, userId);
     if (!result.ok) {
       throw new BadRequestException(
@@ -1477,4 +1503,15 @@ export class InventoryService {
     }
     return out;
   }
+}
+
+/** Restreint un blob de comptages `{ elementId: { itemId: count } }` à certains PDV
+ *  (undefined = tous). */
+function pickElements<T>(
+  blob: Record<string, T>,
+  elementIds: string[] | undefined,
+): Record<string, T> {
+  if (!elementIds) return blob;
+  const keep = new Set(elementIds);
+  return Object.fromEntries(Object.entries(blob ?? {}).filter(([id]) => keep.has(id)));
 }

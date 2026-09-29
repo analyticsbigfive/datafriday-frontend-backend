@@ -159,7 +159,7 @@ export default {
       // Post-event : aucune fermeture automatique, c'est l'utilisateur qui clôture
       // (« Update Logistic »), décision 2026-09-28.
       const key = {
-        'not-yet': 'guestPinPeriodPostNotYet',
+        'not-yet': isPre ? 'guestPinPeriodPreNotYet' : 'guestPinPeriodPostNotYet',
         over: 'guestPinPeriodPreClosed',
         open: isPre ? 'guestPinPeriodPreClosesAt' : 'guestPinPeriodPostManualClose',
       }[this.periodState];

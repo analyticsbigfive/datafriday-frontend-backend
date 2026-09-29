@@ -41,6 +41,18 @@
       :element-name="entry.element.name"
     />
 
+    <!-- Mise à jour Logistic de ce PDV (responsable logistique / administrateur) :
+         composant à part entière, cf. PdvLogisticUpdateButton.vue. -->
+    <PdvLogisticUpdateButton
+      v-if="logisticUpdate"
+      :space-id="logisticUpdate.spaceId"
+      :event-id="logisticUpdate.eventId"
+      :phase="logisticUpdate.phase"
+      :element-id="entry.element.id"
+      :element-name="entry.element.name"
+      :has-counts="countedItems > 0"
+    />
+
     <!-- Action : libellé selon l'avancement (rien / en cours / terminé) -->
     <v-btn
       :color="isCounted ? 'grey-darken-2' : 'primary'"
@@ -60,6 +72,7 @@
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import GuestPinBadge from './GuestPinBadge.vue'
+import PdvLogisticUpdateButton from './PdvLogisticUpdateButton.vue'
 
 const { t } = useI18n()
 
@@ -76,6 +89,9 @@ const props = defineProps({
   // phase transite tel quel, aucune logique dans cette carte.
   showGuestPin: { type: Boolean, default: false },
   phase: { type: String, default: null },
+  // { spaceId, eventId, phase } quand l'utilisateur peut mettre Logistic à jour par
+  // PDV (front.fb.logisticReconcile) ; null sinon, aucun bouton.
+  logisticUpdate: { type: Object, default: null },
 })
 
 defineEmits(['start-count'])

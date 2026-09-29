@@ -156,7 +156,10 @@ export class InventoryController {
     return this.inventoryService.getPostEventBaseline(spaceId, eventId, user.tenantId);
   }
 
+  // Mise à jour de Logistic : responsable logistique ou administrateur du site seulement
+  // (règle Bertrand 2026-09-29), comme les quatre actions ci-dessous.
   @Post(':spaceId/pre-event-reconciliations')
+  @RequirePermissions('front.fb.logisticReconcile')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
@@ -213,6 +216,7 @@ export class InventoryController {
   }
 
   @Post(':spaceId/pre-event-doors-open')
+  @RequirePermissions('front.fb.logisticReconcile')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
@@ -249,13 +253,13 @@ export class InventoryController {
     this.logger.log(
       `POST /inventory/${spaceId}/pre-event-reconciliations/regenerate eventId=${dto.eventId} element=${dto.elementId ?? '-'}`,
     );
-    return this.preEventFlow.regenerate(
+    // Après l'ouverture des portes : feuille seule, Logistic reste manuel.
+    return this.preEventFlow.regenerateOnPdvComplete(
       spaceId,
       dto.eventId,
       user.tenantId,
       user.id,
-      'pdv-complete',
-      dto.elementId ? { elementId: dto.elementId } : {},
+      dto.elementId,
     );
   }
 
@@ -293,7 +297,10 @@ export class InventoryController {
     return this.inventoryService.getPreEventInventory(spaceId, eventId, user.tenantId);
   }
 
+  // Génère la réconciliation post-event, pousse le comptage vers Logistic et CLÔT le
+  // post-event (fenêtre PIN invité comprise).
   @Post(':spaceId/reconciliations')
+  @RequirePermissions('front.fb.logisticReconcile')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Créer un document de réconciliation post-événement (kind=post-event)' })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
@@ -308,6 +315,7 @@ export class InventoryController {
   }
 
   @Post(':spaceId/push-to-logistic')
+  @RequirePermissions('front.fb.logisticReconcile')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
@@ -320,8 +328,40 @@ export class InventoryController {
     @Body() dto: PushToLogisticDto,
     @CurrentUser() user: any,
   ) {
-    this.logger.log(`POST /inventory/${spaceId}/push-to-logistic eventId=${dto.eventId} phase=${dto.phase}`);
-    return this.inventoryService.pushCurrentCountToLogistic(spaceId, dto.eventId, user.tenantId, dto.phase, user.id);
+    this.logger.log(
+      `POST /inventory/${spaceId}/push-to-logistic eventId=${dto.eventId} phase=${dto.phase} element=${dto.elementId ?? '-'}`,
+    );
+    // Pre-event, un PDV : la feuille pre-event est régénérée (écarts à jour), seul ce PDV
+    // part vers le registre.
+    if (dto.phase === 'pre-event' && dto.elementId) {
+      const result = await this.preEventFlow.pushElementToLogistic(
+        spaceId,
+        dto.eventId,
+        user.tenantId,
+        user.id,
+        dto.elementId,
+      );
+      const push = result.logisticPush;
+      if (!result.ok || !push?.ok) {
+        const reason = result.ok ? push?.reason : result.reason;
+        throw new BadRequestException(
+          reason === 'no-counts' || reason === 'no-addressable-lines'
+            ? 'Aucun item compté à pousser vers Logistic pour ce point de vente'
+            : reason === 'nothing-new'
+              ? 'Registre Logistic déjà à jour pour ce point de vente'
+              : 'Échec de la mise à jour du registre Logistic',
+        );
+      }
+      return { ok: true, lineCount: push.lineCount };
+    }
+    return this.inventoryService.pushCurrentCountToLogistic(
+      spaceId,
+      dto.eventId,
+      user.tenantId,
+      dto.phase,
+      user.id,
+      dto.elementId,
+    );
   }
 
   @Get(':spaceId/:eventId')
