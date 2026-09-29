@@ -94,6 +94,8 @@ const mockPrisma = {
   },
   stockReconciliation: {
     create: jest.fn(),
+    // Une feuille post-event par match : les précédentes sont supprimées.
+    deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     findMany: jest.fn().mockResolvedValue([]),
     findFirst: jest.fn().mockResolvedValue(null),
     delete: jest.fn(),
@@ -1565,6 +1567,8 @@ describe('InventoryService', () => {
         predictedSource: null,
         predictedUnjoined: null,
         perimeterExcluded: null,
+        // Feuille finale (« Générer la réconciliation ») : pas un brouillon.
+        draft: false,
       });
     });
   });

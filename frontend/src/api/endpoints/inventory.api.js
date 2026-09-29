@@ -68,6 +68,18 @@ export async function createPostEventReconciliation(spaceId, payload) {
   return api.post(`/inventory/${spaceId}/reconciliations`, payload)
 }
 
+/** Brouillon de LA feuille post-event du match (PDV complet, recomptage) : remplace la
+ *  précédente sans toucher à Logistic ni à la fenêtre PIN. Même payload que ci-dessus. */
+export async function createPostEventReconciliationDraft(spaceId, payload) {
+  return api.post(`/inventory/${spaceId}/reconciliations/draft`, payload)
+}
+
+/** « Recompter » un point de vente en post-event : ses articles repassent à compter
+ *  (quantités remises à 0). Réservé à front.fb.logisticReconcile. */
+export async function recountInventoryElement(spaceId, eventId, elementId) {
+  return api.post(`/inventory/${spaceId}/recount-element`, { eventId, elementId })
+}
+
 /**
  * Liste COMMUNE des documents de réconciliation pre + post-événement (lines et
  * kind inclus, du plus récent au plus ancien) — badge de type côté écran.
