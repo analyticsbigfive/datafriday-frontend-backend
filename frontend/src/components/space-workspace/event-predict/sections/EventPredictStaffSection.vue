@@ -279,6 +279,9 @@ const STEP = 15 // minutes
 
 const props = defineProps({
   eventId: { type: String, required: true },
+  // BUG-391-02 : CA prédit par PDV affiché dans Event Predict ({ [elementId]: CA }).
+  // Vide tant que la timeline n'est pas calculée : la génération garde alors son repli backend.
+  predictedRevenueByElement: { type: Object, default: () => ({}) },
 })
 
 const store = useStore()
@@ -504,7 +507,10 @@ function onPersonChange(line, personId) {
 async function onGenerate() {
   generateError.value = ''
   try {
-    await store.dispatch('staffing/generate', props.eventId)
+    await store.dispatch('staffing/generate', {
+      eventId: props.eventId,
+      predictedRevenueByElement: props.predictedRevenueByElement,
+    })
     // Succès mais potentiellement 0 ligne créée → arme le bandeau explicatif
     // de l'état vide (BUG-258-01) ; sans effet si des cartes s'affichent.
     hasGeneratedOnce.value = true

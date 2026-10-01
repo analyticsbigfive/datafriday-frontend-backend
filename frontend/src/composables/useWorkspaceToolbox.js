@@ -2,6 +2,7 @@ import { computed } from 'vue'
 import { useStore } from 'vuex'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from '@/i18n/useI18n'
+import { safePush } from '@/utils/chunkReload'
 
 /**
  * Liste unique des outils du workspace espace (parapluie space-workspace) — source unique
@@ -51,18 +52,19 @@ export function useWorkspaceToolbox(currentValue) {
     if (!tool || tool.value === currentValue) return
     const spaceId = route.params.spaceId
     const ev = route.query?.event || null
+    // safePush : une navigation rejetée est journalisée au lieu de disparaître (BUG-389-02).
     if (tool.value === 'analyse') {
-      router.push({ name: 'space-analyse', params: { spaceId } })
+      safePush(router, { name: 'space-analyse', params: { spaceId } })
     } else if (tool.value === 'live') {
-      router.push({ name: 'space-live', params: { spaceId } })
+      safePush(router, { name: 'space-live', params: { spaceId } })
     } else if (tool.value === 'space-inventory') {
-      router.push({ name: 'space-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
+      safePush(router, { name: 'space-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
     } else if (tool.value === 'space-pre-inventory') {
-      router.push({ name: 'space-pre-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
+      safePush(router, { name: 'space-pre-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
     } else if (tool.value === 'restock') {
-      router.push({ name: 'space-restock', params: { spaceId }, query: ev ? { event: ev } : {} })
+      safePush(router, { name: 'space-restock', params: { spaceId }, query: ev ? { event: ev } : {} })
     } else {
-      router.push({ name: 'space-analyse', params: { spaceId }, query: { toolbox: tool.value } })
+      safePush(router, { name: 'space-analyse', params: { spaceId }, query: { toolbox: tool.value } })
     }
   }
 

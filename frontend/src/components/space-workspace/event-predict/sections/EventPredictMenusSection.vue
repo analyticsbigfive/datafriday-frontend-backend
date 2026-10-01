@@ -656,7 +656,7 @@
           <div ref="catViewport" class="ep-cat-viewport">
             <TabsList class="ep-toolbar-tabs">
               <TabsTrigger
-                v-for="chip in itemViewCategoryChips()"
+                v-for="chip in itemViewCategoryChips"
                 :key="chip.key"
                 :value="chip.key"
                 class="flex items-center gap-2"
@@ -714,9 +714,17 @@
              (bascule « Non rattachés », recomposition au changement de chip)
              est animé au lieu de disparaître sèchement. Wrapper div par entrée
              car transition-group exige UN nœud keyé par item. -->
-        <transition-group v-else tag="div" name="ep-item-list" class="space-y-3">
+        <!-- BUG-390-02 : rendu progressif (visibleItemViewEntries) et transitions
+             coupées pendant un changement de catégorie (:css). -->
+        <transition-group
+          v-else
+          tag="div"
+          name="ep-item-list"
+          class="space-y-3"
+          :css="!categorySwitching"
+        >
           <div
-            v-for="entry in groupedItemViewEntries"
+            v-for="entry in visibleItemViewEntries"
             :key="entry.menuItemId"
             class="ep-item-entry"
           >
@@ -792,8 +800,8 @@
                       <div class="flex items-center gap-2 mt-1">
                         <Badge
                           variant="outline"
-                          :class="['text-xs', itemTypeBadgeColor(resolveItemCategoryLabel(entry.menuItem))]"
-                        >{{ resolveItemCategoryLabel(entry.menuItem) }}</Badge>
+                          :class="['text-xs', itemTypeBadgeColor(itemCategoryLabel(entry.menuItem))]"
+                        >{{ itemCategoryLabel(entry.menuItem) }}</Badge>
                         <span class="text-xs text-muted-foreground">
                           {{ entry.shops.filter((s) => s.selected).length }} / {{ entry.shops.length }} {{ t('epmShopsSuffix') }}
                         </span>
@@ -1053,6 +1061,18 @@
           </Card>
           </div>
         </transition-group>
+        <!-- BUG-390-02 : sentinelle du rendu progressif. Visible à l'écran, elle
+             charge le lot suivant ; le bouton reste un repli au clavier et sans
+             IntersectionObserver. -->
+        <div
+          v-if="groupedItemViewEntries.length && itemViewHiddenCount > 0"
+          :ref="itemListSetSentinel"
+          class="ep-item-list-more"
+        >
+          <Button variant="outline" size="sm" @click="itemListShowMore()">
+            {{ t('epmShowMoreItems') }} ({{ itemViewHiddenCount }})
+          </Button>
+        </div>
       </TabsContent>
     </Tabs>
   </div>
@@ -1092,6 +1112,13 @@ import TooltipTrigger from '@/ui/tooltipTrigger.vue'
 import EventPredictRowActions from '@/components/space-workspace/event-predict/EventPredictRowActions.vue'
 import EventDrawerShell from '@/components/events/drawers/EventDrawerShell.vue'
 import { aliasSourceByTargetId } from '@/utils/historyAliases'
+import { useIncrementalList } from '@/composables/useIncrementalList'
+import {
+  buildSelectedElementsByMenuItem,
+  buildAssignedIdSetByElement,
+  assignedIdSetFromItems,
+  sliceVisibleEntries,
+} from '@/utils/eventPredictItemIndexes'
 
 // Onglets UI = 'Food' | 'Beverage' | 'Combo'. Le vocabulaire RÉEL en base est
 // FR+EN, casse mixte (ProductType : Nourriture/Boissons/Alcools/Food/Beverage/
@@ -1226,7 +1253,16 @@ export default {
   ],
   setup() {
     const { t } = useI18n()
-    return { t }
+    // BUG-390-02 : rendu progressif de la vue « Par article » (30 cartes, puis
+    // lots de 30 au défilement). Refs à plat pour être déballées sur `this`.
+    const itemList = useIncrementalList({ pageSize: 30 })
+    return {
+      t,
+      itemListVisibleCount: itemList.visibleCount,
+      itemListShowMore: itemList.showMore,
+      itemListReset: itemList.reset,
+      itemListSetSentinel: itemList.setSentinel,
+    }
   },
   data() {
     return {
@@ -1267,6 +1303,11 @@ export default {
       // 311_02) — éditable via le champ du bandeau. UI seulement, pas persisté
       // (les quantités posées le sont, elles, via le brouillon du parent).
       estimationScaleMax: 1000,
+      // BUG-390-02 : vrai le temps d'un changement de catégorie en vue article.
+      // Coupe les transitions CSS du transition-group : sinon Vue force un
+      // recalcul de mise en page pour CHAQUE carte qui sort. Les animations
+      // BUG-315-01 (chips) restent actives hors de cette bascule.
+      categorySwitching: false,
       // Tick pour invalider les computed quand on mute expandedElements/shopSearchQuery
       _uiTick: 0,
     }
@@ -1724,23 +1765,35 @@ export default {
           }
         }
       }
+      // BUG-390-02 : index préparés UNE fois au lieu de recherches linéaires
+      // dans la double boucle article × PDV. Mêmes comparaisons qu'avant
+      // (égalité stricte des ids, premier article du catalogue retenu comme
+      // le faisait `find`).
+      const catalogFirstById = new Map()
+      for (const m of this.menuItems || []) {
+        if (m && !catalogFirstById.has(m.id)) catalogFirstById.set(m.id, m)
+      }
+      const perElement = this.fbElements.map((element) => ({
+        element,
+        baseIds: new Set((this.menuItemsPerElement.get(element.id) || []).map((i) => i.id)),
+        assignedIds: this.assignedIdsForElement(element),
+        selectedIds: new Set(this.selectedMenuItems[element.id] || []),
+      }))
       const result = []
       for (const miId of all) {
         const mi =
-          this.menuItems.find((m) => m.id === miId) ||
+          catalogFirstById.get(miId) ||
           this.syntheticItemsById.get(miId) ||
           assignedObjById.get(miId)
         if (!mi) continue
         const shops = []
         let assignedSomewhere = false
-        for (const element of this.fbElements) {
-          const items = this.menuItemsPerElement.get(element.id) || []
-          const assignedIds = this.assignedIdsForElement(element)
-          const inBase = items.some((i) => i.id === miId)
+        for (const { element, baseIds, assignedIds, selectedIds } of perElement) {
+          const inBase = baseIds.has(miId)
           const isAssigned = !!assignedIds && assignedIds.has(miId)
           if (!inBase && !isAssigned) continue
           if (isAssigned) assignedSomewhere = true
-          const sel = (this.selectedMenuItems[element.id] || []).includes(miId)
+          const sel = selectedIds.has(miId)
           const pq = this.getPredictedQuantity(element.id, miId)
           const aq = this.getAdjustedQuantity(element.id, miId)
           shops.push({
@@ -1765,6 +1818,15 @@ export default {
       }
       return result
     },
+    /** BUG-390-02 : Map(menuItem → libellé de catégorie), résolu une fois par
+     *  article au lieu de deux à trois fois par carte et par rendu. */
+    itemCategoryLabelByMenuItem() {
+      const m = new Map()
+      for (const e of this.groupByMenuItemArray) {
+        if (!m.has(e.menuItem)) m.set(e.menuItem, this.resolveItemCategoryLabel(e.menuItem))
+      }
+      return m
+    },
     /** Entrées item-view groupées : menu assigné d'abord, « non rattachés » ensuite. */
     groupedItemViewEntries() {
       const list = this.filteredMenuItemsForItemView
@@ -1775,6 +1837,38 @@ export default {
       unmapped.forEach((e, i) => out.push({ ...e, _isFirstUnmapped: i === 0 }))
       return out
     },
+    /**
+     * BUG-390-02 : entrées réellement montées (rendu progressif). Les
+     * `itemListVisibleCount` premières, plus les entrées traitées sous un chip
+     * (BUG-315-01) et celle dont le tiroir est ouvert, pour qu'elles ne
+     * disparaissent pas si elles changent de place dans la liste.
+     */
+    visibleItemViewEntries() {
+      return sliceVisibleEntries(
+        this.groupedItemViewEntries,
+        this.itemListVisibleCount,
+        this.expandedElements,
+      )
+    },
+    /** Nombre d'entrées pas encore montées (bouton « Afficher plus »). */
+    itemViewHiddenCount() {
+      return Math.max(0, this.groupedItemViewEntries.length - this.visibleItemViewEntries.length)
+    },
+    /** Chips catégorie de la vue globale « par article » (All + catégories triées).
+     *  BUG-390-02 : computed (était une méthode réévaluée à chaque rendu). */
+    itemViewCategoryChips() {
+      const items = this.groupByMenuItemArray.map((e) => e.menuItem)
+      return this.buildCategoryChipList(items, this.itemTypeTab, (mi) => this.itemCategoryLabel(mi))
+    },
+    /** BUG-390-02 : Map(élément → Set des ids de son Space Menu | null),
+     *  construit une fois au lieu d'un Set par carte et par PDV. */
+    assignedIdSetByElement() {
+      return buildAssignedIdSetByElement(this.fbElements, (el) => this.assignedItemsForElement(el))
+    },
+    /** BUG-390-02 : Map(menuItemId → PDV cochés), pour les sliders article. */
+    selectedElementsByMenuItem() {
+      return buildSelectedElementsByMenuItem(this.fbElements, this.selectedMenuItems)
+    },
     filteredMenuItemsForItemView() {
       const q = this.searchQuery.toLowerCase()
       const out = []
@@ -1784,10 +1878,10 @@ export default {
       // retombe sur 'All' plutôt qu'afficher une liste vide sur un filtre
       // fantôme (le chip 'All' reste toujours visible, mais autant éviter
       // l'état confus entre-temps).
-      const cats = new Set(this.groupByMenuItemArray.map((e) => this.resolveItemCategoryLabel(e.menuItem)))
+      const cats = new Set(this.groupByMenuItemArray.map((e) => this.itemCategoryLabel(e.menuItem)))
       const activeTab = this.itemTypeTab === 'All' || cats.has(this.itemTypeTab) ? this.itemTypeTab : 'All'
       for (const entry of this.groupByMenuItemArray) {
-        const cat = this.resolveItemCategoryLabel(entry.menuItem)
+        const cat = this.itemCategoryLabel(entry.menuItem)
         if (activeTab !== 'All' && cat !== activeTab) continue
         if (q) {
           const mi = entry.menuItem.name.toLowerCase().includes(q)
@@ -1815,7 +1909,7 @@ export default {
           const ghost = this.chipSessionEntries[id]
           if (!ghost) continue
           if (this.groupByMenuItemArray.some((e) => e.menuItemId === id)) continue
-          const cat = this.resolveItemCategoryLabel(ghost.menuItem)
+          const cat = this.itemCategoryLabel(ghost.menuItem)
           if (activeTab !== 'All' && cat !== activeTab) continue
           if (q && !ghost.menuItem.name.toLowerCase().includes(q)) continue
           out.push({ ...ghost, hasSelection: false, _chipTreated: true })
@@ -1860,6 +1954,20 @@ export default {
     viewMode() {
       this.globalChipFilter = null
       this.resetChipSession()
+      this.itemListReset()
+    },
+    // BUG-390-02 : la liste progressive repart de 30 à chaque changement de
+    // filtre (catégorie, recherche, chip). Un article trouvé par la recherche
+    // au-delà des 30 premières cartes remonte donc dans la tranche affichée.
+    itemTypeTab() {
+      this.itemListReset()
+      this.startCategorySwitch()
+    },
+    searchQuery() {
+      this.itemListReset()
+    },
+    globalChipFilter() {
+      this.itemListReset()
     },
   },
   methods: {
@@ -1997,6 +2105,13 @@ export default {
       const { category } = resolveCatalogDims(mi, catById, typeById)
       return category || this.t('epmNoCategory')
     },
+    /** BUG-390-02 : libellé de catégorie lu dans l'index mémoïsé (repli sur la
+     *  résolution directe pour un article hors index, ex. entrée « ghost »). */
+    itemCategoryLabel(mi) {
+      const idx = this.itemCategoryLabelByMenuItem
+      if (idx instanceof Map && idx.has(mi)) return idx.get(mi)
+      return this.resolveItemCategoryLabel(mi)
+    },
     /**
      * Couleur de chip déterministe par nom de catégorie (hash simple → 1 de N
      * palettes) — stable d'un rendu à l'autre, pas besoin de mapping en dur
@@ -2023,10 +2138,10 @@ export default {
       return active ? p.a : p.i
     },
     /** Liste triée des vraies catégories présentes dans `items` (+ label 'All'). */
-    buildCategoryChipList(items, activeKey) {
+    buildCategoryChipList(items, activeKey, labelOf) {
       const counts = new Map()
       for (const it of items) {
-        const cat = this.resolveItemCategoryLabel(it)
+        const cat = labelOf ? labelOf(it) : this.resolveItemCategoryLabel(it)
         counts.set(cat, (counts.get(cat) || 0) + 1)
       }
       const categories = [...counts.keys()].sort((a, b) => a.localeCompare(b))
@@ -2050,10 +2165,18 @@ export default {
       }
       return list
     },
-    /** Chips catégorie de la vue globale « par article » (All + catégories triées). */
-    itemViewCategoryChips() {
-      const items = this.groupByMenuItemArray.map((e) => e.menuItem)
-      return this.buildCategoryChipList(items, this.itemTypeTab)
+    /**
+     * BUG-390-02 : coupe les transitions de la liste le temps de la bascule de
+     * catégorie (le watcher passe avant le rendu), puis les rétablit après
+     * le rendu pour les animations des chips (BUG-315-01).
+     */
+    startCategorySwitch() {
+      this.categorySwitching = true
+      this.$nextTick(() => {
+        const raf = typeof window !== 'undefined' && window.requestAnimationFrame
+        if (raf) raf(() => { this.categorySwitching = false })
+        else setTimeout(() => { this.categorySwitching = false }, 0)
+      })
     },
     /** Défilement horizontal des chips catégorie (flèches G/D). dir = -1 gauche, 1 droite. */
     scrollCategories(dir) {
@@ -2268,6 +2391,10 @@ export default {
     },
     // ----- Item-level slider -----
     getSelectedElementsForMenuItem(menuItemId) {
+      // BUG-390-02 : lecture de l'index mémoïsé ; repli sur le filtre historique
+      // quand l'index n'existe pas (appel hors composant, ex. tests unitaires).
+      const idx = this.selectedElementsByMenuItem
+      if (idx instanceof Map) return idx.get(menuItemId) || []
       return this.fbElements.filter((element) => {
         const selected = this.selectedMenuItems[element.id] || []
         return selected.includes(menuItemId)
@@ -2455,8 +2582,11 @@ export default {
       )
     },
     assignedIdsForElement(element) {
-      const arr = this.assignedItemsForElement(element)
-      return Array.isArray(arr) ? new Set(arr.map((it) => it.id)) : null
+      // BUG-390-02 : Set mémoïsé par élément (partagé, ne pas le muter) ; repli
+      // sur la construction historique pour un élément hors index.
+      const idx = this.assignedIdSetByElement
+      if (idx instanceof Map && idx.has(element)) return idx.get(element)
+      return assignedIdSetFromItems(this.assignedItemsForElement(element))
     },
     unmappedItemViewCount() {
       return this.filteredMenuItemsForItemView.filter((e) => e._mapGroup === 'unmapped').length
@@ -3078,6 +3208,12 @@ export default {
 .ep-item-list-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+/* BUG-390-02 : sentinelle du rendu progressif (bouton « Afficher plus »). */
+.ep-item-list-more {
+  display: flex;
+  justify-content: center;
+  padding: 0.75rem 0;
 }
 /* Cible d'un alias « historique emprunté » (maquettes 08/2026) : vert succès —
    la ligne a récupéré des prévisions, ce n'est pas une alerte. */

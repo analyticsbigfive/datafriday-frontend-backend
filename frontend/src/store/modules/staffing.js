@@ -8,6 +8,7 @@ import {
   addStaffLine,
   deleteStaffLine,
 } from '@/api/endpoints/staffing.api'
+import { hasPredictedRevenue } from '@/utils/staffingPredictedRevenue'
 
 const CACHE_TTL = 15 * 60 * 1000 // 15 min — même TTL que les autres modules
 
@@ -70,10 +71,16 @@ export default {
       }
     },
 
-    async generate({ commit }, eventId) {
+    // Accepte l'ancienne signature (eventId en chaîne) ou `{ eventId, predictedRevenueByElement }`
+    // (BUG-391-02 : CA prédit affiché à l'écran, envoyé seulement s'il n'est pas vide).
+    async generate({ commit }, arg) {
+      const { eventId, predictedRevenueByElement } =
+        arg && typeof arg === 'object' ? arg : { eventId: arg, predictedRevenueByElement: null }
       commit('setSaving', true)
       try {
-        const payload = await generateEventStaffing(eventId)
+        const payload = hasPredictedRevenue(predictedRevenueByElement)
+          ? await generateEventStaffing(eventId, { predictedRevenueByElement })
+          : await generateEventStaffing(eventId)
         commit('setPayload', { eventId, payload })
       } finally {
         commit('setSaving', false)
