@@ -1339,6 +1339,7 @@
 <script>
 import { reactive, computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { safePush } from '@/utils/chunkReload'
 import { useI18n } from "@/i18n/useI18n";
 import {
   ChevronRight,
@@ -5422,14 +5423,14 @@ export default {
           // conservés ; les params Event Predict (version, config…) sont purgés.
           const nextQuery = { ...query };
           if (tool.value === 'predict') nextQuery.toolbox = 'predict';
-          this.$router.replace({ name: 'space-analyse', params: { spaceId }, query: nextQuery });
+          safePush(this.$router, { name: 'space-analyse', params: { spaceId }, query: nextQuery }, 'replace');
         } catch (_) { /* router not ready */ }
         this.$emit('close');
       } else if (tool.value === 'live') {
         // Live = route DÉDIÉE `space-live` (pas un mode `?toolbox=` d'Analyse,
         // cf. router/index.js) : il faut router par nom, sinon on atterrit sur
         // Analyse avec un toolbox inconnu.
-        this.$router.push({ name: 'space-live', params: { spaceId } });
+        safePush(this.$router, { name: 'space-live', params: { spaceId } });
         this.$emit('close');
       } else if (tool.value === 'space-inventory' || tool.value === 'space-pre-inventory' || tool.value === 'restock' || tool.value === 'logistic') {
         // Inventaire/Réarmement scopent sur la config de l'event. On la joint
@@ -5453,7 +5454,7 @@ export default {
               : tool.value === 'logistic'
                 ? 'space-logistic'
                 : 'space-restock';
-        this.$router.push({ name: routeName, params: { spaceId }, query: scopedQuery });
+        safePush(this.$router, { name: routeName, params: { spaceId }, query: scopedQuery });
       }
     },
     toggleMultiEvent(id) {
