@@ -6,6 +6,7 @@ import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorat
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { StaffingService } from './staffing.service';
+import { GenerateStaffingDto } from './dto/generate-staffing.dto';
 
 class PatchStaffLineDto {
   @IsOptional()
@@ -71,8 +72,14 @@ export class StaffingController {
     summary: "(Re)génère les lignes ALGO de l'événement",
     description: 'Les lignes MANUAL ou modifiées par l’utilisateur ne sont jamais écrasées.',
   })
-  generate(@Param('eventId') eventId: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.service.generate(eventId, tenantId, user);
+  generate(
+    @Param('eventId') eventId: string,
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: any,
+    @Body() dto?: GenerateStaffingDto,
+  ) {
+    // BUG-391-02 : CA prédit affiché à l'écran (optionnel, prioritaire sur la version par défaut).
+    return this.service.generate(eventId, tenantId, user, dto?.predictedRevenueByElement);
   }
 
   @Post('events/:eventId/staffing/lines')
