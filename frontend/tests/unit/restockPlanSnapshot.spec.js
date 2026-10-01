@@ -13,6 +13,7 @@ import {
   recomputePackaging,
   planCounters,
   estimateSnapshotBytes,
+  planStockShopPercents,
 } from '@/utils/restockPlanSnapshot'
 
 // ---------------------------------------------------------------------------
@@ -300,6 +301,28 @@ describe('buildPlanSnapshot — whitelist', () => {
       globalEnabled: true,
       sourceInventoryEventId: null,
     })
+  })
+
+  // Chantier 388 : % par PDV de l'étape 1 figés sous meta.stockShop.
+  it('meta.stockShop.percents fige les réglages par PDV fournis (copie)', () => {
+    const percents = { 'shop-1|||beer': 150, 'shop-2|||beer': 0 }
+    const snapshot = buildPlanSnapshot({ inputs: { stockShopPercents: percents } })
+    expect(snapshot.meta.stockShop).toEqual({ percents: { 'shop-1|||beer': 150, 'shop-2|||beer': 0 } })
+    expect(snapshot.meta.stockShop.percents).not.toBe(percents)
+  })
+
+  it('meta.stockShop.percents vide sans réglage PDV', () => {
+    expect(makeSnapshot().meta.stockShop).toEqual({ percents: {} })
+  })
+
+  it('planStockShopPercents relit le bloc et tolère les plans antérieurs', () => {
+    const snapshot = buildPlanSnapshot({ inputs: { stockShopPercents: { 'shop-1|||beer': 150 } } })
+    expect(planStockShopPercents(snapshot)).toEqual({ 'shop-1|||beer': 150 })
+    // Plan sauvegardé avant le chantier 388 : ni meta.stockShop, ni meta.
+    expect(planStockShopPercents({ meta: { storage: { percents: {} } } })).toEqual({})
+    expect(planStockShopPercents({})).toEqual({})
+    expect(planStockShopPercents(null)).toEqual({})
+    expect(planStockShopPercents({ meta: { stockShop: { percents: ['bad'] } } })).toEqual({})
   })
 
   // BUG-296-01 — ventilation figée.

@@ -304,8 +304,25 @@ export function buildPlanSnapshot({
         globalEnabled: inputs.storageGlobalEnabled !== false,
         sourceInventoryEventId: inputs.sourceInventoryEventId ?? null,
       },
+      // Chantier 388 : % par PDV de l'étape 1 (`shopId|||itemKey`), niché
+      // sous `meta` pour la même raison que `storage`. Plans antérieurs sans
+      // ce bloc → aucun réglage PDV au chargement.
+      stockShop: {
+        percents: { ...(inputs.stockShopPercents || {}) },
+      },
     },
   }
+}
+
+/**
+ * Chantier 388 : % par PDV de l'étape 1 relus d'un plan chargé. Plans
+ * antérieurs (sans `meta.stockShop`) ou bloc malformé → objet vide.
+ * Renvoie toujours une copie.
+ */
+export function planStockShopPercents(plan) {
+  const percents = plan?.meta?.stockShop?.percents
+  if (!percents || typeof percents !== 'object' || Array.isArray(percents)) return {}
+  return { ...percents }
 }
 
 /**

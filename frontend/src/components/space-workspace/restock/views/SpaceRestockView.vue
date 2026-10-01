@@ -491,7 +491,17 @@
                     class="sr-slider"
                     @input="setStockAdjustment(item.itemKey, $event.target.value)"
                   />
-                  <span class="sr-slider-value">{{ stockAdjustment(item.itemKey) }}%</span>
+                  <span class="sr-slider-value" :class="{ 'sr-slider-value-mixed': isStockAdjustmentMixed(item.itemKey) }">{{ isStockAdjustmentMixed(item.itemKey) ? t('srMixed') : `${stockAdjustment(item.itemKey)}%` }}</span>
+                  <!-- Chantier 388 : répartition par PDV, drawer à gauche (même
+                       bouton que la vue article d'Event Predict). -->
+                  <button
+                    v-if="canOpenStockShops(item.itemKey)"
+                    type="button"
+                    class="sr-supplier-edit-btn"
+                    :title="t('srShopsDrawerOpen')"
+                    :aria-label="t('srShopsDrawerOpen')"
+                    @click.stop="openStockShops(item.itemKey)"
+                  ><v-icon size="20">mdi-dock-left</v-icon></button>
                 </div>
               </div>
 
@@ -1654,6 +1664,14 @@
       :product-categories="drawerProductCategories"
       @saved="onSupplierSaved"
     />
+    <!-- Chantier 388 : répartition du besoin par PDV d'un article (étape 1). -->
+    <RestockItemShopsDrawer
+      :model-value="shopsDrawerData != null"
+      :data="shopsDrawerData"
+      @update:model-value="setStockShopsDrawerOpen"
+      @update-percent="setStockShopPercent"
+      @reset-percent="clearStockShopPercent"
+    />
       </div>
   </div>
     </v-main>
@@ -1734,6 +1752,16 @@ import {
   effectiveStoragePercent,
   detectStorageAlerts,
 } from '@/utils/storageRestock'
+// Chantier 388 : % par PDV de l'étape 1 (drawer article).
+import {
+  shopPercentKey,
+  normalizeShopPercent,
+  effectiveShopPercent,
+  clearItemShopPercents,
+  isItemPercentMixed,
+  groupRowsByItemKey,
+} from '@/utils/restockShopPercent'
+import RestockItemShopsDrawer from '@/components/space-workspace/restock/drawers/RestockItemShopsDrawer.vue'
 // Cloche de notifications (client-side) — seuils min/max storage.
 import { notify } from '@/utils/notify'
 // DB locale (localStorage) — persiste l'état réarmement sans backend.
@@ -1752,6 +1780,7 @@ import {
   applyPlanEdits,
   recomputeShoppingFromOverrides,
   estimateSnapshotBytes,
+  planStockShopPercents,
 } from '@/utils/restockPlanSnapshot'
 import { useRestockPlans } from '@/composables/useRestockPlans'
 import { useStorageInventory } from '@/composables/useStorageInventory'
@@ -1810,7 +1839,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -1909,6 +1938,12 @@ export default {
       showMobileToolDrawer: false,
       stockAdjustments: {},
       stockExcluded: {}, // itemKeys décochés → exclus de la génération du réarmement
+      // Chantier 388 : % par PDV posés à la main dans le drawer de l'article,
+      // clé `shopId|||itemKey` (utils/restockShopPercent.js). Overrides seuls :
+      // absent = % de l'article. Persisté en extras (brouillon) et meta.stockShop (plan).
+      stockShopPercents: {},
+      // itemKey de l'article dont le drawer PDV est ouvert (null = fermé).
+      shopsDrawerItemKey: null,
       // fiche 314-01 — étape 1 : onglet actif ('shops' | 'storage') et overrides
       // en POURCENTAGE (0–200, 100 = défaut) du nécessaire par ligne storage.
       // Clé = `storage:${elementId}:${normalizeStr(name)}` ; absent = 100 %.
@@ -2748,7 +2783,7 @@ export default {
      */
     liveRestockRowsAll() {
       return this.stockRowsRaw.map((row) => {
-        const targetQuantity = this.adjustedQuantity(row.totalQuantity, row.unit, row.itemKey)
+        const targetQuantity = this.adjustedQuantity(row.totalQuantity, row.unit, row.itemKey, row.shopId)
         // Packaging de référence (taille de colis) pour décoder le comptage
         // packed/loose — la taille ne dépend pas de la quantité passée.
         const packagingRef = this.packagingForItem(row, targetQuantity)
@@ -2786,6 +2821,46 @@ export default {
       return this.liveRestockRowsAll.filter(
         (row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey],
       )
+    },
+    /** Chantier 388 : lignes PDV vivantes groupées par article (drawer + « Mixte »). */
+    stockShopRowsByItem() {
+      return groupRowsByItemKey(this.liveRestockRowsAll)
+    },
+    /** Données prêtes à afficher du drawer PDV de l'article ouvert. */
+    shopsDrawerData() {
+      const itemKey = this.shopsDrawerItemKey
+      if (itemKey == null) return null
+      const item = this.liveStockSettingsRows.find((row) => row.itemKey === itemKey)
+      const rows = this.stockShopRowsByItem[itemKey] || []
+      const itemPercent = this.stockAdjustment(itemKey)
+      return {
+        itemName: item?.itemName || rows[0]?.itemName || '',
+        itemPercent,
+        totalRequired: this.formatLooseQuantity(
+          rows.reduce((sum, row) => sum + (Number(row.gap) || 0), 0),
+          item?.unit || rows[0]?.unit,
+        ),
+        toOrder: item ? this.buyInfo(item).main : '',
+        rows: rows.map((row) => {
+          const overrideRaw = this.stockShopPercents[shopPercentKey(row.shopId, itemKey)]
+          return {
+            shopId: row.shopId,
+            shopName: row.shopName,
+            predicted: this.formatLooseQuantity(row.totalQuantity, row.unit),
+            remaining: this.formatLooseQuantity(row.remainingQuantity, row.unit),
+            required: this.formatLooseQuantity(row.gap, row.unit),
+            requiredOk: !(row.gap > 0),
+            deposit: this.formatRestockQuantity(row),
+            percent: effectiveShopPercent({
+              shopPercents: this.stockShopPercents,
+              itemPercents: this.stockAdjustments,
+              shopId: row.shopId,
+              itemKey,
+            }),
+            overridden: overrideRaw != null,
+          }
+        }),
+      }
     },
     /**
      * BUG-296-01, réduit au Lot 2 — agrégat grain ARTICLE pour l'étape 1.
@@ -3348,6 +3423,8 @@ export default {
         restockViewMode: this.restockViewMode,
         currentStep: this.currentStep,
         stockExcluded: this.stockExcluded,
+        // Chantier 388 : % par PDV (extras du PUT, blob jsonb opaque).
+        stockShopPercents: this.stockShopPercents,
         // Envoyé dans les `extras` du PUT (restock.api.js) : un backend plus
         // ancien en whitelist stricte retombe sur le noyau sans lui.
         loadedPlanId: this.loadedPlanId,
@@ -3692,6 +3769,8 @@ export default {
         if (Array.isArray(saved.selectedEventIds)) this.selectedEventIds = saved.selectedEventIds
       }
       if (saved.stockAdjustments) this.stockAdjustments = { ...saved.stockAdjustments }
+      // Chantier 388 : état antérieur sans le champ → aucun réglage PDV.
+      this.stockShopPercents = { ...(saved.stockShopPercents || {}) }
       // `saved.stockPackedModes` (legacy) IGNORÉ volontairement : le latch
       // « affiché en pièces » seedé quand le conditionnement ne se résolvait pas
       // bloquait les packs après coup (fiche 344-01) — packaging résolu = packs.
@@ -3813,6 +3892,8 @@ export default {
         this.storageGlobalPercent = normalizeStoragePercent(metaStorage.globalPercent)
         this.storageGlobalEnabled = metaStorage.globalEnabled !== false
         this.sourceInventoryEventId = metaStorage.sourceInventoryEventId ?? null
+        // Chantier 388 : % par PDV (meta.stockShop). Plans antérieurs → {}.
+        this.stockShopPercents = planStockShopPercents(plan)
         await this.$nextTick()
         // 2) Photo — posée après le flush des watchers d'entrées.
         this.loadedPlan = plan
@@ -3888,6 +3969,8 @@ export default {
           scenarioByEventId: this.selectedScenarioByEventId,
           stockAdjustments: this.stockAdjustments,
           stockExcluded: this.stockExcluded,
+          // Chantier 388 → meta.stockShop.percents.
+          stockShopPercents: this.stockShopPercents,
           restockedRows: this.restockedRows,
           shoppingMode: this.shoppingMode,
           snapshotAt: new Date().toISOString(),
@@ -4733,6 +4816,9 @@ export default {
         ...this.stockAdjustments,
         [itemKey]: Number(value) || 0,
       }
+      // Chantier 388 : le curseur de la carte remet tous les PDV de l'article
+      // au même % (règle Event Predict, handleItemAdjustment).
+      this.stockShopPercents = clearItemShopPercents(this.stockShopPercents, itemKey)
       this.resetGeneratedOutputs()
     },
     async applyStockAdjustmentToAll(percent) {
@@ -4742,6 +4828,49 @@ export default {
         next[row.itemKey] = Number(percent) || 0
       })
       this.stockAdjustments = next
+      // Raccourcis 80 / 100 / 120 et Reset : réglages PDV effacés aussi.
+      this.stockShopPercents = {}
+      this.resetGeneratedOutputs()
+    },
+    // ── Chantier 388 : répartition du besoin par PDV (drawer article) ────────
+    /** Vrai quand les PDV de l'article n'ont pas tous le même % (« Mixte »). */
+    isStockAdjustmentMixed(itemKey) {
+      const shopIds = (this.stockShopRowsByItem[itemKey] || []).map((row) => row.shopId)
+      return isItemPercentMixed(this.stockShopPercents, this.stockAdjustments[itemKey], shopIds, itemKey)
+    },
+    /** Bouton PDV de la carte : article inclus et servi par au moins 2 PDV. */
+    canOpenStockShops(itemKey) {
+      return !this.stockExcluded[itemKey] && (this.stockShopRowsByItem[itemKey] || []).length > 1
+    },
+    /**
+     * Plan chargé : la garde passe AVANT l'ouverture. Le drawer (z-index 2200)
+     * recouvrirait le dialogue de garde s'il s'ouvrait pendant un glissement
+     * de curseur, et il affiche le calcul vivant, pas la photo du plan.
+     */
+    async openStockShops(itemKey) {
+      if (!(await this.guardPlanEdit())) return
+      this.shopsDrawerItemKey = itemKey
+    },
+    setStockShopsDrawerOpen(open) {
+      if (!open) this.shopsDrawerItemKey = null
+    },
+    async setStockShopPercent({ shopId, value }) {
+      const itemKey = this.shopsDrawerItemKey
+      if (itemKey == null || !(await this.guardPlanEdit())) return
+      const percent = normalizeShopPercent(value) ?? 0
+      this.stockShopPercents = {
+        ...this.stockShopPercents,
+        [shopPercentKey(shopId, itemKey)]: percent,
+      }
+      this.resetGeneratedOutputs()
+    },
+    /** Réinitialisation d'un PDV : retour au % de l'article. */
+    async clearStockShopPercent({ shopId }) {
+      const itemKey = this.shopsDrawerItemKey
+      if (itemKey == null || !(await this.guardPlanEdit())) return
+      const next = { ...this.stockShopPercents }
+      delete next[shopPercentKey(shopId, itemKey)]
+      this.stockShopPercents = next
       this.resetGeneratedOutputs()
     },
     resetStockAdjustments() {
@@ -4931,8 +5060,18 @@ export default {
       this.store.dispatch('inventory/invalidateMarketPrices')
       await this.store.dispatch('inventory/loadMarketPrices')
     },
-    adjustedQuantity(quantity, unit, itemKey) {
-      return roundForUnit((Number(quantity) || 0) * (this.stockAdjustment(itemKey) / 100), unit)
+    // Chantier 388 : `shopId` fourni, le réglage PDV du drawer prime sur le %
+    // de l'article ; sans `shopId`, % de l'article (comportement historique).
+    adjustedQuantity(quantity, unit, itemKey, shopId) {
+      const percent = shopId == null
+        ? this.stockAdjustment(itemKey)
+        : effectiveShopPercent({
+          shopPercents: this.stockShopPercents,
+          itemPercents: this.stockAdjustments,
+          shopId,
+          itemKey,
+        })
+      return roundForUnit((Number(quantity) || 0) * (percent / 100), unit)
     },
     packagingForItem(item, quantity) {
       // 4e pool `marketPrices` OBLIGATOIRE (BUG-342-01, « Saucisse de
@@ -5713,7 +5852,7 @@ export default {
       row.sources.forEach((source) => {
         const name = source.menuItemName || ''
         if (!name) return
-        const quantity = this.adjustedQuantity(source.componentQuantity, row.unit, row.itemKey)
+        const quantity = this.adjustedQuantity(source.componentQuantity, row.unit, row.itemKey, row.shopId)
         const previous = byName.get(name)
         if (previous) previous.quantity += quantity
         else byName.set(name, { key: name, name, quantity, unit: row.unit })
@@ -7160,6 +7299,12 @@ export default {
   text-align: right;
   font-size: 0.8rem;
   font-weight: 750;
+}
+
+/* Chantier 388 : « Mixte » ne tient pas dans les 44px d'un « 100% ». */
+.sr-slider-value-mixed {
+  width: auto;
+  min-width: 44px;
 }
 
 
