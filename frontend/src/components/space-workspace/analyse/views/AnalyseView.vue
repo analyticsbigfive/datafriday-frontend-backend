@@ -752,7 +752,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, watch, nextTick, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDisplay, useTheme } from 'vuetify'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
@@ -775,10 +775,12 @@ import SummaryPanel from '../panels/SummaryPanel.vue'
 import FilterEditorPanel from '../panels/FilterEditorPanel.vue'
 import ShopPerformanceByTransactionRate from '../charts/ShopPerformanceByTransactionRate.vue'
 import { getDateRangePresets, PRESET_I18N_KEYS, VALID_DATE_RANGE_VALUES } from '@/constants/dateRangePresets'
+import { asyncComponentWithChunkReload } from '@/utils/chunkReload'
 // PERF: chargé en async → le chunk de la monolithe EventPredictView (~71KB gz JS
 // + 13KB gz CSS) n'est téléchargé QUE lorsque l'overlay s'ouvre (v-if
 // showPredictOverlay), plus à chaque navigation vers space-analyse.
-const EventPredictView = defineAsyncComponent(() => import('@/components/space-workspace/event-predict/views/EventPredictView.vue'))
+// Chunk obsolète après redéploiement : rechargement unique au lieu d'un échec silencieux (BUG-389-02).
+const EventPredictView = asyncComponentWithChunkReload(() => import('@/components/space-workspace/event-predict/views/EventPredictView.vue'))
 import GenericByEventChart from '../charts/GenericByEventChart.vue'
 import ShopItemEventsDialog from '../dialogs/ShopItemEventsDialog.vue'
 import UnalignedEventsDialog from '../dialogs/UnalignedEventsDialog.vue'

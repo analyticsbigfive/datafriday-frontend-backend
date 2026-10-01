@@ -1662,6 +1662,7 @@
 
 <script>
 import { useRoute, useRouter } from 'vue-router'
+import { safePush } from '@/utils/chunkReload'
 import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
@@ -4043,28 +4044,28 @@ export default {
       if (tool.value === 'restock') return
       const spaceId = this.route.params.spaceId
       if (tool.value === 'analyse') {
-        this.router.push({ name: 'space-analyse', params: { spaceId } })
+        safePush(this.router, { name: 'space-analyse', params: { spaceId } })
       } else if (tool.value === 'space-inventory') {
         // Propage l'event courant : Space Inventory dérive TOUTE sa config (périmètre
         // PdV + clé de comptage) de ?event= via resolveEventContext. Sans lui, l'écran
         // retombe en empty-state « Ouvrir depuis Event Predict ». Miroir du sens inverse
         // (inventory → restock passe déjà ?event=).
         const ev = this.selectedEventId || null
-        this.router.push({
+        safePush(this.router, {
           name: 'space-inventory',
           params: { spaceId },
           query: ev ? { event: ev } : {},
         })
       } else if (tool.value === 'space-pre-inventory') {
         const ev = this.selectedEventId || null
-        this.router.push({
+        safePush(this.router, {
           name: 'space-pre-inventory',
           params: { spaceId },
           query: ev ? { event: ev } : {},
         })
       } else if (tool.value === 'logistic') {
         const ev = this.selectedEventId || null
-        this.router.push({
+        safePush(this.router, {
           name: 'space-logistic',
           params: { spaceId },
           query: ev ? { event: ev } : {},
@@ -4073,9 +4074,9 @@ export default {
         // Live = route DÉDIÉE `space-live` (pas un mode `?toolbox=`, cf.
         // router/index.js) : sans cette branche le `else` ci-dessous envoyait
         // sur Analyse avec un toolbox inconnu.
-        this.router.push({ name: 'space-live', params: { spaceId } })
+        safePush(this.router, { name: 'space-live', params: { spaceId } })
       } else {
-        this.router.push({
+        safePush(this.router, {
           name: 'space-analyse',
           params: { spaceId },
           query: { toolbox: tool.value },
