@@ -4,6 +4,7 @@
 // predictedCost, adjustedCost }], totals, warnings } (§5 : prédit figé /
 // ajusté vivant).
 import api from '../client'
+import { hasPredictedRevenue } from '@/utils/staffingPredictedRevenue'
 
 export async function getEventStaffing(eventId) {
   try {
@@ -15,9 +16,14 @@ export async function getEventStaffing(eventId) {
   }
 }
 
-export async function generateEventStaffing(eventId) {
+// BUG-391-02 : `body` optionnel `{ predictedRevenueByElement }` (CA prédit affiché à l'écran).
+// Envoyé seulement si la map n'est pas vide, sinon POST sans corps comme avant.
+export async function generateEventStaffing(eventId, body) {
   try {
-    const res = await api.post(`/events/${eventId}/staffing/generate`)
+    const url = `/events/${eventId}/staffing/generate`
+    const res = hasPredictedRevenue(body?.predictedRevenueByElement)
+      ? await api.post(url, { predictedRevenueByElement: body.predictedRevenueByElement })
+      : await api.post(url)
     return res.data
   } catch (error) {
     console.error(`[STAFFING API] Error generating staffing for event ${eventId}:`, error)

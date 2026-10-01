@@ -966,6 +966,7 @@
               <EventPredictStaffSection
                 v-if="predictSectionTab === 'staff' && selectedEvent"
                 :event-id="selectedEvent.id"
+                :predicted-revenue-by-element="staffPredictedRevenueByElement"
               />
             </TabsContent>
           </Tabs>
@@ -1432,6 +1433,7 @@ import { resolveItemsContext, isEstimationEligible } from "@/utils/estimationMod
 import { resolveInventoryRouteName } from "@/utils/inventoryRouteTarget";
 import { setLastPredictedEvent, setPredictedRecords } from "@/data/localDb";
 import { eventDoorsOpenAt } from "@/utils/eventLifecycle";
+import { aggregatePredictedRevenueByElement } from "@/utils/staffingPredictedRevenue";
 
 // PERF : les Edge Functions de mappings (shop-element / menu-item) sont lentes
 // (5-10 s) et leurs données changent rarement → cache localStorage par space,
@@ -1844,6 +1846,12 @@ export default {
     };
   },
   computed: {
+    // BUG-391-02 : CA prédit par PDV ({ [shopId]: CA }) tel qu'affiché, même agrégat que la
+    // version enregistrée (buildPredictedRecords). Envoyé à « Generate Staff » pour ne plus
+    // dépendre d'une version par défaut enregistrée. Lu seulement quand l'onglet Staff est monté.
+    staffPredictedRevenueByElement() {
+      return aggregatePredictedRevenueByElement(this.buildPredictedRecords());
+    },
     // Taxonomie catalogue (store analyse) → résolution typeId/categoryId → nom
     // pour la classification Food/Beverage/Combo dans EventPredictMenusSection.
     productTypes() {
