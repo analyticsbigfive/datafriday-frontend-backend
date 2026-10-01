@@ -75,6 +75,8 @@ export async function putRestockState(spaceId, snapshot) {
   if (s.storageGlobalPercent !== undefined) extras.storageGlobalPercent = s.storageGlobalPercent
   if (s.storageGlobalEnabled !== undefined) extras.storageGlobalEnabled = s.storageGlobalEnabled
   if (s.sourceInventoryEventId !== undefined) extras.sourceInventoryEventId = s.sourceInventoryEventId
+  // Chantier 388 : % par PDV de l'étape 1 (`shopId|||itemKey`, overrides seuls).
+  if (s.stockShopPercents !== undefined) extras.stockShopPercents = s.stockShopPercents
   const url = `/spaces/${encodeURIComponent(spaceId)}/restock-state`
   try {
     const res = await api.put(url, { ...core, ...extras }, { suppressGlobalError: true })
