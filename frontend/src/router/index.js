@@ -1,4 +1,5 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, START_LOCATION } from 'vue-router'
+import { isChunkLoadError, reloadOnceForChunkError, clearChunkReloadFlag } from '@/utils/chunkReload'
 import store from '@/store'
 import { requireOrganization, guestOnly, spaceEntryGuard, spacesListEntryGuard, onboardingGuard, requireSuperAdmin, requireOwner, guestPinLoginOnly, requireGuestPinSession } from './guards'
 
@@ -608,18 +609,21 @@ router.afterEach((to) => {
   }
 })
 
-// Rechargement automatique en cas de ChunkLoadError (chunks obsolètes après un redéploiement)
+// Rechargement automatique en cas de ChunkLoadError (chunks obsolètes après un redéploiement).
+// Verrou partagé avec les composants asynchrones (src/utils/chunkReload.js, BUG-389-02).
 router.onError((err, to) => {
-  if (err?.name === 'ChunkLoadError' || /Loading chunk .* failed/.test(err?.message)) {
-    if (!sessionStorage.getItem('chunk_reload_attempted')) {
-      sessionStorage.setItem('chunk_reload_attempted', '1');
-      window.location.href = to.fullPath;
-    }
+  if (isChunkLoadError(err)) {
+    reloadOnceForChunkError(to?.fullPath)
   }
 })
 
-router.afterEach(() => {
-  sessionStorage.removeItem('chunk_reload_attempted');
+// Lève le verrou après une navigation réussie, sauf la navigation initiale :
+// juste après un rechargement, l'overlay Event Predict (composant asynchrone)
+// se charge APRÈS cette navigation ; lever le verrou à ce moment rouvrirait une
+// boucle de rechargement si le chunk reste introuvable.
+router.afterEach((to, from) => {
+  if (from === START_LOCATION) return
+  clearChunkReloadFlag()
 })
 
 export default router

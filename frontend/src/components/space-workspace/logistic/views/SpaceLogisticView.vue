@@ -541,6 +541,7 @@
 <script>
 import { useStore } from 'vuex'
 import { useRoute, useRouter } from 'vue-router'
+import { safePush } from '@/utils/chunkReload'
 import { useI18n } from '@/i18n/useI18n'
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import AppSearchBar from '@/components/common/AppSearchBar.vue'
@@ -1336,20 +1337,20 @@ export default {
       const spaceId = this.currentSpaceId
       const ev = this.route?.query?.event || null
       if (tool.value === 'analyse') {
-        this.router.push({ name: 'space-analyse', params: { spaceId } })
+        safePush(this.router, { name: 'space-analyse', params: { spaceId } })
       } else if (tool.value === 'live') {
         // Live = route DÉDIÉE `space-live` (pas un mode `?toolbox=`, cf.
         // router/index.js) : sans cette branche le `else` ci-dessous envoyait
         // sur Analyse avec un toolbox inconnu.
-        this.router.push({ name: 'space-live', params: { spaceId } })
+        safePush(this.router, { name: 'space-live', params: { spaceId } })
       } else if (tool.value === 'space-inventory') {
-        this.router.push({ name: 'space-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
+        safePush(this.router, { name: 'space-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else if (tool.value === 'space-pre-inventory') {
-        this.router.push({ name: 'space-pre-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
+        safePush(this.router, { name: 'space-pre-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else if (tool.value === 'restock') {
-        this.router.push({ name: 'space-restock', params: { spaceId }, query: ev ? { event: ev } : {} })
+        safePush(this.router, { name: 'space-restock', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else {
-        this.router.push({ name: 'space-analyse', params: { spaceId }, query: { toolbox: tool.value } })
+        safePush(this.router, { name: 'space-analyse', params: { spaceId }, query: { toolbox: tool.value } })
       }
     },
   },

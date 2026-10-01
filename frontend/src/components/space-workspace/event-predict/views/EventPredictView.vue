@@ -966,6 +966,7 @@
               <EventPredictStaffSection
                 v-if="predictSectionTab === 'staff' && selectedEvent"
                 :event-id="selectedEvent.id"
+                :predicted-revenue-by-element="staffPredictedRevenueByElement"
               />
             </TabsContent>
           </Tabs>
@@ -1339,6 +1340,7 @@
 <script>
 import { reactive, computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
+import { safePush } from '@/utils/chunkReload'
 import { useI18n } from "@/i18n/useI18n";
 import {
   ChevronRight,
@@ -1432,6 +1434,7 @@ import { resolveItemsContext, isEstimationEligible } from "@/utils/estimationMod
 import { resolveInventoryRouteName } from "@/utils/inventoryRouteTarget";
 import { setLastPredictedEvent, setPredictedRecords } from "@/data/localDb";
 import { eventDoorsOpenAt } from "@/utils/eventLifecycle";
+import { aggregatePredictedRevenueByElement } from "@/utils/staffingPredictedRevenue";
 
 // PERF : les Edge Functions de mappings (shop-element / menu-item) sont lentes
 // (5-10 s) et leurs données changent rarement → cache localStorage par space,
@@ -1844,6 +1847,12 @@ export default {
     };
   },
   computed: {
+    // BUG-391-02 : CA prédit par PDV ({ [shopId]: CA }) tel qu'affiché, même agrégat que la
+    // version enregistrée (buildPredictedRecords). Envoyé à « Generate Staff » pour ne plus
+    // dépendre d'une version par défaut enregistrée. Lu seulement quand l'onglet Staff est monté.
+    staffPredictedRevenueByElement() {
+      return aggregatePredictedRevenueByElement(this.buildPredictedRecords());
+    },
     // Taxonomie catalogue (store analyse) → résolution typeId/categoryId → nom
     // pour la classification Food/Beverage/Combo dans EventPredictMenusSection.
     productTypes() {
@@ -5422,14 +5431,14 @@ export default {
           // conservés ; les params Event Predict (version, config…) sont purgés.
           const nextQuery = { ...query };
           if (tool.value === 'predict') nextQuery.toolbox = 'predict';
-          this.$router.replace({ name: 'space-analyse', params: { spaceId }, query: nextQuery });
+          safePush(this.$router, { name: 'space-analyse', params: { spaceId }, query: nextQuery }, 'replace');
         } catch (_) { /* router not ready */ }
         this.$emit('close');
       } else if (tool.value === 'live') {
         // Live = route DÉDIÉE `space-live` (pas un mode `?toolbox=` d'Analyse,
         // cf. router/index.js) : il faut router par nom, sinon on atterrit sur
         // Analyse avec un toolbox inconnu.
-        this.$router.push({ name: 'space-live', params: { spaceId } });
+        safePush(this.$router, { name: 'space-live', params: { spaceId } });
         this.$emit('close');
       } else if (tool.value === 'space-inventory' || tool.value === 'space-pre-inventory' || tool.value === 'restock' || tool.value === 'logistic') {
         // Inventaire/Réarmement scopent sur la config de l'event. On la joint
@@ -5453,7 +5462,7 @@ export default {
               : tool.value === 'logistic'
                 ? 'space-logistic'
                 : 'space-restock';
-        this.$router.push({ name: routeName, params: { spaceId }, query: scopedQuery });
+        safePush(this.$router, { name: routeName, params: { spaceId }, query: scopedQuery });
       }
     },
     toggleMultiEvent(id) {

@@ -42,11 +42,13 @@
 </template>
 
 <script setup>
-import { computed, onMounted, defineAsyncComponent } from 'vue'
+import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStore } from 'vuex'
+import { asyncComponentWithChunkReload, safePush } from '@/utils/chunkReload'
 // PERF: async → EventPredictView sort du chunk partagé 183 ; chargé à l'affichage.
-const EventPredictView = defineAsyncComponent(() => import('./EventPredictView.vue'))
+// Chunk obsolète après redéploiement : rechargement unique au lieu d'un échec silencieux (BUG-389-02).
+const EventPredictView = asyncComponentWithChunkReload(() => import('./EventPredictView.vue'))
 
 const route = useRoute()
 const router = useRouter()
@@ -65,7 +67,7 @@ onMounted(async () => {
 })
 
 function onClose() {
-  router.push({ name: 'space-analyse', params: { spaceId: route.params.spaceId } })
+  safePush(router, { name: 'space-analyse', params: { spaceId: route.params.spaceId } })
 }
 </script>
 

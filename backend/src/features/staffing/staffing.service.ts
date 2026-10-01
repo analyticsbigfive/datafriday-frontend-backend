@@ -23,7 +23,8 @@ type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; al
 /**
  * Orchestration du staffing par événement (spec §1.3) :
  * charge event + PDV (SpaceElement de la config) + CA prédictif par PDV
- * (EventPredictVersion.predictedRecords de la version par défaut, agrégé par
+ * (BUG-391-02 : en priorité le CA affiché à l'écran Event Predict, envoyé dans le corps
+ * du POST generate ; sinon EventPredictVersion.predictedRecords de la version par défaut, agrégé par
  * shopId — #43/11_RH_STAFFING.md §11.15 option b ; repli sur
  * ElementPerformance.revenue si aucune version par défaut n'existe) + tx/min
  * (ElementPerformance) + settings RH résolus (HrGoal/HrStaffRatio) + rôles RH →
@@ -172,6 +173,31 @@ export class StaffingService {
     return byElement;
   }
 
+  /**
+   * BUG-391-02 : CA prédit par PDV envoyé par l'écran Event Predict (celui que l'utilisateur
+   * voit). Ne garde que les nombres finis ≥ 0 ; le reste est ignoré sans erreur. Map vide si
+   * rien d'exploitable : l'appelant retombe alors sur la version par défaut.
+   */
+  private sanitizeRevenueOverride(override?: Record<string, unknown> | null): Map<string, number> {
+    const byElement = new Map<string, number>();
+    if (!override || typeof override !== 'object' || Array.isArray(override)) return byElement;
+    for (const [elementId, raw] of Object.entries(override)) {
+      if (!elementId || raw === null || raw === '' || typeof raw === 'boolean') continue;
+      const revenue = Number(raw);
+      if (!Number.isFinite(revenue) || revenue < 0) continue;
+      byElement.set(elementId, revenue);
+    }
+    return byElement;
+  }
+
+  /**
+   * Montant en euros au format français, 2 décimales au plus (ex. « 1 000 », « 999,6 »),
+   * espaces insécables normalisés. Pas d'arrondi à l'entier : 999,6 ne doit pas s'afficher 1 000.
+   */
+  private formatEuros(value: number): string {
+    return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 }).format(value).replace(/\s/g, ' ');
+  }
+
   // ── Chargement du référentiel RH ───────────────────────────────────────────
 
   private async loadHrContext(tenantId: string, spaceId: string) {
@@ -289,7 +315,12 @@ export class StaffingService {
 
   // ── Génération (POST /events/:eventId/staffing/generate) ──────────────────
 
-  async generate(eventId: string, tenantId: string, user?: SpaceScopedUser) {
+  async generate(
+    eventId: string,
+    tenantId: string,
+    user?: SpaceScopedUser,
+    predictedRevenueOverride?: Record<string, unknown> | null,
+  ) {
     const ctx = await this.getEventContext(eventId, tenantId, user);
     const settings = await this.resolveSettings(ctx.spaceId, tenantId);
     if (settings.goalTpe === null) {
@@ -301,7 +332,12 @@ export class StaffingService {
       );
     }
     const hr = await this.loadHrContext(tenantId, ctx.spaceId);
-    const predictedRevenueByElement = await this.resolvePredictedRevenueByElement(eventId, tenantId);
+    // Source du CA prédictif (BUG-391-02) : corps de la requête (CA affiché à l'écran) >
+    // version par défaut > ElementPerformance.revenue (repli par élément dans la boucle).
+    // Les clés hors configuration ne sont jamais lues : la boucle parcourt les éléments de la config.
+    const override = this.sanitizeRevenueOverride(predictedRevenueOverride);
+    const predictedRevenueByElement =
+      override.size > 0 ? override : await this.resolvePredictedRevenueByElement(eventId, tenantId);
 
     const elements = await this.prisma.spaceElement.findMany({
       where: {
@@ -332,9 +368,13 @@ export class StaffingService {
     }
     let totalCreated = 0;
     let totalKept = 0;
+    // CA prédit maximum vu sur un PDV : distingue « aucun CA » de « CA sous l'objectif TPE ».
+    let maxCaPredictif = 0;
 
     for (const el of elements) {
       const perf = el.performances[0];
+      const caPredictif = predictedRevenueByElement.get(el.id) ?? perf?.revenue ?? 0;
+      if (Number.isFinite(caPredictif) && caPredictif > maxCaPredictif) maxCaPredictif = caPredictif;
       const attrs = ((el as any).attributes ?? {}) as Record<string, any>;
       // BUG-122 : sous-types Builder v2 en minuscules (beverages, front_food…) — voir
       // fnb-tags.util.ts. CFG-2 Étape 4.5 : ce sont désormais aussi les valeurs stockées dans
@@ -343,7 +383,7 @@ export class StaffingService {
       const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : null);
 
       const result = this.calculator.calculate({
-        caPredictif: predictedRevenueByElement.get(el.id) ?? perf?.revenue ?? 0,
+        caPredictif,
         goalTpe: settings.goalTpe,
         // 2026-08-02, retour utilisateur : la donnée existe déjà sur l'élément (Position >
         // Largeur) — plus de champ « Mètres linéaires » dédié dans le Builder (StaffingInputsSection).
@@ -526,12 +566,22 @@ export class StaffingService {
     }
 
     if (elements.length > 0 && totalCreated === 0 && totalKept === 0) {
-      globalWarnings.push({
-        code: 'AUCUNE_LIGNE_GENEREE',
-        message:
-          "La génération n'a produit aucune ligne : les effectifs calculés sont tous à 0 " +
-          '(CA prédictif / pic de transactions absents pour les PDV de cette configuration).',
-      });
+      if (maxCaPredictif > 0 && maxCaPredictif < settings.goalTpe) {
+        // BUG-391-02 : du CA existe, mais aucun PDV n'atteint le palier n = floor(CA / goalTpe) ≥ 1.
+        globalWarnings.push({
+          code: 'CA_SOUS_OBJECTIF_TPE',
+          message:
+            `Aucun PDV n'atteint l'objectif de ${this.formatEuros(settings.goalTpe)} € par TPE ` +
+            `(CA prédit max : ${this.formatEuros(maxCaPredictif)} €).`,
+        });
+      } else {
+        globalWarnings.push({
+          code: 'AUCUNE_LIGNE_GENEREE',
+          message:
+            "La génération n'a produit aucune ligne : les effectifs calculés sont tous à 0 " +
+            '(CA prédictif / pic de transactions absents pour les PDV de cette configuration).',
+        });
+      }
     }
 
     return this.getStaffing(eventId, tenantId, globalWarnings, user);

@@ -169,6 +169,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { safePush } from '@/utils/chunkReload'
 import { useI18n } from '@/i18n/useI18n'
 import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
 import { resolveShopType } from '@/utils/analyseDimensions'
@@ -287,11 +288,11 @@ function spacePath(suffix) {
 }
 function onToolboxSelect(v) {
   if (v === 'live') return
-  if (v === 'space-pre-inventory') return router.push(spacePath('/pre-inventory'))
-  if (v === 'space-inventory') return router.push(spacePath('/inventory'))
-  if (v === 'logistic') return router.push(spacePath('/logistic'))
-  if (v === 'restock') return router.push(spacePath('/restock'))
-  router.push({ path: spacePath(''), query: v === 'analyse' ? {} : { toolbox: v } })
+  if (v === 'space-pre-inventory') return safePush(router, spacePath('/pre-inventory'))
+  if (v === 'space-inventory') return safePush(router, spacePath('/inventory'))
+  if (v === 'logistic') return safePush(router, spacePath('/logistic'))
+  if (v === 'restock') return safePush(router, spacePath('/restock'))
+  safePush(router, { path: spacePath(''), query: v === 'analyse' ? {} : { toolbox: v } })
 }
 const toolboxItems = computed(() => [
   { value: 'analyse', label: t('anToolAnalyse'), icon: 'mdi-chart-line' },

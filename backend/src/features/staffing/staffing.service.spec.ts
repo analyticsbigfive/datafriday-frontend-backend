@@ -155,3 +155,163 @@ describe('StaffingService.getStaffing : horaires suggérés et recalage des lign
     expect(out.schedule.endTime).toEqual(T('2026-09-19T07:00:00.000Z'));
   });
 });
+
+/**
+ * BUG-391-02 : « Generate Staff » doit partir du CA prédit affiché à l'écran Event Predict.
+ * Priorité : corps de la requête > version par défaut > ElementPerformance.revenue.
+ * goalTpe = 1 000 € : 3 000 € donnent n = 3 (2 caissiers + 1 runner, sans responsable PDV).
+ */
+describe('StaffingService.generate : source du CA prédictif et avertissements', () => {
+  const GOAL_TPE = 1000;
+
+  const element = (id: string, perfRevenue: number | null) => ({
+    id,
+    name: id,
+    type: 'shop',
+    subtypes: [],
+    attributes: {},
+    width: null,
+    performances: perfRevenue === null ? [] : [{ revenue: perfRevenue, transactionsPerMinute: 0 }],
+    menuItemSalesInputs: [],
+  });
+
+  function build(opts: { elements: any[]; versionRecords?: any[] | null }) {
+    const prisma: any = {
+      event: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'ev',
+          tenantId: 't1',
+          spaceId: 's1',
+          configurationId: 'cfg',
+          eventDate: new Date('2026-09-19T00:00:00.000Z'),
+          sessions: null,
+        }),
+      },
+      space: { findFirst: jest.fn().mockResolvedValue({ timezone: 'Europe/Paris' }) },
+      hrGoal: { findMany: jest.fn() },
+      hrStaffRatio: { findMany: jest.fn() },
+      hrRole: { findMany: jest.fn() },
+      hrPerson: { findMany: jest.fn() },
+      hrRoleSpaceDefault: { findMany: jest.fn() },
+      hrSupplier: { findMany: jest.fn() },
+      hrSinkingRule: { findMany: jest.fn() },
+      hrRoleMenuItemRatio: { findMany: jest.fn() },
+      eventPredictVersion: {
+        findFirst: jest
+          .fn()
+          .mockResolvedValue(opts.versionRecords ? { predictedRecords: opts.versionRecords } : null),
+      },
+      spaceElement: { findMany: jest.fn().mockResolvedValue(opts.elements) },
+      eventStaffLine: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn((args: any) => ({ op: 'deleteMany', args })),
+        createMany: jest.fn((args: any) => ({ op: 'createMany', args })),
+      },
+      elementPerformance: { upsert: jest.fn((args: any) => ({ op: 'upsert', args })) },
+      // 1er appel : settings RH ; 2e : référentiel RH ; ensuite : écritures par élément.
+      $transaction: jest.fn(async (ops: any[]) => {
+        prisma._txCalls += 1;
+        if (prisma._txCalls === 1) {
+          return [
+            [{ allSpaces: true, spaces: [], goalPerTpe: GOAL_TPE }],
+            [{ allSpaces: true, spaces: [], staffPerZoneManager: 10 }],
+          ];
+        }
+        if (prisma._txCalls === 2) return [[], [], [], [], [], []];
+        prisma._writes.push(...ops);
+        return ops;
+      }),
+      _txCalls: 0,
+      _writes: [] as any[],
+    };
+    const service = new StaffingService(prisma, new StaffingCalculatorService(), {
+      hasFullAccess: () => true,
+      getAccessibleSpaceIds: async () => 'ALL',
+    } as any);
+    // La relecture (getStaffing) n'est pas l'objet de ces tests : on renvoie les avertissements.
+    jest
+      .spyOn(service, 'getStaffing')
+      .mockImplementation(async (_e: string, _t: string, warnings: any[] = []) => ({ warnings }) as any);
+    const createdFor = (elementId: string) =>
+      prisma._writes
+        .filter((w: any) => w.op === 'createMany')
+        .flatMap((w: any) => w.args.data)
+        .filter((l: any) => l.elementId === elementId).length;
+    return { prisma, service, createdFor };
+  }
+
+  it("le CA envoyé par l'écran est prioritaire sur la version par défaut", async () => {
+    const { prisma, service, createdFor } = build({
+      elements: [element('el1', 0)],
+      versionRecords: [{ shopId: 'el1', totalRevenue: 9000 }],
+    });
+    await service.generate('ev', 't1', undefined, { el1: 3000 });
+    expect(createdFor('el1')).toBe(3);
+    expect(prisma.eventPredictVersion.findFirst).not.toHaveBeenCalled();
+  });
+
+  it.each([[undefined], [{}], [null]])('corps %p : repli sur la version par défaut (agrégée par shopId)', async (override) => {
+    const { prisma, service, createdFor } = build({
+      elements: [element('el1', 0)],
+      versionRecords: [
+        { shopId: 'el1', totalRevenue: 1500 },
+        { shopId: 'el1', totalRevenue: 500 },
+      ],
+    });
+    await service.generate('ev', 't1', undefined, override as any);
+    expect(prisma.eventPredictVersion.findFirst).toHaveBeenCalled();
+    expect(createdFor('el1')).toBe(2);
+  });
+
+  it('ni corps ni version : repli sur ElementPerformance.revenue', async () => {
+    const { service, createdFor } = build({ elements: [element('el1', 4000)], versionRecords: null });
+    await service.generate('ev', 't1');
+    expect(createdFor('el1')).toBe(4);
+  });
+
+  it('valeurs invalides ignorées ; un corps sans valeur exploitable retombe sur la version', async () => {
+    const { prisma, service, createdFor } = build({
+      elements: [element('el1', 0)],
+      versionRecords: [{ shopId: 'el1', totalRevenue: 2000 }],
+    });
+    await service.generate('ev', 't1', undefined, {
+      el1: -500,
+      el2: 'abc',
+      el3: Infinity,
+      el4: null,
+      el5: true,
+    } as any);
+    expect(prisma.eventPredictVersion.findFirst).toHaveBeenCalled();
+    expect(createdFor('el1')).toBe(2);
+  });
+
+  it('corps partiel : PDV absent du corps ou à valeur invalide retombe sur ElementPerformance, clé hors config jamais lue', async () => {
+    const { prisma, service, createdFor } = build({
+      elements: [element('el1', 0), element('el2', 2000)],
+      versionRecords: [{ shopId: 'el2', totalRevenue: 9000 }],
+    });
+    await service.generate('ev', 't1', undefined, { el1: '3000', el2: -1, horsConfig: 50000 } as any);
+    expect(prisma.eventPredictVersion.findFirst).not.toHaveBeenCalled();
+    expect(createdFor('el1')).toBe(3);
+    expect(createdFor('el2')).toBe(2);
+    expect(createdFor('horsConfig')).toBe(0);
+    expect(prisma.elementPerformance.upsert).toHaveBeenCalledTimes(2);
+  });
+
+  it('aucun CA prédit sur aucun PDV : avertissement AUCUNE_LIGNE_GENEREE', async () => {
+    const { service } = build({ elements: [element('el1', 0), element('el2', null)], versionRecords: null });
+    const out: any = await service.generate('ev', 't1');
+    const codes = out.warnings.map((w: any) => w.code);
+    expect(codes).toContain('AUCUNE_LIGNE_GENEREE');
+    expect(codes).not.toContain('CA_SOUS_OBJECTIF_TPE');
+  });
+
+  it("du CA mais tous les PDV sous l'objectif TPE : avertissement CA_SOUS_OBJECTIF_TPE avec le CA max", async () => {
+    const { service } = build({ elements: [element('el1', 0), element('el2', 0)], versionRecords: null });
+    const out: any = await service.generate('ev', 't1', undefined, { el1: 420, el2: 999.6 });
+    const w = out.warnings.find((x: any) => x.code === 'CA_SOUS_OBJECTIF_TPE');
+    expect(w).toBeDefined();
+    expect(w.message).toBe("Aucun PDV n'atteint l'objectif de 1 000 € par TPE (CA prédit max : 999,6 €).");
+    expect(out.warnings.map((x: any) => x.code)).not.toContain('AUCUNE_LIGNE_GENEREE');
+  });
+});

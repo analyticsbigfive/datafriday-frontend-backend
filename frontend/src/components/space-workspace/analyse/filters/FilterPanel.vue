@@ -548,6 +548,7 @@ import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { useStore } from 'vuex'
 import { useRoute, useRouter } from 'vue-router'
+import { safePush } from '@/utils/chunkReload'
 import { useFilters } from '@/composables/useFilters'
 import { getDateRangePresets, PRESET_I18N_KEYS } from '@/constants/dateRangePresets'
 import CheckboxListFilter from './CheckboxListFilter.vue'
@@ -592,23 +593,23 @@ const logisticPath = computed(() => {
 // only supports analyse / predict / event-predict).
 function onToolboxSelect(v) {
   if (v === 'space-pre-inventory') {
-    router.push(spacePreInventoryPath.value)
+    safePush(router, spacePreInventoryPath.value)
     return
   }
   if (v === 'space-inventory') {
-    router.push(spaceInventoryPath.value)
+    safePush(router, spaceInventoryPath.value)
     return
   }
   if (v === 'logistic') {
-    router.push(logisticPath.value)
+    safePush(router, logisticPath.value)
     return
   }
   if (v === 'restock') {
-    router.push(restockPath.value)
+    safePush(router, restockPath.value)
     return
   }
   if (v === 'live') {
-    router.push(livePath.value)
+    safePush(router, livePath.value)
     return
   }
   // 'analyse' / 'predict' / 'event-predict' are display modes of the SAME
