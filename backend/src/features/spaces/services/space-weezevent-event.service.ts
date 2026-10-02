@@ -3,6 +3,7 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventClientService } from '../../weezevent/services/weezevent-client.service';
 import { UpdateWeezeventEventMetadataDto } from '../dto/update-weezevent-event-metadata.dto';
 import { SpaceCrudService } from './space-crud.service';
+import { upsertQueuedEntities } from '../../weezevent/services/sync/queued-entity.queries';
 
 /**
  * Events Weezevent d'un espace : liste, intégrations, métadonnées, participants.
@@ -225,41 +226,25 @@ export class SpaceWeezeventEventService {
         { page, perPage: 100 },
       );
 
-      for (const a of response.data) {
-        const weezeventId = String(a.id ?? a.attendee_id ?? `${page}_${synced}`);
-        await this.prisma.weezeventAttendee.upsert({
-          where: {
-            tenantId_integrationId_weezeventId: {
-              tenantId,
-              integrationId: event.integrationId,
-              weezeventId,
-            },
-          },
-          create: {
-            weezeventId,
-            tenantId,
-            integrationId: event.integrationId,
-            eventId: event.id,
-            eventName: a.event_name ?? null,
-            email:     a.email      ?? null,
-            firstName: a.first_name ?? null,
-            lastName:  a.last_name  ?? null,
-            ticketType: typeof a.ticket_type === 'string' ? a.ticket_type : (a.ticket_type?.name ?? null),
-            status:    a.status ?? 'registered',
-            rawData:   a,
-          },
-          update: {
-            status:    a.status ?? 'registered',
-            email:     a.email      ?? null,
-            firstName: a.first_name ?? null,
-            lastName:  a.last_name  ?? null,
-            ticketType: typeof a.ticket_type === 'string' ? a.ticket_type : (a.ticket_type?.name ?? null),
-            rawData:   a,
-            syncedAt:  new Date(),
-          },
-        });
-        synced++;
-      }
+      const ticketTypeOf = (a: any) => (typeof a.ticket_type === 'string' ? a.ticket_type : (a.ticket_type?.name ?? null));
+      const rows = response.data.map((a: any, i: number) => ({
+        weezeventId: String(a.id ?? a.attendee_id ?? `${page}_${synced + i}`),
+        values: {
+          eventId: event.id,
+          eventName: a.event_name ?? null,
+          email: a.email ?? null,
+          firstName: a.first_name ?? null,
+          lastName: a.last_name ?? null,
+          ticketType: ticketTypeOf(a),
+          status: a.status ?? 'registered',
+          rawData: a,
+        },
+      }));
+      // Une requête par page (au lieu d'un upsert par participant).
+      await upsertQueuedEntities(this.prisma, 'WeezeventAttendee', tenantId, event.integrationId, rows, new Date(), [
+        'status', 'email', 'firstName', 'lastName', 'ticketType', 'rawData',
+      ]);
+      synced += rows.length;
 
       hasMore = page < response.meta.total_pages;
       page++;

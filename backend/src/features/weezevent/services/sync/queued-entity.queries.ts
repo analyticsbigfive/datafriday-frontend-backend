@@ -49,7 +49,8 @@ const sqlValue = (value: unknown, cast: string | null) => {
  * Upsert d'une page de lignes en une requête (au lieu d'une lecture puis d'un upsert par
  * ligne). La contrainte unique porte sur (tenantId, integrationId, weezeventId), toujours
  * filtrée sur le tenant et l'intégration passés. Renvoie le nombre de lignes créées et mises
- * à jour (`xmax = 0` distingue une insertion d'une mise à jour).
+ * à jour (`xmax = 0` distingue une insertion d'une mise à jour). `updateColumns` remplace la
+ * liste des colonnes mises à jour en cas de conflit (colonnes connues de la table seulement).
  */
 export async function upsertQueuedEntities(
   db: SqlClient,
@@ -58,6 +59,7 @@ export async function upsertQueuedEntities(
   integrationId: string,
   rows: QueuedEntityRow[],
   syncedAt: Date = new Date(),
+  updateColumns?: string[],
 ): Promise<{ created: number; updated: number }> {
   if (rows.length === 0) return { created: 0, updated: 0 };
   const cols = COLUMNS[table];
@@ -78,7 +80,9 @@ export async function upsertQueuedEntities(
     ])})`),
   );
   const updates = Prisma.raw(
-    [...cols.update, 'syncedAt', 'updatedAt'].map((c) => `"${c}" = EXCLUDED."${c}"`).join(', '),
+    [...(updateColumns ?? cols.update).filter((c) => c in cols.insert), 'syncedAt', 'updatedAt']
+      .map((c) => `"${c}" = EXCLUDED."${c}"`)
+      .join(', '),
   );
   const result = await db.$queryRaw<{ inserted: boolean }[]>`
     INSERT INTO "public".${Prisma.raw(`"${table}"`)} (${columnList})

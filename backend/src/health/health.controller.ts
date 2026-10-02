@@ -137,8 +137,10 @@ export class HealthController {
     const beats: Record<string, { lastBeatAt: string | null; stale: boolean }> = {};
     let stale = false;
     let known = false;
-    for (const [name, limit] of Object.entries(staleAfterMs)) {
-      const last = await this.redisService.get<string>(liveHeartbeatKey(name));
+    const entries = Object.entries(staleAfterMs);
+    const lasts = await Promise.all(entries.map(([name]) => this.redisService.get<string>(liveHeartbeatKey(name))));
+    for (const [i, [name, limit]] of entries.entries()) {
+      const last = lasts[i];
       const isStale = !last || Date.now() - new Date(last).getTime() > limit;
       beats[name] = { lastBeatAt: last, stale: isStale };
       known = known || !!last;

@@ -184,12 +184,8 @@ export class QueueService {
    * Get all queue stats
    */
   async getAllQueueStats(): Promise<Record<string, any>> {
-    const results: Record<string, any> = {};
-
-    for (const queueName of Object.values(QUEUES)) {
-      results[queueName] = await this.getQueueStats(queueName);
-    }
-
-    return results;
+    const names = Object.values(QUEUES);
+    const stats = await Promise.all(names.map((queueName) => this.getQueueStats(queueName)));
+    return Object.fromEntries(names.map((queueName, i) => [queueName, stats[i]]));
   }
 }

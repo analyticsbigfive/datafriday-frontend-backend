@@ -40,21 +40,26 @@ export class SpaceRevenueSummaryService {
     if (spaceIds.length === 0) return summaries;
 
     const missing: string[] = [];
-    for (const spaceId of spaceIds) {
-      const cached = await this.redis.get<SpaceRevenueSummary>(spaceRevenueSummaryCacheKey(tenantId, spaceId));
+    const cachedAll = await Promise.all(
+      spaceIds.map((spaceId) => this.redis.get<SpaceRevenueSummary>(spaceRevenueSummaryCacheKey(tenantId, spaceId))),
+    );
+    spaceIds.forEach((spaceId, i) => {
+      const cached = cachedAll[i];
       if (cached && typeof cached.totalRevenue === 'number') summaries.set(spaceId, cached);
       else missing.push(spaceId);
-    }
+    });
     if (missing.length === 0) return summaries;
 
     const computed = await this.compute(tenantId, missing);
-    for (const spaceId of missing) {
-      // Un espace sans agrégat est aussi mis en cache (résultat "0" valide), sinon il serait
-      // recalculé à chaque affichage.
-      const summary = computed.get(spaceId) ?? EMPTY_SUMMARY;
-      summaries.set(spaceId, summary);
-      await this.redis.set(spaceRevenueSummaryCacheKey(tenantId, spaceId), summary, { ttl: CACHE_TTL_SEC });
-    }
+    // Un espace sans agrégat est aussi mis en cache (résultat "0" valide), sinon il serait
+    // recalculé à chaque affichage.
+    await Promise.all(
+      missing.map((spaceId) => {
+        const summary = computed.get(spaceId) ?? EMPTY_SUMMARY;
+        summaries.set(spaceId, summary);
+        return this.redis.set(spaceRevenueSummaryCacheKey(tenantId, spaceId), summary, { ttl: CACHE_TTL_SEC });
+      }),
+    );
     return summaries;
   }
 

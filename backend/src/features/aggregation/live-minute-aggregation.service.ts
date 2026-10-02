@@ -83,9 +83,7 @@ export class LiveMinuteAggregationService {
       }
 
       if (minutesProcessed > 0) {
-        for (const pattern of eventBatchCachePatterns(tenantId, spaceId)) {
-          await this.redis.deletePattern(pattern);
-        }
+        await Promise.all(eventBatchCachePatterns(tenantId, spaceId).map((pattern) => this.redis.deletePattern(pattern)));
       }
 
       const existing = await this.prisma.aggregationJobLog.findUnique({ where: { id: jobLogId }, select: { metadata: true } });
