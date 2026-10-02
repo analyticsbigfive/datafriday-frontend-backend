@@ -5,6 +5,7 @@ import { TenantContextService } from '../../../../core/tenant/tenant-context.ser
 import { AppConfigService } from '../../../../config/app-config.service';
 import { testAppConfig } from '../../../../config/app-config.testing';
 import { upsertQueuedEntities } from './queued-entity.queries';
+import { WeezeventQueuedEntitySyncService } from './queued-entity-sync.service';
 
 const hasDatabase = !!process.env.DATABASE_URL;
 
@@ -82,5 +83,64 @@ const hasDatabase = !!process.env.DATABASE_URL;
       { weezeventId: 'u1', values: { status: 'valid', email: 'x@y.z', rawData: {} } },
     ]);
     expect([price.created, attendee.created]).toEqual([1, 1]);
+  });
+
+  it('colonnes mises à jour au choix (updateColumns)', async () => {
+    const [a] = tenants;
+    await upsertQueuedEntities(prisma, 'WeezeventAttendee', a, integrations[a], [{ weezeventId: 'u2', values: { status: 'valid', email: 'old@x.fr', rawData: {} } }]);
+    await upsertQueuedEntities(prisma, 'WeezeventAttendee', a, integrations[a], [{ weezeventId: 'u2', values: { status: 'scanned', email: 'new@x.fr', rawData: {} } }], new Date(), ['email']);
+    const row = await tenantCtx.runForTenant(a, () => prisma.weezeventAttendee.findFirst({ where: { weezeventId: 'u2' } }));
+    expect([row?.email, row?.status]).toEqual(['new@x.fr', 'valid']);
+  });
+
+  it("synchro des participants : l'id Weezevent externe est résolu en SalesEvent interne", async () => {
+    const [a] = tenants;
+    const integrationId = integrations[a];
+    const salesEvent = await tenantCtx.runForTenant(a, () =>
+      prisma.salesEvent.create({ data: { externalId: 'wz-777', integrationId, name: 'Match', organizationId: 'org', rawData: {} } as any }),
+    );
+    await tenantCtx.runForTenant(a, () =>
+      prisma.weezeventIntegrationConfig.create({ data: { integrationId, organizationId: 'org', clientId: 'c', clientSecret: 's' } as any }),
+    );
+    const client = {
+      getAttendees: jest.fn().mockResolvedValue({
+        data: [{ id: 1, status: 'valid', email: 'a@b.c' }, { id: 2, status: 'valid' }],
+        meta: { total_pages: 1 },
+      }),
+    };
+    const service = new WeezeventQueuedEntitySyncService(prisma, client as any);
+    const result = await tenantCtx.runForTenant(a, () => service.syncAttendees(a, integrationId, 'wz-777'));
+
+    expect(result).toMatchObject({ itemsCreated: 2, errors: 0, success: true });
+    expect(client.getAttendees).toHaveBeenCalledWith(a, integrationId, 'org', 'wz-777', { page: 1, perPage: 100 });
+    const rows = await tenantCtx.runForTenant(a, () => prisma.weezeventAttendee.findMany({ where: { weezeventId: { in: ['1', '2'] } } }));
+    expect(rows.map((r) => r.eventId)).toEqual([salesEvent.id, salesEvent.id]);
+  });
+
+  it('synchro des prix : événement et produit externes résolus en ids internes', async () => {
+    const [a] = tenants;
+    const integrationId = integrations[a];
+    const [salesEvent, salesProduct] = await tenantCtx.runForTenant(a, () =>
+      Promise.all([
+        prisma.salesEvent.create({ data: { externalId: 'wz-888', integrationId, name: 'Match 2', organizationId: 'org', rawData: {} } as any }),
+        prisma.salesProduct.create({ data: { externalId: 'p-9', integrationId, name: 'Bière', rawData: {} } as any }),
+      ]),
+    );
+    const client = {
+      getPrices: jest.fn().mockResolvedValue({
+        data: [{ id: 'pr-1', product_id: 'p-9', name: 'Bière 50cl', amount: 7 }, { id: 'pr-2', product_id: 'inconnu', amount: 1 }],
+      }),
+    };
+    const service = new WeezeventQueuedEntitySyncService(prisma, client as any);
+    const result = await tenantCtx.runForTenant(a, () => service.syncPrices(a, integrationId, 'wz-888'));
+
+    expect(result).toMatchObject({ itemsCreated: 2, errors: 0 });
+    const rows = await tenantCtx.runForTenant(a, () =>
+      prisma.weezeventPrice.findMany({ where: { weezeventId: { in: ['pr-1', 'pr-2'] } }, orderBy: { weezeventId: 'asc' } }),
+    );
+    expect(rows.map((r) => [r.eventId, r.productId])).toEqual([
+      [salesEvent.id, salesProduct.id],
+      [salesEvent.id, null],
+    ]);
   });
 });

@@ -41,6 +41,7 @@ export class WeezeventQueuedEntitySyncService {
             }
             const organizationId = integration.weezevent.organizationId;
             this.logger.log(`Syncing orders for event ${eventId}`);
+            const salesEventIds = await this.salesEventIdsByExternalId(tenantId, integrationId, [eventId]);
 
             let page = 1;
             let hasMore = true;
@@ -55,7 +56,7 @@ export class WeezeventQueuedEntitySyncService {
                 await this.writePage('WeezeventOrder', tenantId, integrationId, response.data.map((apiOrder: any) => ({
                     weezeventId: apiOrder.id.toString(),
                     values: {
-                        eventId, eventName: apiOrder.event_name || null,
+                        eventId: salesEventIds.get(eventId) ?? null, eventName: apiOrder.event_name || null,
                         userId: apiOrder.user_id?.toString() || null,
                         userEmail: apiOrder.user_email || null,
                         status: apiOrder.status || 'unknown',
@@ -104,12 +105,20 @@ export class WeezeventQueuedEntitySyncService {
             const response = await this.weezeventClient.getPrices(
                 tenantId, integrationId, organizationId, eventId, { perPage: 100 },
             );
+            const [salesEventIds, salesProductIds] = await Promise.all([
+                this.salesEventIdsByExternalId(
+                    tenantId, integrationId, response.data.map((p: any) => eventId || p.event_id?.toString() || null),
+                ),
+                this.salesProductIdsByExternalId(
+                    tenantId, integrationId, response.data.map((p: any) => p.product_id?.toString() || null),
+                ),
+            ]);
 
             await this.writePage('WeezeventPrice', tenantId, integrationId, response.data.map((apiPrice: any) => ({
                 weezeventId: apiPrice.id.toString(),
                 values: {
-                    eventId: eventId || apiPrice.event_id?.toString() || null,
-                    productId: apiPrice.product_id?.toString() || null,
+                    eventId: salesEventIds.get(eventId || apiPrice.event_id?.toString() || '') ?? null,
+                    productId: salesProductIds.get(apiPrice.product_id?.toString() || '') ?? null,
                     name: apiPrice.name || 'Unnamed Price',
                     amount: apiPrice.amount || 0,
                     currency: apiPrice.currency || 'EUR',
@@ -150,6 +159,7 @@ export class WeezeventQueuedEntitySyncService {
             }
             const organizationId = integration.weezevent.organizationId;
             this.logger.log(`Syncing attendees for event ${eventId}`);
+            const salesEventIds = await this.salesEventIdsByExternalId(tenantId, integrationId, [eventId]);
 
             let page = 1;
             let hasMore = true;
@@ -164,7 +174,7 @@ export class WeezeventQueuedEntitySyncService {
                 await this.writePage('WeezeventAttendee', tenantId, integrationId, response.data.map((apiAttendee: any) => ({
                     weezeventId: apiAttendee.id.toString(),
                     values: {
-                        eventId, eventName: apiAttendee.event_name || null,
+                        eventId: salesEventIds.get(eventId) ?? null, eventName: apiAttendee.event_name || null,
                         email: apiAttendee.email || null,
                         firstName: apiAttendee.first_name || null,
                         lastName: apiAttendee.last_name || null,
@@ -224,5 +234,40 @@ export class WeezeventQueuedEntitySyncService {
                 result.errors++;
             }
         }
+    }
+
+    /**
+     * `eventId` reçu (job, webhook) est l'identifiant Weezevent EXTERNE, celui qu'attend l'API.
+     * La colonne `eventId` des tables commandes, prix et participants est une clé étrangère vers
+     * l'identifiant INTERNE du SalesEvent : on le résout ici (null si l'événement n'est pas
+     * encore synchronisé). Sans cela, chaque écriture violait la contrainte.
+     */
+    private async salesEventIdsByExternalId(
+        tenantId: string,
+        integrationId: string,
+        externalIds: Array<string | null | undefined>,
+    ): Promise<Map<string, string>> {
+        const ids = [...new Set(externalIds.filter((id): id is string => !!id))];
+        if (!ids.length) return new Map();
+        const rows = await this.prisma.salesEvent.findMany({
+            where: { tenantId, integrationId, externalId: { in: ids } },
+            select: { id: true, externalId: true },
+        });
+        return new Map(rows.map((r) => [r.externalId, r.id]));
+    }
+
+    /** Même résolution pour `productId` (clé étrangère vers le SalesProduct interne). */
+    private async salesProductIdsByExternalId(
+        tenantId: string,
+        integrationId: string,
+        externalIds: Array<string | null | undefined>,
+    ): Promise<Map<string, string>> {
+        const ids = [...new Set(externalIds.filter((id): id is string => !!id))];
+        if (!ids.length) return new Map();
+        const rows = await this.prisma.salesProduct.findMany({
+            where: { tenantId, integrationId, externalId: { in: ids } },
+            select: { id: true, externalId: true },
+        });
+        return new Map(rows.map((r) => [r.externalId, r.id]));
     }
 }
