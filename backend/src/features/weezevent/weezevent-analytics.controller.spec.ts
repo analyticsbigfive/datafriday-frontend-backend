@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WeezeventAnalyticsController } from './weezevent-analytics.controller';
 import { PrismaService } from '../../core/database/prisma.service';
+import { WeezeventSalesAnalyticsService } from './services/weezevent-sales-analytics.service';
 
 describe('WeezeventAnalyticsController', () => {
     let controller: WeezeventAnalyticsController;
@@ -21,6 +22,7 @@ describe('WeezeventAnalyticsController', () => {
         const module: TestingModule = await Test.createTestingModule({
             controllers: [WeezeventAnalyticsController],
             providers: [
+        WeezeventSalesAnalyticsService,
                 {
                     provide: PrismaService,
                     useValue: mockPrismaService,

@@ -6,6 +6,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { WebhookSignatureService } from './services/webhook-signature.service';
 import { WebhookEventHandler } from './services/webhook-event.handler';
 import { EncryptionService } from '../../core/encryption/encryption.service';
+import { WeezeventWebhookIngestService } from './services/weezevent-webhook-ingest.service';
 
 describe('WebhookController', () => {
   let controller: WebhookController;
@@ -71,6 +72,7 @@ describe('WebhookController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [WebhookController],
       providers: [
+        WeezeventWebhookIngestService,
         {
           provide: PrismaService,
           useValue: mockPrismaService,

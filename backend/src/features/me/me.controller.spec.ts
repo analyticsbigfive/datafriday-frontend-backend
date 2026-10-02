@@ -4,6 +4,7 @@ import { MeController } from './me.controller';
 import { PrismaService } from '../../core/database/prisma.service';
 import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
+import { MeService } from './me.service';
 
 describe('MeController', () => {
   let controller: MeController;
@@ -50,6 +51,7 @@ describe('MeController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [MeController],
       providers: [
+        MeService,
         {
           provide: PrismaService,
           useValue: mockPrismaService,

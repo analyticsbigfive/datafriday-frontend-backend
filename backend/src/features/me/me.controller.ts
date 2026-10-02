@@ -1,11 +1,10 @@
-import { Controller, Get, Patch, Body, UseGuards, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Patch, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { AllowNoTenant } from '../../core/auth/decorators/allow-no-tenant.decorator';
 import { CurrentUser, CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
-import { PrismaService } from '../../core/database/prisma.service';
-import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
 import { UpdateMeDto } from './dto/update-me.dto';
+import { MeService } from './me.service';
 
 @ApiTags('Me')
 @ApiBearerAuth('supabase-jwt')
@@ -14,8 +13,7 @@ import { UpdateMeDto } from './dto/update-me.dto';
 @AllowNoTenant() // post-login / pre-onboarding surface — auth required, tenant optional
 export class MeController {
     constructor(
-        private readonly prisma: PrismaService,
-        private readonly jwtDatabaseStrategy: JwtDatabaseStrategy,
+        private readonly meService: MeService,
     ) { }
 
     /**
@@ -65,11 +63,7 @@ export class MeController {
     @ApiResponse({ status: 401, description: 'Non authentifié' })
     @ApiResponse({ status: 404, description: 'Utilisateur non trouvé en base (nécessite onboarding)' })
     async getCurrentUser(@CurrentUser() user: CurrentUserData) {
-        if (!user.tenantId) {
-            throw new NotFoundException('Utilisateur non trouvé en base (nécessite onboarding)');
-        }
-
-        return user;
+        return this.meService.getCurrentUser(user);
     }
 
     /**
@@ -85,41 +79,7 @@ export class MeController {
     @ApiResponse({ status: 200, description: 'Profil mis à jour' })
     @ApiResponse({ status: 401, description: 'Non authentifié' })
     async updateMe(@CurrentUser() user: CurrentUserData, @Body() dto: UpdateMeDto) {
-        const data: any = {};
-        if (dto.firstName !== undefined) data.firstName = dto.firstName;
-        if (dto.lastName !== undefined) data.lastName = dto.lastName;
-        if (dto.phone !== undefined) data.phone = dto.phone;
-        if (dto.avatar !== undefined) data.avatar = dto.avatar;
-
-        if (dto.firstName !== undefined || dto.lastName !== undefined) {
-            const current = await this.prisma.user.findUnique({
-                where: { id: user.id },
-                select: { firstName: true, lastName: true },
-            });
-            const firstName = dto.firstName ?? current?.firstName ?? '';
-            const lastName = dto.lastName ?? current?.lastName ?? '';
-            data.fullName = `${firstName} ${lastName}`.trim();
-        }
-
-        const updated = await this.prisma.user.update({
-            where: { id: user.id },
-            data,
-            select: {
-                id: true,
-                email: true,
-                firstName: true,
-                lastName: true,
-                fullName: true,
-                phone: true,
-                avatar: true,
-                tenantId: true,
-            },
-        });
-
-        // Identity fields are part of the cached auth payload — refresh it everywhere.
-        await this.jwtDatabaseStrategy.invalidateUserCache(user.id);
-
-        return updated;
+        return this.meService.updateMe(user, dto);
     }
 
     /**
@@ -137,17 +97,6 @@ export class MeController {
     @ApiResponse({ status: 401, description: 'Non authentifié' })
     @ApiResponse({ status: 404, description: 'Aucune organisation associée' })
     async getCurrentUserTenant(@CurrentUser() user: any) {
-        const dbUser = await this.prisma.user.findUnique({
-            where: { id: user.id },
-            include: {
-                tenant: true,
-            },
-        });
-
-        if (!dbUser?.tenant) {
-            throw new NotFoundException('Aucune organisation associée à cet utilisateur');
-        }
-
-        return dbUser.tenant;
+        return this.meService.getCurrentUserTenant(user);
     }
 }

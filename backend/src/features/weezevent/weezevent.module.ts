@@ -29,6 +29,8 @@ import { LiveAggregationTriggerService } from './services/live/live-aggregation-
 import { WebhookHealthService } from './services/live/webhook-health.service';
 import { LiveHeartbeatService } from './services/live/live-heartbeat.service';
 import { LiveSyncRunnerService } from './services/live/live-sync-runner.service';
+import { WeezeventWebhookIngestService } from './services/weezevent-webhook-ingest.service';
+import { WeezeventSalesAnalyticsService } from './services/weezevent-sales-analytics.service';
 
 @Module({
     imports: [
@@ -42,6 +44,8 @@ import { LiveSyncRunnerService } from './services/live/live-sync-runner.service'
     ],
     controllers: [WeezeventController, WebhookController, WeezeventAnalyticsController],
     providers: [
+        WeezeventSalesAnalyticsService,
+        WeezeventWebhookIngestService,
         WeezeventAuthService,
         WeezeventApiService,
         WeezeventClientService,

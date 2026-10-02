@@ -69,6 +69,24 @@ module.exports = {
       },
     },
     {
+      // Contrôleurs : HTTP uniquement, l'accès aux données passe par un service.
+      files: ['src/**/*.controller.ts'],
+      excludedFiles: ['src/health/**'],
+      rules: {
+        'no-restricted-imports': [
+          'error',
+          {
+            patterns: [
+              {
+                group: ['**/core/database/prisma.service'],
+                message: "Pas de PrismaService dans un contrôleur : déléguer à un service de la feature.",
+              },
+            ],
+          },
+        ],
+      },
+    },
+    {
       files: ['src/**/*.spec.ts'],
       rules: { 'no-restricted-syntax': 'off' },
     },

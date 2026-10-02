@@ -6,6 +6,7 @@ import { DigifoodWebhookHandler } from './services/digifood-webhook.handler';
 import { DigifoodIngestionService } from './services/digifood-ingestion.service';
 import { DigifoodCsvImportService } from './services/digifood-csv-import.service';
 import { PricingModule } from '../../shared/pricing/pricing.module';
+import { DigifoodWebhookIngestService } from './services/digifood-webhook-ingest.service';
 
 /**
  * Intégration Digifood (PLAN_INTEGRATION_DIGIFOOD §4) : webhooks temps réel
@@ -19,6 +20,7 @@ import { PricingModule } from '../../shared/pricing/pricing.module';
     imports: [PricingModule],
     controllers: [DigifoodWebhookController, DigifoodController],
     providers: [
+        DigifoodWebhookIngestService,
         DigifoodSignatureService,
         DigifoodWebhookHandler,
         DigifoodIngestionService,
