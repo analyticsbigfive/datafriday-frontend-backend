@@ -80,7 +80,7 @@ export class HealthController {
           latencyMs: Date.now() - start,
         };
       } catch (error) {
-        checks.database = { status: 'unhealthy', error: error.message };
+        checks.database = { status: 'unhealthy', error: (error as Error).message };
       }
     } else {
       checks.database = { status: 'not_configured' };
@@ -95,7 +95,7 @@ export class HealthController {
           connected: redisOk,
         };
       } catch (error) {
-        checks.redis = { status: 'unhealthy', error: error.message };
+        checks.redis = { status: 'unhealthy', error: (error as Error).message };
       }
     } else {
       checks.redis = { status: 'not_configured' };
@@ -110,7 +110,7 @@ export class HealthController {
           stats: queueStats,
         };
       } catch (error) {
-        checks.queues = { status: 'unhealthy', error: error.message };
+        checks.queues = { status: 'unhealthy', error: (error as Error).message };
       }
     } else {
       checks.queues = { status: 'not_configured' };

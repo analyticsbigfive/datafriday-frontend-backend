@@ -195,7 +195,7 @@ export class PrismaService
       } catch (error) {
         lastError = error as Error;
         this.logger.warn(
-          `Transaction attempt ${attempt}/${maxRetries} failed: ${error.message}`,
+          `Transaction attempt ${attempt}/${maxRetries} failed: ${(error as Error).message}`,
         );
 
         if (attempt < maxRetries) {

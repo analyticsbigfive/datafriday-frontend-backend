@@ -113,7 +113,7 @@ export class RedisService implements OnModuleDestroy {
       this.logger.debug(`Cache HIT: ${fullKey}`);
       return JSON.parse(data) as T;
     } catch (error) {
-      this.logger.error(`Cache GET error for ${key}: ${error.message}`);
+      this.logger.error(`Cache GET error for ${key}: ${(error as Error).message}`);
       return null;
     }
   }
@@ -130,7 +130,7 @@ export class RedisService implements OnModuleDestroy {
       await this.redis.setex(fullKey, ttl, data);
       this.logger.debug(`Cache SET: ${fullKey} (TTL: ${ttl}s)`);
     } catch (error) {
-      this.logger.error(`Cache SET error for ${key}: ${error.message}`);
+      this.logger.error(`Cache SET error for ${key}: ${(error as Error).message}`);
     }
   }
 
@@ -143,7 +143,7 @@ export class RedisService implements OnModuleDestroy {
       await this.redis.del(fullKey);
       this.logger.debug(`Cache DELETE: ${fullKey}`);
     } catch (error) {
-      this.logger.error(`Cache DELETE error for ${key}: ${error.message}`);
+      this.logger.error(`Cache DELETE error for ${key}: ${(error as Error).message}`);
     }
   }
 
@@ -163,7 +163,7 @@ export class RedisService implements OnModuleDestroy {
       this.logger.debug(`Cache DELETE PATTERN: ${fullPattern} (${deleted} keys)`);
       return deleted;
     } catch (error) {
-      this.logger.error(`Cache DELETE PATTERN error: ${error.message}`);
+      this.logger.error(`Cache DELETE PATTERN error: ${(error as Error).message}`);
       return 0;
     }
   }
@@ -176,7 +176,7 @@ export class RedisService implements OnModuleDestroy {
       const fullKey = this.buildKey(key, prefix);
       return (await this.redis.exists(fullKey)) === 1;
     } catch (error) {
-      this.logger.error(`Cache HAS error for ${key}: ${error.message}`);
+      this.logger.error(`Cache HAS error for ${key}: ${(error as Error).message}`);
       return false;
     }
   }

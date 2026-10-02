@@ -53,8 +53,12 @@ jobs:
       - run: pnpm exec prisma generate
       - name: Typage
         run: pnpm exec tsc --noEmit -p tsconfig.json
+      - name: Typage strict (dossiers déjà assainis, périmètre croissant)
+        run: pnpm exec tsc -p tsconfig.strict.json
       - name: Lint
         run: pnpm exec eslint "src/**/*.ts" --max-warnings=0
+      - name: Typage, budget de any (ne peut que baisser)
+        run: node scripts/check-any-budget.mjs
       - name: Index (redondants, clés étrangères sans index)
         run: node scripts/check-schema-indexes.mjs
       - name: Code mort (knip)

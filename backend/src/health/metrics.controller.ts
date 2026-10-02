@@ -126,7 +126,7 @@ export class MetricsController {
     } catch (error) {
       return {
         connected: false,
-        error: error.message,
+        error: (error as Error).message,
       };
     }
   }
