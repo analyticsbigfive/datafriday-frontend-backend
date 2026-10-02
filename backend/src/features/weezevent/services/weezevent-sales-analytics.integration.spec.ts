@@ -4,7 +4,9 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { TenantContextService } from '../../../core/tenant/tenant-context.service';
 import { AppConfigService } from '../../../config/app-config.service';
 import { testAppConfig } from '../../../config/app-config.testing';
+import { Prisma } from '@prisma/client';
 import { WeezeventSalesAnalyticsService } from './weezevent-sales-analytics.service';
+import { eventMinuteTimeline } from '../../analyse/analyse.queries';
 
 const hasDatabase = !!process.env.DATABASE_URL;
 
@@ -138,5 +140,17 @@ const hasDatabase = !!process.env.DATABASE_URL;
       { productId: expect.any(String), productName: 'Soda', category: 'cat-drink', quantity: 2, revenue: 6, averagePrice: 3 },
     ]);
     expect(res.meta).toMatchObject({ total: 3, limit: 2 });
+  });
+
+  it('chronologie minute d’un événement (analyse) : la requête SQL s’exécute et agrège par minute', async () => {
+    const rows = await tenantCtx.runForTenant(tenantId, () =>
+      eventMinuteTimeline(prisma, tenantId, ev1, Prisma.empty, Prisma.empty, Prisma.empty, Prisma.empty, 100),
+    );
+    // Transactions de statut 'V' de l'événement, supprimées exclues (BUG-028), toutes périodes.
+    const minutes = rows.map((r) => r.minute);
+    expect(minutes).toEqual(expect.arrayContaining(['19:00', '20:00']));
+    // Transaction supprimée côté Weezevent (50 burgers à 21:00) absente ; reste la vente de mai à 21:00.
+    expect(rows.filter((r) => r.minute === '21:00').map((r) => r.quantity)).toEqual([40]);
+    expect(rows.find((r) => r.minute === '20:00')).toMatchObject({ hour: 20, quantity: 1 });
   });
 });

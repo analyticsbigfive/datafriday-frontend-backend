@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { SqlClient } from '../../core/database/sql-client';
+import { revenueHtExpr } from '../aggregation/event-aggregation.queries';
 
 /** Statistiques de prix du catalogue d'articles du tenant. */
 export function menuItemPriceStats(db: SqlClient, tenantId: string): Promise<Array<{
@@ -73,7 +74,7 @@ export function eventMinuteTimeline(db: SqlClient, tenantId: string, eventId: st
       SELECT
         ${eventId}::text                                                              AS "eventId",
         TO_CHAR(DATE_TRUNC('minute', t."transactionDate"), 'HH24:MI')               AS minute,
-        EXTRACT(HOUR FROM t."transactionDate")::integer                              AS hour,
+        EXTRACT(HOUR FROM DATE_TRUNC('minute', t."transactionDate"))::integer        AS hour,
         t."merchantId"                                                               AS "shopId",
         COALESCE(m.name, t."merchantName")                                          AS "shopName",
         ti."productId"                                                               AS "weezeventProductId",
@@ -86,16 +87,7 @@ export function eventMinuteTimeline(db: SqlClient, tenantId: string, eventId: st
         -- jsonb (affinage même jour) ne retombe sur unitPrice que si la clé est ABSENTE
         -- (produit normal, donnée manquante) — jamais si elle est présente-et-vide
         -- (vraie ligne formule/menu, cf. aggregation.service.ts pour la mesure des 2 cas).
-        SUM(
-          CASE WHEN t."provider" = 'WEEZEVENT' AND ti."rawData" ? 'payments' THEN
-            COALESCE((
-              SELECT SUM((p->>'amount')::numeric - (p->>'amount_vat')::numeric)
-              FROM jsonb_array_elements(ti."rawData"->'payments') AS p
-            ), 0) / 100
-          ELSE
-            (ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
-          END
-        )::numeric(12,2) AS revenue
+        SUM(${revenueHtExpr})::numeric(12,2) AS revenue
       FROM "WeezeventTransaction" t
       INNER JOIN "WeezeventTransactionItem" ti
         ON ti."transactionId" = t.id
@@ -109,6 +101,7 @@ export function eventMinuteTimeline(db: SqlClient, tenantId: string, eventId: st
       WHERE t."tenantId" = ${tenantId}
         AND t."eventId"  = ${eventId}
         AND t.status = 'V'
+        AND t."deletedAt" IS NULL -- BUG-028 : transactions supprimées côté Weezevent exclues
         ${shopFilter}
         ${menuItemFilter}
         ${startTimeFilter}
