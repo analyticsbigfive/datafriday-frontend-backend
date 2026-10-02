@@ -526,8 +526,7 @@ export class GuestPinAccessService {
   ) {
     const event = await this.preEventFlow.findEvent(spaceId, eventId, tenantId);
     if (!event) throw new NotFoundException('Événement introuvable pour cet espace');
-    const preEventStart = phase === 'pre-event' ? await this.preEventFlow.preEventOpensAt(event) : null;
-    const period = inventoryWindowPeriod(event, phase, event.timezone, preEventStart);
+    const period = inventoryWindowPeriod(event, phase, event.timezone);
     return { period, state: inventoryWindowPeriodState(period, now), timezone: event.timezone };
   }
 

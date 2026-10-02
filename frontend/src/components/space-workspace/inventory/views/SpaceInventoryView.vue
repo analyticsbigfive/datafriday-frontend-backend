@@ -198,12 +198,7 @@
             <!-- Fenêtre des 30 min après l'ouverture des portes (critère
                  d'acceptation 2026-09-14) : modifications encore possibles, feuille
                  et Logistique régénérées automatiquement ; puis verrou. -->
-            <!-- Avant minuit le jour du match (ou la fin du match précédent s'il finit
-                 après minuit) : lecture seule (règle Bertrand 2026-09-29). -->
-            <span v-if="preEventWindow.isNotOpen" class="si-band-title__warn si-band-title__lock">
-              · {{ t('preInvNotOpenYet').replace('{time}', preEventOpensLabel) }}
-            </span>
-            <span v-else-if="preEventWindow.isLocked" class="si-band-title__warn si-band-title__lock">
+            <span v-if="preEventWindow.isLocked" class="si-band-title__warn si-band-title__lock">
               · {{ t('preInvLockedAfterDoors') }}
             </span>
             <span v-else-if="preEventWindow.isAfterDoorsOpen" class="si-band-title__warn">
@@ -514,7 +509,7 @@
           :expected-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedForField : null)"
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
-          :readonly="guestSession.isReadonly || preEventWindow.isLocked || preEventWindow.isNotOpen"
+          :readonly="guestSession.isReadonly || preEventWindow.isLocked"
           :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="countingShop = null"
@@ -835,7 +830,7 @@
           :expected-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedForField : null)"
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
-          :readonly="guestSession.isReadonly || preEventWindow.isLocked || preEventWindow.isNotOpen"
+          :readonly="guestSession.isReadonly || preEventWindow.isLocked"
           :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="closeMobileCounting"
@@ -1425,12 +1420,6 @@ export default {
       if (!this.isPreMode || this.guestSession.isGuestMode || isDemoMode()) return false
       if (!this.selectedEventId || this.preEventWindow.phase === 'unknown') return false
       return !this.preEventWindow.doorsOpenDone
-    },
-    /** Début de la période pre-event (JJ/MM HH:MM locale) pour le bandeau « pas encore ouvert ». */
-    preEventOpensLabel() {
-      const d = this.preEventWindow.opensAt
-      if (!d) return ''
-      return d.toLocaleString(this.intlLocale, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
     },
     /** Heure de fin de la fenêtre d'édition (HH:MM locale) pour le bandeau. */
     preEventDeadlineLabel() {

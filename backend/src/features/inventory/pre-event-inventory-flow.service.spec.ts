@@ -155,7 +155,6 @@ describe('PreEventInventoryFlowService', () => {
       expect(service.editDeadline(event)).toBeNull();
       expect(service.windowState(event)).toEqual({
         phase: 'no-doors-open',
-        opensAt: null,
         doorsOpenAt: null,
         editDeadline: null,
       });
