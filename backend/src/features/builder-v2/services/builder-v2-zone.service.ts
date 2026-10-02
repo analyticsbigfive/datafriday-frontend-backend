@@ -175,6 +175,7 @@ export class BuilderV2ZoneService {
       const memberships: Array<{ elementId: string; configIds: string[] }> = [];
       const elements = [];
       for (const el of source.elements) {
+        // eslint-disable-next-line no-await-in-loop -- copies créées une par une : chaque slug doit voir les précédents dans la transaction
         const copy = await createSpaceElementWithUniqueSlug(tx, el.name, (slug) => ({
           zoneId: zone.id,
           slug,
@@ -198,14 +199,13 @@ export class BuilderV2ZoneService {
           cornerRadiusBR: el.cornerRadiusBR ?? 0,
         }));
         const configIds = el.configurationElements.map((m) => m.configId);
-        if (configIds.length > 0) {
-          await tx.configurationElement.createMany({
-            data: configIds.map((configId) => ({ configId, elementId: copy.id })),
-            skipDuplicates: true,
-          });
-        }
         memberships.push({ elementId: copy.id, configIds });
         elements.push(copy);
+      }
+      // Adhésions de toutes les copies en une insertion.
+      const membershipRows = memberships.flatMap((m) => m.configIds.map((configId) => ({ configId, elementId: m.elementId })));
+      if (membershipRows.length > 0) {
+        await tx.configurationElement.createMany({ data: membershipRows, skipDuplicates: true });
       }
 
       return { zone, elements, memberships };

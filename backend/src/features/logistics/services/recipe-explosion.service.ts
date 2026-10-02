@@ -112,17 +112,13 @@ export class RecipeExplosionService {
   }
 
   /**
-   * Charge les menu items (ids demandés + combos référencés par nom, profondeur ≤ 4)
-   * avec leur recette complète, et résout les market prices par nom d'ingrédient
-   * pour ceux sans lien direct — mêmes requêtes ciblées que explodeSalesToConsumption,
-   * en PARALLÈLE (indépendant : pas de risque de désync des ventes, code dupliqué
-   * à dessein pour ne jamais toucher au chemin ventes déjà validé en prod).
+   * Combos référencés par nom dans les composants (le front matche component.name ↔
+   * menuItem.name), chargés niveau par niveau, profondeur ≤ 4. Partagé par les deux chemins
+   * (référentiel et explosion des ventes).
+   * BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en ses constituants,
+   * indépendamment de son propre readyForSale.
    */
-  async loadRecipeContext(seedItems: any[], tenantId: string): Promise<RecipeCtx> {
-    if (!seedItems.length) {
-      return { comboByName: new Map(), mpByName: new Map(), componentById: new Map(), itemRefsCache: new Map(), componentRefsCache: new Map() };
-    }
-    const select = this.recipeSelect();
+  private async expandCombosByName(seedItems: any[], tenantId: string, select: any): Promise<Map<string, any>> {
     const comboByName = new Map<string, any>();
     let frontier = seedItems;
     for (let depth = 0; depth < 4 && frontier.length; depth++) {
@@ -134,16 +130,71 @@ export class RecipeExplosionService {
         }
       }
       if (!wantedNames.size) break;
+      // eslint-disable-next-line no-await-in-loop -- parcours en largeur : une requête par niveau de recette
       const candidates = await this.prisma.menuItem.findMany({
         where: { tenantId, deletedAt: null, name: { in: [...wantedNames] } },
         select,
       });
-      // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
-      // ses constituants, indépendamment de son propre readyForSale — ne plus
-      // exiger readyForSale='No' en plus de comboItem='Yes'.
-      frontier = candidates.filter((c) => this.normYesNo(c.comboItem) === 'Yes');
+      frontier = candidates.filter((c: any) => this.normYesNo(c.comboItem) === 'Yes');
       for (const c of frontier) comboByName.set(c.name.trim().toLowerCase(), c);
     }
+    return comboByName;
+  }
+
+  /**
+   * Components (readyForSale=No à déplier) : élargissement itératif du graphe ComponentComponent
+   * PAR ID (relation réelle, contrairement au combo matché par nom), profondeur ≤ 4 et ensemble
+   * visité : un cycle parent/enfant n'est jamais garanti impossible en base.
+   */
+  private async expandComponentsById(items: any[], tenantId: string, select: any): Promise<Map<string, any>> {
+    const componentById = new Map<string, any>();
+    const componentIds = new Set<string>();
+    for (const item of items) {
+      for (const line of item.components ?? []) {
+        const comp = line.component;
+        if (comp?.id) {
+          componentIds.add(comp.id);
+          if (!componentById.has(comp.id)) componentById.set(comp.id, comp);
+        }
+      }
+    }
+    const visited = new Set<string>(componentIds);
+    let frontier = [...componentIds];
+    for (let depth = 0; depth < 4 && frontier.length; depth++) {
+      const childIds = new Set<string>();
+      for (const id of frontier) {
+        for (const line of componentById.get(id)?.children ?? []) {
+          const childId = line.child?.id;
+          if (childId && !visited.has(childId)) childIds.add(childId);
+        }
+      }
+      if (!childIds.size) break;
+      // eslint-disable-next-line no-await-in-loop -- parcours en largeur : une requête par niveau de recette
+      const rows: any[] = await this.prisma.menuComponent.findMany({
+        where: { id: { in: [...childIds] }, tenantId, deletedAt: null },
+        select,
+      });
+      for (const c of rows) {
+        componentById.set(c.id, c);
+        visited.add(c.id);
+      }
+      frontier = rows.map((c: any) => c.id);
+    }
+    return componentById;
+  }
+
+  /**
+   * Charge les menu items (ids demandés + combos référencés par nom, profondeur ≤ 4)
+   * avec leur recette complète, et résout les market prices par nom d'ingrédient
+   * pour ceux sans lien direct. Les parcours combos et composants sont partagés avec
+   * explodeSalesToConsumption (expandCombosByName, expandComponentsById).
+   */
+  async loadRecipeContext(seedItems: any[], tenantId: string): Promise<RecipeCtx> {
+    if (!seedItems.length) {
+      return { comboByName: new Map(), mpByName: new Map(), componentById: new Map(), itemRefsCache: new Map(), componentRefsCache: new Map() };
+    }
+    const select = this.recipeSelect();
+    const comboByName = await this.expandCombosByName(seedItems, tenantId, select);
 
     // BUG-133-02 : la boucle des ingrédients d'itemRefsForMenuItem (résolution mp
     // par nom, `ctx.mpByName.get(...)`) n'est atteinte QUE pour les items qui ne
@@ -175,42 +226,7 @@ export class RecipeExplosionService {
       for (const mp of resolved.values()) mpByName.set(mp.itemName.trim().toLowerCase(), mp);
     }
 
-    // Components (readyForSale=No à déplier) : élargissement itératif du graphe
-    // ComponentComponent PAR ID (relation réelle, contrairement au combo menu item
-    // matché par nom) — profondeur bornée + Set visité, un cycle parent/enfant
-    // n'est jamais garanti impossible en base.
-    const componentById = new Map<string, any>();
-    const componentIds = new Set<string>();
-    for (const item of [...seedItems, ...comboByName.values()]) {
-      for (const line of item.components ?? []) {
-        const comp = line.component;
-        if (comp?.id) {
-          componentIds.add(comp.id);
-          if (!componentById.has(comp.id)) componentById.set(comp.id, comp);
-        }
-      }
-    }
-    const visited = new Set<string>(componentIds);
-    let componentFrontier = [...componentIds];
-    for (let depth = 0; depth < 4 && componentFrontier.length; depth++) {
-      const childIds = new Set<string>();
-      for (const id of componentFrontier) {
-        for (const line of componentById.get(id)?.children ?? []) {
-          const childId = line.child?.id;
-          if (childId && !visited.has(childId)) childIds.add(childId);
-        }
-      }
-      if (!childIds.size) break;
-      const rows = await this.prisma.menuComponent.findMany({
-        where: { id: { in: [...childIds] }, tenantId, deletedAt: null },
-        select: this.componentSelect(),
-      });
-      for (const c of rows) {
-        componentById.set(c.id, c);
-        visited.add(c.id);
-      }
-      componentFrontier = rows.map((c) => c.id);
-    }
+    const componentById = await this.expandComponentsById([...seedItems, ...comboByName.values()], tenantId, this.componentSelect());
 
     return { comboByName, mpByName, componentById, itemRefsCache: new Map(), componentRefsCache: new Map() };
   }
@@ -433,66 +449,9 @@ export class RecipeExplosionService {
       select: recipeSelect,
     });
     const byId = new Map(items.map((i) => [i.id, i]));
-    const comboByName = new Map<string, any>();
+    const comboByName = await this.expandCombosByName(items, tenantId, recipeSelect);
 
-    // Charge itérativement les combos référencés par nom dans les composants
-    // (le front matche component.name ↔ menuItem.name), profondeur bornée.
-    let frontier = items;
-    for (let depth = 0; depth < 4 && frontier.length; depth++) {
-      const wantedNames = new Set<string>();
-      for (const item of frontier) {
-        for (const line of item.components) {
-          const name = line.component?.name?.trim();
-          if (name && !comboByName.has(name.toLowerCase())) wantedNames.add(name);
-        }
-      }
-      if (!wantedNames.size) break;
-      const candidates = await this.prisma.menuItem.findMany({
-        where: { tenantId, deletedAt: null, name: { in: [...wantedNames] } },
-        select: recipeSelect,
-      });
-      // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
-      // ses constituants, indépendamment de son propre readyForSale — ne plus
-      // exiger readyForSale='No' en plus de comboItem='Yes'.
-      frontier = candidates.filter((c) => this.normYesNo(c.comboItem) === 'Yes');
-      for (const c of frontier) comboByName.set(c.name.trim().toLowerCase(), c);
-    }
-
-    // Components (readyForSale=No à déplier) : élargissement itératif du graphe
-    // ComponentComponent PAR ID — miroir du même bloc dans loadRecipeContext
-    // (Path A), dupliqué à dessein (cf. docstring en tête de fonction).
-    const componentById = new Map<string, any>();
-    const componentIds = new Set<string>();
-    for (const mi of [...items, ...comboByName.values()]) {
-      for (const line of mi.components ?? []) {
-        const comp = line.component;
-        if (comp?.id) {
-          componentIds.add(comp.id);
-          if (!componentById.has(comp.id)) componentById.set(comp.id, comp);
-        }
-      }
-    }
-    const componentVisited = new Set<string>(componentIds);
-    let componentFrontier = [...componentIds];
-    for (let depth = 0; depth < 4 && componentFrontier.length; depth++) {
-      const childIds = new Set<string>();
-      for (const id of componentFrontier) {
-        for (const line of componentById.get(id)?.children ?? []) {
-          const childId = line.child?.id;
-          if (childId && !componentVisited.has(childId)) childIds.add(childId);
-        }
-      }
-      if (!childIds.size) break;
-      const rows = await this.prisma.menuComponent.findMany({
-        where: { id: { in: [...childIds] }, tenantId, deletedAt: null },
-        select: componentSelect,
-      });
-      for (const c of rows) {
-        componentById.set(c.id, c);
-        componentVisited.add(c.id);
-      }
-      componentFrontier = rows.map((c) => c.id);
-    }
+    const componentById = await this.expandComponentsById([...items, ...comboByName.values()], tenantId, componentSelect);
 
     // BUG-260-02 (2026-08-13) : un Component compte pour 1 unité de lui-même,
     // jamais décomposé en ingrédients/sous-composants — même alignement que

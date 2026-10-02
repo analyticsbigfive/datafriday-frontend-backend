@@ -185,6 +185,7 @@ export class MarketPriceRecipeSyncService {
         skipped++;
         continue;
       }
+      // eslint-disable-next-line no-await-in-loop -- synchronisation manuelle, un ingrédient ou emballage créé à la fois
       const result = await this.ensureIngredientForMarketPrice(mp, tenantId);
       if (result) created++;
       else skipped++;
@@ -213,6 +214,7 @@ export class MarketPriceRecipeSyncService {
         skipped++;
         continue;
       }
+      // eslint-disable-next-line no-await-in-loop -- synchronisation manuelle, un ingrédient ou emballage créé à la fois
       const result = await this.ensurePackagingForMarketPrice(mp, tenantId);
       if (result) created++;
       else skipped++;

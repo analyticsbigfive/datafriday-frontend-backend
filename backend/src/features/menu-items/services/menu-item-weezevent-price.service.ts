@@ -455,11 +455,13 @@ export class MenuItemWeezeventPriceService {
     for (const [sid, pairs] of workBySpace) {
       const productIds = [...new Set(pairs.map((p) => p.productId))];
       // Prix de l'espace (priorité) + repli ventes non attribuées à un autre espace (jamais cross-espace).
+      // eslint-disable-next-line no-await-in-loop -- un calcul de prix par espace, écritures par lots courts (pooler)
       const latest = await this.pricing.getSpaceScopedLatestPrices(tenantId, sid, productIds, { eventIds });
       if (eventIds) {
         // Event prioritaire : repli sans contrainte d'event pour les produits sans vente sur l'event.
         const missing = productIds.filter((pid) => !latest.has(pid));
         if (missing.length) {
+          // eslint-disable-next-line no-await-in-loop -- un calcul de prix par espace, écritures par lots courts (pooler)
           const fb = await this.pricing.getSpaceScopedLatestPrices(tenantId, sid, missing);
           for (const [k, v] of fb) latest.set(k, v);
         }
@@ -498,6 +500,7 @@ export class MenuItemWeezeventPriceService {
     if (!dryRun) {
       const CHUNK = 25;
       for (let i = 0; i < writes.length; i += CHUNK) {
+        // eslint-disable-next-line no-await-in-loop -- un calcul de prix par espace, écritures par lots courts (pooler)
         await this.prisma.$transaction(writes.slice(i, i + CHUNK));
       }
       if (writes.length) await this.menuItemSupportService.listCache.invalidate(tenantId);

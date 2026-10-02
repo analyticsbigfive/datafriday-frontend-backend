@@ -209,6 +209,7 @@ export class ProductMappingService {
     for (let i = 0; i < mappings.length; i += this.BULK_CHUNK_SIZE) {
       const chunk = mappings.slice(i, i + this.BULK_CHUNK_SIZE);
       try {
+        // eslint-disable-next-line no-await-in-loop -- lots de rattachements, reprise ligne par ligne si un lot échoue
         await upsertProductMappings(this.prisma, tenantId, chunk, userId);
 
         successes.push(
@@ -225,6 +226,7 @@ export class ProductMappingService {
         this.logger.warn(`Chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err instanceof Error ? err.message : String(err)}`);
         for (const m of chunk) {
           try {
+            // eslint-disable-next-line no-await-in-loop -- lots de rattachements, reprise ligne par ligne si un lot échoue
             const result = await this.prisma.productMapping.upsert({
               where: { salesProductId: m.weezeventProductId },
               create: {

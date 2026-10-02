@@ -262,6 +262,7 @@ export class LocationMappingService {
     for (let i = 0; i < total; i += this.BULK_CHUNK_SIZE) {
       const chunk = dto.mappings.slice(i, i + this.BULK_CHUNK_SIZE);
       try {
+        // eslint-disable-next-line no-await-in-loop -- lots de rattachements, reprise ligne par ligne si un lot échoue
         const results = await this.prisma.$transaction(
           chunk.map((m) =>
             this.prisma.locationShopMapping.upsert({
@@ -287,6 +288,7 @@ export class LocationMappingService {
         this.logger.warn(`Location-shop chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err instanceof Error ? err.message : String(err)}`);
         for (const m of chunk) {
           try {
+            // eslint-disable-next-line no-await-in-loop -- lots de rattachements, reprise ligne par ligne si un lot échoue
             const result = await this.createLocationShopMapping(m, tenantId);
             successes.push(result);
           } catch (itemErr) {

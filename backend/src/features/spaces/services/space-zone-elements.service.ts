@@ -361,15 +361,18 @@ export class SpaceZoneElementsService {
     maxRetries = 3,
   ): Promise<void> {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      // eslint-disable-next-line no-await-in-loop -- verrou optimiste : relecture puis nouvel essai en cas de conflit
       const fresh = await this.prisma.config.findFirst({
         where: { id: configId },
         select: { data: true, version: true },
       });
       if (!fresh) throw new NotFoundException(`Configuration ${configId} not found`);
 
+      // eslint-disable-next-line no-await-in-loop -- verrou optimiste : relecture puis nouvel essai en cas de conflit
       const newData = await mutate((fresh.data as any) || {});
       const isLastAttempt = attempt === maxRetries;
 
+      // eslint-disable-next-line no-await-in-loop -- verrou optimiste : relecture puis nouvel essai en cas de conflit
       const res = await this.prisma.config.updateMany({
         // Dernière tentative : on retombe sur un update inconditionnel (last-write-wins).
         where: isLastAttempt ? { id: configId } : { id: configId, version: fresh.version },

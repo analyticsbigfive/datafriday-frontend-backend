@@ -144,6 +144,7 @@ export class DigifoodCsvImportService {
             const batch = orders.slice(i, i + BATCH_SIZE);
             for (let j = 0; j < batch.length; j += PARALLEL_ORDERS) {
                 const chunk = batch.slice(j, j + PARALLEL_ORDERS);
+                // eslint-disable-next-line no-await-in-loop -- import par vagues de commandes à concurrence bornée, suivi après chaque lot
                 await Promise.all(chunk.map(async (order) => {
                     try {
                         const result = await this.ingestion.ingestOrder(tenantId, integrationId, order, 'csv', cache);
@@ -156,6 +157,7 @@ export class DigifoodCsvImportService {
                     }
                 }));
             }
+            // eslint-disable-next-line no-await-in-loop -- import par vagues de commandes à concurrence bornée, suivi après chaque lot
             await this.prisma.digifoodCsvImportRun.update({
                 where: { id: jobId },
                 data: { ordersCreated, ordersUpdated, ordersSkipped },

@@ -218,6 +218,7 @@ export class SpaceWeezeventEventService {
     let synced = 0;
 
     while (hasMore) {
+      // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent
       const response = await this.weezeventClient.getAttendees(
         tenantId,
         event.integrationId,
@@ -241,6 +242,7 @@ export class SpaceWeezeventEventService {
         },
       }));
       // Une requête par page (au lieu d'un upsert par participant).
+      // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent
       await upsertQueuedEntities(this.prisma, 'WeezeventAttendee', tenantId, event.integrationId, rows, new Date(), [
         'status', 'email', 'firstName', 'lastName', 'ticketType', 'rawData',
       ]);

@@ -67,6 +67,7 @@ export class LiveMinuteAggregationService {
     try {
       for (const event of events) {
         try {
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée
           minutesProcessed += await this.aggregateEventMinutes({
             tenantId,
             spaceId,

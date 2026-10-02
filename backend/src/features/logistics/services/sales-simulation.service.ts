@@ -423,25 +423,31 @@ export class SalesSimulationService {
   private async cleanupOrphanedSimulatedSalesEvents(tenantId: string, candidateEventIds: string[]): Promise<number> {
     let deletedEventCount = 0;
     for (const salesEventId of candidateEventIds) {
+      // eslint-disable-next-line no-await-in-loop -- purge de quelques événements simulés, suppressions dans l'ordre des dépendances
       const salesEvent = await this.prisma.salesEvent.findUnique({
         where: { id: salesEventId },
         select: { id: true, metadata: true },
       });
       if (!(salesEvent?.metadata as any)?.isSimulated) continue;
 
+      // eslint-disable-next-line no-await-in-loop -- purge de quelques événements simulés, suppressions dans l'ordre des dépendances
       const remaining = await this.prisma.salesTransaction.count({ where: { tenantId, eventId: salesEventId } });
       if (remaining > 0) continue;
 
+      // eslint-disable-next-line no-await-in-loop -- purge de quelques événements simulés, suppressions dans l'ordre des dépendances
       const dfEvent = await this.prisma.event.findFirst({
         where: { tenantId, weezeventEventId: salesEventId },
         select: { id: true, spaceId: true },
       });
       if (dfEvent) {
+        // eslint-disable-next-line no-await-in-loop -- purge de quelques événements simulés, suppressions dans l'ordre des dépendances
         await this.prisma.spaceRevenueMinuteAgg.deleteMany({
           where: { tenantId, spaceId: dfEvent.spaceId ?? undefined, weezeventEventId: dfEvent.id },
         });
+        // eslint-disable-next-line no-await-in-loop -- purge de quelques événements simulés, suppressions dans l'ordre des dépendances
         await this.prisma.event.delete({ where: { id: dfEvent.id } });
       }
+      // eslint-disable-next-line no-await-in-loop -- purge de quelques événements simulés, suppressions dans l'ordre des dépendances
       await this.prisma.salesEvent.delete({ where: { id: salesEventId } });
       deletedEventCount++;
     }

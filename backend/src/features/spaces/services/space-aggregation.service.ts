@@ -113,6 +113,7 @@ export class SpaceAggregationService {
     let totalProcessed = 0;
 
     for (const mapping of spaceMappings) {
+      // eslint-disable-next-line no-await-in-loop -- reconstruction du tableau de bord d'espace, non appelée par le frontend : à retirer ou à réécrire en SQL groupé (décision en attente)
       const processed = await this.aggregateForSpace(
         tenantId,
         mapping.spaceId,
@@ -169,6 +170,7 @@ export class SpaceAggregationService {
     const transactions = await minuteRevenueByLocation(this.prisma, tenantId, locationIds, fromDate, toDate);
 
     for (const agg of transactions) {
+      // eslint-disable-next-line no-await-in-loop -- reconstruction du tableau de bord d'espace, non appelée par le frontend : à retirer ou à réécrire en SQL groupé (décision en attente)
       await this.prisma.spaceRevenueMinuteAgg.upsert({
         where: {
           tenantId_spaceId_minute_weezeventEventId_weezeventLocationId_weezeventMerchantId_spaceElementId:
@@ -242,6 +244,7 @@ export class SpaceAggregationService {
     const productAggregates = await dailyRevenueByProduct(this.prisma, tenantId, timezone, locationIds, fromDate, toDate);
 
     for (const agg of productAggregates) {
+      // eslint-disable-next-line no-await-in-loop -- reconstruction du tableau de bord d'espace, non appelée par le frontend : à retirer ou à réécrire en SQL groupé (décision en attente)
       await this.prisma.spaceProductRevenueDailyAgg.upsert({
         where: {
           tenantId_spaceId_day_weezeventProductId: {
@@ -288,6 +291,7 @@ export class SpaceAggregationService {
     const itemAggregates = await minuteRevenueByProduct(this.prisma, tenantId, locationIds, fromDate, toDate);
 
     for (const agg of itemAggregates) {
+      // eslint-disable-next-line no-await-in-loop -- reconstruction du tableau de bord d'espace, non appelée par le frontend : à retirer ou à réécrire en SQL groupé (décision en attente)
       await this.prisma.spaceRevenueMinuteItemAgg.upsert({
         where: {
           tenantId_spaceId_minute_weezeventEventId_weezeventLocationId_weezeventMerchantId_spaceElementId_weezeventProductId:
@@ -336,6 +340,7 @@ export class SpaceAggregationService {
     const unmappedMerchants = await unmappedMerchantsWithSales(this.prisma, tenantId, locationIds, fromDate, toDate);
 
     for (const merchant of unmappedMerchants) {
+      // eslint-disable-next-line no-await-in-loop -- reconstruction du tableau de bord d'espace, non appelée par le frontend : à retirer ou à réécrire en SQL groupé (décision en attente)
       await this.prisma.unmappedDataMetrics.upsert({
         where: {
           tenantId_entityType_entityId: {
@@ -363,6 +368,7 @@ export class SpaceAggregationService {
     const unmappedLocations = await unmappedLocationsWithSalesInPeriod(this.prisma, tenantId, fromDate, toDate);
 
     for (const location of unmappedLocations) {
+      // eslint-disable-next-line no-await-in-loop -- reconstruction du tableau de bord d'espace, non appelée par le frontend : à retirer ou à réécrire en SQL groupé (décision en attente)
       await this.prisma.unmappedDataMetrics.upsert({
         where: {
           tenantId_entityType_entityId: {

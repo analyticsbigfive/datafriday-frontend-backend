@@ -349,6 +349,7 @@ export class DigifoodIngestionService {
             const displayName = item.variation && item.variation !== item.name
                 ? `${item.name} — ${item.variation}`
                 : item.name;
+            // eslint-disable-next-line no-await-in-loop -- articles d'une seule commande, avec cache produit entre les lignes
             const product = await this.prisma.salesProduct.upsert({
                 where: {
                     tenantId_integrationId_externalId: { tenantId, integrationId, externalId: key },
@@ -396,6 +397,7 @@ export class DigifoodIngestionService {
             cache?.products.set(key, product.id);
 
             if (item.externalReference) {
+                // eslint-disable-next-line no-await-in-loop -- articles d'une seule commande, avec cache produit entre les lignes
                 autoMapped += (await this.tryAutoMapProduct(tenantId, product.id, item.externalReference))
                     ? 1
                     : 0;

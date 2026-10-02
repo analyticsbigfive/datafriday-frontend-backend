@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import type { InventoryWindow } from '@prisma/client';
+import type { InventoryWindow, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { TenantContextService } from '../../../core/tenant/tenant-context.service';
 import { SpaceShopsService } from '../../spaces/services/space-shops.service';
@@ -32,6 +32,8 @@ const EVENT_SELECT = {
   sessions: true,
   space: { select: { timezone: true } },
 } as const;
+
+type CycleEvent = Prisma.EventGetPayload<{ select: typeof EVENT_SELECT }>;
 
 /**
  * Cycle automatique des inventaires pre / post-event (document Bertrand « Pre et Post
@@ -107,17 +109,18 @@ export class InventoryCycleCronService {
       where: { eventDate: { gte: new Date(now.getTime() - DAY_MS) }, isSimulated: false, ...ATTACHED },
       select: EVENT_SELECT,
     });
+    const targets = events
+      .filter((event) => !isEventOver(event, this.tz(event), now))
+      .flatMap((event) => (['pre-event', 'post-event'] as const).map((phase) => ({ event, phase })));
     let created = 0;
-    for (const event of events) {
-      if (isEventOver(event, this.tz(event), now)) continue;
-      for (const phase of ['pre-event', 'post-event'] as const) {
-        const result = await this.guestPinWindowService.prepareWindow(
-          { spaceId: event.spaceId, eventId: event.id, phase },
-          event.tenantId,
-          InventoryCycleCronService.ACTOR,
-        );
-        if (result === 'created') created++;
-      }
+    for (const { event, phase } of targets) {
+      // eslint-disable-next-line no-await-in-loop -- une fenêtre à la fois : création et PIN unique sur toute la base (nouvel essai en cas de collision)
+      const result = await this.guestPinWindowService.prepareWindow(
+        { spaceId: event.spaceId, eventId: event.id, phase },
+        event.tenantId,
+        InventoryCycleCronService.ACTOR,
+      );
+      if (result === 'created') created++;
     }
     return created;
   }
@@ -135,21 +138,26 @@ export class InventoryCycleCronService {
     });
     let started = 0;
     for (const event of events) {
-      // Heure du show (Bertrand 2026-10-07), sinon ouverture des portes ; sans aucune des
-      // deux : pas de démarrage automatique, le directeur démarre à la main.
-      const startAt = resolvePostEventAutoStartAt(event, this.tz(event));
-      if (!startAt || startAt > now || now.getTime() - startAt.getTime() > POST_AUTOSTART_CATCHUP_MS) continue;
-      const claimed = await this.claim(event.tenantId, `inventory-cycle:post-start:${event.spaceId}:${event.id}`, now);
-      if (!claimed) continue;
-      await this.guestPinPhaseService.startPhase(
-        { spaceId: event.spaceId, eventId: event.id, phase: 'post-event' },
-        event.tenantId,
-        InventoryCycleCronService.ACTOR,
-        { keepOtherPhase: true },
-      );
-      started++;
+      // eslint-disable-next-line no-await-in-loop -- un event à la fois : chaque démarrage réclame son marqueur et ouvre sa fenêtre
+      if (await this.startPostIfDue(event, now)) started++;
     }
     return started;
+  }
+
+  private async startPostIfDue(event: CycleEvent, now: Date): Promise<boolean> {
+    // Heure du show (Bertrand 2026-10-07), sinon ouverture des portes ; sans aucune des
+    // deux : pas de démarrage automatique, le directeur démarre à la main.
+    const startAt = resolvePostEventAutoStartAt(event, this.tz(event));
+    if (!startAt || startAt > now || now.getTime() - startAt.getTime() > POST_AUTOSTART_CATCHUP_MS) return false;
+    const claimed = await this.claim(event.tenantId, `inventory-cycle:post-start:${event.spaceId}:${event.id}`, now);
+    if (!claimed) return false;
+    await this.guestPinPhaseService.startPhase(
+      { spaceId: event.spaceId, eventId: event.id, phase: 'post-event' },
+      event.tenantId,
+      InventoryCycleCronService.ACTOR,
+      { keepOtherPhase: true },
+    );
+    return true;
   }
 
   /** Livraison après la fin réelle de N : post-event de N arrêté, pre-event suivant démarré. */
@@ -157,39 +165,44 @@ export class InventoryCycleCronService {
     const windows = await this.reachableWindows('post-event');
     let stopped = 0;
     for (const window of windows) {
-      const event = await this.findEvent(window);
-      // Event supprimé, ou pas encore terminé : un réassort pendant le match ne coupe rien (D16).
-      if (!event || !isEventOver(event, this.tz(event), now)) continue;
-      const endedAt = resolveEventTransactionWindow(event, this.tz(event)).end;
-      // Un dépôt « Ventilation » (réarmement du match suivant) remplit les PDV comme
-      // une livraison : un comptage post-event fait après lui serait faussé.
-      const delivery = await this.prisma.stockMovement.findFirst({
-        where: {
-          tenantId: window.tenantId,
-          spaceId: window.spaceId,
-          reason: { in: ['DELIVERY', 'VENTILATION'] },
-          createdAt: { gt: endedAt },
-        },
-        select: { id: true },
-      });
-      if (!delivery) continue;
-      if (!(await this.claim(window.tenantId, `inventory-cycle:post-delivery:${window.id}`, now))) continue;
-
-      const next = await this.nextEvent(window, now);
-      if (next) {
-        // Démarrer le pre-event arrête le post-event (startPhase → stopOtherPhase).
-        await this.guestPinPhaseService.startPhase(
-          { spaceId: window.spaceId, eventId: next.id, phase: 'pre-event' },
-          window.tenantId,
-          InventoryCycleCronService.ACTOR,
-        );
-      }
-      // Toujours arrêter explicitement : sans event suivant, ou PDV rouverts un par un.
-      const fresh = await this.prisma.inventoryWindow.findUnique({ where: { id: window.id } });
-      if (fresh) await this.guestPinPhaseService.stopPhaseWindow(fresh, InventoryCycleCronService.ACTOR, 'delivery');
-      stopped++;
+      // eslint-disable-next-line no-await-in-loop -- une fenêtre à la fois : l'arrêt de l'une et le démarrage du pre-event suivant s'enchaînent
+      if (await this.stopPostIfDelivered(window, now)) stopped++;
     }
     return stopped;
+  }
+
+  private async stopPostIfDelivered(window: InventoryWindow, now: Date): Promise<boolean> {
+    const event = await this.findEvent(window);
+    // Event supprimé, ou pas encore terminé : un réassort pendant le match ne coupe rien (D16).
+    if (!event || !isEventOver(event, this.tz(event), now)) return false;
+    const endedAt = resolveEventTransactionWindow(event, this.tz(event)).end;
+    // Un dépôt « Ventilation » (réarmement du match suivant) remplit les PDV comme
+    // une livraison : un comptage post-event fait après lui serait faussé.
+    const delivery = await this.prisma.stockMovement.findFirst({
+      where: {
+        tenantId: window.tenantId,
+        spaceId: window.spaceId,
+        reason: { in: ['DELIVERY', 'VENTILATION'] },
+        createdAt: { gt: endedAt },
+      },
+      select: { id: true },
+    });
+    if (!delivery) return false;
+    if (!(await this.claim(window.tenantId, `inventory-cycle:post-delivery:${window.id}`, now))) return false;
+
+    const next = await this.nextEvent(window, now);
+    if (next) {
+      // Démarrer le pre-event arrête le post-event (startPhase → stopOtherPhase).
+      await this.guestPinPhaseService.startPhase(
+        { spaceId: window.spaceId, eventId: next.id, phase: 'pre-event' },
+        window.tenantId,
+        InventoryCycleCronService.ACTOR,
+      );
+    }
+    // Toujours arrêter explicitement : sans event suivant, ou PDV rouverts un par un.
+    const fresh = await this.prisma.inventoryWindow.findUnique({ where: { id: window.id } });
+    if (fresh) await this.guestPinPhaseService.stopPhaseWindow(fresh, InventoryCycleCronService.ACTOR, 'delivery');
+    return true;
   }
 
   /**
@@ -201,29 +214,42 @@ export class InventoryCycleCronService {
     const windows = await this.reachableWindows('pre-event');
     let stopped = 0;
     for (const window of windows) {
-      const event = await this.findEvent(window);
-      if (!event) continue;
-      // Avant le jour de N, aucune vente ne peut lui être rattachée : pas de requête.
-      const eventStart = resolveEventTransactionWindow(event, this.tz(event)).start;
-      if (now < eventStart) continue;
-      const firstSales = await this.spaces.firstValidSaleByElementSince(window.spaceId, window.tenantId, eventStart);
-      if (!firstSales.size) continue;
-      const accesses = await this.prisma.guestPinAccess.findMany({
-        where: { windowId: window.id, elementId: { in: [...firstSales.keys()] } },
-        select: { elementId: true, status: true },
-      });
-      const statusByElement = new Map(accesses.map((a) => [a.elementId, a.status]));
-      for (const elementId of firstSales.keys()) {
-        const status = statusByElement.get(elementId);
-        // Sans ligne, le PDV suit la fenêtre (ouverte en masse ou non).
-        const reachable = status ? status === 'active' : window.status === 'open';
-        if (!reachable) continue;
-        if (!(await this.claim(window.tenantId, preSaleStopKey(window.id, elementId), now))) continue;
-        await this.guestPinPhaseService.stopPreElement(window, elementId, PRE_SALE_STOP_ACTOR);
-        stopped++;
-      }
+      // eslint-disable-next-line no-await-in-loop -- une fenêtre à la fois : chaque arrêt réclame son marqueur avant d'agir
+      stopped += await this.stopPreElementsOfWindow(window, now);
     }
     return stopped;
+  }
+
+  private async stopPreElementsOfWindow(window: InventoryWindow, now: Date): Promise<number> {
+    const event = await this.findEvent(window);
+    if (!event) return 0;
+    // Avant le jour de N, aucune vente ne peut lui être rattachée : pas de requête.
+    const eventStart = resolveEventTransactionWindow(event, this.tz(event)).start;
+    if (now < eventStart) return 0;
+    const firstSales = await this.spaces.firstValidSaleByElementSince(window.spaceId, window.tenantId, eventStart);
+    if (!firstSales.size) return 0;
+    const accesses = await this.prisma.guestPinAccess.findMany({
+      where: { windowId: window.id, elementId: { in: [...firstSales.keys()] } },
+      select: { elementId: true, status: true },
+    });
+    const statusByElement = new Map(accesses.map((a) => [a.elementId, a.status]));
+    // Sans ligne, le PDV suit la fenêtre (ouverte en masse ou non).
+    const reachable = [...firstSales.keys()].filter((elementId) => {
+      const status = statusByElement.get(elementId);
+      return status ? status === 'active' : window.status === 'open';
+    });
+    let stopped = 0;
+    for (const elementId of reachable) {
+      // eslint-disable-next-line no-await-in-loop -- un PDV à la fois : marqueur réclamé puis arrêt, jamais deux fois
+      if (await this.stopPreElementOnce(window, elementId, now)) stopped++;
+    }
+    return stopped;
+  }
+
+  private async stopPreElementOnce(window: InventoryWindow, elementId: string, now: Date): Promise<boolean> {
+    if (!(await this.claim(window.tenantId, preSaleStopKey(window.id, elementId), now))) return false;
+    await this.guestPinPhaseService.stopPreElement(window, elementId, PRE_SALE_STOP_ACTOR);
+    return true;
   }
 
   /** Fenêtres de cette phase joignables : ouvertes, ou avec un PDV rouvert seul. */

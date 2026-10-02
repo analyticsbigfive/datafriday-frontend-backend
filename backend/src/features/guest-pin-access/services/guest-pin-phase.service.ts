@@ -159,9 +159,9 @@ export class GuestPinPhaseService {
       where: { tenantId, spaceId: dto.spaceId, phase: otherPhase },
       select: { id: true },
     });
-    for (const other of others) {
-      await this.setElementAccess(other.id, tenantId, dto.spaceId, dto.elementId, 'revoked', user.id);
-    }
+    await Promise.all(
+      others.map((other) => this.setElementAccess(other.id, tenantId, dto.spaceId, dto.elementId, 'revoked', user.id)),
+    );
     await this.setElementAccess(window.id, tenantId, dto.spaceId, dto.elementId, 'active', user.id);
     if (dto.phase === 'pre-event') await this.markPreReopenedByHand(window, dto.elementId);
     await this.audit.log({
@@ -225,8 +225,11 @@ export class GuestPinPhaseService {
     const open = await this.prisma.inventoryWindow.findMany({
       where: { tenantId, spaceId, phase: otherPhase, status: 'open' },
     });
+    // Au plus une fenêtre ouverte par espace et par phase (index partiel) : clôture puis figement, dans l'ordre.
     for (const w of open) {
+      // eslint-disable-next-line no-await-in-loop -- voir ci-dessus
       await this.guestPinWindowService.closeWindowRecord(w, actorId, { pushToLogistic: false, reason: 'phase-switch' });
+      // eslint-disable-next-line no-await-in-loop -- voir ci-dessus
       await this.freezePhase(w, actorId);
     }
   }

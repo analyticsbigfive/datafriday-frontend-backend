@@ -284,6 +284,7 @@ export class StaffingGenerationService {
       totalCreated += creations.length;
       totalKept += kept.length;
 
+      // eslint-disable-next-line no-await-in-loop -- transaction courte par élément (pooler)
       await this.prisma.$transaction([
         this.prisma.eventStaffLine.deleteMany({ where: { id: { in: deletableIds } } }),
         ...(creations.length ? [this.prisma.eventStaffLine.createMany({ data: creations })] : []),

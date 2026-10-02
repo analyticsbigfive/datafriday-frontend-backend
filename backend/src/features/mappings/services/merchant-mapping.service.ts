@@ -107,6 +107,7 @@ export class MerchantMappingService {
     for (let i = 0; i < total; i += this.BULK_CHUNK_SIZE) {
       const chunk = dto.mappings.slice(i, i + this.BULK_CHUNK_SIZE);
 
+      // eslint-disable-next-line no-await-in-loop -- lots de rattachements, reprise ligne par ligne si un lot échoue
       const ownedElements = await this.prisma.spaceElement.findMany({
         where: {
           id: { in: chunk.map((m) => m.spaceElementId) },
@@ -131,6 +132,7 @@ export class MerchantMappingService {
       if (!validItems.length) continue;
 
       try {
+        // eslint-disable-next-line no-await-in-loop -- lots de rattachements, reprise ligne par ligne si un lot échoue
         const results = await this.prisma.$transaction(
           validItems.map((m) =>
             this.prisma.locationShopMapping.upsert({
@@ -157,6 +159,7 @@ export class MerchantMappingService {
         this.logger.warn(`Chunk ${i / this.BULK_CHUNK_SIZE} failed, falling back to per-item upserts: ${err instanceof Error ? err.message : String(err)}`);
         for (const m of validItems) {
           try {
+            // eslint-disable-next-line no-await-in-loop -- lots de rattachements, reprise ligne par ligne si un lot échoue
             const result = await this.createMerchantElementMapping(m, tenantId);
             successes.push(result);
           } catch (itemErr) {
@@ -188,6 +191,7 @@ export class MerchantMappingService {
 
     for (const { spaceElementId } of mappings) {
       try {
+        // eslint-disable-next-line no-await-in-loop -- lots de rattachements, reprise ligne par ligne si un lot échoue
         await this.spaceElementService.deleteElementIfUnreferenced(spaceElementId, tenantId);
       } catch (err) {
         this.logger.warn(`Failed to cascade-delete SpaceElement ${spaceElementId}: ${err instanceof Error ? err.message : String(err)}`);

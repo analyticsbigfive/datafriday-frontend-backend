@@ -117,6 +117,7 @@ export class GuestPinWindowService {
       },
     });
     for (const w of stale) {
+      // eslint-disable-next-line no-await-in-loop -- quelques fenêtres périmées, ou nouvel essai de PIN en cas de collision
       await this.closeWindowRecord(w, actorUserId, { pushToLogistic: false, reason: 'superseded' });
     }
 
@@ -271,6 +272,7 @@ export class GuestPinWindowService {
       const pin = this.guestPinCredentialService.generatePin();
       const pinLookupHash = this.guestPinCredentialService.hashPin(pin);
       try {
+        // eslint-disable-next-line no-await-in-loop -- quelques fenêtres périmées, ou nouvel essai de PIN en cas de collision
         await this.prisma.inventoryWindow.update({
           where: { id: windowId },
           data: {
@@ -283,6 +285,7 @@ export class GuestPinWindowService {
 
         // Acteur système (PIN préparé à l'avance) : AuditLog.userId est obligatoire.
         if (!actorUserId.startsWith('system-')) {
+          // eslint-disable-next-line no-await-in-loop -- quelques fenêtres périmées, ou nouvel essai de PIN en cas de collision
           await this.audit.log({
             tenantId,
             userId: actorUserId,

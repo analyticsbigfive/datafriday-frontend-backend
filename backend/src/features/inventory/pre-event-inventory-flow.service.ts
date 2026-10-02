@@ -534,41 +534,46 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
     });
     let pushed = 0;
     for (const marker of markers) {
-      const v = (marker.value ?? {}) as { spaceId?: string; eventId?: string; phase?: string };
-      const tenantId = marker.tenantId;
-      if (!tenantId || !v.spaceId || !v.eventId || (v.phase !== 'pre-event' && v.phase !== 'post-event')) {
-        await this.prisma.kvStore.delete({ where: { id: marker.id } }).catch(() => undefined);
-        continue;
-      }
-      // Le retrait du marqueur vaut prise en charge : l'envoi immédiat et le cron (ou une
-      // autre instance) peuvent lire le même marqueur, un seul l'envoie.
-      const claimed = await this.prisma.kvStore.deleteMany({ where: { id: marker.id } });
-      if (!claimed.count) continue;
-      try {
-        if (v.phase === 'pre-event') {
-          // Feuille pre-event à jour + Logistic (push incrémental inclus), sans snapshot.
-          const result = await this.regenerate(v.spaceId, v.eventId, tenantId, 'system-inventory-count', 'count', {}, { snapshot: false });
-          if (result.ok) pushed++;
-        } else {
-          const result = await this.inventoryLogisticPushService.pushPendingCountToLogistic(
-            v.spaceId,
-            v.eventId,
-            tenantId,
-            v.phase,
-            'system-inventory-count',
-          );
-          if (result.ok) pushed++;
-          // Réconciliation post-event tenue à jour par le serveur (lot 4b).
-          await this.postEventDraft?.rebuild(v.spaceId, v.eventId, tenantId);
-        }
-      } catch (error: any) {
-        this.logger.warn(
-          `Envoi Logistic du comptage ${v.phase} en échec (réessai au tick suivant) : space ${v.spaceId} / event ${v.eventId} : ${error?.message}`,
-        );
-        await this.markLogisticDirty(v.spaceId, v.eventId, tenantId, v.phase);
-      }
+      // eslint-disable-next-line no-await-in-loop -- un match à la fois : marqueur réclamé puis envoi, régénérations sérialisées
+      if (await this.flushLogisticMarker(marker)) pushed++;
     }
     return pushed;
+  }
+
+  private async flushLogisticMarker(marker: { id: string; tenantId: string | null; value: unknown }): Promise<boolean> {
+    const v = (marker.value ?? {}) as { spaceId?: string; eventId?: string; phase?: string };
+    const tenantId = marker.tenantId;
+    if (!tenantId || !v.spaceId || !v.eventId || (v.phase !== 'pre-event' && v.phase !== 'post-event')) {
+      await this.prisma.kvStore.delete({ where: { id: marker.id } }).catch(() => undefined);
+      return false;
+    }
+    // Le retrait du marqueur vaut prise en charge : l'envoi immédiat et le cron (ou une
+    // autre instance) peuvent lire le même marqueur, un seul l'envoie.
+    const claimed = await this.prisma.kvStore.deleteMany({ where: { id: marker.id } });
+    if (!claimed.count) return false;
+    try {
+      if (v.phase === 'pre-event') {
+        // Feuille pre-event à jour + Logistic (push incrémental inclus), sans snapshot.
+        const result = await this.regenerate(v.spaceId, v.eventId, tenantId, 'system-inventory-count', 'count', {}, { snapshot: false });
+        return result.ok;
+      }
+      const result = await this.inventoryLogisticPushService.pushPendingCountToLogistic(
+        v.spaceId,
+        v.eventId,
+        tenantId,
+        v.phase,
+        'system-inventory-count',
+      );
+      // Réconciliation post-event tenue à jour par le serveur (lot 4b).
+      await this.postEventDraft?.rebuild(v.spaceId, v.eventId, tenantId);
+      return result.ok;
+    } catch (error: any) {
+      this.logger.warn(
+        `Envoi Logistic du comptage ${v.phase} en échec (réessai au tick suivant) : space ${v.spaceId} / event ${v.eventId} : ${error?.message}`,
+      );
+      await this.markLogisticDirty(v.spaceId, v.eventId, tenantId, v.phase);
+      return false;
+    }
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────

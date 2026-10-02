@@ -31,6 +31,7 @@ export class OnboardingService {
     
     while (exists && attempts < 10) {
       code = this.generateInvitationCode();
+      // eslint-disable-next-line no-await-in-loop -- nouvel essai tant que le code ou le slug est déjà pris
       const existing = await this.prisma.tenant.findFirst({
         where: { invitationCode: code },
       });
@@ -469,6 +470,7 @@ export class OnboardingService {
     let slug = baseSlug;
     let counter = 1;
 
+    // eslint-disable-next-line no-await-in-loop -- nouvel essai tant que le code ou le slug est déjà pris
     while (await this.slugExists(slug)) {
       slug = `${baseSlug}-${counter}`;
       counter++;

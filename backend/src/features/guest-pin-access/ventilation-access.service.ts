@@ -108,6 +108,7 @@ export class VentilationAccessService {
       where: { tenantId, spaceId: dto.spaceId, phase: VENTILATION_PHASE, status: 'open', eventId: { not: dto.eventId } },
     });
     for (const w of stale) {
+      // eslint-disable-next-line no-await-in-loop -- au plus une fenêtre ventilation ouverte par espace (index partiel)
       await this.guestPinWindowService.closeWindowRecord(w, user.id, { pushToLogistic: false, reason: 'superseded' });
     }
 
@@ -345,9 +346,11 @@ export class VentilationAccessService {
     const base = generateSlug(space.name.normalize('NFD').replace(COMBINING_DIACRITICS_REGEX, '')) || 'espace';
     for (let attempt = 0; attempt < 5; attempt++) {
       const slug = `ventilation-${base}-${randomBytes(3).toString('hex')}`;
+      // eslint-disable-next-line no-await-in-loop -- nouvel essai seulement en cas de collision de slug (rare)
       const clash = await this.prisma.spaceElement.findUnique({ where: { slug }, select: { id: true } });
       if (clash) continue;
       try {
+        // eslint-disable-next-line no-await-in-loop -- idem
         await this.prisma.space.update({ where: { id: spaceId }, data: { ventilationSlug: slug } });
         return slug;
       } catch (error) {

@@ -83,12 +83,14 @@ export class InventoryWindowLifecycleCronService {
       try {
         if (window.status !== 'open') {
           // Fenêtre déjà arrêtée : seuls des PDV rouverts un par un restaient joignables.
+          // eslint-disable-next-line no-await-in-loop -- fenêtres expirées traitées une par une, chacune dans son contexte tenant
           await this.tenantContext.runForTenant(window.tenantId, () =>
             revokeWindowAccesses(this.prisma, [window.id], InventoryWindowLifecycleCronService.ACTOR),
           );
           closedCount++;
           continue;
         }
+        // eslint-disable-next-line no-await-in-loop -- fenêtres expirées traitées une par une, chacune dans son contexte tenant
         const push = await this.tenantContext.runForTenant(window.tenantId, () =>
           this.guestPinWindowService.closeWindowRecord(window, InventoryWindowLifecycleCronService.ACTOR, {
             pushToLogistic: false,

@@ -317,6 +317,7 @@ export class SpaceElementService {
           const item = toCreate[idx];
           const pos = this.spaceElementLayoutService.gridPosition(baseCount + idx, zone!.width ?? 200);
           const v2Tags = this.spaceZoneElementsService.mapShopTypeTags(item.type);
+          // eslint-disable-next-line no-await-in-loop -- éléments créés un par un : chaque slug doit voir les précédents
           const row = await createSpaceElementWithUniqueSlug(
             tx,
             item.name,

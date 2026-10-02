@@ -67,6 +67,7 @@ export class BasketAggregationService {
         matchClause: buildMatchClause(window, seasonContainerIds),
       };
       try {
+        // eslint-disable-next-line no-await-in-loop -- events reconstruits un par un : grosses requêtes SQL, charge base bornée
         rows += await this.replaceForEvent({ tenantId, spaceId, weezeventEventId: event.id }, sqlInput);
       } catch (err) {
         this.logger.warn(`Basket backfill failed for event ${event.id} (space ${spaceId}): ${(err as Error).message}`);

@@ -190,6 +190,7 @@ export class PrismaService
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+        // eslint-disable-next-line no-await-in-loop -- nouvelle tentative après échec, avec attente exponentielle
         return await this.$transaction(async (tx) => callback(tx as PrismaClient));
       } catch (error) {
         lastError = error as Error;
@@ -199,6 +200,7 @@ export class PrismaService
 
         if (attempt < maxRetries) {
           // Exponential backoff
+          // eslint-disable-next-line no-await-in-loop -- nouvelle tentative après échec, avec attente exponentielle
           await this.sleep(Math.pow(2, attempt) * 100);
         }
       }

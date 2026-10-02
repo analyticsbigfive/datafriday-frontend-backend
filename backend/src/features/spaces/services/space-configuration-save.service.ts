@@ -349,15 +349,17 @@ export class SpaceConfigurationSaveService {
         // CREATE : id généré par Prisma — on n'honore jamais un `floor.id` étranger à cette config
         // (sinon collision de PK lors d'une duplication d'espace qui réutilise les ids d'origine).
         // Si `floor.id` appartenait à la config, `dbFloor` l'aurait déjà matché → UPDATE.
-        const createdFloor = dbFloor
-          ? await tx.floor.update({ where: { id: dbFloor.id }, data: floorData as any })
-          : await tx.floor.create({ data: floorData as any });
+        // eslint-disable-next-line no-await-in-loop -- quelques étages ou parvis par configuration, dans la transaction
+        const createdFloor = await (dbFloor
+          ? tx.floor.update({ where: { id: dbFloor.id }, data: floorData as any })
+          : tx.floor.create({ data: floorData as any }));
         // Keep the JSON floor id in sync with the relational row (getConfiguration dedup par level).
         floor.id = createdFloor.id;
         seenFloorIds.add(createdFloor.id);
 
         // Éléments indépendants entre eux → en parallèle (pipelinés sur la connexion de la
         // transaction), sinon la latence pooler (~200ms) est payée en série par élément.
+        // eslint-disable-next-line no-await-in-loop -- quelques étages ou parvis par configuration, dans la transaction
         await Promise.all(
           (floor.elements || []).map((element: any) =>
             this.reconcileElement(tx, element, { floorId: createdFloor.id }, seenElementIds, existingElementIdSet, config.id),
@@ -404,6 +406,7 @@ export class SpaceConfigurationSaveService {
       for (const f of existingFloorsForReconcile) {
         if (seenFloorIds.has(f.id)) continue;
         if (!f.elements.some((e: any) => protectedElementIds.has(e.id) || v2ManagedIds.has(e.id))) {
+          // eslint-disable-next-line no-await-in-loop -- quelques étages ou parvis par configuration, dans la transaction
           await tx.floor.delete({ where: { id: f.id } });
         }
       }
@@ -413,6 +416,7 @@ export class SpaceConfigurationSaveService {
         for (const fc of existingForecourtsForReconcile) {
           if (seenForecourtIds.has(fc.id)) continue;
           if (!fc.elements.some((e: any) => protectedElementIds.has(e.id) || v2ManagedIds.has(e.id))) {
+            // eslint-disable-next-line no-await-in-loop -- quelques étages ou parvis par configuration, dans la transaction
             await tx.forecourt.delete({ where: { id: fc.id } });
           }
         }

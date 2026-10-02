@@ -95,6 +95,7 @@ export class InventoryLiveInitCronService {
     if (!openEvents.length) return;
 
     for (const e of openEvents) {
+      // eslint-disable-next-line no-await-in-loop -- événements ouverts traités un par un, chacun dans son contexte tenant
       await this.tenantContext.runForTenant(e.tenantId, async () => {
         try {
           const opened = await this.flow.runDoorsOpen(e, 'system-doors-open', now);

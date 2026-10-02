@@ -191,6 +191,7 @@ export class HrSupplierService {
     let importedSuppliers = 0;
     for (const s of suppliers) {
       if (!s?.name) continue;
+      // eslint-disable-next-line no-await-in-loop -- import initial ponctuel, l'ordre détermine la résolution des doublons de nom
       const row = await this.prisma.hrSupplier.create({
         data: {
           tenantId,
@@ -232,10 +233,12 @@ export class HrSupplierService {
         ...(dbSupplierId && { suppliers: { create: [{ supplierId: dbSupplierId }] } }),
       });
       try {
+        // eslint-disable-next-line no-await-in-loop -- import initial ponctuel, l'ordre détermine la résolution des doublons de nom
         await this.prisma.hrRole.create({ data: data(name) });
       } catch (error: any) {
         // Legacy : un même nom de position pouvait exister chez plusieurs agences.
         if (error.code !== 'P2002') throw error;
+        // eslint-disable-next-line no-await-in-loop -- import initial ponctuel, l'ordre détermine la résolution des doublons de nom
         await this.prisma.hrRole.create({ data: data(`${name} (${importedRoles + 1})`) });
       }
       importedRoles++;

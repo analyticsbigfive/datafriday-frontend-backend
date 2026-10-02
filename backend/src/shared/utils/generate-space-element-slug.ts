@@ -64,6 +64,7 @@ export async function createSpaceElementWithUniqueSlug<T>(
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const slug = nextFreeSlug();
     try {
+      // eslint-disable-next-line no-await-in-loop -- nouvel essai avec le slug libre suivant en cas de création concurrente
       return await client.spaceElement.create({
         data: buildData(slug),
         ...(options?.select ? { select: options.select } : { include: options?.include }),

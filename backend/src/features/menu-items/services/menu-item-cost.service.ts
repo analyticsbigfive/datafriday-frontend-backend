@@ -55,6 +55,7 @@ export class MenuItemCostService {
 
     const nextStack = [...stack, itemId];
     for (const combo of item.comboChildren || []) {
+      // eslint-disable-next-line no-await-in-loop -- transaction courte par article (pooler) ; combos parcourus récursivement
       const childCost = await this.computeMenuItemComboCost(combo.childId, tenantId, nextStack);
       total += childCost * this.menuItemSupportService.toNumber(combo.quantity);
     }
@@ -197,6 +198,7 @@ export class MenuItemCostService {
           }),
         );
 
+        // eslint-disable-next-line no-await-in-loop -- transaction courte par article (pooler) ; combos parcourus récursivement
         await this.prisma.$transaction(tx);
         updated++;
       }
