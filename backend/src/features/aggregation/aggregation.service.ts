@@ -5,7 +5,6 @@ import { QueueService, AggregationJobEnqueueData } from '../../core/queue/queue.
 import { RedisService } from '../../core/redis/redis.service';
 import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
 import { liveWatermarkKey } from '../../shared/constants/live-aggregation';
-import { MappingsService } from '../mappings/mappings.service';
 import { EventDayFields, isEventOver } from '../../shared/utils/event-window.util';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
@@ -21,6 +20,7 @@ import {
   insertMinuteItemAgg,
   isUnscopedRangeWindow,
 } from './event-aggregation.queries';
+import { MappingProgressService } from '../mappings/services/mapping-progress.service';
 
 
 @Injectable()
@@ -30,7 +30,7 @@ export class AggregationService {
   constructor(
     private prisma: PrismaService,
     private queueService: QueueService,
-    private mappingsService: MappingsService,
+    private readonly mappingProgressService: MappingProgressService,
     // BUG-143-01 : RedisService injecté directement (RedisModule est @Global) plutôt que
     // via le cache des espaces — une dépendance vers SpacesModule créerait un cycle de modules.
     private redis: RedisService,
@@ -702,7 +702,7 @@ export class AggregationService {
    * BUG-029 (corrigé) : hasMappings comptait tous les LocationShopMapping du TENANT entier, sans
    * scoping par intégration — une intégration B sans aucun mapping affichait hasMappings:true dès
    * qu'une intégration A du même tenant en avait un. Délègue maintenant à
-   * MappingsService.hasShopMappingForIntegration, la même source utilisée par le wizard de mapping
+   * MappingProgressService.hasShopMappingForIntegration, la même source utilisée par le wizard de mapping
    * (BUG-017), pour ne plus jamais diverger. Sans integrationId (legacy, paramètre optionnel),
    * conserve l'ancien comportement tenant-wide en repli.
    */
@@ -716,7 +716,7 @@ export class AggregationService {
           })
         : Promise.resolve([]),
       integrationId
-        ? this.mappingsService.hasShopMappingForIntegration(tenantId, integrationId)
+        ? this.mappingProgressService.hasShopMappingForIntegration(tenantId, integrationId)
         : this.prisma.locationShopMapping.count({ where: { tenantId } }).then((count) => count > 0),
       this.windowResolver.resolveSeasonContainerEventIds(tenantId),
     ]);

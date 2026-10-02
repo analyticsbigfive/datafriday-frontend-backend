@@ -9,9 +9,13 @@ import { BasketAggregationService } from './basket-aggregation.service';
 import { SyncStaleRowsService } from './sync-stale-rows.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
-import { MappingsService } from '../mappings/mappings.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { combineDayAndLocalTime } from '../../shared/utils/event-window.util';
+import { LocationMappingService } from '../mappings/services/location-mapping.service';
+import { MappingProgressService } from '../mappings/services/mapping-progress.service';
+import { MappingSupportService } from '../mappings/services/mapping-support.service';
+import { MerchantMappingService } from '../mappings/services/merchant-mapping.service';
+import { ProductMappingService } from '../mappings/services/product-mapping.service';
 
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
 const mockPrisma: any = {
@@ -114,7 +118,11 @@ describe('AggregationService', () => {
         AggregationService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: QueueService, useValue: mockQueueService },
-        { provide: MappingsService, useValue: mockMappingsService },
+        { provide: MappingSupportService, useValue: mockMappingsService },
+        { provide: LocationMappingService, useValue: mockMappingsService },
+        { provide: MerchantMappingService, useValue: mockMappingsService },
+        { provide: ProductMappingService, useValue: mockMappingsService },
+        { provide: MappingProgressService, useValue: mockMappingsService },
         // BUG-143-01 : purge des caches Redis event-timeline/baskets en fin de job.
         { provide: RedisService, useValue: { deletePattern: jest.fn(), get: jest.fn(), set: jest.fn() } },
         // BUG-379-02 : résolution de fenêtre et rollup extraits, instances réelles sur le même mock Prisma.
