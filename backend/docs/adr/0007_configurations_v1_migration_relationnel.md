@@ -39,7 +39,9 @@ et chaque écriture v1 doit garder les deux synchrones. C'est la cause document�
 
 ## Décision
 
-1. Écrire un script de migration idempotent, rejouable, qui convertit chaque configuration v1 :
+1. Partir du script existant `scripts/migrate-builder-v2.mjs` (migration additive v1 vers v2,
+   à revérifier contre le schéma actuel) pour obtenir un script idempotent, rejouable, qui
+   convertit chaque configuration v1 :
    `Floor` vers `Zone` de type `FLOOR` (même niveau, mêmes dimensions), `Forecourt` vers `FORECOURT`,
    `ExternalMerch` vers `EXTERNAL`. Les `SpaceElement` gardent leurs identifiants (mappings
    Weezevent, `MenuAssignment` et agrégats intacts) et reçoivent `zoneId` plus une adhésion
