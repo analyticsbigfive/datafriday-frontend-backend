@@ -2,7 +2,7 @@ import { Injectable, OnModuleInit, OnModuleDestroy, Logger, InternalServerErrorE
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
-import { ClsService } from 'nestjs-cls';
+import { ClsService, CLS_REQ } from 'nestjs-cls';
 import { AppConfigService } from '../../config/app-config.service';
 import {
   BYPASS_TENANT_KEY,
@@ -49,6 +49,25 @@ export class PrismaService
 
   private readonly pool: Pool;
 
+  /** Tenant et route de la requête HTTP en cours (vide hors requête), pour le journal des requêtes lentes. */
+  private queryContext(): string {
+    if (!this.cls.isActive()) return '';
+    const tenantId = this.cls.get<string | undefined>(TENANT_ID_KEY);
+    const req = this.cls.get<{ method?: string; url?: string } | undefined>(CLS_REQ);
+    const parts = [tenantId && `tenant=${tenantId}`, req?.url && `${req.method ?? ''} ${req.url.split('?')[0]}`.trim()].filter(Boolean);
+    return parts.length ? ` [${parts.join(' ')}]` : '';
+  }
+
+  /** État du pool pg (connexions ouvertes, libres, requêtes en attente), exposé par les métriques. */
+  poolStats(): { total: number; idle: number; waiting: number; max: number | undefined } {
+    return {
+      total: this.pool.totalCount,
+      idle: this.pool.idleCount,
+      waiting: this.pool.waitingCount,
+      max: this.pool.options.max,
+    };
+  }
+
   /**
    * Models that carry a REQUIRED `tenantId` scalar — the ones eligible for
    * automatic tenant scoping. Derived from the Prisma DMMF so it stays in sync
@@ -88,7 +107,7 @@ export class PrismaService
         return;
       }
       if (slowQueryThresholdMs > 0 && e.duration >= slowQueryThresholdMs) {
-        this.logger.warn(`SLOW QUERY (${e.duration}ms): ${e.query}`);
+        this.logger.warn(`SLOW QUERY (${e.duration}ms)${this.queryContext()}: ${e.query}`);
       }
     });
 
