@@ -18,7 +18,6 @@ import { PostEventDraftService } from '../inventory/post-event-draft.service';
 import { decryptPin, encryptPin } from './guest-pin-crypto';
 import { closeInventoryWindows, revokeWindowAccesses } from '../inventory/inventory-window-closure';
 import { PRE_SALE_STOP_ACTOR, preSaleStopKey } from './pre-sale-stop';
-import { MenuItemsService } from '../menu-items/menu-items.service';
 import { MarketPricesService } from '../market-prices/market-prices.service';
 import { MenuComponentsService } from '../menu-components/menu-components.service';
 import { SpaceMenusService } from '../space-menus/space-menus.service';
@@ -36,6 +35,7 @@ import {
 import type { InventoryWindow } from '@prisma/client';
 import type { GuestPinUser } from '../../core/auth/strategies/jwt-guest-pin.strategy';
 import type { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
+import { MenuItemRecipeService } from '../menu-items/services/menu-item-recipe.service';
 
 const PIN_LOGIN_MAX_ATTEMPTS = 8;
 const PIN_LOGIN_WINDOW_SECONDS = 15 * 60;
@@ -76,7 +76,7 @@ export class GuestPinAccessService {
     private readonly audit: AuditService,
     private readonly inventoryService: InventoryService,
     private readonly preEventFlow: PreEventInventoryFlowService,
-    private readonly menuItems: MenuItemsService,
+    private readonly menuItemRecipeService: MenuItemRecipeService,
     private readonly marketPrices: MarketPricesService,
     private readonly menuComponents: MenuComponentsService,
     private readonly spaceAccess: SpaceAccessService,
@@ -490,9 +490,9 @@ export class GuestPinAccessService {
     // en pensant obtenir "aucun item", ça renverrait l'inverse.
     const [availableRecipes, allRecipes, marketPricesPage, componentsPage] = await Promise.all([
       enabledIds.length
-        ? this.menuItems.getRecipes(enabledIds, user.tenantId)
+        ? this.menuItemRecipeService.getRecipes(enabledIds, user.tenantId)
         : Promise.resolve({ items: [], suppliers: [] }),
-      this.menuItems.getRecipes([], user.tenantId),
+      this.menuItemRecipeService.getRecipes([], user.tenantId),
       this.marketPrices.findAll(user.tenantId, 1, 5000),
       this.menuComponents.findAll(user.tenantId, 1, 5000),
     ]);
@@ -546,7 +546,7 @@ export class GuestPinAccessService {
     ).map(String);
 
     const [allRecipes, marketPricesPage, componentsPage, storageTypesPage] = await Promise.all([
-      this.menuItems.getRecipes([], user.tenantId),
+      this.menuItemRecipeService.getRecipes([], user.tenantId),
       this.marketPrices.findAll(user.tenantId, 1, 5000),
       this.menuComponents.findAll(user.tenantId, 1, 5000),
       this.storageTypes.findAll(user.tenantId, 1, 500),

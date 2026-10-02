@@ -366,7 +366,7 @@ export class RecipeExplosionService {
     return rows.map((r) => ({ ...r, qty: Number(r.qty ?? 0) }));
   }
 
-  /** 'Yes'/'No' normalisé (mêmes règles que MenuItemsService.normYesNo). */
+  /** 'Yes'/'No' normalisé (mêmes règles que MenuItemRecipeService.normYesNo). */
   private normYesNo(value: unknown): 'Yes' | 'No' | null {
     if (value === true) return 'Yes';
     if (value === false) return 'No';
