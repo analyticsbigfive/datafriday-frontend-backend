@@ -494,19 +494,15 @@ export class MenuComponentsService {
         include: this.includeRelations,
       });
 
-      let repaired = 0;
-      for (const comp of components) {
+      const updates = components.flatMap((comp) => {
         const subComps = comp.subComponents as any[];
-        if (subComps && Array.isArray(subComps) && subComps.length > 0) {
-          const totalCost = subComps.reduce((sum, sub) => sum + (Number(sub.cost) || 0), 0);
-          const unitCost = totalCost * (comp.numberOfUnitsRecipe || 1);
-          await this.prisma.menuComponent.update({
-            where: { id: comp.id },
-            data: { unitCost },
-          });
-          repaired++;
-        }
-      }
+        if (!subComps || !Array.isArray(subComps) || subComps.length === 0) return [];
+        const totalCost = subComps.reduce((sum, sub) => sum + (Number(sub.cost) || 0), 0);
+        const unitCost = totalCost * (comp.numberOfUnitsRecipe || 1);
+        return [this.prisma.menuComponent.update({ where: { id: comp.id }, data: { unitCost } })];
+      });
+      if (updates.length) await this.prisma.$transaction(updates);
+      const repaired = updates.length;
 
       this.logger.log(`Repaired ${repaired} menu components`);
       return { repaired, total: components.length };
