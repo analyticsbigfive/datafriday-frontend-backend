@@ -35,6 +35,19 @@ function prismaErrorToHttp(exception: unknown): HttpException | null {
   }
 }
 
+/**
+ * Erreurs de requête levées par Fastify avant le contrôleur (corps JSON vide, type de contenu
+ * non supporté, corps trop gros...) : elles portent leur propre statut 4xx, qu'on respecte
+ * au lieu de répondre 500.
+ */
+function fastifyClientErrorToHttp(exception: unknown): HttpException | null {
+  if (!(exception instanceof Error)) return null;
+  const { code, statusCode } = exception as Error & { code?: unknown; statusCode?: unknown };
+  if (typeof code !== 'string' || !code.startsWith('FST_')) return null;
+  if (typeof statusCode !== 'number' || statusCode < 400 || statusCode >= 500) return null;
+  return new HttpException(exception.message, statusCode);
+}
+
 interface ErrorResponse {
   statusCode: number;
   message: string;
@@ -54,7 +67,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
 
   catch(rawException: unknown, host: ArgumentsHost) {
-    const exception = prismaErrorToHttp(rawException) ?? rawException;
+    const exception = prismaErrorToHttp(rawException) ?? fastifyClientErrorToHttp(rawException) ?? rawException;
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<FastifyReply>();
     const request = ctx.getRequest<FastifyRequest>();

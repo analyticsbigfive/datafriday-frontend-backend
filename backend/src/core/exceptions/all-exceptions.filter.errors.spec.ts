@@ -52,4 +52,19 @@ describe('AllExceptionsFilter : erreurs Prisma et erreurs serveur', () => {
     expect(status).toBe(400);
     expect(body.message).toBe('eventId is required for orders sync');
   });
+
+  it('erreur de requête Fastify (corps JSON vide) -> son statut 4xx, pas 500', () => {
+    const err = Object.assign(new Error("Body cannot be empty when content-type is set to 'application/json'"), {
+      code: 'FST_ERR_CTP_EMPTY_JSON_BODY',
+      statusCode: 400,
+    });
+    const { status, body } = run(err);
+    expect(status).toBe(400);
+    expect(body.message).toContain('Body cannot be empty');
+  });
+
+  it('erreur Fastify 5xx -> 500 générique', () => {
+    const err = Object.assign(new Error('détail interne'), { code: 'FST_ERR_SOMETHING', statusCode: 500 });
+    expect(run(err)).toMatchObject({ status: 500, body: { message: INTERNAL_ERROR_MESSAGE } });
+  });
 });
