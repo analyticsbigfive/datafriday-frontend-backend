@@ -21,13 +21,15 @@ import { SpaceElementPlacementService } from './services/space-element-placement
 import { SpaceSalesScopeService } from './services/space-sales-scope.service';
 import { SpaceAnalyseBatchService } from './services/space-analyse-batch.service';
 import { SpaceShopsService } from './services/space-shops.service';
+import { SpaceConfigurationSaveService } from './services/space-configuration-save.service';
 
 describe('Services des espaces', () => {
   let spaceCacheService: SpaceCacheService;
   let spaceZoneElementsService: SpaceZoneElementsService;
   let spaceCrudService: SpaceCrudService;
   let spaceAccessGrantService: SpaceAccessGrantService;
-  let spaceConfigurationService: SpaceConfigurationService;
+  let spaceConfigurationSaveService: any;
+  let spaceConfigurationService: any;
   let spaceElementService: SpaceElementService;
   let spaceEventTimelineService: SpaceEventTimelineService;
   let spaceElementLayoutService: SpaceElementLayoutService;
@@ -148,7 +150,7 @@ describe('Services des espaces', () => {
         SpaceZoneElementsService,
         SpaceCrudService,
         SpaceAccessGrantService,
-        SpaceConfigurationService,
+        SpaceConfigurationSaveService, SpaceConfigurationService, 
         SpaceElementService,
         SpaceEventTimelineService,
         SpaceElementLayoutService,
@@ -187,7 +189,9 @@ describe('Services des espaces', () => {
 
     spaceAccessGrantService = module.get<SpaceAccessGrantService>(SpaceAccessGrantService);
 
-    spaceConfigurationService = module.get<SpaceConfigurationService>(SpaceConfigurationService);
+    spaceConfigurationSaveService = module.get(SpaceConfigurationSaveService);
+
+    spaceConfigurationService = module.get(SpaceConfigurationService);
 
     spaceElementService = module.get<SpaceElementService>(SpaceElementService);
 
@@ -727,7 +731,7 @@ describe('Services des espaces', () => {
       });
 
       await expect(
-        spaceConfigurationService.saveConfiguration(
+        spaceConfigurationSaveService.saveConfiguration(
           {
             id: 'config-1',
             name: 'Updated config',

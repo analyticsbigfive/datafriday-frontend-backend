@@ -9,6 +9,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { SpaceConfigurationService } from './services/space-configuration.service';
 import { SpaceElementService } from './services/space-element.service';
+import { SpaceConfigurationSaveService } from './services/space-configuration-save.service';
 
 /**
  * Configurations d'un espace : création, mise à jour et éléments de configuration.
@@ -21,6 +22,7 @@ export class ConfigurationsController {
   private readonly logger = new Logger(ConfigurationsController.name);
 
   constructor(
+    private readonly spaceConfigurationSaveService: SpaceConfigurationSaveService,
     private readonly spaceConfigurationService: SpaceConfigurationService,
     private readonly spaceElementService: SpaceElementService,
   ) {}
@@ -65,7 +67,7 @@ export class ConfigurationsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`POST /configurations - Tenant: ${tenantId}, SpaceId: ${dto.spaceId}, ConfigName: ${dto.name}`);
-    return this.spaceConfigurationService.saveConfiguration(dto, tenantId);
+    return this.spaceConfigurationSaveService.saveConfiguration(dto, tenantId);
   }
 
   /**

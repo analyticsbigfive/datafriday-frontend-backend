@@ -6,7 +6,6 @@ import { SpaceCacheService } from './services/space-cache.service';
 import { SpaceZoneElementsService } from './services/space-zone-elements.service';
 import { SpaceCrudService } from './services/space-crud.service';
 import { SpaceAccessGrantService } from './services/space-access-grant.service';
-import { SpaceConfigurationService } from './services/space-configuration.service';
 import { SpaceElementService } from './services/space-element.service';
 import { SpaceElementLayoutService } from './services/space-element-layout.service';
 import { SpaceElementPlacementService } from './services/space-element-placement.service';
@@ -27,6 +26,8 @@ import { SpaceShopsController } from './space-shops.controller';
 import { SpaceIntegrationsController } from './space-integrations.controller';
 import { SpaceAccessController } from './space-access.controller';
 import { ConfigurationsController } from './configurations.controller';
+import { SpaceConfigurationSaveService } from './services/space-configuration-save.service';
+import { SpaceConfigurationService } from './services/space-configuration.service';
 
 @Module({
   imports: [PrismaModule, RedisModule, WeezeventModule, LogisticsModule],
@@ -45,7 +46,7 @@ import { ConfigurationsController } from './configurations.controller';
     SpaceZoneElementsService,
     SpaceCrudService,
     SpaceAccessGrantService,
-    SpaceConfigurationService,
+    
     SpaceElementService,
     SpaceElementLayoutService,
     SpaceElementPlacementService,
@@ -57,6 +58,8 @@ import { ConfigurationsController } from './configurations.controller';
     SpaceDashboardService,
     SpaceAggregationService,
     SpaceRevenueSummaryService,
+    SpaceConfigurationSaveService,
+    SpaceConfigurationService,
   ],
   exports: [
     // Utilisés hors du module : invalidation (builder-v2), suppression d'élément (mappings).
