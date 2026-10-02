@@ -53,6 +53,7 @@ describe('GuestPinAccessService : Démarrage / Reprise et Arrêt', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
       {} as any, // postEventDraft
       {} as any, // spaceMenus
       {} as any, // storageTypes

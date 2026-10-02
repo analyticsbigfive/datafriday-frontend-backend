@@ -1,6 +1,5 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, Optional } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { InventoryService } from './inventory.service';
 import { PostEventDraftService } from './post-event-draft.service';
 import { LogisticFlushThrottle } from './logistic-flush-throttle';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
@@ -8,6 +7,9 @@ import {
   resolveDoorsOpenAt,
   resolveEventTransactionWindow,
 } from '../../shared/utils/event-window.util';
+import { InventoryCountService } from './services/inventory-count.service';
+import { InventoryReconciliationService } from './services/inventory-reconciliation.service';
+import { InventoryLogisticPushService } from './services/inventory-logistic-push.service';
 
 /** Événement tel que lu pour le flux (sélection minimale, partagée cron/service). */
 export interface FlowEvent {
@@ -119,7 +121,9 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly inventoryService: InventoryService,
+    private readonly inventoryCountService: InventoryCountService,
+    private readonly inventoryReconciliationService: InventoryReconciliationService,
+    private readonly inventoryLogisticPushService: InventoryLogisticPushService,
     // Optionnel : les tests unitaires du flux pre-event ne le fournissent pas.
     @Optional() private readonly postEventDraft?: PostEventDraftService,
   ) {}
@@ -210,14 +214,14 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
 
   private async saveCountGuarded(dto: CreateInventoryCountDto, tenantId: string, userId?: string) {
     if (dto.phase !== 'pre-event' || !dto.eventId) {
-      return this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
+      return this.inventoryCountService.saveInventoryCounts(dto, tenantId, userId);
     }
     const event = await this.findEvent(dto.spaceId, dto.eventId, tenantId);
     const now = new Date();
     const doorsOpen = event ? this.doorsOpenAt(event) : null;
     const deadline = event ? this.editDeadline(event) : null;
     if (!event || !doorsOpen || !deadline) {
-      return this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
+      return this.inventoryCountService.saveInventoryCounts(dto, tenantId, userId);
     }
     if (now > deadline) {
       throw new ForbiddenException(
@@ -225,7 +229,7 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
       );
     }
     const afterDoorsOpen = now >= doorsOpen;
-    const saved = await this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
+    const saved = await this.inventoryCountService.saveInventoryCounts(dto, tenantId, userId);
     if (afterDoorsOpen) {
       await this.markDirty(dto.spaceId, dto.eventId, tenantId);
     }
@@ -293,7 +297,7 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
     const event = await this.findEvent(spaceId, eventId, tenantId);
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
 
-    const merged = await this.inventoryService.getBySpaceAndEvent(
+    const merged = await this.inventoryCountService.getBySpaceAndEvent(
       spaceId,
       eventId,
       tenantId,
@@ -311,7 +315,7 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
     const previousLines = previous[0]?.lines ?? null;
     const predictedUnits = options.predictedUnits ?? this.extractPredictedUnits(previousLines);
 
-    const created = await this.inventoryService.createPreEventReconciliation(
+    const created = await this.inventoryReconciliationService.createPreEventReconciliation(
       spaceId,
       eventId,
       tenantId,
@@ -330,7 +334,7 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
     }
 
     if (options.snapshot !== false) {
-      await this.inventoryService.upsertInventory(
+      await this.inventoryCountService.upsertInventory(
         { spaceId, eventId, kind: 'pre-event', inventoryCounts: blob },
         tenantId,
         actor,
@@ -606,7 +610,7 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
           const result = await this.regenerate(v.spaceId, v.eventId, tenantId, 'system-inventory-count', 'count', {}, { snapshot: false });
           if (result.ok) pushed++;
         } else {
-          const result = await this.inventoryService.pushPendingCountToLogistic(
+          const result = await this.inventoryLogisticPushService.pushPendingCountToLogistic(
             v.spaceId,
             v.eventId,
             tenantId,

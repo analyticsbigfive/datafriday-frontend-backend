@@ -1,7 +1,10 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { StockLevelService } from '../logistics/services/stock-level.service';
-import { InventoryService } from './inventory.service';
+import { InventoryBaselineService } from './services/inventory-baseline.service';
+import { InventoryCountService } from './services/inventory-count.service';
+import { InventoryReconciliationService } from './services/inventory-reconciliation.service';
+import { InventoryUnitResolverService } from './services/inventory-unit-resolver.service';
 import {
   buildPostEventLines,
   postEventKey,
@@ -34,7 +37,10 @@ export class PostEventDraftService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly inventory: InventoryService,
+    private readonly inventoryCountService: InventoryCountService,
+    private readonly inventoryBaselineService: InventoryBaselineService,
+    private readonly inventoryReconciliationService: InventoryReconciliationService,
+    private readonly inventoryUnitResolverService: InventoryUnitResolverService,
     private readonly stockLevelService: StockLevelService,
   ) {}
 
@@ -92,7 +98,7 @@ export class PostEventDraftService {
 
     // ── Compté : articles MARQUÉS comptés seulement (BUG-237 : les reprises d'avant-match
     //    sont requalifiées « à compter » par getBySpaceAndEvent).
-    const merged = await this.inventory.getBySpaceAndEvent(spaceId, eventId, tenantId, 'post-event');
+    const merged = await this.inventoryCountService.getBySpaceAndEvent(spaceId, eventId, tenantId, 'post-event');
     const blob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
     const countedRaw: Array<{ elementId: string; itemId: string; packed: number; loose: number }> = [];
     for (const [elementId, byItem] of Object.entries(blob)) {
@@ -104,12 +110,12 @@ export class PostEventDraftService {
     if (!countedRaw.length) return { ok: false as const, reason: 'no-counts' };
 
     // ── Avant-match du même event (repli : post-event du match précédent).
-    const pre = await this.inventory.getPreEventInventory(spaceId, eventId, tenantId);
+    const pre = await this.inventoryBaselineService.getPreEventInventory(spaceId, eventId, tenantId);
     const preBlob = (pre?.inventoryCounts ?? null) as Record<string, Record<string, any>> | null;
 
     const itemIds = new Set(countedRaw.map((c) => c.itemId));
     for (const byItem of Object.values(preBlob ?? {})) for (const id of Object.keys(byItem ?? {})) itemIds.add(id);
-    const upp = await this.inventory.resolveInventoryUnitsPerPack([...itemIds], tenantId);
+    const upp = await this.inventoryUnitResolverService.resolveInventoryUnitsPerPack([...itemIds], tenantId);
     const toUnits = (itemId: string, packed: number, loose: number) => packed * (upp.get(itemId) || 1) + loose;
 
     const counted: PostEventCountedLine[] = countedRaw.map((c) => ({
@@ -135,7 +141,7 @@ export class PostEventDraftService {
     //    termes porteraient sur des matchs différents, même règle que l'écran).
     let movementUnitsByKey: Map<string, number> | null = null;
     if (pre?.source === 'pre-event') {
-      const movements = await this.inventory.netMovementUnitsForEventWindow(spaceId, tenantId, event);
+      const movements = await this.inventoryBaselineService.netMovementUnitsForEventWindow(spaceId, tenantId, event);
       movementUnitsByKey = new Map();
       for (const [k, v] of movements.net) {
         const [elementId, itemId] = k.split('::');
@@ -158,7 +164,7 @@ export class PostEventDraftService {
     }
     const consumption = await this.stockLevelService.deriveEventConsumption(spaceId, eventId, tenantId, { untilByElement });
 
-    const names = await this.inventory.resolveItemKeysByIds([...itemIds], tenantId);
+    const names = await this.inventoryUnitResolverService.resolveItemKeysByIds([...itemIds], tenantId);
     const itemNameById = new Map([...names.entries()].map(([id, v]) => [id, v.name]));
     const countedItemsByElement = new Map<string, Set<string>>();
     for (const c of counted) {
@@ -173,8 +179,8 @@ export class PostEventDraftService {
       if (!items) continue; // PDV sans article compté : aucune ligne à alimenter
       let itemId: string | null = line.itemRefId && items.has(line.itemRefId) ? line.itemRefId : null;
       if (!itemId) {
-        const wanted = this.inventory.normalizeName(line.itemKey);
-        itemId = [...items].find((id) => this.inventory.normalizeName(itemNameById.get(id)) === wanted) ?? null;
+        const wanted = this.inventoryUnitResolverService.normalizeName(line.itemKey);
+        itemId = [...items].find((id) => this.inventoryUnitResolverService.normalizeName(itemNameById.get(id)) === wanted) ?? null;
       }
       if (!itemId) {
         // Vendu mais pas compté sur ce PDV : rien à réconcilier (pas de ligne).
@@ -239,7 +245,7 @@ export class PostEventDraftService {
       itemNameById,
     });
 
-    const created = await this.inventory.createPostEventReconciliation(
+    const created = await this.inventoryReconciliationService.createPostEventReconciliation(
       spaceId,
       {
         eventId,

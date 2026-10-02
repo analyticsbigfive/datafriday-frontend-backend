@@ -33,7 +33,7 @@ describe('Logistique depuis les comptages (D1)', () => {
         saveInventoryCounts: jest.fn().mockResolvedValue({ id: 'count-1' }),
         pushPendingCountToLogistic: jest.fn().mockResolvedValue({ ok: true, lineCount: 1 }),
       };
-      flow = new PreEventInventoryFlowService(prisma, inventory);
+      flow = new PreEventInventoryFlowService(prisma, inventory, {} as any, inventory);
     });
 
     afterEach(() => flow.onModuleDestroy());

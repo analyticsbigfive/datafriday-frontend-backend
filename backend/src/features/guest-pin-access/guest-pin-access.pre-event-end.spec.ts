@@ -41,7 +41,7 @@ describe('GuestPinAccessService : fin de l\'inventaire pre-event (invité)', () 
         preEventFlow = { regenerateOnPdvComplete: jest.fn().mockResolvedValue({ ok: true, reconciliationId: 'reco-1', lineCount: 3 }) };
         redis = { get: jest.fn().mockResolvedValue(0), ttl: jest.fn().mockResolvedValue(0), set: jest.fn(), incr: jest.fn() };
         service = new GuestPinAccessService(
-            prisma, redis, {} as any, {} as any, preEventFlow, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
+            prisma, redis, {} as any, {} as any, {} as any, preEventFlow, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
             {} as any, // postEventDraft
             {} as any, // spaceMenus
             {} as any, // storageTypes

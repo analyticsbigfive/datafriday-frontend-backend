@@ -12,7 +12,6 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { AuditService } from '../../core/audit/audit.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
-import { InventoryService } from '../inventory/inventory.service';
 import { PreEventInventoryFlowService } from '../inventory/pre-event-inventory-flow.service';
 import { PostEventDraftService } from '../inventory/post-event-draft.service';
 import { decryptPin, encryptPin } from './guest-pin-crypto';
@@ -36,6 +35,8 @@ import type { InventoryWindow } from '@prisma/client';
 import type { GuestPinUser } from '../../core/auth/strategies/jwt-guest-pin.strategy';
 import type { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { MenuItemRecipeService } from '../menu-items/services/menu-item-recipe.service';
+import { InventoryCountService } from '../inventory/services/inventory-count.service';
+import { InventoryLogisticPushService } from '../inventory/services/inventory-logistic-push.service';
 
 const PIN_LOGIN_MAX_ATTEMPTS = 8;
 const PIN_LOGIN_WINDOW_SECONDS = 15 * 60;
@@ -74,7 +75,8 @@ export class GuestPinAccessService {
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
     private readonly audit: AuditService,
-    private readonly inventoryService: InventoryService,
+    private readonly inventoryCountService: InventoryCountService,
+    private readonly inventoryLogisticPushService: InventoryLogisticPushService,
     private readonly preEventFlow: PreEventInventoryFlowService,
     private readonly menuItemRecipeService: MenuItemRecipeService,
     private readonly marketPrices: MarketPricesService,
@@ -383,7 +385,7 @@ export class GuestPinAccessService {
    *  algorithme que le staff), plus de ce endpoint. */
   async getInventory(user: GuestPinUser) {
     this.assertInventorySession(user);
-    const merged = await this.inventoryService.getBySpaceAndEvent(
+    const merged = await this.inventoryCountService.getBySpaceAndEvent(
       user.spaceId,
       user.eventId,
       user.tenantId,
@@ -1021,14 +1023,14 @@ export class GuestPinAccessService {
       if (window.phase === 'pre-event') {
         await this.preEventFlow.regenerate(window.spaceId, window.eventId, window.tenantId, actorId, 'phase-stop');
       } else {
-        await this.inventoryService.pushPendingCountToLogistic(
+        await this.inventoryLogisticPushService.pushPendingCountToLogistic(
           window.spaceId,
           window.eventId,
           window.tenantId,
           'post-event',
           actorId,
         );
-        await this.inventoryService.freezePostEventSnapshot(
+        await this.inventoryCountService.freezePostEventSnapshot(
           window.spaceId,
           window.eventId,
           window.tenantId,
@@ -1346,7 +1348,7 @@ export class GuestPinAccessService {
     let pushResult: { ok: boolean; reason?: string } = { ok: false, reason: 'not-attempted' };
     if (options.pushToLogistic) {
       try {
-        pushResult = await this.inventoryService.pushCurrentCountToLogistic(
+        pushResult = await this.inventoryLogisticPushService.pushCurrentCountToLogistic(
           window.spaceId,
           window.eventId,
           tenantId,

@@ -4,7 +4,6 @@ import { QueueService } from '../../core/queue/queue.service';
 import { getQueueToken } from '@nestjs/bullmq';
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { InventoryService } from './inventory.service';
 import { LogisticsElementScopeService } from '../logistics/services/logistics-element-scope.service';
 import { StockItemIdentityService } from '../logistics/services/stock-item-identity.service';
 import { RecipeExplosionService } from '../logistics/services/recipe-explosion.service';
@@ -13,6 +12,11 @@ import { StockLevelService } from '../logistics/services/stock-level.service';
 import { StockReconciliationService } from '../logistics/services/stock-reconciliation.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { InventoryBaselineService } from './services/inventory-baseline.service';
+import { InventoryCountService } from './services/inventory-count.service';
+import { InventoryLogisticPushService } from './services/inventory-logistic-push.service';
+import { InventoryReconciliationService } from './services/inventory-reconciliation.service';
+import { InventoryUnitResolverService } from './services/inventory-unit-resolver.service';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -155,7 +159,11 @@ const LOGISTICS_SERVICES = [
 ];
 
 describe('InventoryService', () => {
-  let service: InventoryService;
+  let inventoryUnitResolverService: any;
+  let inventoryCountService: any;
+  let inventoryBaselineService: any;
+  let inventoryLogisticPushService: any;
+  let inventoryReconciliationService: any;
   let logistics: StockReconciliationService;
 
   beforeEach(async () => {
@@ -180,7 +188,7 @@ describe('InventoryService', () => {
     mockPrisma.stockReconciliation.findFirst.mockResolvedValue(null);
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        InventoryService,
+        InventoryUnitResolverService, InventoryCountService, InventoryBaselineService, InventoryLogisticPushService, InventoryReconciliationService, 
         // Services logistiques RÉELS (normalizeLevel + resolveUnitsPerPackForItemKey) :
         // c'est précisément leur sémantique de casse de pack qu'on veut rejouer.
         // QueueService stubé : aucun chemin exercé ici n'enfile de job.
@@ -193,12 +201,16 @@ describe('InventoryService', () => {
         { provide: SpaceAccessService, useFactory: (p: any) => new SpaceAccessService(p), inject: [PrismaService] },
       ],
     }).compile();
-    service = module.get<InventoryService>(InventoryService);
+    inventoryUnitResolverService = module.get(InventoryUnitResolverService);
+    inventoryCountService = module.get(InventoryCountService);
+    inventoryBaselineService = module.get(InventoryBaselineService);
+    inventoryLogisticPushService = module.get(InventoryLogisticPushService);
+    inventoryReconciliationService = module.get(InventoryReconciliationService);
     logistics = module.get(StockReconciliationService);
   });
 
   it('should be defined', () => {
-    expect(service).toBeDefined();
+    expect(inventoryUnitResolverService).toBeDefined(); expect(inventoryCountService).toBeDefined(); expect(inventoryBaselineService).toBeDefined(); expect(inventoryLogisticPushService).toBeDefined(); expect(inventoryReconciliationService).toBeDefined();
   });
 
   // ── getBySpaceAndEvent ──────────────────────────────────────────────────────
@@ -210,7 +222,7 @@ describe('InventoryService', () => {
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(snap);
       mockPrisma.inventoryCount.findMany.mockResolvedValue([count]);
 
-      const result = await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
+      const result = await inventoryCountService.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
 
       // Le résultat doit être construit depuis les counts, pas le blob snapshot
       expect(result.inventoryCounts).toEqual({
@@ -234,7 +246,7 @@ describe('InventoryService', () => {
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(snap);
       mockPrisma.inventoryCount.findMany.mockResolvedValue([]);
 
-      const result = await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
+      const result = await inventoryCountService.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
 
       expect(result).toEqual(snap);
     });
@@ -243,7 +255,7 @@ describe('InventoryService', () => {
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(null);
       mockPrisma.inventoryCount.findMany.mockResolvedValue([]);
 
-      const result = await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
+      const result = await inventoryCountService.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
 
       expect(result.id).toBeNull();
       expect(result.inventoryCounts).toEqual({});
@@ -256,7 +268,7 @@ describe('InventoryService', () => {
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(null);
       mockPrisma.inventoryCount.findMany.mockResolvedValue([countNoShop]);
 
-      const result = await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
+      const result = await inventoryCountService.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
 
       // counts sans shopId ne peuvent pas être adressés par le front — on les ignore
       expect(result.inventoryCounts).toEqual({});
@@ -273,7 +285,7 @@ describe('InventoryService', () => {
         makeCount({ id: 'c2', shopId: null, itemId: 'item-2' }),
       ]);
 
-      const result = await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
+      const result = await inventoryCountService.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
 
       expect(result).toEqual(snapshot);
     });
@@ -285,7 +297,7 @@ describe('InventoryService', () => {
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(null);
       mockPrisma.inventoryCount.findMany.mockResolvedValue([c1, c2, c3]);
 
-      const result = await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
+      const result = await inventoryCountService.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1');
 
       expect(Object.keys(result.inventoryCounts)).toHaveLength(2);
       expect(result.inventoryCounts['shop-A']['item-1'].packedUnits).toBe(2);
@@ -301,7 +313,7 @@ describe('InventoryService', () => {
       mockPrisma.inventoryCount.findFirst.mockResolvedValue(null);
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(null);
 
-      const result = await service.getLatestBySpace('space-1', 'tenant-1');
+      const result = await inventoryCountService.getLatestBySpace('space-1', 'tenant-1');
       expect(result).toBeNull();
     });
 
@@ -310,7 +322,7 @@ describe('InventoryService', () => {
       mockPrisma.inventoryCount.findFirst.mockResolvedValue(null);
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(snap);
 
-      const result = await service.getLatestBySpace('space-1', 'tenant-1');
+      const result = await inventoryCountService.getLatestBySpace('space-1', 'tenant-1');
       // eventName : dénormalisation additive (event.findFirst mocké → null ici).
       expect(result).toEqual({ ...snap, eventName: null });
     });
@@ -324,7 +336,7 @@ describe('InventoryService', () => {
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(snap);
       mockPrisma.inventoryCount.findMany.mockResolvedValue(allCounts);
 
-      const result = await service.getLatestBySpace('space-1', 'tenant-1');
+      const result = await inventoryCountService.getLatestBySpace('space-1', 'tenant-1');
 
       expect(result.eventId).toBe(latestCount.eventId);
       expect(result.inventoryCounts['shop-1']).toBeDefined();
@@ -337,7 +349,7 @@ describe('InventoryService', () => {
       mockPrisma.inventoryCount.findFirst.mockResolvedValue(latestCount);
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(snap);
 
-      const result = await service.getLatestBySpace('space-1', 'tenant-1');
+      const result = await inventoryCountService.getLatestBySpace('space-1', 'tenant-1');
       // eventName : dénormalisation additive (event.findFirst mocké → null ici).
       expect(result).toEqual({ ...snap, eventName: null });
     });
@@ -355,7 +367,7 @@ describe('InventoryService', () => {
         eventId: 'event-1',
         inventoryCounts: { 'shop-1': { 'item-1': { packedUnits: 2, looseUnits: 0 } } },
       };
-      const result = await service.upsertInventory(dto, 'tenant-1', 'user-1');
+      const result = await inventoryCountService.upsertInventory(dto, 'tenant-1', 'user-1');
 
       expect(mockPrisma.inventorySnapshot.create).toHaveBeenCalledWith({
         data: {
@@ -374,7 +386,7 @@ describe('InventoryService', () => {
       const snap = makeSnapshot({ eventId: null });
       mockPrisma.inventorySnapshot.create.mockResolvedValue(snap);
 
-      await service.upsertInventory({ spaceId: 'space-1', inventoryCounts: {} }, 'tenant-1');
+      await inventoryCountService.upsertInventory({ spaceId: 'space-1', inventoryCounts: {} }, 'tenant-1');
 
       expect(mockPrisma.inventorySnapshot.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ eventId: null }) }),
@@ -402,7 +414,7 @@ describe('InventoryService', () => {
       const created = makeCount({ packedUnits: 3, looseUnits: 1 });
       mockPrisma.inventoryCount.create.mockResolvedValue(created);
 
-      const result = await service.saveInventoryCounts(dto, 'tenant-1', 'user-1');
+      const result = await inventoryCountService.saveInventoryCounts(dto, 'tenant-1', 'user-1');
 
       expect(mockPrisma.inventoryCount.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -428,7 +440,7 @@ describe('InventoryService', () => {
       const updated = { ...existing, packedUnits: 3, looseUnits: 1, isCounted: false };
       mockPrisma.inventoryCount.update.mockResolvedValue(updated);
 
-      const result = await service.saveInventoryCounts(dto, 'tenant-1', 'user-1');
+      const result = await inventoryCountService.saveInventoryCounts(dto, 'tenant-1', 'user-1');
 
       expect(mockPrisma.inventoryCount.update).toHaveBeenCalledWith({
         where: { id: 'cnt-existing' },
@@ -442,7 +454,7 @@ describe('InventoryService', () => {
       mockPrisma.inventoryCount.findFirst.mockResolvedValue(null);
       mockPrisma.inventoryCount.create.mockResolvedValue(makeCount());
 
-      await service.saveInventoryCounts(
+      await inventoryCountService.saveInventoryCounts(
         { spaceId: 'space-1', itemId: 'item-1', packedUnits: 0, looseUnits: 0, isCounted: false },
         'tenant-1',
       );
@@ -456,7 +468,7 @@ describe('InventoryService', () => {
       mockPrisma.inventoryCount.findFirst.mockResolvedValue(null);
       mockPrisma.inventoryCount.create.mockResolvedValue(makeCount());
 
-      await service.saveInventoryCounts(
+      await inventoryCountService.saveInventoryCounts(
         { spaceId: 'space-1', itemId: 'item-1', packedUnits: 0, looseUnits: 0, isCounted: false },
         'tenant-1',
       );
@@ -483,7 +495,7 @@ describe('InventoryService', () => {
       const updated = { ...winner, packedUnits: 3 };
       mockPrisma.inventoryCount.update.mockResolvedValue(updated);
 
-      const result = await service.saveInventoryCounts(dto, 'tenant-1', 'user-1');
+      const result = await inventoryCountService.saveInventoryCounts(dto, 'tenant-1', 'user-1');
 
       expect(mockPrisma.inventoryCount.update).toHaveBeenCalledWith({
         where: { id: 'cnt-winner' },
@@ -496,7 +508,7 @@ describe('InventoryService', () => {
       mockPrisma.inventoryCount.findFirst.mockResolvedValue(null);
       mockPrisma.inventoryCount.create.mockRejectedValue(new Error('db down'));
 
-      await expect(service.saveInventoryCounts(dto, 'tenant-1')).rejects.toThrow('db down');
+      await expect(inventoryCountService.saveInventoryCounts(dto, 'tenant-1')).rejects.toThrow('db down');
       expect(mockPrisma.inventoryCount.update).not.toHaveBeenCalled();
     });
   });
@@ -551,7 +563,7 @@ describe('InventoryService', () => {
         { elementId: 'shop-1', itemKey: 'Biere', packedUnits: 2, looseUnits: 0, unitsPerPack: 12 },
       ]);
 
-      const result = await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+      const result = await inventoryBaselineService.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
 
       expect(result.source).toBe('logistic-live');
       expect(result.expected['shop-1']['item-beer']).toEqual({ packed: 1, loose: 0, units: 24, unitsPerPack: 24 });
@@ -569,7 +581,7 @@ describe('InventoryService', () => {
         { elementId: 'shop-1', itemKey: 'Fût 30L', packedUnits: 3, looseUnits: 0.5, unitsPerPack: null },
       ]);
 
-      const result = await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+      const result = await inventoryBaselineService.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
 
       expect(result.expected['shop-1']['item-fut']).toEqual({ packed: 3, loose: 0.5, units: null, unitsPerPack: null });
     });
@@ -582,7 +594,7 @@ describe('InventoryService', () => {
         { elementId: 'shop-1', itemKey: 'Nom Inconnu Total', packedUnits: 9, looseUnits: 0, unitsPerPack: null },
       ]);
 
-      const result = await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+      const result = await inventoryBaselineService.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
 
       expect(result.expected).toEqual({});
       expect(result.unjoinedItemKeys).toEqual(['Nom Inconnu Total']);
@@ -596,7 +608,7 @@ describe('InventoryService', () => {
         { elementId: 'shop-fantome', itemKey: 'Biere', packedUnits: 4, looseUnits: 0, unitsPerPack: null },
       ]);
 
-      const result = await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+      const result = await inventoryBaselineService.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
 
       expect(result.expected).toEqual({});
     });
@@ -622,7 +634,7 @@ describe('InventoryService', () => {
         Promise.resolve({ id: 'reco-1', ...data }),
       );
 
-      const reco = await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+      const reco = await inventoryReconciliationService.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
 
       const choco = (reco.lines as any[]).find((l: any) => l.itemKey === 'item-choco');
       expect(choco.expectedPacked).toBe(2);
@@ -667,7 +679,7 @@ describe('InventoryService', () => {
         Promise.resolve({ id: 'reco-1', ...data }),
       );
 
-      const reco = await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+      const reco = await inventoryReconciliationService.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
       const byKey = (k: string) => (reco.lines as any[]).find((l: any) => l.itemKey === k);
 
       // Jamais saisi : Logistic (L), écart 0.
@@ -694,7 +706,7 @@ describe('InventoryService', () => {
         Promise.resolve({ id: 'reco-1', ...data }),
       );
 
-      await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+      await inventoryReconciliationService.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
 
       expect(resetSpy).toHaveBeenCalledTimes(1);
       const [, dto, , actor, meta] = resetSpy.mock.calls[0];
@@ -738,7 +750,7 @@ describe('InventoryService', () => {
         Promise.resolve({ id: 'reco-1', ...data }),
       );
 
-      await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+      await inventoryReconciliationService.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
 
       const [, dto] = resetSpy.mock.calls[0];
       expect(dto.lines.map((l: any) => l.itemRefId)).toEqual(['item-choco']);
@@ -760,7 +772,7 @@ describe('InventoryService', () => {
         Promise.resolve({ id: 'reco-1', ...data }),
       );
 
-      await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+      await inventoryReconciliationService.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
 
       expect(resetSpy).not.toHaveBeenCalled();
       resetSpy.mockRestore();
@@ -795,7 +807,7 @@ describe('InventoryService', () => {
         Promise.resolve({ id: 'reco-1', ...data }),
       );
 
-      const reco = await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+      const reco = await inventoryReconciliationService.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
 
       const [, dto] = resetSpy.mock.calls[0];
       expect(dto.lines.map((l: any) => l.itemRefId).sort()).toEqual(['item-beer', 'item-water']);
@@ -827,7 +839,7 @@ describe('InventoryService', () => {
         Promise.resolve({ id: 'reco-1', ...data }),
       );
 
-      const reco = await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+      const reco = await inventoryReconciliationService.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
 
       expect(resetSpy).not.toHaveBeenCalled();
       expect((reco as any).meta.logisticPush).toEqual({ ok: false, reason: 'nothing-new', lineCount: 0 });
@@ -866,7 +878,7 @@ describe('InventoryService', () => {
         { elementId: 'shop-1', elementName: 'Buvette 1', itemKey: 'item-choco', itemName: 'Barre chocolatée', unitsPerPack: 5, expectedPacked: 1, expectedLoose: 0, expectedUnits: 5, countedPacked: 2, countedLoose: 3, countedUnits: 13, countedSource: 'count', deltaPacked: 1, deltaLoose: 3, deltaUnits: 8, predictedUnits: 20, deltaVsPredicted: -7 },
       ];
 
-      const reco = await service.createPreEventReconciliation(
+      const reco = await inventoryReconciliationService.createPreEventReconciliation(
         'space-1', 'event-next', 'tenant-1', 'user-1', true, { 'shop-1': { 'item-choco': 30 } }, {}, previousLines,
       );
       const byKey = (k: string) => (reco.lines as any[]).find((l: any) => l.itemKey === k);
@@ -899,7 +911,7 @@ describe('InventoryService', () => {
         Promise.resolve({ id: 'reco-1', ...data }),
       );
 
-      const reco = await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
+      const reco = await inventoryReconciliationService.createPreEventReconciliation('space-1', 'event-next', 'tenant-1', 'user-1');
 
       expect(reco).toMatchObject({ id: 'reco-1', kind: 'pre-event' });
       resetSpy.mockRestore();
@@ -950,7 +962,7 @@ describe('InventoryService', () => {
         { elementId: 'shop-1', itemKey: 'Biere', menuItemId: 'item-beer', packedDelta: 2, looseDelta: 0 },
       ]);
 
-      const result = await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+      const result = await inventoryBaselineService.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
 
       expect(result.source).toBe('logistic-live');
       expect(result.expectedUnits['shop-1']['item-beer']).toBe(7);
@@ -972,7 +984,7 @@ describe('InventoryService', () => {
         Promise.resolve(where?.eventId === 'event-1' && where?.kind === null ? { id: 'reset-1' } : null),
       );
 
-      const result = await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+      const result = await inventoryBaselineService.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
 
       expect(result.holdsPostEventCount).toBe(true);
       const call = mockPrisma.stockReconciliation.findFirst.mock.calls.find(
@@ -993,7 +1005,7 @@ describe('InventoryService', () => {
       mockPrisma.stockLevel.findMany.mockResolvedValue([]);
       mockPrisma.stockMovement.findMany.mockResolvedValue([]);
 
-      await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+      await inventoryBaselineService.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
 
       const { where } = mockPrisma.stockMovement.findMany.mock.calls[0][0];
       expect(where.createdAt).toEqual({ gt: preAt, lt: new Date('2026-07-11T23:00:00Z') });
@@ -1006,7 +1018,7 @@ describe('InventoryService', () => {
       mockPrisma.stockLevel.findMany.mockResolvedValue([]);
       mockPrisma.stockMovement.findMany.mockResolvedValue([]);
 
-      const result = await service.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
+      const result = await inventoryBaselineService.getPostEventBaseline('space-1', 'event-1', 'tenant-1');
 
       const { where } = mockPrisma.stockMovement.findMany.mock.calls[0][0];
       expect(where.createdAt.gt).toEqual(targetEvent.eventDate);
@@ -1018,7 +1030,7 @@ describe('InventoryService', () => {
       mockPrisma.event.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.getPostEventBaseline('space-1', 'event-autre', 'tenant-1'),
+        inventoryBaselineService.getPostEventBaseline('space-1', 'event-autre', 'tenant-1'),
       ).rejects.toThrow(NotFoundException);
     });
   });
@@ -1038,7 +1050,7 @@ describe('InventoryService', () => {
         ),
       );
 
-      const result = await service.getPreEventInventory('space-1', 'event-next', 'tenant-1');
+      const result = await inventoryBaselineService.getPreEventInventory('space-1', 'event-next', 'tenant-1');
 
       expect(result.source).toBe('previous-post-event');
       // Le lookup du match précédent porte le filtre : un « [Simulé] » (outil QA)
@@ -1086,7 +1098,7 @@ describe('InventoryService', () => {
     it('listInventoryReconciliations : lignes pre-event expurgées (expected ET delta), post-event intactes', async () => {
       mockPrisma.stockReconciliation.findMany.mockResolvedValue([preDoc, postDoc]);
 
-      const docs = await service.listInventoryReconciliations('space-1', 'tenant-1', false);
+      const docs = await inventoryReconciliationService.listInventoryReconciliations('space-1', 'tenant-1', false);
 
       const pre = docs.find((d: any) => d.id === 'reco-pre');
       // Attendus ET deltas retirés (delta seul suffirait à reconstruire :
@@ -1107,7 +1119,7 @@ describe('InventoryService', () => {
     it('listInventoryReconciliations : porteur de la permission → documents complets', async () => {
       mockPrisma.stockReconciliation.findMany.mockResolvedValue([preDoc]);
 
-      const docs = await service.listInventoryReconciliations('space-1', 'tenant-1', true);
+      const docs = await inventoryReconciliationService.listInventoryReconciliations('space-1', 'tenant-1', true);
 
       expect(docs[0].lines[0].expectedPacked).toBe(19);
       expect(docs[0].lines[0].deltaLoose).toBe(-2);
@@ -1134,7 +1146,7 @@ describe('InventoryService', () => {
         Promise.resolve({ id: 'reco-1', ...data }),
       );
 
-      const reco = await service.createPreEventReconciliation(
+      const reco = await inventoryReconciliationService.createPreEventReconciliation(
         'space-1',
         'event-next',
         'tenant-1',
@@ -1232,7 +1244,7 @@ describe('InventoryService', () => {
         makeCount({ id: 'c4', eventId: 'event-next', shopId: '6A', itemId: 'mi-choco', packedUnits: 0, looseUnits: 4, isCounted: true }),
       ]);
 
-      const reco = await service.createPreEventReconciliation('6A-space', 'event-next', 'tenant-1', 'user-1');
+      const reco = await inventoryReconciliationService.createPreEventReconciliation('6A-space', 'event-next', 'tenant-1', 'user-1');
       const lines = reco.lines as any[];
       const byKey = (k: string) => lines.find((l) => l.itemKey === k);
 
@@ -1270,13 +1282,13 @@ describe('InventoryService', () => {
       mockPrisma.inventoryCount.findMany.mockResolvedValue([
         makeCount({ id: 'c1', eventId: 'event-next', shopId: '6A', itemId: 'id-supprime', packedUnits: 0, looseUnits: 7, isCounted: true }),
       ]);
-      const reco = await service.createPreEventReconciliation('6A-space', 'event-next', 'tenant-1', 'user-1');
+      const reco = await inventoryReconciliationService.createPreEventReconciliation('6A-space', 'event-next', 'tenant-1', 'user-1');
       expect((reco.lines as any[]).find((l) => l.itemKey === 'id-supprime')).toBeUndefined();
       expect((reco as any).meta.orphanLinesExcluded).toBe(1);
     });
 
     it("attendus à l'écran (pre-event-baseline) : exposés sous TOUS les ids homonymes, dans le conditionnement de chaque id", async () => {
-      const result = await service.getPreEventBaseline('6A-space', 'event-next', 'tenant-1');
+      const result = await inventoryBaselineService.getPreEventBaseline('6A-space', 'event-next', 'tenant-1');
       // Coca : sous l'id MenuItem ET l'id MarketPrice ; le pack de 24 du MarketPrice vaut
       // pour les deux (repli par nom, parité front `mpByName.get(name)`).
       expect(result.expected['6A']['mi-coca']).toEqual({ packed: 0, loose: 10, units: 10, unitsPerPack: 24 });
@@ -1298,7 +1310,7 @@ describe('InventoryService', () => {
         ],
         components: [{ id: 'comp-z', name: 'Z', packedUnits: 8 }],
       });
-      const upp = await (service as any).resolveInventoryUnitsPerPack(['mi-x', 'mp-x', 'mi-y', 'mp-y', 'comp-z', 'inconnu'], 'tenant-1');
+      const upp = await (inventoryUnitResolverService as any).resolveInventoryUnitsPerPack(['mi-x', 'mp-x', 'mi-y', 'mp-y', 'comp-z', 'inconnu'], 'tenant-1');
       expect(upp.get('mi-x')).toBe(6); // intention du menu item
       expect(upp.get('mp-x')).toBe(6); // même nom : le menu item prime aussi sur l'id MarketPrice (parité front)
       expect(upp.get('mi-y')).toBe(12); // 1 = défaut, repli MarketPrice par nom
@@ -1313,7 +1325,7 @@ describe('InventoryService', () => {
       mockPrisma.stockReconciliation.findFirst.mockResolvedValue({ id: 'reco-1', kind: 'post-event' });
       mockPrisma.stockReconciliation.delete.mockResolvedValue({ id: 'reco-1' });
 
-      const result = await service.deleteInventoryReconciliation('space-1', 'reco-1', 'tenant-1');
+      const result = await inventoryReconciliationService.deleteInventoryReconciliation('space-1', 'reco-1', 'tenant-1');
 
       expect(mockPrisma.stockReconciliation.findFirst).toHaveBeenCalledWith({
         where: { id: 'reco-1', tenantId: 'tenant-1', spaceId: 'space-1', kind: { in: ['post-event', 'pre-event'] } },
@@ -1327,7 +1339,7 @@ describe('InventoryService', () => {
       mockPrisma.stockReconciliation.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.deleteInventoryReconciliation('space-1', 'reco-logistic', 'tenant-1'),
+        inventoryReconciliationService.deleteInventoryReconciliation('space-1', 'reco-logistic', 'tenant-1'),
       ).rejects.toThrow('not found');
       expect(mockPrisma.stockReconciliation.delete).not.toHaveBeenCalled();
     });
@@ -1356,7 +1368,7 @@ describe('InventoryService', () => {
         }),
       ]);
 
-      const result = await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1', 'post-event');
+      const result = await inventoryCountService.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1', 'post-event');
       const line = result.inventoryCounts['shop-1']['item-1'];
 
       // Valeurs conservées (proposition utile au recomptage)…
@@ -1379,7 +1391,7 @@ describe('InventoryService', () => {
         }),
       ]);
 
-      const line = (await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1', 'post-event'))
+      const line = (await inventoryCountService.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1', 'post-event'))
         .inventoryCounts['shop-1']['item-1'];
 
       expect(line.isCounted).toBe(true);
@@ -1393,7 +1405,7 @@ describe('InventoryService', () => {
         makeCount({ updatedAt: new Date('2026-07-24T09:00:00Z'), isCounted: true }),
       ]);
 
-      const line = (await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1'))
+      const line = (await inventoryCountService.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1'))
         .inventoryCounts['shop-1']['item-1'];
 
       expect(line.isCounted).toBe(true);
@@ -1406,7 +1418,7 @@ describe('InventoryService', () => {
         makeCount({ updatedAt: new Date('2026-07-24T09:00:00Z'), isCounted: true }),
       ]);
 
-      const line = (await service.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1', 'post-event'))
+      const line = (await inventoryCountService.getBySpaceAndEvent('space-1', 'event-1', 'tenant-1', 'post-event'))
         .inventoryCounts['shop-1']['item-1'];
 
       expect(line.isCounted).toBe(true);
@@ -1439,7 +1451,7 @@ describe('InventoryService', () => {
         { elementId: 'shop-1', itemKey: 'Coca-Cola CAN 33cl', packedUnits: 11, looseUnits: 0, unitsPerPack: 12 },
       ]);
 
-      const result = await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+      const result = await inventoryBaselineService.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
 
       // 11 × 12 = 132 unités, re-découpées dans l'unité de l'ÉCRAN (24) :
       // 5 cartons + 12 en vrac. Additionner des packs de tailles différentes
@@ -1457,7 +1469,7 @@ describe('InventoryService', () => {
         { elementId: 'shop-1', itemKey: 'Coca-Cola CAN 33cl', packedUnits: 9, looseUnits: 6, unitsPerPack: 12 },
       ]);
 
-      const result = await service.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
+      const result = await inventoryBaselineService.getPreEventBaseline('space-1', 'event-next', 'tenant-1');
 
       // 9 × 12 + 6 = 114 = 4 cartons de 24 + 18.
       expect(result.expected['shop-1']['item-coke']).toEqual({
@@ -1489,7 +1501,7 @@ describe('InventoryService', () => {
         Promise.resolve({ id: 'reco-1', ...data }),
       );
 
-      const doc: any = await service.createPreEventReconciliation('space-1', 'event-next', 'tenant-1');
+      const doc: any = await inventoryReconciliationService.createPreEventReconciliation('space-1', 'event-next', 'tenant-1');
       const line = doc.lines[0];
 
       expect(line.unitsPerPack).toBe(24);
@@ -1518,7 +1530,7 @@ describe('InventoryService', () => {
         ),
       );
 
-      const result: any = await service.getPreEventInventory('space-1', 'event-N', 'tenant-1');
+      const result: any = await inventoryBaselineService.getPreEventInventory('space-1', 'event-N', 'tenant-1');
 
       expect(result.source).toBe('pre-event');
       expect(result.id).toBe('snap-pre');
@@ -1538,7 +1550,7 @@ describe('InventoryService', () => {
         ),
       );
 
-      const result: any = await service.getPreEventInventory('space-1', 'event-N', 'tenant-1');
+      const result: any = await inventoryBaselineService.getPreEventInventory('space-1', 'event-N', 'tenant-1');
 
       expect(result.source).toBe('previous-post-event');
       expect(result.id).toBe('snap-prev');
@@ -1553,7 +1565,7 @@ describe('InventoryService', () => {
       // pas « le dernier snapshot du space avant le jour du match ».
       mockPrisma.inventorySnapshot.findFirst.mockResolvedValue(null);
 
-      expect(await service.getPreEventInventory('space-1', 'event-N', 'tenant-1')).toBeNull();
+      expect(await inventoryBaselineService.getPreEventInventory('space-1', 'event-N', 'tenant-1')).toBeNull();
     });
   });
 
@@ -1566,7 +1578,7 @@ describe('InventoryService', () => {
         Promise.resolve({ id: 'reco-1', ...data }),
       );
 
-      await service.createPostEventReconciliation(
+      await inventoryReconciliationService.createPostEventReconciliation(
         'space-1',
         {
           eventId: 'event-1',

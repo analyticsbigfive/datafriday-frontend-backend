@@ -27,7 +27,7 @@ describe('PreEventInventoryFlowService, règles Bertrand 2026-09-29', () => {
     kvStore: { findUnique: jest.fn().mockResolvedValue(null), upsert: jest.fn() },
     inventoryCount: { findFirst: jest.fn().mockResolvedValue(null) },
   };
-  const service = new PreEventInventoryFlowService(prisma as any, inventory as any);
+  const service = new PreEventInventoryFlowService(prisma as any, inventory as any, inventory as any, inventory as any);
 
   // SFP-Lyon, Jean Bouin, 26/09/2026 : portes 15:00 Paris (13:00 UTC), fin 23:00.
   const sfpLyon = {

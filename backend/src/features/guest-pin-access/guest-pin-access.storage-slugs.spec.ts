@@ -16,7 +16,8 @@ describe('GuestPinAccessService.getStorageSlugs (QR code des espaces de stockage
         };
         service = new GuestPinAccessService(
             prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
-            {} as any, // postEventDraft
+            {} as any,
+      {} as any, // postEventDraft
             {} as any, // spaceMenus
             {} as any, // storageTypes
         );

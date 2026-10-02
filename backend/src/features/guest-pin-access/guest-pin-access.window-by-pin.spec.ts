@@ -93,6 +93,7 @@ describe('GuestPinAccessService : deux fenêtres ouvertes, le PIN désigne la fe
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
       configService as any,
       jwt as any,
       {} as any, // postEventDraft

@@ -1,9 +1,9 @@
 import { Prisma } from '@prisma/client';
-import { InventoryService } from './inventory.service';
 import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
 import { InventoryLiveInitCronService } from './jobs/inventory-live-init.cron';
 import { passthroughTenantContext } from '../../core/tenant/tenant-context.testing';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { createInventoryServices } from './services/inventory-services.testing';
 
 /**
  * Scénario de bout en bout du flux Pre-event Inventory (fix/pre-event-flow-robust),
@@ -197,7 +197,9 @@ const at = (iso: string) => jest.setSystemTime(T(iso));
 describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
   let prisma: FakePrisma;
   let logistics: FakeLogistics;
-  let inventory: InventoryService;
+  let inventoryCountService: any;
+  let inventoryLogisticPushService: any;
+  let inventoryReconciliationService: any;
   let flow: PreEventInventoryFlowService;
   let cron: InventoryLiveInitCronService;
 
@@ -242,8 +244,8 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
     prisma = new FakePrisma();
     logistics = new FakeLogistics();
     // FakeLogistics joue l'identité, les niveaux et la réconciliation de stock.
-    inventory = new InventoryService(prisma as any, logistics as any, logistics as any, logistics as any, new SpaceAccessService(prisma as any));
-    flow = new PreEventInventoryFlowService(prisma as any, inventory);
+    ({ inventoryCountService, inventoryLogisticPushService, inventoryReconciliationService } = createInventoryServices({ prisma: prisma as any, stockItemIdentityService: logistics as any, stockLevelService: logistics as any, stockReconciliationService: logistics as any, spaceAccess: new SpaceAccessService(prisma as any) }));
+    flow = new PreEventInventoryFlowService(prisma as any, inventoryCountService, inventoryReconciliationService, inventoryLogisticPushService);
     cron = new InventoryLiveInitCronService(prisma as any, flow, passthroughTenantContext());
 
     prisma.space.rows.push(prisma.spaceRow);
@@ -568,7 +570,7 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
   it('bouton « Update Logistic » : incrémental aussi, message explicite quand rien ne change', async () => {
     at('2026-09-19T15:00:00.000Z');
     await count('pdv1', ITEM.cookie, 7);
-    const first = await inventory.pushCurrentCountToLogistic(
+    const first = await inventoryLogisticPushService.pushCurrentCountToLogistic(
       SPACE,
       EVENT_A,
       TENANT,
@@ -577,11 +579,11 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
     );
     expect(first).toMatchObject({ ok: true, lineCount: 1 });
     await expect(
-      inventory.pushCurrentCountToLogistic(SPACE, EVENT_A, TENANT, 'pre-event', 'staff-1'),
+      inventoryLogisticPushService.pushCurrentCountToLogistic(SPACE, EVENT_A, TENANT, 'pre-event', 'staff-1'),
     ).rejects.toThrow(/déjà à jour/);
     at('2026-09-19T15:01:00.000Z');
     await count('pdv1', ITEM.cookie, 8);
-    const third = await inventory.pushCurrentCountToLogistic(
+    const third = await inventoryLogisticPushService.pushCurrentCountToLogistic(
       SPACE,
       EVENT_A,
       TENANT,
