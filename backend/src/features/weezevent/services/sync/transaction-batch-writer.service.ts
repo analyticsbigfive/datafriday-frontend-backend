@@ -15,20 +15,17 @@ export class WeezeventTransactionBatchWriterService {
     private readonly logger = new Logger(WeezeventTransactionBatchWriterService.name);
 
     /**
-     * Get existing transaction IDs as a Set for O(1) lookup
-     * Only fetch IDs for transactions after fromDate to limit memory
+     * Identifiants Weezevent déjà en base PARMI ceux donnés (une page de l'API). Remplace le
+     * préchargement de tous les identifiants de l'intégration, dont la mémoire grandissait avec
+     * l'historique (synchro complète sans date de départ).
      */
-    async getExistingTransactionIds(tenantId: string, integrationId: string, fromDate: Date | null): Promise<Set<string>> {
-        const transactions = await this.prisma.salesTransaction.findMany({
-            where: {
-                tenantId,
-                integrationId,
-                ...(fromDate ? { transactionDate: { gte: fromDate } } : {}),
-            },
+    async existingTransactionIds(tenantId: string, integrationId: string, weezeventIds: string[]): Promise<Set<string>> {
+        if (!weezeventIds.length) return new Set();
+        const existing = await this.prisma.salesTransaction.findMany({
+            where: { tenantId, integrationId, externalId: { in: weezeventIds } },
             select: { externalId: true },
         });
-
-        return new Set(transactions.map(t => t.externalId));
+        return new Set(existing.map(t => t.externalId));
     }
 
     /**
@@ -50,11 +47,7 @@ export class WeezeventTransactionBatchWriterService {
         const organizationId = integration?.weezevent?.organizationId ?? '';
 
         const weezeventIds = transactions.map((t: any) => t.id?.toString()).filter(Boolean);
-        const existing = await this.prisma.salesTransaction.findMany({
-            where: { tenantId, integrationId, externalId: { in: weezeventIds } },
-            select: { externalId: true },
-        });
-        const existingIds = new Set(existing.map(t => t.externalId));
+        const existingIds = await this.existingTransactionIds(tenantId, integrationId, weezeventIds);
         // refreshPriceAgg=false : ce point d'entrée sert les gros imports historiques (bisection
         // worker, PARALLEL_CHUNKS) — un refresh ciblé par chunk ajouterait un coût cumulé non
         // borné. WeezeventInsertWorkerService déclenche un refreshForIntegration unique à la fin

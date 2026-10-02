@@ -264,9 +264,6 @@ export class WeezeventIncrementalSyncService {
                 : options.updatedSince ?? null; // null = no filter = all time on first sync
             const toDate = options.updatedUntil ?? undefined;
 
-            // Get existing transaction IDs for fast lookup
-            const existingIds = await this.weezeventTransactionBatchWriterService.getExistingTransactionIds(tenantId, integrationId, fromDate);
-
             let page = 1;
             let hasMore = true;
             let totalProcessed = 0;
@@ -293,6 +290,12 @@ export class WeezeventIncrementalSyncService {
                     hasMore = false;
                     break;
                 }
+
+                // Transactions de la page déjà en base (une requête par page, mémoire bornée).
+                // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent, chaque page dépend du curseur de la précédente
+                const existingIds = await this.weezeventTransactionBatchWriterService.existingTransactionIds(
+                    tenantId, integrationId, transactions.map((t) => t.id.toString()),
+                );
 
                 // Filter already existing (for true incremental - skip updates if not needed)
                 const newTransactions = useIncremental
@@ -321,9 +324,6 @@ export class WeezeventIncrementalSyncService {
                     result.itemsCreated += batchResult.created;
                     result.itemsUpdated += batchResult.updated;
                     result.errors += batchResult.errors;
-
-                    // Add new IDs to set
-                    newTransactions.forEach(t => existingIds.add(t.id.toString()));
                 }
 
                 totalProcessed += transactions.length;
