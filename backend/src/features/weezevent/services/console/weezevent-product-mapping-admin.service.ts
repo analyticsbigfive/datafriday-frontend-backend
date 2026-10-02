@@ -77,6 +77,7 @@ export class WeezeventProductMappingAdminService {
             } else {
                 summary.productsCreated++;
                 if (!preview) {
+                    // eslint-disable-next-line no-await-in-loop -- rattrapage manuel ponctuel, mises à jour par lots de 500
                     const created = await this.prisma.salesProduct.upsert({
                         where: { tenantId_integrationId_externalId: { tenantId, integrationId: g.integrationId, externalId: g.itemWid } },
                         create: { externalId: g.itemWid, tenantId, integrationId: g.integrationId, name: g.name || `Item ${g.itemWid}`, rawData: {}, syncedAt: new Date() },
@@ -96,6 +97,7 @@ export class WeezeventProductMappingAdminService {
             const CHUNK = 500;
             for (let i = 0; i < g.itemIds.length; i += CHUNK) {
                 const slice = g.itemIds.slice(i, i + CHUNK);
+                // eslint-disable-next-line no-await-in-loop -- rattrapage manuel ponctuel, mises à jour par lots de 500
                 const r = await this.prisma.salesTransactionItem.updateMany({
                     where: { id: { in: slice } },
                     data: { productId },

@@ -169,6 +169,7 @@ export class WebhookEventHandler {
                 (e) => e.tenantId === tenantId && (e.integrationId === integrationId || !e.integrationId),
             );
             for (const group of LiveEventWindowService.groupBySpaceAndIntegration(events)) {
+                // eslint-disable-next-line no-await-in-loop -- quelques groupes live, mise en file une par une
                 await this.liveTrigger.queueMinuteAggregation(group, 'webhook-live');
             }
         } catch (error) {

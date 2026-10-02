@@ -152,6 +152,7 @@ export class WeezeventEventBatchWriterService {
                 let hasMore = true;
 
                 while (hasMore) {
+                    // eslint-disable-next-line no-await-in-loop -- pagination de l'API et quelques dizaines de lieux par organisation
                     const response = await this.weezeventClient.getLocations(
                         tenantId,
                         integrationId,
@@ -163,6 +164,7 @@ export class WeezeventEventBatchWriterService {
                     const locations = response.data;
 
                     for (const loc of locations) {
+                        // eslint-disable-next-line no-await-in-loop -- pagination de l'API et quelques dizaines de lieux par organisation
                         await this.prisma.salesLocation.upsert({
                             where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId: String(loc.id) } },
                             create: {

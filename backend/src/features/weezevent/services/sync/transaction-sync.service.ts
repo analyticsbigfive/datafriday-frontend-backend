@@ -102,6 +102,7 @@ export class WeezeventTransactionSyncService {
             const wid = String(row.item_id ?? '');
             if (!wid || productIdMap.has(wid)) continue;
             try {
+                // eslint-disable-next-line no-await-in-loop -- lignes d'une seule transaction (1 à 20)
                 const upserted = await this.prisma.salesProduct.upsert({
                     where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId: wid } },
                     create: {

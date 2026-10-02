@@ -59,9 +59,8 @@ export class LiveAggregationTriggerService {
             eventIds: group.eventIds,
             integrationId: group.integrationId ?? undefined,
         });
-        for (const eventId of group.eventIds) {
-            await this.redis.set(liveFullRebuildKey(eventId), new Date().toISOString(), { ttl: 2 * 24 * 3600 });
-        }
+        const at = new Date().toISOString();
+        await Promise.all(group.eventIds.map((eventId) => this.redis.set(liveFullRebuildKey(eventId), at, { ttl: 2 * 24 * 3600 })));
         this.logger.log(`Full rebuild queued (${trigger}) for space ${group.spaceId}, events ${group.eventIds.join(',')}`);
     }
 

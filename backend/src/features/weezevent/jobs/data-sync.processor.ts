@@ -136,9 +136,7 @@ export class DataSyncProcessor extends WorkerHost {
         `weezevent:${tenantId}:*`,
       ];
 
-      for (const pattern of patterns) {
-        await this.redisService.deletePattern(pattern);
-      }
+      await Promise.all(patterns.map((pattern) => this.redisService.deletePattern(pattern)));
 
       this.logger.log(`Cache invalidated for tenant ${tenantId}`);
     } catch (error) {

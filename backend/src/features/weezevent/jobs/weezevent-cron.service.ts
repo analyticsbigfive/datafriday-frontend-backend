@@ -39,6 +39,7 @@ export class WeezeventCronService {
 
         for (const tenant of tenants) {
             // Chaque tenant dans son propre contexte : isolation Prisma automatique.
+            // eslint-disable-next-line no-await-in-loop -- synchro tenant par tenant et intégration par intégration, pour ménager l'API Weezevent
             await this.tenantContext.runForTenant(tenant.id, async () => {
                 const integrations = await this.prisma.integration.findMany({
                     // Garde multi-provider (§8 plan Digifood) : ces crons appellent l'API
@@ -54,6 +55,7 @@ export class WeezeventCronService {
                 for (const integration of integrations) {
                 try {
                     // Sync events INCREMENTALLY
+                    // eslint-disable-next-line no-await-in-loop -- synchro tenant par tenant et intégration par intégration, pour ménager l'API Weezevent
                     const eventsResult = await this.incrementalSyncService.syncEventsIncremental(tenant.id, integration.id, {
                         batchSize: 500,
                         maxItems: 10000,
@@ -63,6 +65,7 @@ export class WeezeventCronService {
                     );
 
                     // Sync products (use existing service - products are usually fewer)
+                    // eslint-disable-next-line no-await-in-loop -- synchro tenant par tenant et intégration par intégration, pour ménager l'API Weezevent
                     const productsResult = await this.syncService.syncProducts(tenant.id, integration.id);
                     this.logger.log(
                         `✅ Tenant ${tenant.id} [${integration.id}]: synced ${productsResult.itemsSynced} products`,
@@ -96,6 +99,7 @@ export class WeezeventCronService {
 
         for (const tenant of tenants) {
             // Chaque tenant dans son propre contexte : isolation Prisma automatique.
+            // eslint-disable-next-line no-await-in-loop -- synchro tenant par tenant et intégration par intégration, pour ménager l'API Weezevent
             await this.tenantContext.runForTenant(tenant.id, async () => {
                 const integrations = await this.prisma.integration.findMany({
                     // Garde multi-provider (§8 plan Digifood) : ces crons appellent l'API
@@ -111,6 +115,7 @@ export class WeezeventCronService {
                 for (const integration of integrations) {
                 try {
                     // Force full sync for events (reset incremental state)
+                    // eslint-disable-next-line no-await-in-loop -- synchro tenant par tenant et intégration par intégration, pour ménager l'API Weezevent
                     const eventsResult = await this.incrementalSyncService.syncEventsIncremental(tenant.id, integration.id, {
                         forceFullSync: true,
                         batchSize: 1000,
@@ -122,6 +127,7 @@ export class WeezeventCronService {
                     );
 
                     // Force full sync for transactions (last 30 days)
+                    // eslint-disable-next-line no-await-in-loop -- synchro tenant par tenant et intégration par intégration, pour ménager l'API Weezevent
                     const transactionsResult = await this.incrementalSyncService.syncTransactionsIncremental(tenant.id, integration.id, {
                         forceFullSync: true,
                         batchSize: 1000,

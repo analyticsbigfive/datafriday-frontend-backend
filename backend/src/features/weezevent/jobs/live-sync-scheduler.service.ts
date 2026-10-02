@@ -82,6 +82,7 @@ export class LiveSyncSchedulerService implements OnModuleInit {
                 if (state.inFlight) continue;
 
                 const isLive = live.integrationIds.has(integration.id);
+                // eslint-disable-next-line no-await-in-loop -- ordonnancement par intégration (quelques-unes), état partagé et erreur isolée par groupe
                 const webhookHealthy = isLive ? await this.webhookHealth.isHealthy(integration.id, now) : false;
                 const rateLimited = !!state.rateLimitedUntil && state.rateLimitedUntil > now;
                 const quiet = isLive && isQuietPeriod(state.lastNewSalesAt, now, this.cadence);
@@ -161,6 +162,7 @@ export class LiveSyncSchedulerService implements OnModuleInit {
         const groups: LiveGroup[] = LiveEventWindowService.groupBySpaceAndIntegration(own);
         for (const group of groups) {
             try {
+                // eslint-disable-next-line no-await-in-loop -- ordonnancement par intégration (quelques-unes), état partagé et erreur isolée par groupe
                 await this.trigger.queueMinuteAggregation(group, 'live-sync');
             } catch (err) {
                 this.logger.warn(`Could not queue live aggregation for space ${group.spaceId}: ${(err as Error).message}`);

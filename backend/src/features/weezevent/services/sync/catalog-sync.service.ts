@@ -128,6 +128,7 @@ export class WeezeventCatalogSyncService {
             const CONCURRENCY = 5;
             for (let i = 0; i < productIdsNeedingDetailSync.length; i += CONCURRENCY) {
                 const chunk = productIdsNeedingDetailSync.slice(i, i + CONCURRENCY);
+                // eslint-disable-next-line no-await-in-loop -- concurrence bornée à 5 appels API par vague
                 await Promise.allSettled(
                     chunk.map(productId =>
                         this.syncProductDetails(tenantId, integrationId, organizationId, productId)

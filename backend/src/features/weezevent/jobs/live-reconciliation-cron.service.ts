@@ -35,12 +35,11 @@ export class LiveReconciliationCronService {
         try {
             const events = await this.liveWindow.findLiveEvents(now);
             await this.heartbeat.beat('live-reconciliation');
-            const due: LiveEvent[] = [];
-            for (const event of events) {
-                if (await this.isDue(event, now)) due.push(event);
-            }
+            const dueFlags = await Promise.all(events.map((event) => this.isDue(event, now)));
+            const due: LiveEvent[] = events.filter((_, i) => dueFlags[i]);
             for (const group of LiveEventWindowService.groupBySpaceAndIntegration(due)) {
                 const trigger = due.some((e) => group.eventIds.includes(e.id) && now >= e.windowEnd) ? 'live-final' : 'live-reconciliation';
+                // eslint-disable-next-line no-await-in-loop -- quelques groupes live, un contexte tenant par groupe
                 await this.tenantContext.runForTenant(group.tenantId, () => this.trigger.queueFullRebuild(group, trigger));
             }
         } catch (err) {

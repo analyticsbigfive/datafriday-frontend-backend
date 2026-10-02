@@ -117,6 +117,7 @@ export class WeezeventIncrementalSyncService {
             let lastProcessedUpdatedAt: Date | null = null;
 
             while (hasMore && totalProcessed < maxItems) {
+                // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent, chaque page dépend du curseur de la précédente
                 const response = await this.weezeventClient.getEvents(
                     tenantId,
                     integrationId,
@@ -132,6 +133,7 @@ export class WeezeventIncrementalSyncService {
                 }
 
                 // 7. Process batch with optimized upsert
+                // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent, chaque page dépend du curseur de la précédente
                 const batchResult = await this.weezeventEventBatchWriterService.processBatchEvents(
                     tenantId,
                     integrationId,
@@ -162,6 +164,7 @@ export class WeezeventIncrementalSyncService {
                 if (options.onProgress) {
                     const totalPages = response.meta.total_pages || 1;
                     const donePct = Math.min(99, Math.round((page / totalPages) * 100));
+                    // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent, chaque page dépend du curseur de la précédente
                     await options.onProgress(donePct).catch(() => {});
                 }
 
@@ -271,6 +274,7 @@ export class WeezeventIncrementalSyncService {
             const batchSize = options.batchSize || this.DEFAULT_BATCH_SIZE;
 
             while (hasMore && totalProcessed < maxItems) {
+                // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent, chaque page dépend du curseur de la précédente
                 const response = await this.weezeventClient.getTransactions(
                     tenantId,
                     integrationId,
@@ -304,6 +308,7 @@ export class WeezeventIncrementalSyncService {
                     // refreshForIntegration unique tourne après la boucle complète (voir plus bas) :
                     // des centaines de petits refreshs sur un import historique massif seraient
                     // pires qu'un seul recalcul complet.
+                    // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent, chaque page dépend du curseur de la précédente
                     const batchResult = await this.weezeventTransactionBatchWriterService.processBatchTransactions(
                         tenantId,
                         integrationId,
@@ -328,6 +333,7 @@ export class WeezeventIncrementalSyncService {
                 // This gives a real signal that advances with the data, capped at 95% until done.
                 if (options.onProgress) {
                     const estimatedPct = Math.min(95, Math.round((totalProcessed / maxItems) * 100));
+                    // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent, chaque page dépend du curseur de la précédente
                     await options.onProgress(estimatedPct).catch(() => {});
                 }
 
