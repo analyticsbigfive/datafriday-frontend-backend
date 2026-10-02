@@ -230,26 +230,37 @@ export class AggregationService {
           // nouvelles PFC — 985 points affichés = 869 (garbage) + 116 (vrai), jamais nettoyé.
           const deleteWhere: any = { tenantId, spaceId, weezeventEventId: event.id };
           if (window.mode !== 'integration-range' && integrationId) deleteWhere.integrationId = integrationId;
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
           await this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere });
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
           await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere });
 
           const integrationClause = buildIntegrationClause(integrationId, window, spaceIntegrationIds);
           const sqlInput = { tenantId, spaceId, eventId: event.id, integrationClause, matchClause };
 
           // Requêtes partagées avec le job live par minute (event-aggregation-sql.ts).
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
           const dataPoints = await insertMinuteAgg(this.prisma, sqlInput);
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
           await updateEventSubProgress(1);
 
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
           await insertDailyProductAgg(this.prisma, { ...sqlInput, eventDate });
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
           await updateEventSubProgress(2);
 
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
           await insertMinuteItemAgg(this.prisma, sqlInput);
           // Paniers pré-agrégés (Analyse) : même purge scopée, même fenêtre que les tables minute.
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
           await this.basketAgg.replaceForEvent(deleteWhere, sqlInput);
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
           await updateEventSubProgress(3);
 
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
           await this.eventRollup.refresh(tenantId, spaceId, event, spaceIntegrationIds);
           // Rebuild complet = référence : le job live par minute repart d'ici.
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
           await this.redis.set(liveWatermarkKey(event.id), new Date().toISOString(), { ttl: 3 * 24 * 3600 });
 
           processedCount++;
@@ -268,6 +279,7 @@ export class AggregationService {
         // remis à 0 : sinon il resterait au palier du DERNIER `updateEventSubProgress` de CET
         // event pendant que `processedCount` a déjà avancé, faisant surcompter la fraction
         // (BUG-374-02) tant que l'event suivant n'a pas atteint son propre 1er palier.
+        // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
         await this.prisma.aggregationJobLog.update({
           where: { id: jobLogId },
           data: {
@@ -275,6 +287,7 @@ export class AggregationService {
             metadata: { ...jobMetadata, eventIds: events.map((e) => e.id), currentEventStep: 0, currentEventTotalSteps: EVENT_SUB_STEPS },
           },
         });
+        // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
         await this.reportProgress(job, Math.min(Math.round((processedCount / events.length) * 100), 99));
       }
 
@@ -315,9 +328,7 @@ export class AggregationService {
       // BUG-143-01 : les endpoints batch Analyse cachent leurs réponses par event (TTL 6 h
       // pour un event passé) — sans cette purge, une re-agrégation servirait des données
       // périmées jusqu'à expiration. Mêmes motifs que SpaceCacheService.invalidateSpaceCache.
-      for (const pattern of eventBatchCachePatterns(tenantId, spaceId)) {
-        await this.redis.deletePattern(pattern);
-      }
+      await Promise.all(eventBatchCachePatterns(tenantId, spaceId).map((pattern) => this.redis.deletePattern(pattern)));
 
       // Auto-sync attendees for each successfully processed event.
       // Finds the matching WeezeventEvent(s) by date and queues an attendees sync
@@ -326,37 +337,42 @@ export class AggregationService {
       // job — sinon, cherchait le WeezeventEvent par date dans la MAUVAISE intégration dès que
       // le wizard ouvert diffère du club de l'event, synchronisant les présences du mauvais club
       // (ou aucune) au lieu de celles de l'event réellement traité.
-      for (const r of results) {
-        if (r.status !== 'success' || !r.integrationId) continue;
-        try {
-          const eventDate = new Date(r.date);
-          const nextDay = new Date(eventDate);
-          nextDay.setDate(nextDay.getDate() + 1);
-          const weezeventEvents = await this.prisma.salesEvent.findMany({
-            where: {
-              tenantId,
-              integrationId: r.integrationId,
-              startDate: { gte: eventDate, lt: nextDay },
-            },
-            select: { id: true, externalId: true },
-          });
-          for (const we of weezeventEvents) {
-            // BUG : `we.id` est le cuid interne DataFriday du SalesEvent, pas l'id
-            // Weezevent réel — l'API attendees (`/events/:eventId/attendees`) attend
-            // `externalId`. Avec `we.id`, cette synchro 404 systématiquement, pour
-            // n'importe quel event, réel ou simulé (BUG-XXX, cf. docs/bugs/).
-            await this.queueService.queueWeezeventSyncType(
-              tenantId,
-              'attendees',
-              r.integrationId,
-              { eventId: we.externalId },
-            );
-            this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.externalId} (event ${r.eventId})`);
-          }
-        } catch (e) {
-          // Non-blocking — attendees sync failure must not fail the aggregation job
-          this.logger.warn(`Auto-attendees sync skipped for event ${r.eventId}: ${e.message}`);
-        }
+      // Une seule lecture des SalesEvent du jour de chaque event traité (au lieu d'une par event),
+      // puis mise en file en parallèle.
+      const succeeded = results.filter((r) => r.status === 'success' && r.integrationId);
+      const dayRange = (date: Date | string) => {
+        const start = new Date(date);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 1);
+        return { gte: start, lt: end };
+      };
+      try {
+        const salesEvents = succeeded.length
+          ? await this.prisma.salesEvent.findMany({
+              where: { tenantId, OR: succeeded.map((r) => ({ integrationId: r.integrationId, startDate: dayRange(r.date) })) },
+              select: { externalId: true, integrationId: true, startDate: true },
+            })
+          : [];
+        await Promise.all(
+          succeeded.flatMap((r) => {
+            const { gte, lt } = dayRange(r.date);
+            return salesEvents
+              .filter((we) => we.integrationId === r.integrationId && we.startDate && we.startDate >= gte && we.startDate < lt)
+              .map(async (we) => {
+                try {
+                  // `externalId` (id Weezevent réel) : l'API attendees attend cet identifiant,
+                  // pas le cuid interne du SalesEvent (404 systématique sinon).
+                  await this.queueService.queueWeezeventSyncType(tenantId, 'attendees', r.integrationId, { eventId: we.externalId });
+                  this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.externalId} (event ${r.eventId})`);
+                } catch (e) {
+                  // Non bloquant : un échec de synchro des présences ne fait pas échouer l'agrégation.
+                  this.logger.warn(`Auto-attendees sync skipped for event ${r.eventId}: ${(e as Error).message}`);
+                }
+              });
+          }),
+        );
+      } catch (e) {
+        this.logger.warn(`Auto-attendees sync skipped: ${(e as Error).message}`);
       }
     } catch (err) {
       await this.prisma.aggregationJobLog.update({

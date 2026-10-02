@@ -61,6 +61,7 @@ const mockPrisma: any = {
 
 const mockQueueService: any = {
   queueAggregationJob: jest.fn(),
+  queueWeezeventSyncType: jest.fn(),
 };
 
 const mockMappingsService: any = {
@@ -343,6 +344,27 @@ describe('AggregationService', () => {
       // défaut, explicite plutôt que de dépendre d'un état résiduel d'un describe précédent).
       mockPrisma.space.findFirst.mockResolvedValue({ timezone: 'Europe/Paris' });
       mockPrisma.$queryRaw.mockResolvedValue([{ minDate: null, maxDate: null }]);
+    });
+
+    it("met en file la synchro des présences des SalesEvent du jour, en une seule lecture", async () => {
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1, 10), makeEvent('event-2', 20)]);
+      const day1 = makeEvent(EVENT_1, 10).eventDate;
+      const isAttendeesLookup = (args: any) => Array.isArray(args?.where?.OR) && args?.select?.externalId;
+      mockPrisma.salesEvent.findMany.mockImplementation(async (args: any) =>
+        isAttendeesLookup(args)
+          ? [
+              { externalId: 'wz-1', integrationId: INT_ID, startDate: new Date(day1.getTime() + 3600_000) },
+              { externalId: 'wz-autre-jour', integrationId: INT_ID, startDate: new Date(day1.getTime() - 5 * 86400_000) },
+            ]
+          : [],
+      );
+      mockQueueService.queueWeezeventSyncType.mockResolvedValue(undefined);
+
+      await aggregationService.executeProcessEvents(makeBullJob());
+
+      expect(mockPrisma.salesEvent.findMany.mock.calls.filter(([args]: any[]) => isAttendeesLookup(args))).toHaveLength(1);
+      expect(mockQueueService.queueWeezeventSyncType).toHaveBeenCalledTimes(1);
+      expect(mockQueueService.queueWeezeventSyncType).toHaveBeenCalledWith(TENANT, 'attendees', INT_ID, { eventId: 'wz-1' });
     });
 
     it('upsert sur spaceRevenueMinuteAgg (pas spaceRevenueDailyAgg)', async () => {
