@@ -5,9 +5,13 @@ import { EventWeezeventLinkService } from './services/event-weezevent-link.servi
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { spaceAccessStub } from '../../core/auth/space-access.testing';
+import { EventTaxonomyService } from './services/event-taxonomy.service';
+import { EventTeamService } from './services/event-team.service';
 
 describe('EventsService', () => {
-  let service: EventsService;
+  let eventTaxonomyService: any;
+  let eventTeamService: any;
+  let eventsService: any;
   let mockWeezeventLinkService: { relinkForTenantDate: jest.Mock };
 
   const mockEvent = {
@@ -92,19 +96,23 @@ describe('EventsService', () => {
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        EventsService,
+        EventTaxonomyService, EventTeamService, EventsService, 
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EventWeezeventLinkService, useValue: mockWeezeventLinkService },
         { provide: SpaceAccessService, useValue: spaceAccessStub() },
       ],
     }).compile();
 
-    service = module.get<EventsService>(EventsService);
+    eventTaxonomyService = module.get(EventTaxonomyService);
+
+    eventTeamService = module.get(EventTeamService);
+
+    eventsService = module.get(EventsService);
     jest.clearAllMocks();
   });
 
   it('should be defined', () => {
-    expect(service).toBeDefined();
+    expect(eventTaxonomyService).toBeDefined(); expect(eventTeamService).toBeDefined(); expect(eventsService).toBeDefined();
   });
 
   describe('create', () => {
@@ -112,7 +120,7 @@ describe('EventsService', () => {
       const dto = { name: 'New Event', eventDate: '2024-08-01' };
       mockPrisma.event.create.mockResolvedValue({ ...mockEvent, ...dto });
 
-      const result = await service.create('tenant-1', dto as any);
+      const result = await eventsService.create('tenant-1', dto as any);
       expect(result.name).toBe('New Event');
       expect(mockPrisma.event.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -126,7 +134,7 @@ describe('EventsService', () => {
       mockPrisma.eventType.findFirst.mockResolvedValue({ id: 'global-type-1', tenantId: null });
       mockPrisma.event.create.mockResolvedValue({ ...mockEvent, ...dto });
 
-      const result = await service.create('tenant-1', dto as any);
+      const result = await eventsService.create('tenant-1', dto as any);
 
       expect(result).toBeDefined();
       expect(mockPrisma.eventType.findFirst).toHaveBeenCalledWith(
@@ -142,7 +150,7 @@ describe('EventsService', () => {
     it('BUG-145-01: rejects eventEndDate earlier than eventDate (Montauban case)', async () => {
       const dto = { name: 'SFP-Montauban', eventDate: '2025-09-20', eventEndDate: '2025-09-06' };
 
-      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
+      await expect(eventsService.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
       expect(mockPrisma.event.create).not.toHaveBeenCalled();
     });
 
@@ -154,7 +162,7 @@ describe('EventsService', () => {
         eventEndDate: '2025-09-06',
       };
 
-      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
+      await expect(eventsService.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
       expect(mockPrisma.event.create).not.toHaveBeenCalled();
     });
 
@@ -162,14 +170,14 @@ describe('EventsService', () => {
       const dto = { name: 'PFC - RC Lens', eventDate: '2026-02-14', eventEndDate: '2026-02-15' };
       mockPrisma.event.create.mockResolvedValue({ ...mockEvent, ...dto });
 
-      await expect(service.create('tenant-1', dto as any)).resolves.toBeDefined();
+      await expect(eventsService.create('tenant-1', dto as any)).resolves.toBeDefined();
     });
 
     it('rejects an eventTypeId belonging to another tenant', async () => {
       const dto = { name: 'New Event', eventDate: '2024-08-01', eventTypeId: 'foreign-type-1' };
       mockPrisma.eventType.findFirst.mockResolvedValue(null);
 
-      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
+      await expect(eventsService.create('tenant-1', dto as any)).rejects.toThrow(BadRequestException);
       expect(mockPrisma.event.create).not.toHaveBeenCalled();
     });
 
@@ -184,7 +192,7 @@ describe('EventsService', () => {
       mockPrisma.config.findFirst.mockResolvedValue({ id: 'config-1', spaceId: 'space-1' });
       mockPrisma.event.create.mockResolvedValue({ ...mockEvent, ...dto });
 
-      const result = await service.create('tenant-1', dto as any);
+      const result = await eventsService.create('tenant-1', dto as any);
 
       expect(result).toBeDefined();
       expect(mockPrisma.space.findFirst).toHaveBeenCalledWith(
@@ -204,7 +212,7 @@ describe('EventsService', () => {
       const dto = { name: 'New Event', eventDate: '2024-08-01', spaceId: 'foreign-space-1' };
       mockPrisma.space.findFirst.mockResolvedValue(null);
 
-      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(NotFoundException);
+      await expect(eventsService.create('tenant-1', dto as any)).rejects.toThrow(NotFoundException);
       expect(mockPrisma.event.create).not.toHaveBeenCalled();
     });
 
@@ -212,7 +220,7 @@ describe('EventsService', () => {
       const dto = { name: 'New Event', eventDate: '2024-08-01', configurationId: 'foreign-config-1' };
       mockPrisma.config.findFirst.mockResolvedValue(null);
 
-      await expect(service.create('tenant-1', dto as any)).rejects.toThrow(NotFoundException);
+      await expect(eventsService.create('tenant-1', dto as any)).rejects.toThrow(NotFoundException);
       expect(mockPrisma.event.create).not.toHaveBeenCalled();
     });
 
@@ -221,7 +229,7 @@ describe('EventsService', () => {
       const created = { ...mockEvent, ...dto, eventDate: new Date('2024-08-01') };
       mockPrisma.event.create.mockResolvedValue(created);
 
-      await service.create('tenant-1', dto as any);
+      await eventsService.create('tenant-1', dto as any);
 
       expect(mockWeezeventLinkService.relinkForTenantDate).toHaveBeenCalledWith(
         'tenant-1',
@@ -235,7 +243,7 @@ describe('EventsService', () => {
       mockPrisma.event.findMany.mockResolvedValue([mockEvent]);
       mockPrisma.event.count.mockResolvedValue(1);
 
-      const result = await service.findAll('tenant-1');
+      const result = await eventsService.findAll('tenant-1');
       expect(result.data).toHaveLength(1);
       expect(result.meta.total).toBe(1);
       expect(result.meta.page).toBe(1);
@@ -245,7 +253,7 @@ describe('EventsService', () => {
       mockPrisma.event.findMany.mockResolvedValue([]);
       mockPrisma.event.count.mockResolvedValue(0);
 
-      await service.findAll('tenant-1', 2, 10);
+      await eventsService.findAll('tenant-1', 2, 10);
       expect(mockPrisma.event.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ skip: 10, take: 10 }),
       );
@@ -256,14 +264,14 @@ describe('EventsService', () => {
     it('should return an event by ID', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
 
-      const result = await service.findOne('evt-1', 'tenant-1');
+      const result = await eventsService.findOne('evt-1', 'tenant-1');
       expect(result.id).toBe('evt-1');
     });
 
     it('should throw NotFoundException if not found', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(null);
 
-      await expect(service.findOne('invalid', 'tenant-1')).rejects.toThrow(NotFoundException);
+      await expect(eventsService.findOne('invalid', 'tenant-1')).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -272,7 +280,7 @@ describe('EventsService', () => {
       mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
       mockPrisma.event.update.mockResolvedValue({ ...mockEvent, name: 'Updated' });
 
-      const result = await service.update('evt-1', 'tenant-1', { name: 'Updated' } as any);
+      const result = await eventsService.update('evt-1', 'tenant-1', { name: 'Updated' } as any);
       expect(result.name).toBe('Updated');
     });
 
@@ -280,7 +288,7 @@ describe('EventsService', () => {
       mockPrisma.event.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.update('invalid', 'tenant-1', { name: 'Updated' } as any),
+        eventsService.update('invalid', 'tenant-1', { name: 'Updated' } as any),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -288,7 +296,7 @@ describe('EventsService', () => {
       mockPrisma.event.findFirst.mockResolvedValue({ ...mockEvent, eventDate: new Date('2025-09-20') });
 
       await expect(
-        service.update('evt-1', 'tenant-1', { eventEndDate: '2025-09-06' } as any),
+        eventsService.update('evt-1', 'tenant-1', { eventEndDate: '2025-09-06' } as any),
       ).rejects.toThrow(BadRequestException);
       expect(mockPrisma.event.update).not.toHaveBeenCalled();
     });
@@ -302,7 +310,7 @@ describe('EventsService', () => {
       mockPrisma.event.update.mockResolvedValue({ ...mockEvent, name: 'Renamed' });
 
       await expect(
-        service.update('evt-1', 'tenant-1', { name: 'Renamed' } as any),
+        eventsService.update('evt-1', 'tenant-1', { name: 'Renamed' } as any),
       ).resolves.toBeDefined();
     });
 
@@ -310,7 +318,7 @@ describe('EventsService', () => {
       mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
       mockPrisma.event.update.mockResolvedValue(mockEvent);
 
-      await service.update('evt-1', 'tenant-1', { name: 'Updated' } as any);
+      await eventsService.update('evt-1', 'tenant-1', { name: 'Updated' } as any);
 
       expect(mockPrisma.event.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -325,7 +333,7 @@ describe('EventsService', () => {
       const updated = { ...mockEvent, eventDate: new Date('2024-09-01') };
       mockPrisma.event.update.mockResolvedValue(updated);
 
-      await service.update('evt-1', 'tenant-1', { eventDate: '2024-09-01' } as any);
+      await eventsService.update('evt-1', 'tenant-1', { eventDate: '2024-09-01' } as any);
 
       expect(mockPrisma.event.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -344,7 +352,7 @@ describe('EventsService', () => {
       mockPrisma.config.findFirst.mockResolvedValue({ id: 'config-2', spaceId: 'space-2' });
       mockPrisma.event.update.mockResolvedValue({ ...mockEvent, spaceId: 'space-2' });
 
-      await service.update('evt-1', 'tenant-1', {
+      await eventsService.update('evt-1', 'tenant-1', {
         spaceId: 'space-2',
         configurationId: 'config-2',
       } as any);
@@ -367,7 +375,7 @@ describe('EventsService', () => {
       mockPrisma.space.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.update('evt-1', 'tenant-1', { spaceId: 'foreign-space-1' } as any),
+        eventsService.update('evt-1', 'tenant-1', { spaceId: 'foreign-space-1' } as any),
       ).rejects.toThrow(NotFoundException);
       expect(mockPrisma.event.update).not.toHaveBeenCalled();
     });
@@ -376,7 +384,7 @@ describe('EventsService', () => {
       mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
       mockPrisma.event.update.mockResolvedValue({ ...mockEvent, spaceId: null, configurationId: null });
 
-      await service.update('evt-1', 'tenant-1', { spaceId: null } as any);
+      await eventsService.update('evt-1', 'tenant-1', { spaceId: null } as any);
 
       expect(mockPrisma.space.findFirst).not.toHaveBeenCalled();
       expect(mockPrisma.event.update).toHaveBeenCalledWith(
@@ -391,7 +399,7 @@ describe('EventsService', () => {
       mockPrisma.config.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.update('evt-1', 'tenant-1', { configurationId: 'foreign-config-1' } as any),
+        eventsService.update('evt-1', 'tenant-1', { configurationId: 'foreign-config-1' } as any),
       ).rejects.toThrow(NotFoundException);
       expect(mockPrisma.event.update).not.toHaveBeenCalled();
     });
@@ -403,7 +411,7 @@ describe('EventsService', () => {
       mockPrisma.salesEvent.findFirst.mockResolvedValue({ id: 'we-1' });
       mockPrisma.event.update.mockResolvedValue({ ...mockEvent, weezeventEventId: 'we-1' });
 
-      const result = await service.resolveWeezeventLink('evt-1', 'tenant-1', 'we-1');
+      const result = await eventsService.resolveWeezeventLink('evt-1', 'tenant-1', 'we-1');
 
       expect(mockPrisma.salesEvent.findFirst).toHaveBeenCalledWith({
         where: { id: 'we-1', tenantId: 'tenant-1' },
@@ -420,7 +428,7 @@ describe('EventsService', () => {
       mockPrisma.salesEvent.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.resolveWeezeventLink('evt-1', 'tenant-1', 'we-foreign'),
+        eventsService.resolveWeezeventLink('evt-1', 'tenant-1', 'we-foreign'),
       ).rejects.toThrow(BadRequestException);
       expect(mockPrisma.event.update).not.toHaveBeenCalled();
     });
@@ -429,7 +437,7 @@ describe('EventsService', () => {
       mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
       mockPrisma.event.update.mockResolvedValue({ ...mockEvent, weezeventEventId: null });
 
-      await service.resolveWeezeventLink('evt-1', 'tenant-1', null);
+      await eventsService.resolveWeezeventLink('evt-1', 'tenant-1', null);
 
       expect(mockPrisma.salesEvent.findFirst).not.toHaveBeenCalled();
       expect(mockPrisma.event.update).toHaveBeenCalledWith(
@@ -443,7 +451,7 @@ describe('EventsService', () => {
       mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 3 });
       mockPrisma.spaceRevenueMinuteItemAgg.deleteMany.mockResolvedValue({ count: 3 });
 
-      await service.resolveWeezeventLink('evt-1', 'tenant-1', null);
+      await eventsService.resolveWeezeventLink('evt-1', 'tenant-1', null);
 
       const updateCall = mockPrisma.event.update.mock.calls[0][0];
       expect(updateCall.data).not.toHaveProperty('spaceId');
@@ -465,7 +473,7 @@ describe('EventsService', () => {
       // Le miroir sur l'ANCIEN SalesEvent pointe encore vers cet Event.
       mockPrisma.salesEvent.findFirst.mockResolvedValue({ id: 'we-old', metadata: { dfEventId: 'evt-1', doorsOpening: '19:00' } });
 
-      await service.resolveWeezeventLink('evt-1', 'tenant-1', null);
+      await eventsService.resolveWeezeventLink('evt-1', 'tenant-1', null);
 
       expect(mockPrisma.salesEvent.update).toHaveBeenCalledWith({
         where: { id: 'we-old' },
@@ -478,7 +486,7 @@ describe('EventsService', () => {
       mockPrisma.event.update.mockResolvedValue({ ...mockEvent, weezeventEventId: null });
       mockPrisma.salesEvent.findFirst.mockResolvedValue({ id: 'we-old', metadata: { dfEventId: 'some-other-event' } });
 
-      await service.resolveWeezeventLink('evt-1', 'tenant-1', null);
+      await eventsService.resolveWeezeventLink('evt-1', 'tenant-1', null);
 
       expect(mockPrisma.salesEvent.update).not.toHaveBeenCalled();
     });
@@ -490,7 +498,7 @@ describe('EventsService', () => {
         .mockResolvedValueOnce({ id: 'we-1' }) // vérification "target existe"
         .mockResolvedValueOnce({ id: 'we-1', metadata: {} }); // setDfEventIdMirror
 
-      await service.resolveWeezeventLink('evt-1', 'tenant-1', 'we-1');
+      await eventsService.resolveWeezeventLink('evt-1', 'tenant-1', 'we-1');
 
       expect(mockPrisma.salesEvent.update).toHaveBeenCalledWith({
         where: { id: 'we-1' },
@@ -504,7 +512,7 @@ describe('EventsService', () => {
       mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
       mockPrisma.event.delete.mockResolvedValue(mockEvent);
 
-      const result = await service.remove('evt-1', 'tenant-1');
+      const result = await eventsService.remove('evt-1', 'tenant-1');
       expect(result.id).toBe('evt-1');
     });
   });
@@ -514,7 +522,7 @@ describe('EventsService', () => {
       const types = [{ id: 'type-1', name: 'Concert', categories: [] }];
       mockPrisma.eventType.findMany.mockResolvedValue(types);
 
-      const result = await service.getEventTypes('tenant-1');
+      const result = await eventTaxonomyService.getEventTypes('tenant-1');
       expect(result).toHaveLength(1);
       expect(result[0].name).toBe('Concert');
     });
@@ -525,7 +533,7 @@ describe('EventsService', () => {
       const newType = { id: 'type-2', name: 'Festival', tenantId: 'tenant-1' };
       mockPrisma.eventType.create.mockResolvedValue(newType);
 
-      const result = await service.createEventType('tenant-1', { name: 'Festival' });
+      const result = await eventTaxonomyService.createEventType('tenant-1', { name: 'Festival' });
       expect(result.name).toBe('Festival');
     });
   });
@@ -535,7 +543,7 @@ describe('EventsService', () => {
       const cats = [{ id: 'cat-1', name: 'Rock', subcategories: [] }];
       mockPrisma.eventCategory.findMany.mockResolvedValue(cats);
 
-      const result = await service.getEventCategories('tenant-1');
+      const result = await eventTaxonomyService.getEventCategories('tenant-1');
       expect(result).toHaveLength(1);
     });
   });
@@ -545,7 +553,7 @@ describe('EventsService', () => {
       mockPrisma.eventCategory.findFirst.mockResolvedValue({ id: 'cat-1', tenantId: 'tenant-1' });
       mockPrisma.eventCategory.update.mockResolvedValue({ id: 'cat-1', name: 'Motos' });
 
-      const result = await service.updateEventCategory('tenant-1', 'cat-1', { name: 'Motos' });
+      const result = await eventTaxonomyService.updateEventCategory('tenant-1', 'cat-1', { name: 'Motos' });
 
       expect(result.name).toBe('Motos');
       expect(mockPrisma.eventCategory.update).toHaveBeenCalledWith({
@@ -559,7 +567,7 @@ describe('EventsService', () => {
       mockPrisma.eventType.findFirst.mockResolvedValue({ id: 'type-2', tenantId: null });
       mockPrisma.eventCategory.update.mockResolvedValue({ id: 'cat-1', name: 'Motos' });
 
-      await service.updateEventCategory('tenant-1', 'cat-1', {
+      await eventTaxonomyService.updateEventCategory('tenant-1', 'cat-1', {
         name: 'Motos',
         eventTypeId: 'type-2',
       });
@@ -580,7 +588,7 @@ describe('EventsService', () => {
     it('should return subcategories for tenant', async () => {
       mockPrisma.eventSubcategory.findMany.mockResolvedValue([]);
 
-      const result = await service.getEventSubcategories('tenant-1');
+      const result = await eventTaxonomyService.getEventSubcategories('tenant-1');
       expect(result).toEqual([]);
     });
   });
@@ -590,7 +598,7 @@ describe('EventsService', () => {
       mockPrisma.eventSubcategory.findFirst.mockResolvedValue({ id: 'sub-1', tenantId: 'tenant-1' });
       mockPrisma.eventSubcategory.update.mockResolvedValue({ id: 'sub-1', name: 'Cross' });
 
-      const result = await service.updateEventSubcategory('tenant-1', 'sub-1', { name: 'Cross' });
+      const result = await eventTaxonomyService.updateEventSubcategory('tenant-1', 'sub-1', { name: 'Cross' });
 
       expect(result.name).toBe('Cross');
       expect(mockPrisma.eventSubcategory.update).toHaveBeenCalledWith({
@@ -604,7 +612,7 @@ describe('EventsService', () => {
       mockPrisma.eventCategory.findFirst.mockResolvedValue({ id: 'cat-2', tenantId: null });
       mockPrisma.eventSubcategory.update.mockResolvedValue({ id: 'sub-1', name: 'Cross' });
 
-      await service.updateEventSubcategory('tenant-1', 'sub-1', {
+      await eventTaxonomyService.updateEventSubcategory('tenant-1', 'sub-1', {
         name: 'Cross',
         eventCategoryId: 'cat-2',
       });
@@ -626,7 +634,7 @@ describe('EventsService', () => {
       mockPrisma.eventCategory.findFirst.mockResolvedValue({ id: 'cat-1', tenantId: 'tenant-1' });
       mockPrisma.eventSubcategory.create.mockResolvedValue({ id: 'sub-1', name: 'Race F1' });
 
-      const result = await service.createEventSubcategory('tenant-1', {
+      const result = await eventTaxonomyService.createEventSubcategory('tenant-1', {
         name: 'Race F1',
         eventCategoryId: 'cat-1',
       });
@@ -645,7 +653,7 @@ describe('EventsService', () => {
       mockPrisma.eventCategory.findFirst.mockResolvedValue({ id: 'cat-1', tenantId: null });
       mockPrisma.eventSubcategory.create.mockResolvedValue({ id: 'sub-1', name: 'Race F1' });
 
-      await service.createEventSubcategory('tenant-1', {
+      await eventTaxonomyService.createEventSubcategory('tenant-1', {
         name: 'Race F1',
         categoryId: 'cat-1',
       });
@@ -661,12 +669,12 @@ describe('EventsService', () => {
 
     it('should throw detailed BadRequestException when category is missing', async () => {
       await expect(
-        service.createEventSubcategory('tenant-1', {
+        eventTaxonomyService.createEventSubcategory('tenant-1', {
           name: 'Race F1',
         }),
       ).rejects.toThrow(BadRequestException);
 
-      await service.createEventSubcategory('tenant-1', {
+      await eventTaxonomyService.createEventSubcategory('tenant-1', {
         name: 'Race F1',
       }).catch((error) => {
         expect(error.getResponse()).toEqual(
@@ -690,7 +698,7 @@ describe('EventsService', () => {
       mockPrisma.eventCategory.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.createEventSubcategory('tenant-1', {
+        eventTaxonomyService.createEventSubcategory('tenant-1', {
           name: 'Race F1',
           eventCategoryId: 'cat-404',
         }),
@@ -713,7 +721,7 @@ describe('EventsService', () => {
       it('returns all tenant teams when no competition filter', async () => {
         mockPrisma.team.findMany.mockResolvedValue([mockTeam]);
 
-        await service.getTeams('tenant-1');
+        await eventTeamService.getTeams('tenant-1');
         expect(mockPrisma.team.findMany).toHaveBeenCalledWith({
           where: { tenantId: 'tenant-1' },
           orderBy: { name: 'asc' },
@@ -723,7 +731,7 @@ describe('EventsService', () => {
       it('returns competition teams plus generic teams when filtered', async () => {
         mockPrisma.team.findMany.mockResolvedValue([]);
 
-        await service.getTeams('tenant-1', 'cat-1', 'sub-1');
+        await eventTeamService.getTeams('tenant-1', 'cat-1', 'sub-1');
         expect(mockPrisma.team.findMany).toHaveBeenCalledWith({
           where: {
             tenantId: 'tenant-1',
@@ -744,7 +752,7 @@ describe('EventsService', () => {
         mockPrisma.team.findFirst.mockResolvedValue(null);
         mockPrisma.team.create.mockResolvedValue(mockTeam);
 
-        const result = await service.createTeam('tenant-1', {
+        const result = await eventTeamService.createTeam('tenant-1', {
           name: 'Asec Mimosas',
           eventCategoryId: 'cat-1',
         });
@@ -764,7 +772,7 @@ describe('EventsService', () => {
         mockPrisma.team.findFirst.mockResolvedValue(mockTeam);
 
         await expect(
-          service.createTeam('tenant-1', { name: 'asec mimosas', eventCategoryId: 'cat-1' }),
+          eventTeamService.createTeam('tenant-1', { name: 'asec mimosas', eventCategoryId: 'cat-1' }),
         ).rejects.toThrow('already exists');
         expect(mockPrisma.team.create).not.toHaveBeenCalled();
       });
@@ -773,7 +781,7 @@ describe('EventsService', () => {
         mockPrisma.eventCategory.findFirst.mockResolvedValue(null);
 
         await expect(
-          service.createTeam('tenant-1', { name: 'Team X', eventCategoryId: 'cat-404' }),
+          eventTeamService.createTeam('tenant-1', { name: 'Team X', eventCategoryId: 'cat-404' }),
         ).rejects.toThrow(BadRequestException);
       });
 
@@ -785,7 +793,7 @@ describe('EventsService', () => {
         });
 
         await expect(
-          service.createTeam('tenant-1', {
+          eventTeamService.createTeam('tenant-1', {
             name: 'Team X',
             eventCategoryId: 'cat-1',
             eventSubcategoryId: 'sub-1',
@@ -799,7 +807,7 @@ describe('EventsService', () => {
         mockPrisma.team.findFirst.mockResolvedValue(mockTeam);
         mockPrisma.team.update.mockResolvedValue({ ...mockTeam, name: 'Africa Sports' });
 
-        await service.updateTeam('tenant-1', 'team-1', { name: 'Africa Sports' });
+        await eventTeamService.updateTeam('tenant-1', 'team-1', { name: 'Africa Sports' });
         expect(mockPrisma.event.updateMany).toHaveBeenCalledWith({
           where: { visitingTeamId: 'team-1' },
           data: { visitingTeamName: 'Africa Sports' },
@@ -810,7 +818,7 @@ describe('EventsService', () => {
         mockPrisma.team.findFirst.mockResolvedValue(null);
 
         await expect(
-          service.updateTeam('tenant-1', 'team-foreign', { name: 'X' }),
+          eventTeamService.updateTeam('tenant-1', 'team-foreign', { name: 'X' }),
         ).rejects.toThrow(NotFoundException);
       });
     });
@@ -837,7 +845,7 @@ describe('EventsService', () => {
         mockPrisma.team.create.mockResolvedValue(newHomeTeam);
         mockPrisma.event.update.mockResolvedValue(mockEvent);
 
-        await service.update('evt-1', 'tenant-1', {
+        await eventsService.update('evt-1', 'tenant-1', {
           homeTeamName: 'Stade Abidjan',
           visitingTeamId: 'team-1',
         } as any);
@@ -863,7 +871,7 @@ describe('EventsService', () => {
         });
         mockPrisma.event.update.mockResolvedValue(mockEvent);
 
-        await service.update('evt-1', 'tenant-1', { homeTeamName: 'asec mimosas' } as any);
+        await eventsService.update('evt-1', 'tenant-1', { homeTeamName: 'asec mimosas' } as any);
         expect(mockPrisma.team.create).not.toHaveBeenCalled();
         expect(mockPrisma.event.update).toHaveBeenCalledWith(
           expect.objectContaining({
@@ -877,7 +885,7 @@ describe('EventsService', () => {
         mockPrisma.team.findFirst.mockResolvedValue(null);
 
         await expect(
-          service.update('evt-1', 'tenant-1', { visitingTeamId: 'team-foreign' } as any),
+          eventsService.update('evt-1', 'tenant-1', { visitingTeamId: 'team-foreign' } as any),
         ).rejects.toThrow(NotFoundException);
         expect(mockPrisma.event.update).not.toHaveBeenCalled();
       });
@@ -886,7 +894,7 @@ describe('EventsService', () => {
         mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
         mockPrisma.event.update.mockResolvedValue(mockEvent);
 
-        await service.update('evt-1', 'tenant-1', { visitingTeamId: null } as any);
+        await eventsService.update('evt-1', 'tenant-1', { visitingTeamId: null } as any);
         expect(mockPrisma.event.update).toHaveBeenCalledWith(
           expect.objectContaining({
             data: expect.objectContaining({
