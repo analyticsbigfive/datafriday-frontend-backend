@@ -593,7 +593,7 @@ export class HrService {
         throw new BadRequestException("menuItemIds est requis (non vide) quand allMenuItems est faux.");
       }
       // Les items doivent réellement être rattachés à cet espace (SpaceMenuItem) — même condition
-      // 0 stricte que SpaceMenusService.getSpaceMenuItems, pour ne pas laisser une association
+      // 0 stricte que SpaceMenuAvailabilityService.getSpaceMenuItems, pour ne pas laisser une association
       // pointer vers un item retiré du menu de l'espace après coup.
       const linked = await this.prisma.spaceMenuItem.findMany({
         where: { spaceId, menuItemId: { in: menuItemIds } },

@@ -68,7 +68,7 @@ export class LogisticsElementScopeService {
     return rows.map((r) => r.id);
   }
 
-  /** Config effective d'un élément (miroir SpaceMenusService.resolveShopConfigId). */
+  /** Config effective d'un élément (miroir SpaceMenuScopeService.resolveShopConfigId). */
   resolveElementConfigId(
     el: { floor?: any; forecourt?: any; externalMerch?: any; configurationElements?: any[] },
     explicitConfigId?: string | null,

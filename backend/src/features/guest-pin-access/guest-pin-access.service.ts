@@ -19,7 +19,7 @@ import { closeInventoryWindows, revokeWindowAccesses } from '../inventory/invent
 import { PRE_SALE_STOP_ACTOR, preSaleStopKey } from './pre-sale-stop';
 import { MarketPricesService } from '../market-prices/market-prices.service';
 import { MenuComponentsService } from '../menu-components/menu-components.service';
-import { SpaceMenusService } from '../space-menus/space-menus.service';
+import { SpaceMenuConfigurationService } from '../space-menus/services/space-menu-configuration.service';
 import { StorageTypesService } from '../storage-types/storage-types.service';
 import { CreateWindowDto, WindowElementDto, WindowTargetDto } from './dto/create-window.dto';
 import { SaveGuestCountDto } from './dto/save-guest-count.dto';
@@ -85,7 +85,7 @@ export class GuestPinAccessService {
     private readonly configService: ConfigService,
     private readonly jwt: JwtService,
     private readonly postEventDraft: PostEventDraftService,
-    private readonly spaceMenus: SpaceMenusService,
+    private readonly spaceMenus: SpaceMenuConfigurationService,
     private readonly storageTypes: StorageTypesService,
   ) {}
 
@@ -107,7 +107,7 @@ export class GuestPinAccessService {
 
   /** Select minimal pour résoudre le spaceId d'un SpaceElement (builder v1 : floor/
    *  forecourt/externalMerch ; builder v2 : zone) — copie volontaire de
-   *  SpaceMenusService.resolveShopSpaceId (privée), même justification que
+   *  SpaceMenuScopeService.resolveShopSpaceId, même justification que
    *  resolveShopConfigId ci-dessous : ne pas toucher space-menus.service.ts pour un
    *  besoin invité. */
   private readonly elementSpaceSelect = {
@@ -397,7 +397,7 @@ export class GuestPinAccessService {
 
   /**
    * Config effective d'un PDV — copie volontaire de
-   * SpaceMenusService.resolveShopConfigId (privée, non exportée) : configId
+   * SpaceMenuScopeService.resolveShopConfigId : configId
    * explicite (l'événement de l'invité) > config du parent v1 > première
    * adhésion v2. Dupliquer ces ~5 lignes plutôt que toucher space-menus.service.ts
    * (fichier dense, chargé d'historique de bugs staff) pour un besoin invité.
