@@ -104,84 +104,6 @@ describe('WeezeventTransactionSyncService', () => {
         service = module.get(WeezeventTransactionSyncService);
     });
 
-    // ─── syncTransactions ─────────────────────────────────────────────────────
-
-    describe('syncTransactions()', () => {
-        it('returns a successful SyncResult after syncing one transaction', async () => {
-            const result = await service.syncTransactions(TENANT_ID, INTEGRATION_ID);
-
-            expect(result.success).toBe(true);
-            expect(result.type).toBe('transactions');
-            expect(result.itemsSynced).toBeGreaterThanOrEqual(1);
-            expect(result.duration).toBeGreaterThanOrEqual(0);
-        });
-
-        it('upserts an event inline when the transaction carries event data', async () => {
-            await service.syncTransactions(TENANT_ID, INTEGRATION_ID);
-
-            expect(prisma.salesEvent.upsert).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    where: expect.objectContaining({
-                        tenantId_integrationId_externalId: expect.objectContaining({
-                            externalId: '42',
-                        }),
-                    }),
-                }),
-            );
-        });
-
-        it('upserts a product inline when the transaction item carries product data', async () => {
-            await service.syncTransactions(TENANT_ID, INTEGRATION_ID);
-
-            expect(prisma.salesProduct.upsert).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    where: expect.objectContaining({
-                        tenantId_integrationId_externalId: expect.objectContaining({
-                            externalId: '7',
-                        }),
-                    }),
-                }),
-            );
-        });
-
-        it('skips duplicate event upserts across pages (seenEventWids guard)', async () => {
-            // Two transactions for the same event
-            client.getTransactions.mockResolvedValue({
-                data: [mockApiTransaction, { ...mockApiTransaction, id: 'tx-2', transaction_id: 'tx-2' }],
-                meta: { total_pages: 1, current_page: 1, total: 2 },
-            });
-
-            await service.syncTransactions(TENANT_ID, INTEGRATION_ID);
-
-            // Event 42 should only be upserted once (seenEventWids guard)
-            const eventUpsertCalls = (prisma.salesEvent.upsert as jest.Mock).mock.calls.filter(
-                ([args]) => args.where?.tenantId_integrationId_externalId?.externalId === '42',
-            );
-            expect(eventUpsertCalls.length).toBe(1);
-        });
-
-        it('throws if integration is not found', async () => {
-            prisma.integration.findUnique.mockResolvedValue(null);
-            await expect(service.syncTransactions(TENANT_ID, INTEGRATION_ID)).rejects.toThrow(/not found/);
-        });
-
-        it('throws if integration is disabled', async () => {
-            prisma.integration.findUnique.mockResolvedValue({ ...mockIntegration, enabled: false });
-            await expect(service.syncTransactions(TENANT_ID, INTEGRATION_ID)).rejects.toThrow(/disabled/);
-        });
-
-        it('does not throw when transaction items are null (null guard)', async () => {
-            client.getTransactions.mockResolvedValue({
-                data: [{ ...mockApiTransaction, items: null }],
-                meta: { total_pages: 1, current_page: 1, total: 1 },
-            });
-
-            await expect(service.syncTransactions(TENANT_ID, INTEGRATION_ID)).resolves.toMatchObject({
-                success: true,
-            });
-        });
-    });
-
     // ─── syncSingleTransaction ────────────────────────────────────────────────
 
     describe('syncSingleTransaction()', () => {
@@ -208,6 +130,34 @@ describe('WeezeventTransactionSyncService', () => {
             await service.syncSingleTransaction(TENANT_ID, INTEGRATION_ID, 'tx-1');
 
             expect(prisma.salesEvent.upsert).toHaveBeenCalled();
+        });
+
+        // Repris des tests de l'ancienne synchro complète (supprimée, jamais appelée) : la
+        // résolution du productId vit dans le chemin webhook encore utilisé.
+        it('rattache la ligne au produit déjà connu, sans le recréer', async () => {
+            prisma.salesProduct.findMany.mockResolvedValue([{ id: 'prod-db-7', externalId: '7' }]);
+
+            await service.syncSingleTransaction(TENANT_ID, INTEGRATION_ID, 'tx-1');
+
+            expect(prisma.salesProduct.upsert).not.toHaveBeenCalled();
+            const items = prisma.salesTransactionItem.createMany.mock.calls[0][0].data;
+            expect(items[0].productId).toBe('prod-db-7');
+        });
+
+        it('crée le produit inconnu à la volée et y rattache la ligne', async () => {
+            await service.syncSingleTransaction(TENANT_ID, INTEGRATION_ID, 'tx-1');
+
+            expect(prisma.salesProduct.upsert).toHaveBeenCalledTimes(1);
+            const items = prisma.salesTransactionItem.createMany.mock.calls[0][0].data;
+            expect(items[0].productId).toBe('prod-7');
+        });
+
+        it('laisse productId à null si la création du produit échoue, sans faire échouer la synchro', async () => {
+            prisma.salesProduct.upsert.mockRejectedValueOnce(new Error('boom'));
+
+            await expect(service.syncSingleTransaction(TENANT_ID, INTEGRATION_ID, 'tx-1')).resolves.toBeDefined();
+            const items = prisma.salesTransactionItem.createMany.mock.calls[0][0].data;
+            expect(items[0].productId).toBeNull();
         });
 
         it('throws if integration is not found', async () => {

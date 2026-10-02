@@ -8,8 +8,8 @@ import { QueuedEntityRow, QueuedEntityTable, upsertQueuedEntities } from './queu
  * WeezeventQueuedEntitySyncService
  *
  * SRP: owns entity syncs that are dispatched via BullMQ jobs or webhook callbacks.
- * - syncOrders / syncPrices / syncAttendees  → called from data-sync.processor
- * - syncWallet / syncUser                    → called from webhook-event.handler
+ * - syncOrders / syncPrices / syncAttendees, appelés par data-sync.processor (et syncOrders
+ *   par webhook-event.handler).
  */
 @Injectable()
 export class WeezeventQueuedEntitySyncService {
@@ -19,94 +19,6 @@ export class WeezeventQueuedEntitySyncService {
         private readonly prisma: PrismaService,
         private readonly weezeventClient: WeezeventClientService,
     ) {}
-
-    // ─────────────────────────────────────────────────────────────
-    // Wallets & Users (webhook-triggered)
-    // ─────────────────────────────────────────────────────────────
-
-    async syncWallet(
-        tenantId: string,
-        integrationId: string,
-        organizationId: string,
-        walletId: string,
-    ): Promise<any> {
-        this.logger.log(`Syncing wallet ${walletId} for tenant ${tenantId}`);
-
-        const apiWallet = await this.weezeventClient.getWallet(tenantId, integrationId, organizationId, walletId);
-        const weezeventId = apiWallet.id.toString();
-        const walletStatus = apiWallet.status as any;
-        const walletStatusValue = typeof walletStatus === 'object' && walletStatus?.name
-            ? walletStatus.name
-            : (typeof walletStatus === 'string' ? walletStatus : 'unknown');
-
-        return this.prisma.weezeventWallet.upsert({
-            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
-            create: {
-                weezeventId, tenantId, integrationId,
-                balance: apiWallet.balance,
-                currency: 'EUR',
-                userId: apiWallet.user_id?.toString(),
-                walletGroupId: apiWallet.wallet_group_id?.toString(),
-                status: walletStatusValue,
-                cardNumber: apiWallet.metadata?.card_number,
-                cardType: apiWallet.metadata?.card_type,
-                rawData: apiWallet as any,
-                syncedAt: new Date(),
-            },
-            update: {
-                balance: apiWallet.balance,
-                status: walletStatusValue,
-                cardNumber: apiWallet.metadata?.card_number,
-                cardType: apiWallet.metadata?.card_type,
-                rawData: apiWallet as any,
-                syncedAt: new Date(),
-                updatedAt: new Date(),
-            },
-        });
-    }
-
-    async syncUser(
-        tenantId: string,
-        integrationId: string,
-        organizationId: string,
-        userId: string,
-    ): Promise<any> {
-        this.logger.log(`Syncing user ${userId} for tenant ${tenantId}`);
-
-        const apiUser = await this.weezeventClient.getUser(tenantId, integrationId, organizationId, userId);
-        const weezeventId = apiUser.id.toString();
-
-        return this.prisma.weezeventUser.upsert({
-            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
-            create: {
-                weezeventId, tenantId, integrationId,
-                email: apiUser.email,
-                firstName: apiUser.first_name,
-                lastName: apiUser.last_name,
-                phone: apiUser.phone,
-                birthdate: apiUser.birthdate ? new Date(apiUser.birthdate) : null,
-                address: apiUser.address,
-                walletId: apiUser.wallet_id?.toString(),
-                gdprConsent: apiUser.metadata?.gdpr_consent || false,
-                marketingConsent: apiUser.metadata?.marketing_consent || false,
-                rawData: apiUser as any,
-                syncedAt: new Date(),
-            },
-            update: {
-                email: apiUser.email,
-                firstName: apiUser.first_name,
-                lastName: apiUser.last_name,
-                phone: apiUser.phone,
-                birthdate: apiUser.birthdate ? new Date(apiUser.birthdate) : null,
-                address: apiUser.address,
-                gdprConsent: apiUser.metadata?.gdpr_consent || false,
-                marketingConsent: apiUser.metadata?.marketing_consent || false,
-                rawData: apiUser as any,
-                syncedAt: new Date(),
-                updatedAt: new Date(),
-            },
-        });
-    }
 
     // ─────────────────────────────────────────────────────────────
     // Orders / Prices / Attendees (BullMQ queue jobs)
