@@ -1,4 +1,4 @@
-# ADR-0007 — Migrer les configurations v1 vers le modèle relationnel v2, puis retirer `Config.data`
+# ADR-0007 : Migrer les configurations v1 vers le modèle relationnel v2, puis retirer `Config.data`
 
 - **Statut** : Proposé
 - **Date** : 2026-10-02
