@@ -20,19 +20,13 @@ describe('inventoryWindowPeriod', () => {
       expect(period.closesAt.toISOString()).toBe('2026-09-26T13:00:00.000Z');
     });
 
-    it('reste ouvert le matin du match (eventDate à minuit déjà passé)', () => {
+    it('ouvert à tout moment avant les portes, y compris les jours précédents', () => {
       expect(inventoryWindowPeriodState(period, at('2026-09-26T09:00:00Z'))).toBe('open');
       expect(inventoryWindowPeriodState(period, at('2026-09-20T09:00:00Z'))).toBe('open');
     });
 
     it("est terminé dès l'ouverture des portes", () => {
       expect(inventoryWindowPeriodState(period, at('2026-09-26T13:00:00Z'))).toBe('over');
-    });
-
-    it('avant le début de la période (veille du match) : pas encore ouvrable', () => {
-      const p = inventoryWindowPeriod(sfpLyon, 'pre-event', TZ, new Date('2026-09-25T22:00:00.000Z'));
-      expect(inventoryWindowPeriodState(p, at('2026-09-25T20:00:00Z'))).toBe('not-yet');
-      expect(inventoryWindowPeriodState(p, at('2026-09-25T22:00:00Z'))).toBe('open');
     });
 
     it("sans heure d'ouverture des portes : ouvert jusqu'à la fin de l'event", () => {

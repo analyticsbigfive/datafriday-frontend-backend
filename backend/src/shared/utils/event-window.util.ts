@@ -206,31 +206,3 @@ export function isEventOver(e: EventDayFields, timeZone: string, now: Date = new
 /** Au-delà de ce recul, un event est forcément terminé (fin après minuit comprise) : seuls
  *  les events plus récents sont évalués un par un. */
 export const EVENT_OVER_LOOKBACK_MS = 3 * 24 * 60 * 60 * 1000;
-
-/**
- * Début de la période pre-event (règle Bertrand 2026-09-29) : minuit local le jour du match,
- * ou l'heure de fin déclarée du match précédent dans le même espace s'il finit ce jour-là
- * après minuit (ex. fin 02:00). Contrairement à resolveEventTransactionWindow, AUCUNE
- * exception par intégration : le stock est physique, deux clubs d'un même stade
- * (Jean Bouin : PFC et SFP) se partagent les mêmes points de vente.
- */
-export function resolvePreEventStart(
-  event: EventDayFields,
-  timeZone: string,
-  neighbors: ReadonlyArray<EventDayFields> = [],
-): Date {
-  const startDay = startDayOf(event);
-  let start = combineDayAndLocalTime(startDay, '00:00', timeZone) ?? startDay;
-  const doorsOpen = resolveDoorsOpenAt(event, timeZone);
-  for (const neighbor of neighbors) {
-    if (event.id && neighbor.id === event.id) continue;
-    if (endDayOf(neighbor).getTime() !== startDay.getTime()) continue;
-    const neighborEnd = declaredEndOf(neighbor, timeZone);
-    if (!neighborEnd || neighborEnd <= start) continue;
-    // Un voisin qui finit après l'ouverture des portes de cet event n'est pas « le match
-    // précédent » (deux events le même jour) : il ne repousse pas le début.
-    if (doorsOpen && neighborEnd >= doorsOpen) continue;
-    start = neighborEnd;
-  }
-  return start;
-}
