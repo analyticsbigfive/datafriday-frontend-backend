@@ -574,6 +574,51 @@ Chaque PR doit passer :
 
 ---
 
+## Suivi d'exécution (branche `chore/backend-remediation`, 2026-10-02)
+
+Exécuté en local sur une copie de la production (`datafriday_local`), 47 commits, non poussé.
+Vérifications finales : `tsc`, `tsc -p tsconfig.strict.json`, ESLint sans avertissement, knip,
+jscpd 1,86 %, index, migrations sur base vide sans dérive, 2214 tests, API et worker démarrés.
+Parité : 84 routes GET identiques entre le point de départ (`dcd352dd`) et la version finale,
+cache Redis vidé avant chaque passage ; chaque découpage a eu sa propre parité, écritures comprises.
+
+| Point | État |
+|---|---|
+| P0, P1, P2, P7, P8, P9, P10, P11, D0, D1, D2, T1 | Faits (voir commits de phase 0 à 5). |
+| P3 | Fait : aucun fichier source au-delà de 600 lignes, règle ESLint `max-lines`. |
+| P5 | Fait : plus de `PrismaService` dans les contrôleurs hors santé, règle ESLint. |
+| D3 | Fait côté requêtes en boucle : `no-await-in-loop` en erreur, boucles séquentielles voulues annotées. Pagination globale non appliquée (voir décisions). |
+| P4 | Amorcé : budget de `any` (1288, ne peut que baisser) et `tsconfig.strict.json` (config, core, shared, health) en CI. |
+| D4 | ADR 0007 proposé, migration non exécutée (voir décisions). |
+| D5 | Fait : tenant et route dans le journal des requêtes lentes, état réel du pool dans `/metrics/database`. |
+| P6 | Révisé : la gestion des intégrations est déjà découpée par fournisseur, sans aiguillage central ; une couche d'adaptateurs n'aurait rien à remplacer. Nettoyage fait (classe vide retirée, expression de CA dédupliquée). |
+| P12 | Au fil de l'eau : les services extraits sont rangés dans `services/`. |
+
+Bugs trouvés et corrigés en route : worker qui ne démarrait pas, synchro des commandes, prix et
+participants qui échouait toujours (identifiant manquant, puis clés étrangères), duplication de zone
+Builder v2 en 500, erreurs Fastify 4xx renvoyées en 500, chronologie d'analyse en 500, analyses de
+ventes Weezevent capables d'arrêter l'API, préchargement de tout l'historique des transactions en
+synchro complète, faille de réécriture des rattachements produit d'un autre tenant.
+
+Décisions en attente :
+
+1. Faire tourner le secret client Weezevent : il figurait en clair dans des scripts versionnés,
+   donc dans l'historique git.
+2. Routes non appelées par le frontend (73 candidates, liste à vérifier) : en particulier le
+   tableau de bord d'espace (`/spaces/:spaceId/dashboard/*`, dont la reconstruction écrit dans les
+   agrégats avec une autre logique que le pipeline principal) et `POST /menu-components/repair`
+   (formule contraire à BUG-001).
+3. Pagination bornée des listes : le frontend charge des pages de 1000 à 5000 lignes ; un plafond
+   à 200 demande une évolution coordonnée du frontend.
+4. ADR 0007 : calendrier de la migration des configurations v1 (16 configurations, 255 éléments).
+5. Correspondance des noms d'articles par `equals` insensible à la casse : Prisma la traduit en
+   ILIKE, où `%` et `_` sont des jokers (« Heineken 0% 33cl » correspond à « Heineken 0% - CAN
+   33CL »). Comportement conservé à l'identique ; à corriger ou à assumer.
+6. Colonnes héritées encore remplies en production (`MenuItem.spaceIds`, `spacePrices`,
+   `WeezeventIntegration.clientSecret`).
+7. Reformatage Prettier global (493 fichiers) : volontairement non fait, il créerait des conflits
+   avec toutes les branches en cours.
+
 ## Annexe A. Index redondants détectés dans `schema.prisma`
 
 Format : `Modèle : [index redondant] couvert par [index ou unique plus large]`. Liste issue de `schema.prisma` (79 entrées) ; la base de production en compte 78 (voir D1 pour les tailles et lectures réelles).
