@@ -14,6 +14,8 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { AggregationService } from './aggregation.service';
 import { ProcessEventsDto, SynchronizeDto, SkipEventDto } from './dto/aggregation.dto';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { AggregationStatusService } from './aggregation-status.service';
+import { EventAggregateReadService } from './event-aggregate-read.service';
 
 @ApiTags('Aggregation')
 @ApiBearerAuth('supabase-jwt')
@@ -22,7 +24,9 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 export class AggregationController {
   private readonly logger = new Logger(AggregationController.name);
 
-  constructor(private readonly aggregationService: AggregationService) {}
+  constructor(private readonly aggregationService: AggregationService,
+    private readonly aggregationStatusService: AggregationStatusService,
+    private readonly eventAggregateReadService: EventAggregateReadService) {}
 
   @Get('events-timeline/:spaceId')
   @ApiOperation({
@@ -56,7 +60,7 @@ export class AggregationController {
     @Query('integrationId') integrationId: string | undefined,
     @CurrentUser() user: any,
   ) {
-    return this.aggregationService.getEventsTimelineStatus(user.tenantId, spaceId, integrationId);
+    return this.aggregationStatusService.getEventsTimelineStatus(user.tenantId, spaceId, integrationId);
   }
 
   @RequirePermissions('menu.integration.fb')
@@ -188,7 +192,7 @@ export class AggregationController {
     @Param('eventId') eventId: string,
     @CurrentUser() user: any,
   ) {
-    return this.aggregationService.getEventBreakdown(user.tenantId, spaceId, eventId);
+    return this.eventAggregateReadService.getEventBreakdown(user.tenantId, spaceId, eventId);
   }
 
   @RequirePermissions('stats.financial.view')
@@ -206,7 +210,7 @@ export class AggregationController {
     @Param('eventId') eventId: string,
     @CurrentUser() user: any,
   ) {
-    return this.aggregationService.getEventStats(user.tenantId, spaceId, eventId);
+    return this.eventAggregateReadService.getEventStats(user.tenantId, spaceId, eventId);
   }
 
   @Get('step4-context/:spaceId')
@@ -222,7 +226,7 @@ export class AggregationController {
     @Query('integrationId') integrationId: string | undefined,
     @CurrentUser() user: any,
   ) {
-    return this.aggregationService.getStep4Context(user.tenantId, spaceId, integrationId);
+    return this.aggregationStatusService.getStep4Context(user.tenantId, spaceId, integrationId);
   }
 
   @RequirePermissions('stats.financial.view')
@@ -240,6 +244,6 @@ export class AggregationController {
     @Param('eventId') eventId: string,
     @CurrentUser() user: any,
   ) {
-    return this.aggregationService.getEventMinuteChart(user.tenantId, spaceId, eventId);
+    return this.eventAggregateReadService.getEventMinuteChart(user.tenantId, spaceId, eventId);
   }
 }

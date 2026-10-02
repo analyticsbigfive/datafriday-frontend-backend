@@ -5,11 +5,10 @@ import { QueueService, AggregationJobEnqueueData } from '../../core/queue/queue.
 import { RedisService } from '../../core/redis/redis.service';
 import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
 import { liveWatermarkKey } from '../../shared/constants/live-aggregation';
-import { EventDayFields, isEventOver } from '../../shared/utils/event-window.util';
+import { EventDayFields } from '../../shared/utils/event-window.util';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
-import { IntegrationTransactionStatsService } from './integration-transaction-stats.service';
 import { BasketAggregationService } from './basket-aggregation.service';
 import { SyncStaleRowsService } from './sync-stale-rows.service';
 import {
@@ -20,27 +19,24 @@ import {
   insertMinuteItemAgg,
   isUnscopedRangeWindow,
 } from './event-aggregation.queries';
-import { MappingProgressService } from '../mappings/services/mapping-progress.service';
 
-
+/**
+ * Jobs d'agrégation : mise en file, exécution, synchronisation, suivi, échec et exclusion d'un événement.
+ */
 @Injectable()
 export class AggregationService {
-  private readonly logger = new Logger(AggregationService.name);
-
   constructor(
     private prisma: PrismaService,
     private queueService: QueueService,
-    private readonly mappingProgressService: MappingProgressService,
-    // BUG-143-01 : RedisService injecté directement (RedisModule est @Global) plutôt que
-    // via le cache des espaces — une dépendance vers SpacesModule créerait un cycle de modules.
     private redis: RedisService,
     private windowResolver: EventWindowResolverService,
     private eventRollup: EventRollupService,
     private spaceIntegrationScope: SpaceIntegrationScopeService,
-    private txStats: IntegrationTransactionStatsService,
     private basketAgg: BasketAggregationService,
     private syncStaleRows: SyncStaleRowsService,
   ) {}
+
+  private readonly logger = new Logger(AggregationService.name);
 
   /**
    * Progression BullMQ : purement indicative, le front lit celle d'AggregationJobLog en base.
@@ -53,114 +49,6 @@ export class AggregationService {
     } catch (err) {
       this.logger.warn(`BullMQ progress ${value}% not recorded (LogId: ${job.data.jobLogId}): ${(err as Error).message}`);
     }
-  }
-
-  /**
-   * Get events with their processing status for a space
-   */
-  async getEventsTimelineStatus(tenantId: string, spaceId: string, integrationId?: string) {
-    this.logger.log(`Getting events timeline status for space ${spaceId}`);
-
-    // Vague 1 — toutes les requêtes indépendantes en parallèle (y compris la résolution des locationIds)
-    const now = new Date();
-    const [space, startedEvents, notStartedCount, allJobs, dataPointGroups] = await Promise.all([
-      this.prisma.space.findFirst({ where: { id: spaceId, tenantId } }),
-      this.prisma.event.findMany({
-        where: { tenantId, spaceId, eventDate: { lte: now } },
-        orderBy: { eventDate: 'desc' },
-      }),
-      this.prisma.event.count({ where: { tenantId, spaceId, eventDate: { gt: now } } }),
-      this.prisma.aggregationJobLog.findMany({
-        where: { tenantId, spaceId },
-        orderBy: { startedAt: 'desc' },
-      }),
-      this.prisma.spaceRevenueMinuteAgg.groupBy({
-        by: ['weezeventEventId'],
-        where: { tenantId, spaceId },
-        _count: { _all: true },
-      }),
-    ]);
-
-    if (!space) {
-      throw new NotFoundException(`Space ${spaceId} not found`);
-    }
-
-    // Passé = TERMINÉ (fin réelle), pas `eventDate <= now` : le match du jour était listé
-    // « en attente d'agrégation » dès minuit, avant la moindre vente. Un match en cours
-    // compte avec les events à venir.
-    const spaceTimezone = space.timezone || 'Europe/Paris';
-    const events = startedEvents.filter((e) => isEventOver(e, spaceTimezone, now));
-    const futureEventsCount = notStartedCount + (startedEvents.length - events.length);
-
-    const dataPointsByEvent = new Map(
-      dataPointGroups.map((g) => [g.weezeventEventId, Number(g._count._all ?? 0)]),
-    );
-
-    // Index : event.id → dernier job (allJobs déjà triés desc par startedAt)
-    const latestJobByEvent = new Map<string, (typeof allJobs)[0]>();
-    for (const job of allJobs) {
-      const eventIds: string[] = (job.metadata as any)?.eventIds || [];
-      for (const eid of eventIds) {
-        if (!latestJobByEvent.has(eid)) {
-          latestJobByEvent.set(eid, job);
-        }
-      }
-    }
-
-    const eventsWithStatus = events.map((event) => {
-      const job = latestJobByEvent.get(event.id);
-      const dataPoints = dataPointsByEvent.get(event.id) ?? 0;
-      // BUG-367-02 : un job "completed" en historique ne veut plus rien dire une fois les
-      // données réelles purgées (Démapper, BUG-366-02) — affichait "Agrégé" à côté de "—" data
-      // points, contradiction visuelle constatée par l'utilisateur. Le statut suit désormais
-      // aussi l'état ACTUEL des données, pas seulement le dernier job en historique.
-      const aggregationStatus = job?.status === 'completed' && dataPoints === 0 ? 'pending' : (job?.status || 'pending');
-      return {
-        ...event,
-        aggregationStatus,
-        lastProcessedAt: job?.completedAt || null,
-        transactionsProcessed: job?.transactionsProcessed || 0,
-        dataPoints,
-      };
-    });
-
-    // Vague 2 — unregisteredDates et transactionStats sont indépendants → parallèle
-    // Filtre par integrationId uniquement : suppression du tableau de 100+ locationIds en paramètre
-    let unregisteredDates: any[] = [];
-    let transactionStats: {
-      total: number;
-      matched: number;
-      unmatched: number;
-      unmappedLocationIds: string[];
-    } | null = null;
-
-    if (integrationId) {
-      // Un seul scan par date + EXISTS par PdV, en cache 60 s (IntegrationTransactionStatsService),
-      // à la place de trois parcours complets des transactions de l'intégration par affichage.
-      const pastEventDates = events.map((e) => new Date(e.eventDate).toISOString().slice(0, 10));
-      const stats = await this.txStats.compute({ tenantId, spaceId, integrationId, pastEventDates });
-      unregisteredDates = stats.unregisteredDates;
-      transactionStats = {
-        total: stats.total,
-        matched: stats.matched,
-        unmatched: stats.unmatched,
-        unmappedLocationIds: stats.unmappedLocationIds,
-      };
-    }
-
-    return {
-      events: eventsWithStatus,
-      unregisteredDates,
-      futureEventsCount,
-      transactionStats,
-      summary: {
-        total: events.length,
-        processed: eventsWithStatus.filter((e) => e.aggregationStatus === 'completed').length,
-        skipped: eventsWithStatus.filter((e) => e.aggregationStatus === 'skipped').length,
-        pending: eventsWithStatus.filter((e) => e.aggregationStatus === 'pending').length,
-        failed: eventsWithStatus.filter((e) => e.aggregationStatus === 'failed').length,
-      },
-    };
   }
 
   /**
@@ -692,189 +580,5 @@ export class AggregationService {
       `Event ${eventId} marked as skipped for space ${spaceId} (purged ${purgedDataPoints} existing data points)`,
     );
     return { eventId, status: 'skipped', purgedDataPoints };
-  }
-
-  /**
-   * #10 — Contexte complet du step 4 en un seul appel.
-   * Bundle : timeline + transactionStats + weezeventEvents + hasMappings.
-   * Remplace les 7 appels séparés du mounted() du wizard.
-   *
-   * BUG-029 (corrigé) : hasMappings comptait tous les LocationShopMapping du TENANT entier, sans
-   * scoping par intégration — une intégration B sans aucun mapping affichait hasMappings:true dès
-   * qu'une intégration A du même tenant en avait un. Délègue maintenant à
-   * MappingProgressService.hasShopMappingForIntegration, la même source utilisée par le wizard de mapping
-   * (BUG-017), pour ne plus jamais diverger. Sans integrationId (legacy, paramètre optionnel),
-   * conserve l'ancien comportement tenant-wide en repli.
-   */
-  async getStep4Context(tenantId: string, spaceId: string, integrationId?: string) {
-    const [timeline, weezeventEvents, hasMappings, seasonContainerIds] = await Promise.all([
-      this.getEventsTimelineStatus(tenantId, spaceId, integrationId),
-      integrationId
-        ? this.prisma.salesEvent.findMany({
-            where: { tenantId, integrationId },
-            orderBy: { startDate: 'asc' },
-          })
-        : Promise.resolve([]),
-      integrationId
-        ? this.mappingProgressService.hasShopMappingForIntegration(tenantId, integrationId)
-        : this.prisma.locationShopMapping.count({ where: { tenantId } }).then((count) => count > 0),
-      this.windowResolver.resolveSeasonContainerEventIds(tenantId),
-    ]);
-
-    // BUG-358/338-02 : un WeezeventEvent "conteneur" (saison Weezevent groupée sous un seul id,
-    // ou site Digifood) ne désigne jamais un match précis — le signaler pour que le front n'en
-    // fasse pas un candidat "Créer et lier tout" (créerait un faux Event DataFriday de plusieurs
-    // mois, cf. docs/bugs/361_02).
-    const weezeventEventsWithFlag = weezeventEvents.map((we) => ({
-      ...we,
-      isSeasonContainer: seasonContainerIds.has(we.id),
-    }));
-
-    return {
-      ...timeline,
-      weezeventEvents: weezeventEventsWithFlag,
-      hasMappings,
-    };
-  }
-
-  /**
-   * Breakdown par shops et articles pour un événement donné.
-   * Shops : depuis SpaceRevenueMinuteAgg (a weezeventEventId) — agrégé sur toutes les minutes.
-   * Articles : depuis SpaceProductRevenueDailyAgg filtré par date de l'événement
-   *            (le modèle n'a pas de weezeventEventId — on filtre par day).
-   */
-  async getEventBreakdown(tenantId: string, spaceId: string, eventId: string) {
-    const event = await this.prisma.event.findFirst({
-      where: { id: eventId, tenantId, spaceId },
-      select: { id: true, name: true, eventDate: true },
-    });
-    if (!event) {
-      throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
-    }
-
-    const eventDay = new Date(event.eventDate);
-    eventDay.setUTCHours(0, 0, 0, 0);
-    const nextDay = new Date(eventDay);
-    nextDay.setDate(nextDay.getDate() + 1);
-
-    const [shopAggs, productAggs] = await Promise.all([
-      this.prisma.spaceRevenueMinuteAgg.groupBy({
-        by: ['weezeventLocationId', 'spaceElementId'],
-        where: { tenantId, spaceId, weezeventEventId: eventId },
-        _sum: { revenueHt: true, transactionsCount: true, itemsCount: true },
-      }),
-      this.prisma.spaceProductRevenueDailyAgg.groupBy({
-        by: ['weezeventProductId'],
-        where: { tenantId, spaceId, day: { gte: eventDay, lt: nextDay } },
-        _sum: { revenueHt: true, quantity: true },
-      }),
-    ]);
-
-    // Resolve human-readable names for shops and products
-    const locationIds = shopAggs.map((s) => s.weezeventLocationId).filter(Boolean) as string[];
-    const productIds = productAggs.map((p) => p.weezeventProductId).filter(Boolean) as string[];
-
-    const [locations, products] = await Promise.all([
-      locationIds.length
-        ? this.prisma.salesLocation.findMany({ where: { id: { in: locationIds } }, select: { id: true, name: true } })
-        : [],
-      productIds.length
-        ? this.prisma.salesProduct.findMany({ where: { id: { in: productIds } }, select: { id: true, name: true } })
-        : [],
-    ]);
-
-    const locationNameMap = new Map(locations.map((l) => [l.id, l.name] as [string, string]));
-    const productNameMap = new Map(products.map((p) => [p.id, p.name] as [string, string]));
-
-    return {
-      eventId,
-      eventName: event.name,
-      eventDate: event.eventDate,
-      shops: shopAggs.map((s) => ({
-        weezeventLocationId: s.weezeventLocationId,
-        spaceElementId: s.spaceElementId,
-        shopName: s.weezeventLocationId
-          ? (locationNameMap.get(s.weezeventLocationId) ?? s.weezeventLocationId)
-          : 'Inconnu',
-        revenueHt: Number(s._sum.revenueHt ?? 0),
-        transactionsCount: s._sum.transactionsCount ?? 0,
-        itemsCount: s._sum.itemsCount ?? 0,
-      })),
-      products: productAggs.map((p) => ({
-        weezeventProductId: p.weezeventProductId,
-        productName: productNameMap.get(p.weezeventProductId) ?? p.weezeventProductId,
-        revenueHt: Number(p._sum.revenueHt ?? 0),
-        quantity: p._sum.quantity ?? 0,
-      })),
-    };
-  }
-
-  /**
-   * Statistiques agrégées (totaux) pour un événement donné.
-   */
-  async getEventStats(tenantId: string, spaceId: string, eventId: string) {
-    const event = await this.prisma.event.findFirst({
-      where: { id: eventId, tenantId, spaceId },
-      select: { id: true, name: true, eventDate: true },
-    });
-    if (!event) {
-      throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
-    }
-
-    const agg = await this.prisma.spaceRevenueMinuteAgg.aggregate({
-      where: { tenantId, spaceId, weezeventEventId: eventId },
-      _sum: { revenueHt: true, transactionsCount: true, itemsCount: true },
-      _count: { _all: true },
-    });
-
-    const shopCount = await this.prisma.spaceRevenueMinuteAgg.findMany({
-      where: { tenantId, spaceId, weezeventEventId: eventId, weezeventLocationId: { not: null } },
-      select: { weezeventLocationId: true },
-      distinct: ['weezeventLocationId'],
-    });
-
-    return {
-      eventId,
-      eventName: event.name,
-      eventDate: event.eventDate,
-      revenueHt: Number(agg._sum.revenueHt ?? 0),
-      transactionsCount: agg._sum.transactionsCount ?? 0,
-      itemsCount: agg._sum.itemsCount ?? 0,
-      shopCount: shopCount.length,
-      aggregationRecords: agg._count._all,
-    };
-  }
-
-  /**
-   * CA par minute pour un événement — alimente l'onglet "CA / minute" dans le détail event.
-   * Retourne chaque minute avec au moins 1 transaction, ordonnée chronologiquement.
-   */
-  async getEventMinuteChart(tenantId: string, spaceId: string, eventId: string) {
-    const event = await this.prisma.event.findFirst({
-      where: { id: eventId, tenantId, spaceId },
-      select: { id: true, name: true, eventDate: true },
-    });
-    if (!event) {
-      throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
-    }
-
-    const rows = await this.prisma.spaceRevenueMinuteAgg.groupBy({
-      by: ['minute'],
-      where: { tenantId, spaceId, weezeventEventId: eventId },
-      _sum: { revenueHt: true, transactionsCount: true, itemsCount: true },
-      orderBy: { minute: 'asc' },
-    });
-
-    return {
-      eventId,
-      eventName: event.name,
-      eventDate: event.eventDate,
-      data: rows.map((r) => ({
-        minute: r.minute,
-        revenueHt: Number(r._sum.revenueHt ?? 0),
-        transactionsCount: r._sum.transactionsCount ?? 0,
-        itemsCount: r._sum.itemsCount ?? 0,
-      })),
-    };
   }
 }

@@ -22,7 +22,7 @@ const CACHE_TTL_SEC = 60;
 
 /**
  * Statistiques transactions d'une intégration pour la page statut d'agrégation
- * (AggregationService.getEventsTimelineStatus) : jours de vente sans event, couverture
+ * (AggregationStatusService.getEventsTimelineStatus) : jours de vente sans event, couverture
  * total/matched, PdV non mappés.
  *
  * Avant : trois requêtes en parallèle, chacune parcourant toutes les transactions de

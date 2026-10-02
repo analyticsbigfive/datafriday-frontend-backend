@@ -16,6 +16,8 @@ import { MappingProgressService } from '../mappings/services/mapping-progress.se
 import { MappingSupportService } from '../mappings/services/mapping-support.service';
 import { MerchantMappingService } from '../mappings/services/merchant-mapping.service';
 import { ProductMappingService } from '../mappings/services/product-mapping.service';
+import { AggregationStatusService } from './aggregation-status.service';
+import { EventAggregateReadService } from './event-aggregate-read.service';
 
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
 const mockPrisma: any = {
@@ -110,12 +112,14 @@ const makeBullJob = (overrides: any = {}): any => ({
 
 // ─── Suite ──────────────────────────────────────────────────────────────────
 describe('AggregationService', () => {
-  let service: AggregationService;
+  let aggregationStatusService: any;
+  let eventAggregateReadService: any;
+  let aggregationService: any;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        AggregationService,
+        AggregationStatusService, EventAggregateReadService, AggregationService, 
         { provide: PrismaService, useValue: mockPrisma },
         { provide: QueueService, useValue: mockQueueService },
         { provide: MappingSupportService, useValue: mockMappingsService },
@@ -136,7 +140,11 @@ describe('AggregationService', () => {
       ],
     }).compile();
 
-    service = module.get<AggregationService>(AggregationService);
+    aggregationStatusService = module.get(AggregationStatusService);
+
+    eventAggregateReadService = module.get(EventAggregateReadService);
+
+    aggregationService = module.get(AggregationService);
     jest.clearAllMocks();
     mockPrisma.$transaction.mockImplementation((arg: any) =>
       Array.isArray(arg) ? Promise.all(arg) : arg(mockPrisma),
@@ -159,7 +167,7 @@ describe('AggregationService', () => {
     });
 
     it('retourne events avec aggregationStatus depuis le job log', async () => {
-      const result = await service.getEventsTimelineStatus(TENANT, SPACE);
+      const result = await aggregationStatusService.getEventsTimelineStatus(TENANT, SPACE);
 
       expect(result.events).toHaveLength(2);
       expect(result.events[0].aggregationStatus).toBe('completed');
@@ -171,7 +179,7 @@ describe('AggregationService', () => {
       // contradiction "Agrégé" + "—" data points constatée réelle après un Démapper.
       mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([]);
 
-      const result = await service.getEventsTimelineStatus(TENANT, SPACE);
+      const result = await aggregationStatusService.getEventsTimelineStatus(TENANT, SPACE);
 
       const event1 = result.events.find((e: any) => e.id === EVENT_1);
       expect(event1.dataPoints).toBe(0);
@@ -179,7 +187,7 @@ describe('AggregationService', () => {
     });
 
     it('retourne dataPoints depuis spaceRevenueMinuteAgg (batch — pas de N+1)', async () => {
-      const result = await service.getEventsTimelineStatus(TENANT, SPACE);
+      const result = await aggregationStatusService.getEventsTimelineStatus(TENANT, SPACE);
 
       // Vérifier que groupBy a été appelé une seule fois (pas N fois)
       expect(mockPrisma.spaceRevenueMinuteAgg.groupBy).toHaveBeenCalledTimes(1);
@@ -198,7 +206,7 @@ describe('AggregationService', () => {
         ])
         .mockResolvedValueOnce([]); // unmappedRows
 
-      const result = await service.getEventsTimelineStatus(TENANT, SPACE, INT_ID);
+      const result = await aggregationStatusService.getEventsTimelineStatus(TENANT, SPACE, INT_ID);
 
       expect(result.transactionStats).not.toBeNull();
       expect(result.transactionStats!.total).toBe(100);
@@ -217,7 +225,7 @@ describe('AggregationService', () => {
         .mockResolvedValueOnce([{ date: new Date('2026-02-14T00:00:00.000Z'), transactionCount: 12, revenue: 120 }])
         .mockResolvedValueOnce([]); // unmappedRows
 
-      const result = await service.getEventsTimelineStatus(TENANT, SPACE, INT_ID);
+      const result = await aggregationStatusService.getEventsTimelineStatus(TENANT, SPACE, INT_ID);
 
       expect(result.events).toHaveLength(0);
       expect(result.transactionStats).toEqual({
@@ -229,7 +237,7 @@ describe('AggregationService', () => {
     });
 
     it('retourne transactionStats = null sans integrationId', async () => {
-      const result = await service.getEventsTimelineStatus(TENANT, SPACE);
+      const result = await aggregationStatusService.getEventsTimelineStatus(TENANT, SPACE);
       expect(result.transactionStats).toBeNull();
     });
 
@@ -239,7 +247,7 @@ describe('AggregationService', () => {
         makeJob('skipped', [EVENT_2]),
       ]);
 
-      const result = await service.getEventsTimelineStatus(TENANT, SPACE);
+      const result = await aggregationStatusService.getEventsTimelineStatus(TENANT, SPACE);
 
       expect(result.summary.processed).toBe(1);
       expect(result.summary.skipped).toBe(1);
@@ -248,12 +256,12 @@ describe('AggregationService', () => {
 
     it('lance NotFoundException si space introuvable', async () => {
       mockPrisma.space.findFirst.mockResolvedValue(null);
-      await expect(service.getEventsTimelineStatus(TENANT, 'bad-space')).rejects.toThrow(NotFoundException);
+      await expect(aggregationStatusService.getEventsTimelineStatus(TENANT, 'bad-space')).rejects.toThrow(NotFoundException);
     });
 
     it('ne fait aucune requête N+1 (findFirst par event) pour les jobs', async () => {
       // On vérifie qu'aggregationJobLog.findFirst n'est jamais appelé (remplacé par findMany batch)
-      await service.getEventsTimelineStatus(TENANT, SPACE);
+      await aggregationStatusService.getEventsTimelineStatus(TENANT, SPACE);
       expect(mockPrisma.aggregationJobLog.findFirst).not.toHaveBeenCalled();
     });
   });
@@ -267,13 +275,13 @@ describe('AggregationService', () => {
     });
 
     it('retourne jobId + status "queued"', async () => {
-      const result = await service.processEvents(TENANT, SPACE, [EVENT_1], INT_ID);
+      const result = await aggregationService.processEvents(TENANT, SPACE, [EVENT_1], INT_ID);
 
       expect(result).toMatchObject({ jobId: JOB_LOG_ID, status: 'queued', total: 1 });
     });
 
     it('crée un AggregationJobLog avec status "pending"', async () => {
-      await service.processEvents(TENANT, SPACE, [EVENT_1], INT_ID);
+      await aggregationService.processEvents(TENANT, SPACE, [EVENT_1], INT_ID);
 
       expect(mockPrisma.aggregationJobLog.create).toHaveBeenCalledWith(
         expect.objectContaining({ data: expect.objectContaining({ status: 'pending', tenantId: TENANT, spaceId: SPACE }) }),
@@ -281,7 +289,7 @@ describe('AggregationService', () => {
     });
 
     it('enqueue le job via QueueService', async () => {
-      await service.processEvents(TENANT, SPACE, [EVENT_1], INT_ID);
+      await aggregationService.processEvents(TENANT, SPACE, [EVENT_1], INT_ID);
 
       expect(mockQueueService.queueAggregationJob).toHaveBeenCalledWith(
         expect.objectContaining({ type: 'process-events', tenantId: TENANT, spaceId: SPACE }),
@@ -290,7 +298,7 @@ describe('AggregationService', () => {
 
     it('retourne {processed:0, total:0} si aucun event trouvé', async () => {
       mockPrisma.event.findMany.mockResolvedValue([]);
-      const result = await service.processEvents(TENANT, SPACE, ['missing']);
+      const result = await aggregationService.processEvents(TENANT, SPACE, ['missing']);
       expect(result).toMatchObject({ processed: 0, total: 0 });
     });
   });
@@ -339,7 +347,7 @@ describe('AggregationService', () => {
 
     it('upsert sur spaceRevenueMinuteAgg (pas spaceRevenueDailyAgg)', async () => {
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       // Service uses $executeRaw (bulk SQL INSERT…ON CONFLICT) instead of individual upsert calls
       expect(mockPrisma.$executeRaw).toHaveBeenCalled();
@@ -348,7 +356,7 @@ describe('AggregationService', () => {
 
     it('écrit aussi SpaceRevenueMinuteItemAgg et SpaceBasketMinuteAgg (4 blocs $executeRaw par event)', async () => {
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       // 1 event → 4 $executeRaw (SpaceRevenueMinuteAgg, SpaceProductRevenueDailyAgg, SpaceRevenueMinuteItemAgg, SpaceBasketMinuteAgg)
       expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(4);
@@ -369,7 +377,7 @@ describe('AggregationService', () => {
     // le RPC get_space_shop_details et le panier moyen (4,71 € au lieu de 11,46 €).
     it('BUG-135-01 : transactionsCount = COUNT(DISTINCT t."id"), jamais COUNT(ti."id")', async () => {
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       const minuteAggSql: string = (mockPrisma.$executeRaw.mock.calls[0][0].strings ?? []).join('');
       // Les commentaires SQL citent l'ancienne expression : on n'assert que l'exécutable.
@@ -387,7 +395,7 @@ describe('AggregationService', () => {
     // distincts compterait N fois, exactement le défaut de SpaceRevenueMinuteItemAgg).
     it('BUG-135-01 : le grain reste (minute × location × merchant × élément), sans produit', async () => {
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       const minuteAggSql: string = (mockPrisma.$executeRaw.mock.calls[0][0].strings ?? []).join('');
       const groupBy = minuteAggSql.slice(minuteAggSql.lastIndexOf('GROUP BY'));
@@ -398,7 +406,7 @@ describe('AggregationService', () => {
       const job = makeBullJob({ integrationId: undefined });
       // Sans integrationId, la vérification "intégration mappée à cet espace" est sautée
       // (executeProcessEvents ne l'exécute que si integrationId est fourni).
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
         where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
@@ -415,7 +423,7 @@ describe('AggregationService', () => {
 
       it('job sans integrationId, event en mode range → les INSERT sont scopés `t."integrationId" = ANY(intégrations du space)`, jamais tenant-wide', async () => {
         mockPrisma.locationSpaceMapping.findMany.mockResolvedValue([{ salesLocationId: INT_ID }, { salesLocationId: 'integration-digi' }]);
-        await service.executeProcessEvents(makeBullJob({ integrationId: undefined }));
+        await aggregationService.executeProcessEvents(makeBullJob({ integrationId: undefined }));
 
         const inserts = insertCalls();
         expect(inserts.length).toBe(4);
@@ -426,7 +434,7 @@ describe('AggregationService', () => {
       });
 
       it('job AVEC integrationId → clause d\'égalité sur celle du job (inchangé), pas de ANY', async () => {
-        await service.executeProcessEvents(makeBullJob());
+        await aggregationService.executeProcessEvents(makeBullJob());
         for (const call of insertCalls()) {
           expect(sqlOf(call)).toContain('AND t."integrationId" = ?');
           expect(sqlOf(call)).not.toContain('ANY(');
@@ -434,7 +442,7 @@ describe('AggregationService', () => {
       });
 
       it('purge à chaque job les lignes de l\'espace écrites sous une intégration non mappée (3 tables)', async () => {
-        await service.executeProcessEvents(makeBullJob());
+        await aggregationService.executeProcessEvents(makeBullJob());
         const foreignWhere = { tenantId: TENANT, spaceId: SPACE, integrationId: { notIn: [INT_ID] } };
         expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({ where: foreignWhere });
         expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({ where: foreignWhere });
@@ -442,7 +450,7 @@ describe('AggregationService', () => {
       });
 
       it('le rollup Event.revenue ne somme que les intégrations mappées à l\'espace', async () => {
-        await service.executeProcessEvents(makeBullJob());
+        await aggregationService.executeProcessEvents(makeBullJob());
         expect(mockPrisma.spaceRevenueMinuteAgg.aggregate).toHaveBeenCalledWith(expect.objectContaining({
           where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1, integrationId: { in: [INT_ID] } },
         }));
@@ -450,7 +458,7 @@ describe('AggregationService', () => {
 
       it('espace sans aucune intégration mappée : aucune purge, et un event en mode range sans integrationId de job est refusé (pas d\'agrégation tenant-wide)', async () => {
         mockPrisma.locationSpaceMapping.findMany.mockResolvedValue([]);
-        const result = await service.executeProcessEvents(makeBullJob({ integrationId: undefined }));
+        const result = await aggregationService.executeProcessEvents(makeBullJob({ integrationId: undefined }));
 
         expect(result.results[0].status).toBe('error');
         expect(result.results[0].error).toMatch(/Aucune intégration mappée/);
@@ -461,7 +469,7 @@ describe('AggregationService', () => {
       it('espace sans mapping mais event lié à un SalesEvent (mode exact) : reste agrégé, sans clause d\'intégration (espaces historiques)', async () => {
         mockPrisma.locationSpaceMapping.findMany.mockResolvedValue([]);
         mockPrisma.event.findMany.mockResolvedValue([{ ...makeEvent(EVENT_1), weezeventEventId: 'wz-1' }]);
-        const result = await service.executeProcessEvents(makeBullJob({ integrationId: undefined }));
+        const result = await aggregationService.executeProcessEvents(makeBullJob({ integrationId: undefined }));
 
         expect(result.results[0].status).toBe('success');
         for (const call of insertCalls()) expect(sqlOf(call)).not.toContain('t."integrationId" =');
@@ -484,7 +492,7 @@ describe('AggregationService', () => {
       mockPrisma.salesTransaction.findMany.mockResolvedValue([tx]);
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       // itemsCount computed via SUM(ti."quantity")::int in $executeRaw SQL
       expect(mockPrisma.$executeRaw).toHaveBeenCalled();
@@ -493,7 +501,7 @@ describe('AggregationService', () => {
     it('revenue = sum(unitPrice * qty - reduction) sur les items (fix #7b)', async () => {
       // Revenue computed via SUM(ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) in SQL
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       expect(mockPrisma.$executeRaw).toHaveBeenCalled();
     });
@@ -504,7 +512,7 @@ describe('AggregationService', () => {
       mockPrisma.salesTransaction.findMany.mockResolvedValue([tx1, tx2]);
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       // SQL GROUP BY handles the grouping — 1 event → exactly 4 $executeRaw calls
       // (SpaceRevenueMinuteAgg, SpaceProductRevenueDailyAgg, SpaceRevenueMinuteItemAgg, SpaceBasketMinuteAgg)
@@ -518,7 +526,7 @@ describe('AggregationService', () => {
       mockPrisma.salesTransaction.findMany.mockResolvedValue([tx1, tx2]);
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       // SQL GROUP BY handles per-minute grouping — still 4 $executeRaw calls per event
       expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(4);
@@ -530,7 +538,7 @@ describe('AggregationService', () => {
       mockPrisma.salesTransaction.findMany.mockResolvedValue([tx]);
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       expect(mockPrisma.spaceRevenueMinuteAgg.upsert).not.toHaveBeenCalled();
     });
@@ -539,7 +547,7 @@ describe('AggregationService', () => {
       mockPrisma.locationShopMapping.findMany.mockResolvedValue([]); // aucun mapping
 
       const job = makeBullJob();
-      const result = await service.executeProcessEvents(job);
+      const result = await aggregationService.executeProcessEvents(job);
 
       // SQL JOIN filters unmapped locations — $executeRaw still runs (inserts 0 rows)
       expect(mockPrisma.$executeRaw).toHaveBeenCalled();
@@ -556,7 +564,7 @@ describe('AggregationService', () => {
       mockPrisma.event.findMany.mockResolvedValue([multiDayEvent]);
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       // Sans eventEndTime, la borne haute = minuit local (Europe/Paris) du jour suivant
       // eventEndDate — pas une arithmétique UTC naïve (May 13 00:00 Paris ≠ May 13 00:00 UTC).
@@ -573,12 +581,12 @@ describe('AggregationService', () => {
       mockPrisma.locationSpaceMapping.findFirst.mockResolvedValue({ spaceId: 'other-space' });
 
       const job = makeBullJob();
-      await expect(service.executeProcessEvents(job)).rejects.toThrow(/mapped to a different space/);
+      await expect(aggregationService.executeProcessEvents(job)).rejects.toThrow(/mapped to a different space/);
     });
 
     it('met à jour AggregationJobLog à "completed" en fin de traitement', async () => {
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       const lastUpdate = mockPrisma.aggregationJobLog.update.mock.calls.slice(-1)[0][0];
       expect(lastUpdate.data.status).toBe('completed');
@@ -586,7 +594,7 @@ describe('AggregationService', () => {
 
     it('met à jour la progression BullMQ (updateProgress)', async () => {
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       expect(job.updateProgress).toHaveBeenCalledWith(100);
     });
@@ -598,7 +606,7 @@ describe('AggregationService', () => {
       });
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       expect(mockPrisma.spaceRevenueMinuteAgg.aggregate).toHaveBeenCalledWith({
         // BUG-384-02 : scopé aux intégrations mappées à l'espace.
@@ -621,7 +629,7 @@ describe('AggregationService', () => {
       });
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       expect(mockPrisma.event.update).toHaveBeenCalledWith({
         where: { id: EVENT_1 },
@@ -638,7 +646,7 @@ describe('AggregationService', () => {
       });
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       expect(mockPrisma.event.update).toHaveBeenCalledWith({
         where: { id: EVENT_1 },
@@ -652,7 +660,7 @@ describe('AggregationService', () => {
       });
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       expect(mockPrisma.event.update).toHaveBeenCalledWith({
         where: { id: EVENT_1 },
@@ -667,7 +675,7 @@ describe('AggregationService', () => {
       });
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       expect(mockPrisma.event.update).toHaveBeenCalledWith({
         where: { id: EVENT_1 },
@@ -682,7 +690,7 @@ describe('AggregationService', () => {
       });
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       expect(mockPrisma.event.update).toHaveBeenCalledWith({
         where: { id: EVENT_1 },
@@ -694,7 +702,7 @@ describe('AggregationService', () => {
       mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1)]);
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       const metadataUpdates = mockPrisma.aggregationJobLog.update.mock.calls
         .map((c: any) => c[0]?.data?.metadata)
@@ -713,7 +721,7 @@ describe('AggregationService', () => {
         .mockRejectedValueOnce(new Error('boom'));
 
       const job = makeBullJob({ eventIds: [EVENT_1, EVENT_2] });
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       const completionCall = mockPrisma.aggregationJobLog.update.mock.calls.find(
         (c: any) => c[0]?.data?.status === 'completed',
@@ -729,7 +737,7 @@ describe('AggregationService', () => {
       mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1)]);
 
       const job = makeBullJob();
-      await service.executeProcessEvents(job);
+      await aggregationService.executeProcessEvents(job);
 
       const completionCall = mockPrisma.aggregationJobLog.update.mock.calls.find(
         (c: any) => c[0]?.data?.status === 'completed',
@@ -744,7 +752,7 @@ describe('AggregationService', () => {
       });
       mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1)]);
 
-      await service.executeProcessEvents(makeBullJob());
+      await aggregationService.executeProcessEvents(makeBullJob());
 
       const metadataUpdates = mockPrisma.aggregationJobLog.update.mock.calls
         .map((c: any) => c[0]?.data?.metadata)
@@ -763,7 +771,7 @@ describe('AggregationService', () => {
         ]);
 
         const job = makeBullJob();
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         expect(sqlArg.values).toContain(SALES_EVENT_ID);
@@ -789,7 +797,7 @@ describe('AggregationService', () => {
         ]);
 
         const job = makeBullJob();
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         // Mode container-range : tag du conteneur (égalité stricte), PAS la clause
@@ -812,7 +820,7 @@ describe('AggregationService', () => {
         ]);
 
         const job = makeBullJob();
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         const text = sqlArg.text ?? sqlArg.sql;
@@ -831,7 +839,7 @@ describe('AggregationService', () => {
         ]);
 
         const job = makeBullJob();
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         const text = sqlArg.text ?? sqlArg.sql;
@@ -849,7 +857,7 @@ describe('AggregationService', () => {
         // (PFC) — cas réel : liste "Couvertes" mixte, "Relancer" cliqué sur une ligne de
         // l'autre club depuis le mauvais wizard.
         const job = makeBullJob({ integrationId: 'integration-sfp' });
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         const text = sqlArg.text ?? sqlArg.sql;
@@ -877,7 +885,7 @@ describe('AggregationService', () => {
 
         // Job lancé depuis le wizard PFC alors que l'event traité est SFP.
         const job = makeBullJob({ integrationId: 'integration-pfc' });
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         const text = sqlArg.text ?? sqlArg.sql;
@@ -894,7 +902,7 @@ describe('AggregationService', () => {
         ]);
 
         const job = makeBullJob({ integrationId: 'integration-pfc' });
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         // Ni l'integrationId du job (PFC) ni celui de l'event (SFP) : purge totale sur ce
         // weezeventEventId, pour nettoyer aussi un résidu historique tagué PFC (ou autre) par
@@ -913,7 +921,7 @@ describe('AggregationService', () => {
         mockPrisma.event.findMany.mockResolvedValue([baseEvent]);
 
         const job = makeBullJob();
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         const dates = (sqlArg.values ?? []).filter((v: any) => v instanceof Date);
@@ -936,7 +944,7 @@ describe('AggregationService', () => {
         mockPrisma.event.findMany.mockResolvedValue([baseEvent]);
 
         const job = makeBullJob();
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         const dates = (sqlArg.values ?? []).filter((v: any) => v instanceof Date);
@@ -957,7 +965,7 @@ describe('AggregationService', () => {
         mockPrisma.event.findMany.mockResolvedValue([baseEvent]);
 
         const job = makeBullJob();
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         const dates = (sqlArg.values ?? []).filter((v: any) => v instanceof Date);
@@ -980,7 +988,7 @@ describe('AggregationService', () => {
         ]);
 
         const job = makeBullJob();
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         const text = sqlArg.text ?? sqlArg.sql;
@@ -1021,7 +1029,7 @@ describe('AggregationService', () => {
         ]);
 
         const job = makeBullJob({ eventIds: [EVENT_1, EVENT_2] });
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         // 2 events × 4 $executeRaw : le 1er bloc de chaque event porte SON conteneur
         // et jamais celui de l'autre — les fenêtres se recouvrent, le tag départage.
@@ -1052,7 +1060,7 @@ describe('AggregationService', () => {
         mockPrisma.event.findMany.mockResolvedValue([pfc, sfp]);
 
         const job = makeBullJob({ eventIds: [EVENT_1, EVENT_2] });
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const datesOf = (call: number) =>
           (mockPrisma.$executeRaw.mock.calls[call][0].values ?? []).filter((v: any) => v instanceof Date);
@@ -1073,7 +1081,7 @@ describe('AggregationService', () => {
         mockPrisma.event.findMany.mockResolvedValue([apresMidi, soir]);
 
         const job = makeBullJob({ eventIds: [EVENT_1, EVENT_2] });
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const datesOf = (call: number) =>
           (mockPrisma.$executeRaw.mock.calls[call][0].values ?? []).filter((v: any) => v instanceof Date);
@@ -1106,7 +1114,7 @@ describe('AggregationService', () => {
         );
 
         const job = makeBullJob({ eventIds: [EVENT_2] });
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const dates = (mockPrisma.$executeRaw.mock.calls[0][0].values ?? []).filter((v: any) => v instanceof Date);
         const pfcEnd = combineDayAndLocalTime(pfc.eventEndDate, '02:00', 'Europe/Paris')!;
@@ -1116,7 +1124,7 @@ describe('AggregationService', () => {
 
       it('BUG-328-02 : la fenêtre de repli (mode range) exclut toujours les transactions déjà liées à un event (t.eventId IS NULL)', async () => {
         const job = makeBullJob();
-        await service.executeProcessEvents(job);
+        await aggregationService.executeProcessEvents(job);
 
         const sqlArg = mockPrisma.$executeRaw.mock.calls[0][0];
         expect(sqlArg.text ?? sqlArg.sql).toEqual(expect.stringContaining('t."eventId" IS NULL'));
@@ -1165,7 +1173,7 @@ describe('AggregationService', () => {
     it('Incident Jean Bouin 2026-10-01 : aucune purge globale AVANT la reconstruction (seules les purges par event précèdent les INSERT)', async () => {
       queryRawRows();
       const job = makeBullJob({ type: 'synchronize', eventIds: undefined });
-      await service.executeSynchronize(job);
+      await aggregationService.executeSynchronize(job);
 
       const firstInsert = mockPrisma.$executeRaw.mock.invocationCallOrder[0];
       const deletesBeforeRebuild = mockPrisma.spaceRevenueMinuteAgg.deleteMany.mock.calls.filter(
@@ -1183,7 +1191,7 @@ describe('AggregationService', () => {
     it("balaie APRÈS la reconstruction les lignes non réécrites (updatedAt < début du run), scopé par l'intégration du job, sur les 4 tables", async () => {
       queryRawRows();
       const job = makeBullJob({ type: 'synchronize', eventIds: undefined });
-      await service.executeSynchronize(job);
+      await aggregationService.executeSynchronize(job);
 
       const sweep = { tenantId: TENANT, spaceId: SPACE, updatedAt: { lt: SYNC_NOW }, integrationId: INT_ID };
       expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenLastCalledWith({ where: sweep });
@@ -1200,7 +1208,7 @@ describe('AggregationService', () => {
       queryRawRows();
       const job = makeBullJob({ type: 'synchronize', eventIds: undefined, integrationId: undefined });
       mockPrisma.locationSpaceMapping.findMany.mockResolvedValue([{ salesLocationId: INT_ID }]);
-      await service.executeSynchronize(job);
+      await aggregationService.executeSynchronize(job);
 
       expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenLastCalledWith({
         where: { tenantId: TENANT, spaceId: SPACE, updatedAt: { lt: SYNC_NOW } },
@@ -1218,7 +1226,7 @@ describe('AggregationService', () => {
         return call === 5 ? Promise.reject(new Error('statement timeout')) : Promise.resolve(0);
       });
       const job = makeBullJob({ type: 'synchronize', eventIds: undefined });
-      await service.executeSynchronize(job);
+      await aggregationService.executeSynchronize(job);
 
       const keep = { OR: [{ weezeventEventId: null }, { weezeventEventId: { notIn: [EVENT_2] } }] };
       const base = { tenantId: TENANT, spaceId: SPACE, updatedAt: { lt: SYNC_NOW }, integrationId: INT_ID };
@@ -1239,7 +1247,7 @@ describe('AggregationService', () => {
         .mockResolvedValueOnce({}) // running (process-events)
         .mockRejectedValue(new Error('db down'));
       const job = makeBullJob({ type: 'synchronize', eventIds: undefined });
-      await expect(service.executeSynchronize(job)).rejects.toThrow();
+      await expect(aggregationService.executeSynchronize(job)).rejects.toThrow();
 
       // Seule la purge BUG-384-02 (intégrations étrangères, `notIn`) a pu passer, jamais le balayage.
       const sweeps = mockPrisma.spaceProductRevenueDailyAgg.deleteMany.mock.calls.filter(([a]: any) => a.where.updatedAt);
@@ -1254,7 +1262,7 @@ describe('AggregationService', () => {
       });
 
       const job = makeBullJob({ type: 'synchronize' });
-      const result = await service.executeSynchronize(job);
+      const result = await aggregationService.executeSynchronize(job);
 
       expect(result.summary.totalRevenue).toBeCloseTo(1234.56);
       expect(result.summary.totalTransactions).toBe(100);
@@ -1266,7 +1274,7 @@ describe('AggregationService', () => {
       const job = makeBullJob({ type: 'synchronize', eventIds: undefined });
       job.updateProgress.mockRejectedValue(new Error("OOM command not allowed when used memory > 'maxmemory'."));
 
-      const result = await service.executeSynchronize(job);
+      const result = await aggregationService.executeSynchronize(job);
 
       expect(result.processed).toBe(2);
       expect(mockPrisma.aggregationJobLog.update).toHaveBeenCalledWith(
@@ -1281,7 +1289,7 @@ describe('AggregationService', () => {
       mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(makeJob('completed'));
       mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(480);
 
-      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+      const result = await aggregationService.getJobProgress(TENANT, JOB_LOG_ID);
 
       expect(result.percentage).toBe(100);
       expect(result.status).toBe('completed');
@@ -1293,7 +1301,7 @@ describe('AggregationService', () => {
       mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(job);
       mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
 
-      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+      const result = await aggregationService.getJobProgress(TENANT, JOB_LOG_ID);
 
       expect(result.percentage).toBe(50); // 1/2 = 50%
       expect(result.current).toBe(1);
@@ -1302,7 +1310,7 @@ describe('AggregationService', () => {
 
     it('lance NotFoundException si jobId inconnu', async () => {
       mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(null);
-      await expect(service.getJobProgress(TENANT, 'bad-id')).rejects.toThrow(NotFoundException);
+      await expect(aggregationService.getJobProgress(TENANT, 'bad-id')).rejects.toThrow(NotFoundException);
     });
 
     it("BUG-375-02 : expose errorCount depuis metadata — un job completed avec des échecs individuels n'est pas un simple succès", async () => {
@@ -1312,7 +1320,7 @@ describe('AggregationService', () => {
       mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(job);
       mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(40);
 
-      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+      const result = await aggregationService.getJobProgress(TENANT, JOB_LOG_ID);
 
       expect(result.status).toBe('completed');
       expect(result.errorCount).toBe(1);
@@ -1323,7 +1331,7 @@ describe('AggregationService', () => {
       mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(makeJob('completed'));
       mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
 
-      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+      const result = await aggregationService.getJobProgress(TENANT, JOB_LOG_ID);
 
       expect(result.errorCount).toBe(0);
     });
@@ -1335,7 +1343,7 @@ describe('AggregationService', () => {
       mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(job);
       mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
 
-      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+      const result = await aggregationService.getJobProgress(TENANT, JOB_LOG_ID);
 
       expect(result.percentage).toBe(50); // (0 + 2/4) / 1 = 50%
       expect(result.phase).toContain('2/4');
@@ -1347,7 +1355,7 @@ describe('AggregationService', () => {
       mockPrisma.aggregationJobLog.findFirst.mockResolvedValue(job);
       mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
 
-      const result = await service.getJobProgress(TENANT, JOB_LOG_ID);
+      const result = await aggregationService.getJobProgress(TENANT, JOB_LOG_ID);
 
       expect(result.percentage).toBe(0);
       expect(result.phase).toBe('Initializing...');
@@ -1368,7 +1376,7 @@ describe('AggregationService', () => {
     });
 
     it('retourne eventId + eventName + data[]', async () => {
-      const result = await service.getEventMinuteChart(TENANT, SPACE, EVENT_1);
+      const result = await eventAggregateReadService.getEventMinuteChart(TENANT, SPACE, EVENT_1);
 
       expect(result.eventId).toBe(EVENT_1);
       expect(result.eventName).toBe(`Event ${EVENT_1}`);
@@ -1376,7 +1384,7 @@ describe('AggregationService', () => {
     });
 
     it('chaque point a minute + revenueHt + transactionsCount + itemsCount', async () => {
-      const result = await service.getEventMinuteChart(TENANT, SPACE, EVENT_1);
+      const result = await eventAggregateReadService.getEventMinuteChart(TENANT, SPACE, EVENT_1);
       const point = result.data[0];
 
       expect(point.minute).toEqual(MINUTE_1);
@@ -1387,17 +1395,17 @@ describe('AggregationService', () => {
 
     it('retourne data=[] si aucune donnée SpaceRevenueMinuteAgg', async () => {
       mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([]);
-      const result = await service.getEventMinuteChart(TENANT, SPACE, EVENT_1);
+      const result = await eventAggregateReadService.getEventMinuteChart(TENANT, SPACE, EVENT_1);
       expect(result.data).toHaveLength(0);
     });
 
     it('lance NotFoundException si event introuvable', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(null);
-      await expect(service.getEventMinuteChart(TENANT, SPACE, 'bad-event')).rejects.toThrow(NotFoundException);
+      await expect(eventAggregateReadService.getEventMinuteChart(TENANT, SPACE, 'bad-event')).rejects.toThrow(NotFoundException);
     });
 
     it('utilise groupBy sur spaceRevenueMinuteAgg (pas spaceRevenueDailyAgg)', async () => {
-      await service.getEventMinuteChart(TENANT, SPACE, EVENT_1);
+      await eventAggregateReadService.getEventMinuteChart(TENANT, SPACE, EVENT_1);
       expect(mockPrisma.spaceRevenueMinuteAgg.groupBy).toHaveBeenCalledTimes(1);
       // Confirmer le filtre weezeventEventId
       expect(mockPrisma.spaceRevenueMinuteAgg.groupBy).toHaveBeenCalledWith(
@@ -1413,7 +1421,7 @@ describe('AggregationService', () => {
       mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 0 });
       mockPrisma.aggregationJobLog.create.mockResolvedValue({ id: 'skip-job' });
 
-      const result = await service.skipEvent(TENANT, SPACE, EVENT_1);
+      const result = await aggregationService.skipEvent(TENANT, SPACE, EVENT_1);
 
       expect(result).toMatchObject({ eventId: EVENT_1, status: 'skipped', purgedDataPoints: 0 });
       expect(mockPrisma.aggregationJobLog.create).toHaveBeenCalledWith(
@@ -1426,7 +1434,7 @@ describe('AggregationService', () => {
       mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 42 });
       mockPrisma.aggregationJobLog.create.mockResolvedValue({ id: 'skip-job' });
 
-      const result = await service.skipEvent(TENANT, SPACE, EVENT_1);
+      const result = await aggregationService.skipEvent(TENANT, SPACE, EVENT_1);
 
       expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
         where: { tenantId: TENANT, spaceId: SPACE, weezeventEventId: EVENT_1 },
@@ -1436,7 +1444,7 @@ describe('AggregationService', () => {
 
     it('lance NotFoundException si event introuvable', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(null);
-      await expect(service.skipEvent(TENANT, SPACE, 'bad')).rejects.toThrow(NotFoundException);
+      await expect(aggregationService.skipEvent(TENANT, SPACE, 'bad')).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -1454,7 +1462,7 @@ describe('AggregationService', () => {
     it('scope hasMappings par intégration via MappingsService (pas tenant-wide)', async () => {
       mockMappingsService.hasShopMappingForIntegration.mockResolvedValue(true);
 
-      const result = await service.getStep4Context(TENANT, SPACE, INT_ID);
+      const result = await aggregationStatusService.getStep4Context(TENANT, SPACE, INT_ID);
 
       expect(mockMappingsService.hasShopMappingForIntegration).toHaveBeenCalledWith(TENANT, INT_ID);
       expect(mockPrisma.locationShopMapping.count).not.toHaveBeenCalled();
@@ -1464,7 +1472,7 @@ describe('AggregationService', () => {
     it('retombe sur un count tenant-wide si integrationId absent (legacy)', async () => {
       mockPrisma.locationShopMapping.count.mockResolvedValue(3);
 
-      const result = await service.getStep4Context(TENANT, SPACE);
+      const result = await aggregationStatusService.getStep4Context(TENANT, SPACE);
 
       expect(mockMappingsService.hasShopMappingForIntegration).not.toHaveBeenCalled();
       expect(mockPrisma.locationShopMapping.count).toHaveBeenCalledWith({ where: { tenantId: TENANT } });
@@ -1477,7 +1485,7 @@ describe('AggregationService', () => {
     it('updateMany avec status="failed" seulement si pas déjà completed', async () => {
       mockPrisma.aggregationJobLog.updateMany.mockResolvedValue({ count: 1 });
 
-      await service.markJobLogFailed(JOB_LOG_ID, 'timeout error');
+      await aggregationService.markJobLogFailed(JOB_LOG_ID, 'timeout error');
 
       expect(mockPrisma.aggregationJobLog.updateMany).toHaveBeenCalledWith({
         where: { id: JOB_LOG_ID, status: { not: 'completed' } },

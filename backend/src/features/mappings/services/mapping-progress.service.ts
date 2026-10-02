@@ -22,7 +22,7 @@ export class MappingProgressService {
    * salesLocationId, cf. BUG-017) est-il mappé à un SpaceElement ?
    *
    * Source unique utilisée par getIntegrationProgress, getAllIntegrationProgress (step2) et
-   * AggregationService.getStep4Context (hasMappings) — BUG-017/BUG-029 corrigés ensemble : ces 3
+   * AggregationStatusService.getStep4Context (hasMappings) — BUG-017/BUG-029 corrigés ensemble : ces 3
    * endroits réimplémentaient chacun leur propre logique de calcul, avec des définitions
    * divergentes (l'une comptait par merchantId en filtrant le mauvais champ, l'autre par location
    * cuid uniquement, la troisième ignorait complètement le scoping par intégration).
@@ -83,7 +83,7 @@ export class MappingProgressService {
 
     if (locationMapping) {
       // Step 2 (BUG-017 corrigé) : source unique partagée avec getAllIntegrationProgress et
-      // AggregationService.getStep4Context — auparavant cette route comptait les mappings par
+      // AggregationStatusService.getStep4Context — auparavant cette route comptait les mappings par
       // merchantId en filtrant WeezeventTransaction.locationId (mauvais espace d'id : ce champ
       // contient un cuid WeezeventLocation, pas l'integrationId reçu ici), donnant quasi toujours
       // step2=false. hasShopMappingForIntegration couvre les deux conventions réelles (location
