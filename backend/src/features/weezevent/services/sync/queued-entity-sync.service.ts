@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent-client.service';
 import { SyncResult } from '../weezevent-sync.service';
+import { QueuedEntityRow, QueuedEntityTable, upsertQueuedEntities } from './queued-entity.queries';
 
 /**
  * WeezeventQueuedEntitySyncService
@@ -133,46 +134,26 @@ export class WeezeventQueuedEntitySyncService {
             let hasMore = true;
 
             while (hasMore) {
+                // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent, une page après l'autre
                 const response = await this.weezeventClient.getOrders(
                     tenantId, integrationId, organizationId, eventId, { page, perPage: 100 },
                 );
 
-                for (const apiOrder of response.data) {
-                    try {
-                        const weezeventId = apiOrder.id.toString();
-                        const existing = await this.prisma.weezeventOrder.findUnique({
-                            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
-                        });
-
-                        await this.prisma.weezeventOrder.upsert({
-                            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
-                            create: {
-                                weezeventId, tenantId, integrationId,
-                                eventId, eventName: apiOrder.event_name || null,
-                                userId: apiOrder.user_id?.toString() || null,
-                                userEmail: apiOrder.user_email || null,
-                                status: apiOrder.status || 'unknown',
-                                totalAmount: apiOrder.total_amount || 0,
-                                orderDate: apiOrder.order_date ? new Date(apiOrder.order_date) : new Date(),
-                                paymentMethod: apiOrder.payment_method || null,
-                                metadata: apiOrder.metadata || null,
-                                rawData: apiOrder, syncedAt: new Date(),
-                            },
-                            update: {
-                                status: apiOrder.status || 'unknown',
-                                totalAmount: apiOrder.total_amount || 0,
-                                rawData: apiOrder, syncedAt: new Date(),
-                            },
-                        });
-
-                        result.itemsSynced++;
-                        if (existing) result.itemsUpdated++;
-                        else result.itemsCreated++;
-                    } catch (error) {
-                        this.logger.error(`Failed to sync order ${apiOrder.id}`, error);
-                        result.errors++;
-                    }
-                }
+                // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent, une page après l'autre
+                await this.writePage('WeezeventOrder', tenantId, integrationId, response.data.map((apiOrder: any) => ({
+                    weezeventId: apiOrder.id.toString(),
+                    values: {
+                        eventId, eventName: apiOrder.event_name || null,
+                        userId: apiOrder.user_id?.toString() || null,
+                        userEmail: apiOrder.user_email || null,
+                        status: apiOrder.status || 'unknown',
+                        totalAmount: apiOrder.total_amount || 0,
+                        orderDate: apiOrder.order_date ? new Date(apiOrder.order_date) : new Date(),
+                        paymentMethod: apiOrder.payment_method || null,
+                        metadata: apiOrder.metadata || null,
+                        rawData: apiOrder,
+                    },
+                })), result, 'order');
 
                 hasMore = page < response.meta.total_pages;
                 page++;
@@ -212,44 +193,21 @@ export class WeezeventQueuedEntitySyncService {
                 tenantId, integrationId, organizationId, eventId, { perPage: 100 },
             );
 
-            for (const apiPrice of response.data) {
-                try {
-                    const weezeventId = apiPrice.id.toString();
-                    const existing = await this.prisma.weezeventPrice.findUnique({
-                        where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
-                    });
-
-                    await this.prisma.weezeventPrice.upsert({
-                        where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
-                        create: {
-                            weezeventId, tenantId, integrationId,
-                            eventId: eventId || apiPrice.event_id?.toString() || null,
-                            productId: apiPrice.product_id?.toString() || null,
-                            name: apiPrice.name || 'Unnamed Price',
-                            amount: apiPrice.amount || 0,
-                            currency: apiPrice.currency || 'EUR',
-                            validFrom: apiPrice.valid_from ? new Date(apiPrice.valid_from) : null,
-                            validUntil: apiPrice.valid_until ? new Date(apiPrice.valid_until) : null,
-                            priceType: apiPrice.price_type || null,
-                            metadata: apiPrice.metadata || null,
-                            rawData: apiPrice, syncedAt: new Date(),
-                        },
-                        update: {
-                            amount: apiPrice.amount || 0,
-                            validFrom: apiPrice.valid_from ? new Date(apiPrice.valid_from) : null,
-                            validUntil: apiPrice.valid_until ? new Date(apiPrice.valid_until) : null,
-                            rawData: apiPrice, syncedAt: new Date(),
-                        },
-                    });
-
-                    result.itemsSynced++;
-                    if (existing) result.itemsUpdated++;
-                    else result.itemsCreated++;
-                } catch (error) {
-                    this.logger.error(`Failed to sync price ${apiPrice.id}`, error);
-                    result.errors++;
-                }
-            }
+            await this.writePage('WeezeventPrice', tenantId, integrationId, response.data.map((apiPrice: any) => ({
+                weezeventId: apiPrice.id.toString(),
+                values: {
+                    eventId: eventId || apiPrice.event_id?.toString() || null,
+                    productId: apiPrice.product_id?.toString() || null,
+                    name: apiPrice.name || 'Unnamed Price',
+                    amount: apiPrice.amount || 0,
+                    currency: apiPrice.currency || 'EUR',
+                    validFrom: apiPrice.valid_from ? new Date(apiPrice.valid_from) : null,
+                    validUntil: apiPrice.valid_until ? new Date(apiPrice.valid_until) : null,
+                    priceType: apiPrice.price_type || null,
+                    metadata: apiPrice.metadata || null,
+                    rawData: apiPrice,
+                },
+            })), result, 'price');
 
             result.success = result.errors === 0;
             result.duration = Date.now() - startTime;
@@ -285,44 +243,25 @@ export class WeezeventQueuedEntitySyncService {
             let hasMore = true;
 
             while (hasMore) {
+                // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent, une page après l'autre
                 const response = await this.weezeventClient.getAttendees(
                     tenantId, integrationId, organizationId, eventId, { page, perPage: 100 },
                 );
 
-                for (const apiAttendee of response.data) {
-                    try {
-                        const weezeventId = apiAttendee.id.toString();
-                        const existing = await this.prisma.weezeventAttendee.findUnique({
-                            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
-                        });
-
-                        await this.prisma.weezeventAttendee.upsert({
-                            where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId } },
-                            create: {
-                                weezeventId, tenantId, integrationId,
-                                eventId, eventName: apiAttendee.event_name || null,
-                                email: apiAttendee.email || null,
-                                firstName: apiAttendee.first_name || null,
-                                lastName: apiAttendee.last_name || null,
-                                ticketType: apiAttendee.ticket_type || null,
-                                status: apiAttendee.status || 'unknown',
-                                metadata: apiAttendee.metadata || null,
-                                rawData: apiAttendee, syncedAt: new Date(),
-                            },
-                            update: {
-                                status: apiAttendee.status || 'unknown',
-                                rawData: apiAttendee, syncedAt: new Date(),
-                            },
-                        });
-
-                        result.itemsSynced++;
-                        if (existing) result.itemsUpdated++;
-                        else result.itemsCreated++;
-                    } catch (error) {
-                        this.logger.error(`Failed to sync attendee ${apiAttendee.id}`, error);
-                        result.errors++;
-                    }
-                }
+                // eslint-disable-next-line no-await-in-loop -- pagination de l'API Weezevent, une page après l'autre
+                await this.writePage('WeezeventAttendee', tenantId, integrationId, response.data.map((apiAttendee: any) => ({
+                    weezeventId: apiAttendee.id.toString(),
+                    values: {
+                        eventId, eventName: apiAttendee.event_name || null,
+                        email: apiAttendee.email || null,
+                        firstName: apiAttendee.first_name || null,
+                        lastName: apiAttendee.last_name || null,
+                        ticketType: apiAttendee.ticket_type || null,
+                        status: apiAttendee.status || 'unknown',
+                        metadata: apiAttendee.metadata || null,
+                        rawData: apiAttendee,
+                    },
+                })), result, 'attendee');
 
                 hasMore = page < response.meta.total_pages;
                 page++;
@@ -337,6 +276,41 @@ export class WeezeventQueuedEntitySyncService {
             result.success = false;
             result.duration = Date.now() - startTime;
             throw error;
+        }
+    }
+
+    /**
+     * Écrit une page de l'API en une requête groupée. Si le lot échoue (une ligne invalide),
+     * on repasse ligne par ligne pour n'écarter que la ligne fautive, comme avant le passage
+     * en lot, et la compter en erreur.
+     */
+    private async writePage(
+        table: QueuedEntityTable,
+        tenantId: string,
+        integrationId: string,
+        rows: QueuedEntityRow[],
+        result: SyncResult,
+        label: string,
+    ): Promise<void> {
+        const apply = (counts: { created: number; updated: number }) => {
+            result.itemsCreated += counts.created;
+            result.itemsUpdated += counts.updated;
+            result.itemsSynced += counts.created + counts.updated;
+        };
+        try {
+            apply(await upsertQueuedEntities(this.prisma, table, tenantId, integrationId, rows));
+            return;
+        } catch (error) {
+            this.logger.warn(`Lot de ${rows.length} ${label}(s) en échec, reprise ligne par ligne : ${(error as Error).message}`);
+        }
+        for (const row of rows) {
+            try {
+                // eslint-disable-next-line no-await-in-loop -- reprise après échec du lot : isole la ligne fautive
+                apply(await upsertQueuedEntities(this.prisma, table, tenantId, integrationId, [row]));
+            } catch (error) {
+                this.logger.error(`Failed to sync ${label} ${row.weezeventId}`, error);
+                result.errors++;
+            }
         }
     }
 }
