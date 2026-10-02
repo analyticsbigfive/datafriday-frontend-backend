@@ -1,4 +1,4 @@
-import { MenuComponentsService } from './menu-components.service';
+import { createMenuComponentsServices } from './services/menu-components-services.testing';
 
 describe('MenuComponentsService computeComponentUnitCost', () => {
   const mockPrisma = {
@@ -11,11 +11,10 @@ describe('MenuComponentsService computeComponentUnitCost', () => {
   } as any;
 
   const mockRedis = {} as any;
-
-  let service: MenuComponentsService;
+  let menuComponentCostService: any;
 
   beforeEach(() => {
-    service = new MenuComponentsService(mockPrisma, mockRedis, {} as any, { resolveImage: async (v: any) => v } as any);
+    ({ menuComponentCostService } = createMenuComponentsServices({ prisma: mockPrisma, redis: mockRedis }));
     jest.clearAllMocks();
   });
 
@@ -29,7 +28,7 @@ describe('MenuComponentsService computeComponentUnitCost', () => {
       children: [],
     });
 
-    const unitCost = await (service as any).computeComponentUnitCost('comp-1', 'tenant-1');
+    const unitCost = await (menuComponentCostService as any).computeComponentUnitCost('comp-1', 'tenant-1');
 
     expect(unitCost).toBe(1); // 20 / 20
   });
@@ -42,7 +41,7 @@ describe('MenuComponentsService computeComponentUnitCost', () => {
       children: [],
     });
 
-    const unitCost = await (service as any).computeComponentUnitCost('comp-2', 'tenant-1');
+    const unitCost = await (menuComponentCostService as any).computeComponentUnitCost('comp-2', 'tenant-1');
 
     expect(unitCost).toBe(20); // unchanged, divided by 1
 
@@ -53,7 +52,7 @@ describe('MenuComponentsService computeComponentUnitCost', () => {
       children: [],
     });
 
-    const unitCostZero = await (service as any).computeComponentUnitCost('comp-3', 'tenant-1');
+    const unitCostZero = await (menuComponentCostService as any).computeComponentUnitCost('comp-3', 'tenant-1');
 
     expect(unitCostZero).toBe(20);
   });
@@ -63,7 +62,9 @@ describe('MenuComponentsService.create : purge du cache liste', () => {
   const created = { id: 'mc-new', name: 'Sauce maison' };
   let prisma: any;
   let redis: any;
-  let service: MenuComponentsService;
+  let menuComponentValidationService: any;
+  let menuComponentCostService: any;
+  let menuComponentsService: any;
 
   beforeEach(() => {
     prisma = {
@@ -73,28 +74,28 @@ describe('MenuComponentsService.create : purge du cache liste', () => {
       },
     };
     redis = { deletePattern: jest.fn().mockResolvedValue(1) };
-    service = new MenuComponentsService(prisma, redis, {} as any, { resolveImage: async (v: any) => v } as any);
+    ({ menuComponentValidationService, menuComponentCostService, menuComponentsService } = createMenuComponentsServices({ prisma, redis }));
     // Validations de références et recalcul des coûts hors sujet ici.
-    jest.spyOn(service as any, 'assertIngredientsExist').mockResolvedValue(undefined);
-    jest.spyOn(service as any, 'assertChildrenExist').mockResolvedValue(undefined);
-    jest.spyOn(service as any, 'assertComponentTypeAccessible').mockResolvedValue(undefined);
-    jest.spyOn(service as any, 'assertComponentCategoryAccessible').mockResolvedValue(undefined);
-    jest.spyOn(service, 'refreshCosts').mockResolvedValue(undefined as any);
+    jest.spyOn(menuComponentValidationService as any, 'assertIngredientsExist').mockResolvedValue(undefined);
+    jest.spyOn(menuComponentValidationService as any, 'assertChildrenExist').mockResolvedValue(undefined);
+    jest.spyOn(menuComponentValidationService as any, 'assertComponentTypeAccessible').mockResolvedValue(undefined);
+    jest.spyOn(menuComponentValidationService as any, 'assertComponentCategoryAccessible').mockResolvedValue(undefined);
+    jest.spyOn(menuComponentCostService, 'refreshCosts').mockResolvedValue(undefined as any);
   });
 
   // Bug liste Composants (2026-09-24) : créé avec des ingrédients, le composant sortait par le
   // retour anticipé sans purger le cache `findAll` (TTL 1 h) et restait absent de la liste.
   it('purge le cache quand le composant est créé avec des ingrédients', async () => {
-    await service.create(
+    await menuComponentsService.create(
       { name: 'Sauce maison', ingredients: [{ ingredientId: 'ing-1', quantity: 2, unit: 'g' }] } as any,
       'tenant-1',
     );
-    expect(service.refreshCosts).toHaveBeenCalled();
+    expect(menuComponentCostService.refreshCosts).toHaveBeenCalled();
     expect(redis.deletePattern).toHaveBeenCalledWith('menu-components:tenant-1:*');
   });
 
   it('purge le cache quand le composant est créé sans ligne', async () => {
-    await service.create({ name: 'Sauce maison' } as any, 'tenant-1');
+    await menuComponentsService.create({ name: 'Sauce maison' } as any, 'tenant-1');
     expect(redis.deletePattern).toHaveBeenCalledWith('menu-components:tenant-1:*');
   });
 });

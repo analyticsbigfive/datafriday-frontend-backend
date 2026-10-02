@@ -22,6 +22,7 @@ import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorat
 import { ValidationErrorEnricherInterceptor } from './interceptors/validation-error-enricher.interceptor';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { MenuComponentsFindAllQueryDto } from './dto/menu-components.query.dto';
+import { MenuComponentCostService } from './services/menu-component-cost.service';
 
 @ApiTags('Menu Components')
 @ApiBearerAuth('supabase-jwt')
@@ -30,7 +31,8 @@ import { MenuComponentsFindAllQueryDto } from './dto/menu-components.query.dto';
 export class MenuComponentsController {
   private readonly logger = new Logger(MenuComponentsController.name);
 
-  constructor(private readonly menuComponentsService: MenuComponentsService) {}
+  constructor(private readonly menuComponentCostService: MenuComponentCostService,
+    private readonly menuComponentsService: MenuComponentsService) {}
 
   @RequirePermissions('menu.fb.components')
   @Post()
@@ -61,7 +63,7 @@ export class MenuComponentsController {
   @ApiResponse({ status: 200, description: 'Coûts recalculés' })
   refreshCosts(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /menu-components/refresh-costs - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuComponentsService.refreshCosts(tenantId);
+    return this.menuComponentCostService.refreshCosts(tenantId);
   }
 
   @Get()

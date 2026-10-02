@@ -18,7 +18,7 @@ export class MenuItemCostService {
    * Calcule récursivement le coût total d'un MenuItem en tenant compte de sa propre recette
    * (components/ingredients/packagings, coût déjà résolu par ailleurs) PLUS sa composition combo
    * (comboChildren → autres MenuItem vendables). Garde anti-cycle a posteriori (pile de
-   * `parentId` traversés), même principe que `MenuComponentsService.computeComponentUnitCost` —
+   * `parentId` traversés), même principe que `MenuComponentCostService.computeComponentUnitCost` —
    * un cycle A→B→A lève une BadRequestException plutôt que de boucler indéfiniment.
    */
   private async computeMenuItemComboCost(itemId: string, tenantId: string, stack: string[] = []): Promise<number> {
