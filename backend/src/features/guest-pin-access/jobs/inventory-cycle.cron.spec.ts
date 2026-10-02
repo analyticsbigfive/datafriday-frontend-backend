@@ -61,7 +61,7 @@ describe('InventoryCycleCronService', () => {
     spaces = {
       firstValidSaleByElementSince: jest.fn().mockResolvedValue(new Map()),
     };
-    service = new InventoryCycleCronService(prisma, guestPin, spaces, passthroughTenantContext());
+    service = new InventoryCycleCronService(prisma, guestPin, guestPin, spaces, passthroughTenantContext());
   });
 
   const postWindow = { id: 'win-post', tenantId: 'tenant-1', spaceId: 'space-1', eventId: 'event-n', phase: 'post-event', status: 'open' };

@@ -8,7 +8,9 @@ import { StockMovementService } from '../logistics/services/stock-movement.servi
 import { VentilationDepositsService, normalizeItemName } from '../logistics/ventilation-deposits.service';
 import { generateSlug } from '../../shared/utils';
 import { isEventOver } from '../../shared/utils/event-window.util';
-import { GuestLoginResult, GuestPinAccessService } from './guest-pin-access.service';
+import { GuestLoginResult, GuestPinSessionService } from './services/guest-pin-session.service';
+import { GuestPinWindowService } from './services/guest-pin-window.service';
+import { GuestPinCredentialService } from './services/guest-pin-credential.service';
 import { VENTILATION_PHASE } from './inventory-window-period';
 import { GuestVentilationDepositDto, VentilationTargetDto } from './dto/ventilation.dto';
 import type { GuestPinUser } from '../../core/auth/strategies/jwt-guest-pin.strategy';
@@ -60,7 +62,9 @@ export class VentilationAccessService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly guestPin: GuestPinAccessService,
+    private readonly guestPinSessionService: GuestPinSessionService,
+    private readonly guestPinWindowService: GuestPinWindowService,
+    private readonly guestPinCredentialService: GuestPinCredentialService,
     private readonly stockMovementService: StockMovementService,
     private readonly deposits: VentilationDepositsService,
     private readonly spaceAccess: SpaceAccessService,
@@ -104,7 +108,7 @@ export class VentilationAccessService {
       where: { tenantId, spaceId: dto.spaceId, phase: VENTILATION_PHASE, status: 'open', eventId: { not: dto.eventId } },
     });
     for (const w of stale) {
-      await this.guestPin.closeWindowRecord(w, user.id, { pushToLogistic: false, reason: 'superseded' });
+      await this.guestPinWindowService.closeWindowRecord(w, user.id, { pushToLogistic: false, reason: 'superseded' });
     }
 
     const window = await this.prisma.inventoryWindow.upsert({
@@ -119,7 +123,7 @@ export class VentilationAccessService {
       where: { windowId: window.id, status: 'revoked' },
       data: { status: 'active', revokedAt: null, revokedBy: null },
     });
-    await this.guestPin.ensureWindowPin(window, user.id);
+    await this.guestPinWindowService.ensureWindowPin(window, user.id);
     const slug = await this.ensureSpaceSlug(dto.spaceId, tenantId);
     const fresh = await this.findWindow(tenantId, dto.spaceId, dto.eventId);
     return this.statusView(slug, fresh);
@@ -129,7 +133,7 @@ export class VentilationAccessService {
     await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
     const window = await this.findWindow(user.tenantId!, dto.spaceId, dto.eventId);
     if (window?.status === 'open') {
-      await this.guestPin.closeWindowRecord(window, user.id, { pushToLogistic: false, reason: 'manual-stop' });
+      await this.guestPinWindowService.closeWindowRecord(window, user.id, { pushToLogistic: false, reason: 'manual-stop' });
     }
     return this.getStatus(dto.spaceId, dto.eventId, user);
   }
@@ -140,7 +144,7 @@ export class VentilationAccessService {
     if (!window || window.status !== 'open') {
       throw new BadRequestException("L'accès ventilation est arrêté : démarrez-le avant de changer le PIN.");
     }
-    await this.guestPin.regenerateWindowPin(window.id, window.tenantId, user.id);
+    await this.guestPinWindowService.regenerateWindowPin(window.id, window.tenantId, user.id);
     return this.getStatus(dto.spaceId, dto.eventId, user);
   }
 
@@ -166,14 +170,14 @@ export class VentilationAccessService {
     deviceId: string | undefined,
     ip: string,
   ): Promise<GuestLoginResult> {
-    const retryAfter = await this.guestPin.pinLoginRetryAfter(ip);
+    const retryAfter = await this.guestPinSessionService.pinLoginRetryAfter(ip);
     if (retryAfter != null) return { state: 'locked', retryAfter };
     // Rien d'ouvert : même écran « Accès inactif », aucun PIN comparé, rien à compter.
     if (!(await this.openWindowWithPin(space.id))) return { state: 'inactive' };
 
-    const window = await this.guestPin.findWindowByPin(space.id, pin, VENTILATION_PHASE);
+    const window = await this.guestPinSessionService.findWindowByPin(space.id, pin, VENTILATION_PHASE);
     if (!window) {
-      return { state: 'not_found', attemptsRemaining: await this.guestPin.recordPinLoginFailure(ip) };
+      return { state: 'not_found', attemptsRemaining: await this.guestPinSessionService.recordPinLoginFailure(ip) };
     }
     if (window.status !== 'open') return { state: 'inactive' };
 
@@ -184,7 +188,7 @@ export class VentilationAccessService {
     });
     if (access.status !== 'active') return { state: 'inactive' };
 
-    const token = await this.guestPin.issueGuestToken(access.id, deviceId);
+    const token = await this.guestPinSessionService.issueGuestToken(access.id, deviceId);
     return {
       state: 'ok',
       token,
@@ -323,7 +327,7 @@ export class VentilationAccessService {
             id: window.id,
             eventId: window.eventId,
             status: window.status,
-            pin: window.status === 'open' ? this.guestPin.readWindowPin(window) : null,
+            pin: window.status === 'open' ? this.guestPinCredentialService.readWindowPin(window) : null,
             pinSetAt: window.pinSetAt,
             openedAt: window.openedAt,
             closedAt: window.closedAt,

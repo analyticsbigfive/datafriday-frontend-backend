@@ -4,7 +4,8 @@ import type { InventoryWindow } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { TenantContextService } from '../../../core/tenant/tenant-context.service';
 import { SpaceShopsService } from '../../spaces/services/space-shops.service';
-import { GuestPinAccessService } from '../guest-pin-access.service';
+import { GuestPinWindowService } from '../services/guest-pin-window.service';
+import { GuestPinPhaseService } from '../services/guest-pin-phase.service';
 import { PRE_SALE_STOP_ACTOR, preSaleStopKey } from '../pre-sale-stop';
 import {
   isEventOver,
@@ -58,7 +59,8 @@ export class InventoryCycleCronService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly guestPin: GuestPinAccessService,
+    private readonly guestPinWindowService: GuestPinWindowService,
+    private readonly guestPinPhaseService: GuestPinPhaseService,
     private readonly spaces: SpaceShopsService,
     private readonly tenantContext: TenantContextService,
   ) {}
@@ -109,7 +111,7 @@ export class InventoryCycleCronService {
     for (const event of events) {
       if (isEventOver(event, this.tz(event), now)) continue;
       for (const phase of ['pre-event', 'post-event'] as const) {
-        const result = await this.guestPin.prepareWindow(
+        const result = await this.guestPinWindowService.prepareWindow(
           { spaceId: event.spaceId, eventId: event.id, phase },
           event.tenantId,
           InventoryCycleCronService.ACTOR,
@@ -139,7 +141,7 @@ export class InventoryCycleCronService {
       if (!startAt || startAt > now || now.getTime() - startAt.getTime() > POST_AUTOSTART_CATCHUP_MS) continue;
       const claimed = await this.claim(event.tenantId, `inventory-cycle:post-start:${event.spaceId}:${event.id}`, now);
       if (!claimed) continue;
-      await this.guestPin.startPhase(
+      await this.guestPinPhaseService.startPhase(
         { spaceId: event.spaceId, eventId: event.id, phase: 'post-event' },
         event.tenantId,
         InventoryCycleCronService.ACTOR,
@@ -176,7 +178,7 @@ export class InventoryCycleCronService {
       const next = await this.nextEvent(window, now);
       if (next) {
         // Démarrer le pre-event arrête le post-event (startPhase → stopOtherPhase).
-        await this.guestPin.startPhase(
+        await this.guestPinPhaseService.startPhase(
           { spaceId: window.spaceId, eventId: next.id, phase: 'pre-event' },
           window.tenantId,
           InventoryCycleCronService.ACTOR,
@@ -184,7 +186,7 @@ export class InventoryCycleCronService {
       }
       // Toujours arrêter explicitement : sans event suivant, ou PDV rouverts un par un.
       const fresh = await this.prisma.inventoryWindow.findUnique({ where: { id: window.id } });
-      if (fresh) await this.guestPin.stopPhaseWindow(fresh, InventoryCycleCronService.ACTOR, 'delivery');
+      if (fresh) await this.guestPinPhaseService.stopPhaseWindow(fresh, InventoryCycleCronService.ACTOR, 'delivery');
       stopped++;
     }
     return stopped;
@@ -217,7 +219,7 @@ export class InventoryCycleCronService {
         const reachable = status ? status === 'active' : window.status === 'open';
         if (!reachable) continue;
         if (!(await this.claim(window.tenantId, preSaleStopKey(window.id, elementId), now))) continue;
-        await this.guestPin.stopPreElement(window, elementId, PRE_SALE_STOP_ACTOR);
+        await this.guestPinPhaseService.stopPreElement(window, elementId, PRE_SALE_STOP_ACTOR);
         stopped++;
       }
     }

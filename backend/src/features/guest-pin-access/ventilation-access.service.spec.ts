@@ -43,7 +43,7 @@ describe('VentilationAccessService', () => {
       resolveElementItemKey: jest.fn().mockResolvedValue('Coca-Cola CAN 33cl'),
       cancel: jest.fn().mockResolvedValue({}),
     };
-    service = new VentilationAccessService(prisma, guestPin, logistics, deposits, {
+    service = new VentilationAccessService(prisma, guestPin, guestPin, guestPin, logistics, deposits, {
       assertCanAccessSpace: jest.fn(),
     } as any);
   });

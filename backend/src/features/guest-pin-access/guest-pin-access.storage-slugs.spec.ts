@@ -1,9 +1,10 @@
-import { GuestPinAccessService } from './guest-pin-access.service';
+import { createGuestPinAccessServices } from './services/guest-pin-access-services.testing';
+import { GuestPinWindowService } from './services/guest-pin-window.service';
 
-describe('GuestPinAccessService.getStorageSlugs (QR code des espaces de stockage)', () => {
+describe('GuestPinWindowService.getStorageSlugs (QR code des espaces de stockage)', () => {
     const user = { tenantId: 'tenant-1' } as any;
     let prisma: any;
-    let service: GuestPinAccessService;
+    let service: GuestPinWindowService;
 
     beforeEach(() => {
         prisma = {
@@ -14,14 +15,8 @@ describe('GuestPinAccessService.getStorageSlugs (QR code des espaces de stockage
                 ]),
             },
         };
-        service = new GuestPinAccessService(
-            prisma, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
-            {} as any,
-      {} as any, // postEventDraft
-            {} as any, // spaceMenus
-            {} as any, // storageTypes
-        );
-        (service as any).spaceAccess = { assertCanAccessSpace: jest.fn().mockResolvedValue(undefined) };
+        const spaceAccess = { assertCanAccessSpace: jest.fn().mockResolvedValue(undefined) };
+        ({ guestPinWindowService: service } = createGuestPinAccessServices({ prisma, spaceAccess }));
     });
 
     it("renvoie { elementId: slug } des seuls stockages de l'espace du tenant (v1 et Builder v2)", async () => {

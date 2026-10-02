@@ -1,5 +1,6 @@
 import { createHmac } from 'crypto';
-import { GuestPinAccessService } from './guest-pin-access.service';
+import { createGuestPinAccessServices } from './services/guest-pin-access-services.testing';
+import { GuestPinSessionService } from './services/guest-pin-session.service';
 
 /**
  * Pre-event ET post-event ouverts en même temps sur le même espace (post-event
@@ -7,7 +8,7 @@ import { GuestPinAccessService } from './guest-pin-access.service';
  * qui désigne la fenêtre, pas "la première fenêtre ouverte trouvée". Avant ce
  * correctif, le PIN post-event était comparé au hash pre-event et rejeté.
  */
-describe('GuestPinAccessService : deux fenêtres ouvertes, le PIN désigne la fenêtre', () => {
+describe('GuestPinSessionService : deux fenêtres ouvertes, le PIN désigne la fenêtre', () => {
   const SECRET = 'test-secret';
   const hash = (pin: string) => createHmac('sha256', SECRET).update(pin).digest('hex');
   const preWindow = {
@@ -31,7 +32,7 @@ describe('GuestPinAccessService : deux fenêtres ouvertes, le PIN désigne la fe
 
   let prisma: any;
   let redis: any;
-  let service: GuestPinAccessService;
+  let service: GuestPinSessionService;
 
   beforeEach(() => {
     prisma = {
@@ -81,25 +82,7 @@ describe('GuestPinAccessService : deux fenêtres ouvertes, le PIN désigne la fe
       get: jest.fn().mockReturnValue(SECRET),
     };
     const jwt = { signAsync: jest.fn().mockResolvedValue('token') };
-    // Ordre du constructeur : prisma, redis, audit, inventoryService, preEventFlow,
-    // menuItems, marketPrices, menuComponents, spaceAccess, configService, jwt.
-    service = new GuestPinAccessService(
-      prisma,
-      redis,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      configService as any,
-      jwt as any,
-      {} as any, // postEventDraft
-      {} as any, // spaceMenus
-      {} as any, // storageTypes
-    );
+    ({ guestPinSessionService: service } = createGuestPinAccessServices({ prisma, redis, configService, jwt }));
   });
 
   it('le PIN post-event ouvre la fenêtre post-event même si le pre-event est encore ouvert', async () => {

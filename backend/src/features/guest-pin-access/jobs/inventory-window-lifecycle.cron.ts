@@ -1,10 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../../core/database/prisma.service';
-import { GuestPinAccessService } from '../guest-pin-access.service';
 import { VENTILATION_PHASE, inventoryWindowPeriod, inventoryWindowPeriodState } from '../inventory-window-period';
 import { revokeWindowAccesses } from '../../inventory/inventory-window-closure';
 import { TenantContextService } from '../../../core/tenant/tenant-context.service';
+import { GuestPinWindowService } from '../services/guest-pin-window.service';
 
 /**
  * Clôture automatique des fenêtres invité (PIN) PRE-EVENT à la fin réelle de l'event
@@ -30,7 +30,7 @@ export class InventoryWindowLifecycleCronService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly guestPin: GuestPinAccessService,
+    private readonly guestPinWindowService: GuestPinWindowService,
     private readonly tenantContext: TenantContextService,
   ) {}
 
@@ -90,7 +90,7 @@ export class InventoryWindowLifecycleCronService {
           continue;
         }
         const push = await this.tenantContext.runForTenant(window.tenantId, () =>
-          this.guestPin.closeWindowRecord(window, InventoryWindowLifecycleCronService.ACTOR, {
+          this.guestPinWindowService.closeWindowRecord(window, InventoryWindowLifecycleCronService.ACTOR, {
             pushToLogistic: false,
             reason: 'period-end',
           }),
