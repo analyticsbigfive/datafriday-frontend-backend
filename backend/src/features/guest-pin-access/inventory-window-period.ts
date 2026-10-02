@@ -21,11 +21,10 @@ export interface InventoryWindowPeriod {
  * Période pendant laquelle une fenêtre invité (PIN) peut exister, règle Ulrich 2026-09-28
  * (incident Stade Jean Bouin, SFP-Lyon 26/09) :
  *
- *  - pre-event : ouvrable et PIN générable à partir de minuit le jour du match (ou de la
- *    fin du match précédent s'il finit après minuit, cf. resolvePreEventStart, passé en
- *    `preEventStart` par l'appelant qui lit les events voisins) jusqu'à l'ouverture des
- *    portes, fermée à cet instant (règle Bertrand 2026-09-29). Sans heure d'ouverture des
- *    portes renseignée : jusqu'à la fin de l'event.
+ *  - pre-event : ouvrable et PIN générable à tout moment jusqu'à l'ouverture des portes,
+ *    fermée à cet instant (règle Bertrand 2026-09-29 ; plus d'attente de minuit le jour du
+ *    match depuis Ulrich 2026-10-02). Sans heure d'ouverture des portes renseignée :
+ *    jusqu'à la fin de l'event.
  *  - post-event : ouvrable dès l'ouverture des portes (sans heure renseignée : dès minuit
  *    local le jour du match), SANS fermeture automatique : c'est l'utilisateur qui clôture
  *    (« Update Logistic », qui ferme la fenêtre et pousse le comptage). Décision Ulrich
@@ -38,11 +37,10 @@ export function inventoryWindowPeriod(
   event: EventDayFields,
   phase: InventoryWindowPhase,
   timeZone: string,
-  preEventStart: Date | null = null,
 ): InventoryWindowPeriod {
   const tz = timeZone || 'Europe/Paris';
   if (phase === 'pre-event') {
-    return { opensAt: preEventStart, closesAt: resolvePreEventDeadline(event, tz) };
+    return { opensAt: null, closesAt: resolvePreEventDeadline(event, tz) };
   }
   const doorsOpenAt = resolveDoorsOpenAt(event, tz);
   const startDay = new Date((event.eventStartDate ?? event.eventDate) as any);
@@ -77,9 +75,7 @@ export function periodRefusalMessage(
 ): string {
   const label = phase === 'pre-event' ? "L'inventaire pré-événement" : "L'inventaire post-événement";
   if (state === 'not-yet' && period.opensAt) {
-    return phase === 'pre-event'
-      ? `${label} ouvre le jour du match (${formatLocal(period.opensAt, timeZone)}).`
-      : `${label} ouvre à l'ouverture des portes (${formatLocal(period.opensAt, timeZone)}).`;
+    return `${label} ouvre à l'ouverture des portes (${formatLocal(period.opensAt, timeZone)}).`;
   }
   // Seul le pre-event a une fin ('over') : le post-event n'est jamais fermé par la période.
   return period.closesAt

@@ -1,10 +1,9 @@
-import { ForbiddenException } from '@nestjs/common';
 import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
 
 /**
  * Règles Bertrand 2026-09-29 du Pre-event Inventory :
- *  - disponible depuis minuit le jour du match, ou la fin du match précédent s'il finit
- *    après minuit ;
+ *  - modifiable à tout moment avant l'ouverture des portes (Ulrich 2026-10-02, plus
+ *    d'attente de minuit le jour du match) ;
  *  - Logistic mis à jour automatiquement à l'ouverture des portes, puis manuellement
  *    par PDV (responsable logistique / administrateur).
  */
@@ -52,46 +51,15 @@ describe('PreEventInventoryFlowService, règles Bertrand 2026-09-29', () => {
   afterEach(() => jest.useRealTimers());
 
   describe('début de la période pre-event', () => {
-    it('minuit local le jour du match', async () => {
-      await expect(service.preEventOpensAt(flowEvent as any)).resolves.toEqual(
-        new Date('2026-09-25T22:00:00.000Z'),
-      );
-    });
-
-    it('fin du match précédent quand il finit après minuit ce jour-là', async () => {
-      prisma.event.findMany.mockResolvedValue([
-        {
-          id: 'veille',
-          eventDate: new Date('2026-09-25T00:00:00.000Z'),
-          eventEndDate: new Date('2026-09-26T00:00:00.000Z'),
-          eventEndTime: '02:00',
-        },
-      ]);
-      await expect(service.preEventOpensAt(flowEvent as any)).resolves.toEqual(
-        new Date('2026-09-26T00:00:00.000Z'),
-      );
-    });
-
-    it('avant le début : comptage refusé (403), phase not-open', async () => {
-      jest.setSystemTime(new Date('2026-09-25T20:00:00Z'));
-      await expect(
-        service.saveCount(
-          { spaceId: 'space-1', eventId: 'event-1', shopId: 'shop-1', itemId: 'mi-1', phase: 'pre-event' } as any,
-          'tenant-1',
-        ),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(inventory.saveInventoryCounts).not.toHaveBeenCalled();
-      const state = await service.getWindowState('space-1', 'event-1', 'tenant-1');
-      expect(state.phase).toBe('not-open');
-    });
-
-    it('le jour du match avant les portes : comptage accepté', async () => {
-      jest.setSystemTime(new Date('2026-09-26T08:00:00Z'));
+    it('plusieurs jours avant le match : comptage accepté, phase before', async () => {
+      jest.setSystemTime(new Date('2026-09-20T08:00:00Z'));
       await service.saveCount(
         { spaceId: 'space-1', eventId: 'event-1', shopId: 'shop-1', itemId: 'mi-1', phase: 'pre-event' } as any,
         'tenant-1',
       );
       expect(inventory.saveInventoryCounts).toHaveBeenCalled();
+      const state = await service.getWindowState('space-1', 'event-1', 'tenant-1');
+      expect(state.phase).toBe('before');
     });
   });
 
