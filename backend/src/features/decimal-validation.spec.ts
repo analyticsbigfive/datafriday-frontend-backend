@@ -8,7 +8,7 @@ import {
   MenuComponentChildLineDto,
 } from './menu-components/dto/create-menu-component.dto';
 import { PutPerformanceDto } from './builder-v2/dto/builder-v2.dto';
-import { parseAmount } from './digifood/services/digifood-csv-import.service';
+import { parseAmount } from './digifood/services/digifood-csv.parsing';
 
 /**
  * Chantier décimaux/prix (2026-08) : bornes @Min/@Max sur les montants,
