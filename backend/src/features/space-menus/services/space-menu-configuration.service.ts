@@ -247,25 +247,43 @@ export class SpaceMenuConfigurationService {
     ];
 
     await this.prisma.$transaction(async (tx) => {
-      // For each element, upsert menu assignments
-      for (const [elementId, items] of Object.entries(menuItems)) {
-        if (!validElementIds.has(elementId)) continue;
-        const scopedItems = Object.entries(items).filter(
-          ([menuItemId, enabled]) => validMenuItemIds.has(menuItemId) && typeof enabled === 'boolean',
+      // Upsert PARTIEL uniquement : ne touche QUE les menuItemId présents dans le payload.
+      // ⚠️ Avant : un `deleteMany({menuItemId: {notIn: activeMenuItemIds}})` supprimait
+      // TOUTE assignation de ce shop absente du payload — correct seulement si l'appelant
+      // envoie l'état complet désiré. Or 2 des 3 appelants front envoient un DELTA (un seul
+      // item togglé depuis SpaceMenuItemView, ou seulement les items modifiés depuis
+      // ShopMenuItemsDrawer) : chaque toggle/save partiel effaçait silencieusement tous les
+      // autres menu items déjà assignés à ce shop. Le 3e appelant (EventPredictView) envoie
+      // déjà l'état complet ("préserve l'existant") donc rien ne change pour lui.
+      const pairs = Object.entries(menuItems)
+        .filter(([elementId]) => validElementIds.has(elementId))
+        .flatMap(([elementId, items]) =>
+          Object.entries(items)
+            .filter(([menuItemId, enabled]) => validMenuItemIds.has(menuItemId) && typeof enabled === 'boolean')
+            .map(([menuItemId, enabled]) => ({ elementId, menuItemId, enabled: enabled as boolean })),
         );
-        // Upsert PARTIEL uniquement : ne touche QUE les menuItemId présents dans le payload.
-        // ⚠️ Avant : un `deleteMany({menuItemId: {notIn: activeMenuItemIds}})` supprimait
-        // TOUTE assignation de ce shop absente du payload — correct seulement si l'appelant
-        // envoie l'état complet désiré. Or 2 des 3 appelants front envoient un DELTA (un seul
-        // item togglé depuis SpaceMenuItemView, ou seulement les items modifiés depuis
-        // ShopMenuItemsDrawer) : chaque toggle/save partiel effaçait silencieusement tous les
-        // autres menu items déjà assignés à ce shop. Le 3e appelant (EventPredictView) envoie
-        // déjà l'état complet ("préserve l'existant") donc rien ne change pour lui.
-        for (const [menuItemId, enabled] of scopedItems) {
-          await (tx as any).menuAssignment.upsert({
-            where: { elementId_menuItemId_configId: { elementId, menuItemId, configId } },
-            create: { elementId, menuItemId, configId, enabled },
-            update: { enabled },
+      // Trois requêtes au lieu d'un upsert par article : création des affectations absentes,
+      // puis mise à jour groupée des articles activés et des articles désactivés.
+      if (pairs.length) {
+        await (tx as any).menuAssignment.createMany({
+          data: pairs.map((p) => ({ elementId: p.elementId, menuItemId: p.menuItemId, configId, enabled: p.enabled })),
+          skipDuplicates: true,
+        });
+        for (const enabled of [true, false]) {
+          const byElement = new Map<string, string[]>();
+          for (const p of pairs) {
+            if (p.enabled !== enabled) continue;
+            byElement.set(p.elementId, [...(byElement.get(p.elementId) ?? []), p.menuItemId]);
+          }
+          if (!byElement.size) continue;
+          // eslint-disable-next-line no-await-in-loop -- deux passes (activés, désactivés), une requête chacune
+          await (tx as any).menuAssignment.updateMany({
+            where: {
+              configId,
+              enabled: !enabled,
+              OR: [...byElement].map(([elementId, menuItemIds]) => ({ elementId, menuItemId: { in: menuItemIds } })),
+            },
+            data: { enabled },
           });
         }
       }
