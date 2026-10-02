@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
-import { WeezeventIncrementalSyncService } from './weezevent-incremental-sync.service';
+import { WeezeventTransactionBatchWriterService } from './sync/transaction-batch-writer.service';
 import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
 
 const POLL_INTERVAL_MS = 500;
@@ -12,7 +12,7 @@ export class WeezeventInsertWorkerService {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly incrementalSync: WeezeventIncrementalSyncService,
+        private readonly transactionBatchWriter: WeezeventTransactionBatchWriterService,
         private readonly priceAgg: SalesPriceAggService,
     ) {}
 
@@ -117,7 +117,7 @@ export class WeezeventInsertWorkerService {
 
             const transactions: any[] = Array.isArray(chunk.rawData) ? chunk.rawData : [];
 
-            await this.incrementalSync.insertTransactionBatch(job.tenantId, job.integrationId, transactions);
+            await this.transactionBatchWriter.insertTransactionBatch(job.tenantId, job.integrationId, transactions);
 
             await this.prisma.weezeventSyncChunk.update({
                 where: { id: chunk.id },

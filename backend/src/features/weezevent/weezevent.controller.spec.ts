@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WeezeventController } from './weezevent.controller';
 import { WeezeventSyncService } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
+import { WeezeventSyncStateService } from './services/sync/sync-state.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncTrackerService } from './services/sync-tracker.service';
 import { QueueService } from '../../core/queue/queue.service';
@@ -138,6 +139,10 @@ describe('WeezeventController', () => {
         },
         {
           provide: WeezeventIncrementalSyncService,
+          useValue: mockIncrementalSyncService,
+        },
+        {
+          provide: WeezeventSyncStateService,
           useValue: mockIncrementalSyncService,
         },
         {

@@ -1,7 +1,9 @@
-import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../../core/database/prisma.service';
+import { Injectable, Logger } from '@nestjs/common';
 import { WeezeventClientService } from './weezevent-client.service';
 import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
+import { WeezeventEventBatchWriterService } from './sync/event-batch-writer.service';
+import { WeezeventSyncStateService } from './sync/sync-state.service';
+import { WeezeventTransactionBatchWriterService } from './sync/transaction-batch-writer.service';
 
 export interface IncrementalSyncOptions {
     // Force full sync (ignore last sync state)
@@ -32,27 +34,24 @@ export interface IncrementalSyncResult {
     checkpoint?: any;
 }
 
-interface SyncState {
-    lastSyncedAt: Date | null;
-    lastCursor: string | null;
-    lastWeezeventId: string | null;
-    lastUpdatedAt: Date | null;
-    checkpoint: any | null;
-}
-
+/**
+ * Synchronisation incrémentale des événements et des transactions Weezevent, par pages, depuis le dernier curseur.
+ */
 @Injectable()
 export class WeezeventIncrementalSyncService {
+  constructor(
+    private readonly weezeventClient: WeezeventClientService,
+    private readonly priceAgg: SalesPriceAggService,
+    private readonly weezeventEventBatchWriterService: WeezeventEventBatchWriterService,
+    private readonly weezeventSyncStateService: WeezeventSyncStateService,
+    private readonly weezeventTransactionBatchWriterService: WeezeventTransactionBatchWriterService,
+  ) {}
+
     private readonly logger = new Logger(WeezeventIncrementalSyncService.name);
 
     // Default batch sizes — Weezevent API per_page max is 100
     private readonly DEFAULT_BATCH_SIZE = 100;
     private readonly MAX_ITEMS_PER_RUN = 10000;
-
-    constructor(
-        private readonly prisma: PrismaService,
-        private readonly weezeventClient: WeezeventClientService,
-        private readonly priceAgg: SalesPriceAggService,
-    ) {}
 
     // ==================== EVENTS INCREMENTAL SYNC ====================
 
@@ -82,11 +81,11 @@ export class WeezeventIncrementalSyncService {
 
         try {
             // 1. Get integration config
-            const integration = await this.getIntegrationConfig(tenantId, integrationId);
+            const integration = await this.weezeventSyncStateService.getIntegrationConfig(tenantId, integrationId);
             const organizationId = integration.organizationId!;
 
             // 2. Get sync state (last sync info)
-            const syncState = await this.getSyncState(tenantId, integrationId, syncType);
+            const syncState = await this.weezeventSyncStateService.getSyncState(tenantId, integrationId, syncType);
             
             // 3. Determine sync strategy
             const isFirstSync = !syncState.lastSyncedAt;
@@ -108,7 +107,7 @@ export class WeezeventIncrementalSyncService {
             }
 
             // 5. Get all existing event IDs in one query (for fast lookup)
-            const existingEventsMap = await this.getExistingEventsMap(tenantId, integrationId);
+            const existingEventsMap = await this.weezeventEventBatchWriterService.getExistingEventsMap(tenantId, integrationId);
 
             // 6. Paginate through API results
             let page = 1;
@@ -133,7 +132,7 @@ export class WeezeventIncrementalSyncService {
                 }
 
                 // 7. Process batch with optimized upsert
-                const batchResult = await this.processBatchEvents(
+                const batchResult = await this.weezeventEventBatchWriterService.processBatchEvents(
                     tenantId,
                     integrationId,
                     organizationId,
@@ -177,7 +176,7 @@ export class WeezeventIncrementalSyncService {
             result.hasMore = hasMore;
 
             // 8. Update sync state
-            await this.updateSyncState(tenantId, integrationId, syncType, {
+            await this.weezeventSyncStateService.updateSyncState(tenantId, integrationId, syncType, {
                 lastSyncedAt: new Date(),
                 lastUpdatedAt: lastProcessedUpdatedAt || new Date(),
                 lastSyncCount: result.itemsSynced,
@@ -197,7 +196,7 @@ export class WeezeventIncrementalSyncService {
             );
 
             // 9. Sync locations for all events of this tenant (fire-and-forget — truly non-blocking)
-            this.syncLocationsFromApi(tenantId, integrationId, organizationId).catch(locErr => {
+            this.weezeventEventBatchWriterService.syncLocationsFromApi(tenantId, integrationId, organizationId).catch(locErr => {
                 this.logger.warn(`Locations sync failed (non-blocking): ${(locErr as Error).message}`);
             });
 
@@ -208,7 +207,7 @@ export class WeezeventIncrementalSyncService {
             this.logger.error('Events sync failed', err.stack);
 
             // Update error state
-            await this.updateSyncStateError(tenantId, integrationId, syncType, err.message);
+            await this.weezeventSyncStateService.updateSyncStateError(tenantId, integrationId, syncType, err.message);
 
             result.success = false;
             result.duration = Date.now() - startTime;
@@ -243,10 +242,10 @@ export class WeezeventIncrementalSyncService {
         };
 
         try {
-            const integration = await this.getIntegrationConfig(tenantId, integrationId);
+            const integration = await this.weezeventSyncStateService.getIntegrationConfig(tenantId, integrationId);
             const organizationId = integration.organizationId!;
 
-            const syncState = await this.getSyncState(tenantId, integrationId, syncType);
+            const syncState = await this.weezeventSyncStateService.getSyncState(tenantId, integrationId, syncType);
             const isFirstSync = !syncState.lastSyncedAt;
             const useIncremental = !options.forceFullSync && !isFirstSync;
 
@@ -263,7 +262,7 @@ export class WeezeventIncrementalSyncService {
             const toDate = options.updatedUntil ?? undefined;
 
             // Get existing transaction IDs for fast lookup
-            const existingIds = await this.getExistingTransactionIds(tenantId, integrationId, fromDate);
+            const existingIds = await this.weezeventTransactionBatchWriterService.getExistingTransactionIds(tenantId, integrationId, fromDate);
 
             let page = 1;
             let hasMore = true;
@@ -305,7 +304,7 @@ export class WeezeventIncrementalSyncService {
                     // refreshForIntegration unique tourne après la boucle complète (voir plus bas) :
                     // des centaines de petits refreshs sur un import historique massif seraient
                     // pires qu'un seul recalcul complet.
-                    const batchResult = await this.processBatchTransactions(
+                    const batchResult = await this.weezeventTransactionBatchWriterService.processBatchTransactions(
                         tenantId,
                         integrationId,
                         newTransactions,
@@ -343,7 +342,7 @@ export class WeezeventIncrementalSyncService {
             result.hasMore = hasMore;
 
             // Update sync state
-            await this.updateSyncState(tenantId, integrationId, syncType, {
+            await this.weezeventSyncStateService.updateSyncState(tenantId, integrationId, syncType, {
                 lastSyncedAt: new Date(),
                 lastSyncCount: result.itemsSynced,
                 lastSyncDuration: Date.now() - startTime,
@@ -370,661 +369,10 @@ export class WeezeventIncrementalSyncService {
         } catch (error) {
             const err = error as Error;
             this.logger.error('Transactions sync failed', err.stack);
-            await this.updateSyncStateError(tenantId, integrationId, syncType, err.message);
+            await this.weezeventSyncStateService.updateSyncStateError(tenantId, integrationId, syncType, err.message);
             result.success = false;
             result.duration = Date.now() - startTime;
             throw error;
         }
-    }
-
-    // ==================== HELPER METHODS ====================
-
-    /**
-     * Get integration config with validation
-     */
-    private async getIntegrationConfig(tenantId: string, integrationId: string) {
-        const integration = await this.prisma.integration.findFirst({
-            where: { id: integrationId, tenantId, enabled: true },
-            select: {
-                id: true,
-                enabled: true,
-                weezevent: { select: { organizationId: true } },
-            },
-        });
-
-        if (!integration) {
-            throw new NotFoundException(`Weezevent integration ${integrationId} not found or disabled for tenant ${tenantId}`);
-        }
-
-        if (!integration.weezevent?.organizationId) {
-            throw new BadRequestException(`Weezevent organizationId not configured for integration ${integrationId}`);
-        }
-
-        return { id: integration.id, enabled: integration.enabled, organizationId: integration.weezevent.organizationId };
-    }
-
-    /**
-     * Get sync state from database
-     */
-    private async getSyncState(tenantId: string, integrationId: string, syncType: string): Promise<SyncState> {
-        const state = await this.prisma.weezeventSyncState.findUnique({
-            where: {
-                tenantId_integrationId_syncType: { tenantId, integrationId, syncType },
-            },
-        });
-
-        return {
-            lastSyncedAt: state?.lastSyncedAt || null,
-            lastCursor: state?.lastCursor || null,
-            lastWeezeventId: state?.lastWeezeventId || null,
-            lastUpdatedAt: state?.lastUpdatedAt || null,
-            checkpoint: state?.checkpoint || null,
-        };
-    }
-
-    /**
-     * Update sync state after successful sync
-     */
-    private async updateSyncState(
-        tenantId: string,
-        integrationId: string,
-        syncType: string,
-        data: {
-            lastSyncedAt?: Date;
-            lastCursor?: string;
-            lastWeezeventId?: string;
-            lastUpdatedAt?: Date;
-            lastSyncCount?: number;
-            lastSyncDuration?: number;
-            totalSynced?: number;
-            consecutiveErrors?: number;
-            lastError?: string | null;
-            checkpoint?: any;
-        },
-    ) {
-        await this.prisma.weezeventSyncState.upsert({
-            where: {
-                tenantId_integrationId_syncType: { tenantId, integrationId, syncType },
-            },
-            create: {
-                tenantId,
-                integrationId,
-                syncType,
-                ...data,
-            },
-            update: data,
-        });
-    }
-
-    /**
-     * Update sync state on error
-     */
-    private async updateSyncStateError(tenantId: string, integrationId: string, syncType: string, error: string) {
-        const current = await this.prisma.weezeventSyncState.findUnique({
-            where: { tenantId_integrationId_syncType: { tenantId, integrationId, syncType } },
-        });
-
-        await this.prisma.weezeventSyncState.upsert({
-            where: { tenantId_integrationId_syncType: { tenantId, integrationId, syncType } },
-            create: {
-                tenantId,
-                integrationId,
-                syncType,
-                lastError: error,
-                consecutiveErrors: 1,
-            },
-            update: {
-                lastError: error,
-                consecutiveErrors: (current?.consecutiveErrors || 0) + 1,
-            },
-        });
-    }
-
-    /**
-     * Get all existing event IDs as a Map for O(1) lookup
-     */
-    private async getExistingEventsMap(tenantId: string, integrationId: string): Promise<Map<string, { syncedAt: Date }>> {
-        const events = await this.prisma.salesEvent.findMany({
-            where: { tenantId, integrationId },
-            select: { externalId: true, syncedAt: true },
-        });
-
-        return new Map(events.map(e => [e.externalId, { syncedAt: e.syncedAt }]));
-    }
-
-    /**
-     * Get existing transaction IDs as a Set for O(1) lookup
-     * Only fetch IDs for transactions after fromDate to limit memory
-     */
-    private async getExistingTransactionIds(tenantId: string, integrationId: string, fromDate: Date | null): Promise<Set<string>> {
-        const transactions = await this.prisma.salesTransaction.findMany({
-            where: {
-                tenantId,
-                integrationId,
-                ...(fromDate ? { transactionDate: { gte: fromDate } } : {}),
-            },
-            select: { externalId: true },
-        });
-
-        return new Set(transactions.map(t => t.externalId));
-    }
-
-    /**
-     * Process batch of events with optimized upserts
-     */
-    private async processBatchEvents(
-        tenantId: string,
-        integrationId: string,
-        organizationId: string,
-        events: any[],
-        existingMap: Map<string, { syncedAt: Date }>,
-        incrementalMode: boolean,
-    ): Promise<{ created: number; updated: number; skipped: number; errors: number }> {
-        const result = { created: 0, updated: 0, skipped: 0, errors: 0 };
-
-        const parseDate = (dateStr: string | undefined): Date | null => {
-            if (!dateStr) return null;
-            const parsed = new Date(dateStr);
-            return isNaN(parsed.getTime()) ? null : parsed;
-        };
-
-        const toCreate: any[] = [];
-        const toUpdate: { weezeventId: string; data: any }[] = [];
-
-        for (const apiEvent of events) {
-            try {
-                const weezeventId = apiEvent.id.toString();
-                const existing = existingMap.get(weezeventId);
-
-                // In incremental mode, skip if already synced recently
-                if (incrementalMode && existing) {
-                    const apiUpdatedAt = apiEvent.updated_at ? new Date(apiEvent.updated_at) : null;
-                    if (apiUpdatedAt && existing.syncedAt >= apiUpdatedAt) {
-                        result.skipped++;
-                        continue;
-                    }
-                }
-
-                // Extract status as string (API returns object with name/title)
-                const eventStatus = apiEvent.status as any;
-                const statusValue = typeof eventStatus === 'object' && eventStatus?.name 
-                    ? eventStatus.name 
-                    : (typeof eventStatus === 'string' ? eventStatus : 'unknown');
-
-                const eventData = {
-                    name: apiEvent.name || `Event ${apiEvent.id}`,
-                    organizationId,
-                    startDate: parseDate(apiEvent.live_start || apiEvent.start_date),
-                    endDate: parseDate(apiEvent.live_end || apiEvent.end_date),
-                    description: apiEvent.description || apiEvent.name || null,
-                    location: apiEvent.location || apiEvent.venue || null,
-                    capacity: apiEvent.capacity || null,
-                    status: statusValue,
-                    metadata: apiEvent.metadata || null,
-                    rawData: apiEvent as any,
-                    syncedAt: new Date(),
-                };
-
-                if (existing) {
-                    toUpdate.push({ weezeventId, data: eventData });
-                } else {
-                    toCreate.push({
-                        externalId: weezeventId,
-                        tenantId,
-                        integrationId,
-                        ...eventData,
-                    });
-                    // Add to map for subsequent checks
-                    existingMap.set(weezeventId, { syncedAt: new Date() });
-                }
-            } catch (error) {
-                this.logger.error(`Failed to process event ${apiEvent.id}`, error);
-                result.errors++;
-            }
-        }
-
-        // Batch create
-        if (toCreate.length > 0) {
-            const createResult = await this.prisma.salesEvent.createMany({
-                data: toCreate,
-                skipDuplicates: true,
-            });
-            result.created = createResult.count;
-        }
-
-        // Batch update using transaction
-        if (toUpdate.length > 0) {
-            await this.prisma.$transaction(
-                toUpdate.map(({ weezeventId, data }) =>
-                    this.prisma.salesEvent.update({
-                        where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId: weezeventId } },
-                        data,
-                    })
-                )
-            );
-            result.updated = toUpdate.length;
-        }
-
-        return result;
-    }
-
-    /**
-     * Public entry point for InsertWorkerService — upsert a batch of raw API transactions.
-     * Fetches only the relevant existing IDs (scoped to the chunk's weezeventIds).
-     */
-    async insertTransactionBatch(
-        tenantId: string,
-        integrationId: string,
-        transactions: any[],
-    ): Promise<{ created: number; updated: number; errors: number }> {
-        if (transactions.length === 0) return { created: 0, updated: 0, errors: 0 };
-
-        // Fetch organizationId — needed for inline entity upserts (event, merchant)
-        const integration = await this.prisma.integration.findUnique({
-            where: { id: integrationId },
-            select: { weezevent: { select: { organizationId: true } } },
-        });
-        const organizationId = integration?.weezevent?.organizationId ?? '';
-
-        const weezeventIds = transactions.map((t: any) => t.id?.toString()).filter(Boolean);
-        const existing = await this.prisma.salesTransaction.findMany({
-            where: { tenantId, integrationId, externalId: { in: weezeventIds } },
-            select: { externalId: true },
-        });
-        const existingIds = new Set(existing.map(t => t.externalId));
-        // refreshPriceAgg=false : ce point d'entrée sert les gros imports historiques (bisection
-        // worker, PARALLEL_CHUNKS) — un refresh ciblé par chunk ajouterait un coût cumulé non
-        // borné. WeezeventInsertWorkerService déclenche un refreshForIntegration unique à la fin
-        // du job complet (BUG-337-02, docs/bugs/).
-        return this.processBatchTransactions(tenantId, integrationId, transactions, existingIds, organizationId, false);
-    }
-
-    /**
-     * Process batch of transactions with parallelized upserts.
-     *
-     * Strategy:
-     *  1. Pre-collect all unique entities from the full batch (sync, no DB).
-     *  2. Parallel upsert events + merchants + products via Promise.all.
-     *  3. Parallel upsert locations (depend on eventId — runs after step 2).
-     *  4. Loop over transactions is purely synchronous (map lookups only).
-     *  5. Single createMany for all new transactions.
-     *
-     * This reduces DB round-trips from O(N×entities) sequential to O(unique_entities) parallel.
-     */
-    private async processBatchTransactions(
-        tenantId: string,
-        integrationId: string,
-        transactions: any[],
-        existingIds: Set<string>,
-        organizationId = '',
-        refreshPriceAgg = true,
-    ): Promise<{ created: number; updated: number; errors: number }> {
-        const result = { created: 0, updated: 0, errors: 0 };
-
-        // ── 1. Pre-collect unique entities (no DB) ───────────────────────────
-        const uniqueEvents    = new Map<string, { wid: string; name: string }>();
-        const uniqueLocations = new Map<string, { wid: string; name: string; eventWid: string | null }>();
-        const uniqueMerchants = new Map<string, { wid: string; name: string }>();
-        const uniqueProducts  = new Map<string, { wid: string; name: string; unitPrice: number; vat: number | null; rawRow: any }>();
-
-        for (const t of transactions) {
-            const eventWid = t.event_id?.toString() ?? null;
-            // event_name peut être null dans l'API pay/v1 — fallback sur l'ID
-            if (eventWid && !uniqueEvents.has(eventWid)) {
-                uniqueEvents.set(eventWid, { wid: eventWid, name: t.event_name || `Event ${eventWid}` });
-            }
-            const locationWid = t.location_id?.toString() ?? null;
-            if (locationWid && !uniqueLocations.has(locationWid)) {
-                uniqueLocations.set(locationWid, { wid: locationWid, name: t.location_name || `Location ${locationWid}`, eventWid });
-            }
-            // L'API pay/v1 utilise fundation_id/fundation_name (pas merchant_id)
-            const merchantWid = t.fundation_id?.toString() ?? null;
-            if (merchantWid && !uniqueMerchants.has(merchantWid)) {
-                uniqueMerchants.set(merchantWid, { wid: merchantWid, name: t.fundation_name || `Merchant ${merchantWid}` });
-            }
-            for (const row of (t.rows ?? [])) {
-                const productWid = String(row.item_id ?? '');
-                if (productWid && !uniqueProducts.has(productWid)) {
-                    uniqueProducts.set(productWid, {
-                        wid: productWid,
-                        name: row.item_name || `Item ${productWid}`,
-                        unitPrice: (row.unit_price ?? 0) / 100,
-                        vat: row.vat ?? null,
-                        rawRow: row,
-                    });
-                }
-            }
-        }
-
-        // ── 2. Parallel upsert: events + merchants + products ────────────────
-        const eventIdMap    = new Map<string, string>();
-        const locationIdMap = new Map<string, string>();
-        const merchantIdMap = new Map<string, string>();
-        const productIdMap  = new Map<string, string>();
-
-        await Promise.all([
-            ...[...uniqueEvents.values()].map(async ({ wid, name }) => {
-                try {
-                    const r = await this.prisma.salesEvent.upsert({
-                        where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId: wid } },
-                        create: { externalId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: new Date() },
-                        update: { syncedAt: new Date() },
-                        select: { id: true },
-                    });
-                    eventIdMap.set(wid, r.id);
-                } catch (err) {
-                    this.logger.warn(`[processBatch] Could not upsert event ${wid}: ${(err as Error).message}`);
-                }
-            }),
-            ...[...uniqueMerchants.values()].map(async ({ wid, name }) => {
-                try {
-                    const r = await this.prisma.weezeventMerchant.upsert({
-                        where: { tenantId_integrationId_weezeventId: { tenantId, integrationId, weezeventId: wid } },
-                        create: { weezeventId: wid, tenantId, integrationId, name, organizationId, rawData: {}, syncedAt: new Date() },
-                        update: { syncedAt: new Date() },
-                        select: { id: true },
-                    });
-                    merchantIdMap.set(wid, r.id);
-                } catch (err) {
-                    this.logger.warn(`[processBatch] Could not upsert merchant ${wid}: ${(err as Error).message}`);
-                }
-            }),
-            ...[...uniqueProducts.values()].map(async ({ wid, name, unitPrice, vat, rawRow }) => {
-                try {
-                    const r = await this.prisma.salesProduct.upsert({
-                        where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId: wid } },
-                        create: { externalId: wid, tenantId, integrationId, name, basePrice: unitPrice, vatRate: vat, rawData: rawRow, syncedAt: new Date() },
-                        update: { syncedAt: new Date() },
-                        select: { id: true },
-                    });
-                    productIdMap.set(wid, r.id);
-                } catch (err) {
-                    this.logger.warn(`[processBatch] Could not upsert product ${wid}: ${(err as Error).message}`);
-                }
-            }),
-        ]);
-
-        // ── 3. Upsert locations (after events — need resolved eventId) ────────
-        await Promise.all(
-            [...uniqueLocations.values()].map(async ({ wid, name, eventWid }) => {
-                try {
-                    const resolvedEventId = eventWid ? (eventIdMap.get(eventWid) ?? null) : null;
-                    const r = await this.prisma.salesLocation.upsert({
-                        where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId: wid } },
-                        create: { externalId: wid, tenantId, integrationId, name, eventId: resolvedEventId, rawData: {}, syncedAt: new Date() },
-                        update: { syncedAt: new Date() },
-                        select: { id: true },
-                    });
-                    locationIdMap.set(wid, r.id);
-                } catch (err) {
-                    this.logger.warn(`[processBatch] Could not upsert location ${wid}: ${(err as Error).message}`);
-                }
-            }),
-        );
-
-        // ── 4. Build transaction list (synchronous — map lookups only) ────────
-        const toCreate: any[] = [];
-        // itemsByTxWeezeventId stores rows per transaction for WeezeventTransactionItem insertion
-        const itemsByTxWeezeventId = new Map<string, any[]>();
-
-        for (const apiTransaction of transactions) {
-            try {
-                const weezeventId = apiTransaction.id.toString();
-
-                const transactionStatus = apiTransaction.status as any;
-                const statusValue = typeof transactionStatus === 'object' && transactionStatus?.name
-                    ? transactionStatus.name
-                    : (typeof transactionStatus === 'string' ? transactionStatus : 'unknown');
-
-                // Seules les transactions Validated (V) sont insérées — W/C/R ignorées
-                if (statusValue !== 'V') continue;
-
-                // Collect rows for all V transactions (new + existing) to backfill missing items
-                const txRows: any[] = (apiTransaction as any).rows ?? [];
-                if (txRows.length > 0) {
-                    itemsByTxWeezeventId.set(weezeventId, txRows);
-                }
-
-                if (existingIds.has(weezeventId)) continue;
-
-                const rawTx = apiTransaction as any;
-                const dateStr = rawTx.created || rawTx.updated || rawTx.validated || rawTx.date || rawTx.created_at;
-                if (!dateStr) {
-                    this.logger.warn(`Transaction ${weezeventId} has no date field. Keys: ${Object.keys(rawTx).join(', ')}`);
-                }
-                const transactionDate = dateStr ? new Date(dateStr) : new Date();
-
-                const apiEventId    = apiTransaction.event_id?.toString();
-                const apiLocationId = apiTransaction.location_id?.toString();
-                const apiMerchantId = apiTransaction.fundation_id?.toString(); // API: fundation_id, pas merchant_id
-
-                const resolvedEventId    = apiEventId    ? (eventIdMap.get(apiEventId)       ?? null) : null;
-                const resolvedLocationId = apiLocationId ? (locationIdMap.get(apiLocationId) ?? null) : null;
-                const resolvedMerchantId = apiMerchantId ? (merchantIdMap.get(apiMerchantId) ?? null) : null;
-
-                if (apiEventId    && !resolvedEventId)    this.logger.warn(`Transaction ${weezeventId} references event ${apiEventId} not found in DB`);
-                if (apiLocationId && !resolvedLocationId) this.logger.warn(`Transaction ${weezeventId} references location ${apiLocationId} not found in DB`);
-                if (apiMerchantId && !resolvedMerchantId) this.logger.warn(`Transaction ${weezeventId} references merchant ${apiMerchantId} not found in DB`);
-
-                const txRowsForAmount: any[] = itemsByTxWeezeventId.get(weezeventId) ?? [];
-                const totalAmountCents = txRowsForAmount.reduce((sum: number, row: any) =>
-                    sum + (row.payments ?? []).reduce((s: number, p: any) => s + (p.amount ?? 0), 0), 0);
-
-                toCreate.push({
-                    externalId: weezeventId,
-                    tenantId,
-                    integrationId,
-                    amount: totalAmountCents / 100,
-                    status: statusValue,
-                    transactionDate,
-                    eventId: resolvedEventId,
-                    eventName: apiTransaction.event_name,
-                    merchantId: resolvedMerchantId,
-                    merchantName: apiTransaction.fundation_name,
-                    locationId: resolvedLocationId,
-                    locationName: apiTransaction.location_name,
-                    rawData: apiTransaction as any,
-                    syncedAt: new Date(),
-                });
-            } catch (error) {
-                this.logger.error(`Failed to process transaction ${apiTransaction.id}`, error);
-                result.errors++;
-            }
-        }
-
-        // ── 5. Batch insert transactions ──────────────────────────────────────
-        if (toCreate.length > 0) {
-            const createResult = await this.prisma.salesTransaction.createMany({
-                data: toCreate,
-                skipDuplicates: true,
-            });
-            result.created = createResult.count;
-        }
-
-        // ── 6. Insert WeezeventTransactionItem rows (new + backfill existing) ─
-        if (itemsByTxWeezeventId.size > 0) {
-            const allWeezeventIds = [...itemsByTxWeezeventId.keys()];
-
-            // Get DB ids for all V transactions in this batch (locationId/transactionDate :
-            // BUG-337-02, nécessaires au delta SalesPriceAgg ci-dessous)
-            const dbTxs = await this.prisma.salesTransaction.findMany({
-                where: { tenantId, integrationId, externalId: { in: allWeezeventIds } },
-                select: { id: true, externalId: true, locationId: true, transactionDate: true },
-            });
-            const txById = new Map(dbTxs.map(t => [t.id, t]));
-
-            // Find which transactions already have items (to avoid duplicates)
-            const txIdsWithItems = new Set<string>();
-            if (dbTxs.length > 0) {
-                const existingItems = await this.prisma.salesTransactionItem.findMany({
-                    where: { transactionId: { in: dbTxs.map(t => t.id) } },
-                    select: { transactionId: true },
-                    distinct: ['transactionId'],
-                });
-                for (const item of existingItems) txIdsWithItems.add(item.transactionId);
-            }
-
-            const itemsToInsert: any[] = [];
-            for (const tx of dbTxs) {
-                // Skip transactions that already have items (idempotency)
-                if (txIdsWithItems.has(tx.id)) continue;
-
-                const rows = itemsByTxWeezeventId.get(tx.externalId) ?? [];
-                for (const row of rows) {
-                    const productWid = String(row.item_id ?? '');
-                    const resolvedProductId = productWid ? (productIdMap.get(productWid) ?? null) : null;
-                    const qty = (row.payments ?? []).reduce((s: number, p: any) => s + (p.quantity ?? 1), 0) || 1;
-                    itemsToInsert.push({
-                        transactionId: tx.id,
-                        externalItemId: row.id?.toString() ?? null,
-                        productId: resolvedProductId,
-                        productName: row.item_name ?? null,
-                        compoundId: null,
-                        quantity: qty,
-                        unitPrice: (row.unit_price ?? 0) / 100,
-                        vat: row.vat ?? 0,
-                        reduction: (row.reduction ?? 0) / 100,
-                        rawData: row,
-                    });
-                }
-            }
-
-            if (itemsToInsert.length > 0) {
-                await this.prisma.salesTransactionItem.createMany({
-                    data: itemsToInsert,
-                    skipDuplicates: true,
-                });
-
-                // BUG-337-02 (docs/bugs/) : delta SalesPriceAgg pour les items de ce lot (un seul
-                // upsert, aucun scan d'historique). Additif pur : seules les transactions sans items
-                // sont insérées ci-dessus (idempotence), rien à retirer. Best-effort, ne doit jamais
-                // faire échouer le sync. Sauté en full-sync/premier-sync (`refreshPriceAgg=false`) :
-                // un unique refreshForIntegration en fin de run (cf. syncTransactionsIncremental)
-                // couvre l'import historique.
-                if (refreshPriceAgg) {
-                    await this.priceAgg.applyDeltaSafe(
-                        tenantId,
-                        integrationId,
-                        itemsToInsert.map(item => {
-                            const tx = txById.get(item.transactionId);
-                            return { ...item, locationId: tx?.locationId ?? null, transactionDate: tx?.transactionDate ?? new Date() };
-                        }),
-                    );
-                }
-            }
-        }
-
-        return result;
-    }
-
-    // ==================== UTILITY METHODS ====================
-
-    /**
-     * Get sync status for a tenant
-     */
-    async getSyncStatus(tenantId: string, integrationId?: string) {
-        const where: any = { tenantId };
-        if (integrationId) where.integrationId = integrationId;
-
-        const states = await this.prisma.weezeventSyncState.findMany({ where });
-
-        return states.reduce((acc, state) => {
-            const key = integrationId ? state.syncType : `${state.integrationId}:${state.syncType}`;
-            acc[key] = {
-                lastSyncedAt: state.lastSyncedAt,
-                lastSyncCount: state.lastSyncCount,
-                lastSyncDuration: state.lastSyncDuration,
-                totalSynced: state.totalSynced,
-                lastError: state.lastError,
-                consecutiveErrors: state.consecutiveErrors,
-            };
-            return acc;
-        }, {} as Record<string, any>);
-    }
-
-    /**
-     * Reset sync state (force full sync next time)
-     */
-    async resetSyncState(tenantId: string, integrationId?: string, syncType?: string) {
-        const where: any = { tenantId };
-        if (integrationId) where.integrationId = integrationId;
-        if (syncType) where.syncType = syncType;
-
-        await this.prisma.weezeventSyncState.deleteMany({ where });
-
-        this.logger.log(`Reset sync state for tenant ${tenantId}${integrationId ? ` (integration: ${integrationId})` : ''}${syncType ? ` (type: ${syncType})` : ''}`);
-    }
-
-    // ==================== LOCATIONS SYNC ====================
-
-    /**
-     * Sync locations directly from WeezPay API for all events of this tenant.
-     * Called at the end of syncEventsIncremental (non-blocking).
-     */
-    private async syncLocationsFromApi(tenantId: string, integrationId: string, organizationId: string): Promise<void> {
-        const events = await this.prisma.salesEvent.findMany({
-            where: { tenantId, integrationId },
-            select: { id: true, externalId: true },
-        });
-
-        if (events.length === 0) {
-            this.logger.debug(`No events found for tenant ${tenantId}, skipping location sync`);
-            return;
-        }
-
-        this.logger.log(`Syncing locations for ${events.length} events (tenant ${tenantId})`);
-
-        let totalUpserted = 0;
-
-        for (const event of events) {
-            try {
-                let page = 1;
-                let hasMore = true;
-
-                while (hasMore) {
-                    const response = await this.weezeventClient.getLocations(
-                        tenantId,
-                        integrationId,
-                        organizationId,
-                        event.externalId,
-                        { page, perPage: 100 },
-                    );
-
-                    const locations = response.data;
-
-                    for (const loc of locations) {
-                        await this.prisma.salesLocation.upsert({
-                            where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId: String(loc.id) } },
-                            create: {
-                                externalId: String(loc.id),
-                                tenantId,
-                                integrationId,
-                                eventId: event.id,
-                                name: loc.name || loc.public_name || `Location ${loc.id}`,
-                                type: loc.type ?? null,
-                                rawData: loc,
-                                syncedAt: new Date(),
-                            },
-                            update: {
-                                name: loc.name || loc.public_name || `Location ${loc.id}`,
-                                type: loc.type ?? null,
-                                rawData: loc,
-                                syncedAt: new Date(),
-                            },
-                        });
-                        totalUpserted++;
-                    }
-
-                    hasMore = response.meta.current_page < response.meta.total_pages;
-                    page++;
-                }
-            } catch (err) {
-                this.logger.warn(
-                    `Failed to sync locations for event ${event.externalId}: ${(err as Error).message}`,
-                );
-            }
-        }
-
-        this.logger.log(`✅ Locations sync: upserted ${totalUpserted} locations for tenant ${tenantId}`);
     }
 }

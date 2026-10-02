@@ -21,7 +21,6 @@ import { OnboardingModule } from '../onboarding/onboarding.module';
 import { PricingModule } from '../../shared/pricing/pricing.module';
 import { EventsModule } from '../events/events.module';
 import { SyncTrackerService } from './services/sync-tracker.service';
-import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
 import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
 import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
 import { LiveEventWindowService } from './services/live/live-event-window.service';
@@ -31,6 +30,10 @@ import { LiveHeartbeatService } from './services/live/live-heartbeat.service';
 import { LiveSyncRunnerService } from './services/live/live-sync-runner.service';
 import { WeezeventWebhookIngestService } from './services/weezevent-webhook-ingest.service';
 import { WeezeventSalesAnalyticsService } from './services/weezevent-sales-analytics.service';
+import { WeezeventEventBatchWriterService } from './services/sync/event-batch-writer.service';
+import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
+import { WeezeventSyncStateService } from './services/sync/sync-state.service';
+import { WeezeventTransactionBatchWriterService } from './services/sync/transaction-batch-writer.service';
 
 @Module({
     imports: [
@@ -55,7 +58,6 @@ import { WeezeventSalesAnalyticsService } from './services/weezevent-sales-analy
         WeezeventQueuedEntitySyncService,
         // Thin facade — keeps backward-compat for all existing callers
         WeezeventSyncService,
-        WeezeventIncrementalSyncService,
         WebhookSignatureService,
         WebhookEventHandler,
         SyncTrackerService,
@@ -73,6 +75,11 @@ import { WeezeventSalesAnalyticsService } from './services/weezevent-sales-analy
         WeezeventProductMappingAdminService,
         WeezeventSyncAdminService,
         WeezeventSyncJobService,
+        // Sync incrémentale : état, écriture des lots, orchestration
+        WeezeventSyncStateService,
+        WeezeventTransactionBatchWriterService,
+        WeezeventEventBatchWriterService,
+        WeezeventIncrementalSyncService,
     ],
     exports: [
         WeezeventClientService,
@@ -80,13 +87,13 @@ import { WeezeventSalesAnalyticsService } from './services/weezevent-sales-analy
         WeezeventTransactionSyncService,
         WeezeventCatalogSyncService,
         WeezeventQueuedEntitySyncService,
-        WeezeventIncrementalSyncService,
         WeezeventAuthService,
         WebhookHealthService,
         LiveHeartbeatService,
         LiveEventWindowService,
         LiveSyncRunnerService,
         LiveAggregationTriggerService,
+        WeezeventIncrementalSyncService,
     ],
 })
 export class WeezeventModule { }

@@ -1,6 +1,7 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { WeezeventSyncService } from '../weezevent-sync.service';
 import { WeezeventIncrementalSyncService } from '../weezevent-incremental-sync.service';
+import { WeezeventSyncStateService } from '../sync/sync-state.service';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { SyncWeezeventDto } from '../../dto/sync-weezevent.dto';
 import { QueueService } from '../../../../core/queue/queue.service';
@@ -17,6 +18,7 @@ export class WeezeventSyncAdminService {
     constructor(
         private readonly syncService: WeezeventSyncService,
         private readonly incrementalSyncService: WeezeventIncrementalSyncService,
+        private readonly syncState: WeezeventSyncStateService,
         private readonly prisma: PrismaService,
         private readonly queueService: QueueService,
     ) { }
@@ -47,7 +49,7 @@ export class WeezeventSyncAdminService {
             const n = await counter;
             if (n === 0 && !dto.full) {
                 this.logger.warn(`Auto full-sync: ${type} DB is empty for tenant ${tenantId}, resetting sync state`);
-                await this.incrementalSyncService.resetSyncState(tenantId, integrationId, type).catch(() => undefined);
+                await this.syncState.resetSyncState(tenantId, integrationId, type).catch(() => undefined);
                 return true;
             }
             return Boolean(dto.full);
@@ -131,7 +133,7 @@ export class WeezeventSyncAdminService {
 
         const [incrementalStatus, transactionCount, eventCount, productCount, queueStats, jobsProgress] =
             await Promise.all([
-                this.incrementalSyncService.getSyncStatus(tenantId, integrationId),
+                this.syncState.getSyncStatus(tenantId, integrationId),
                 this.prisma.salesTransaction.count({ where: { tenantId, ...(integrationId ? { integrationId } : {}) } }),
                 this.prisma.salesEvent.count({ where: { tenantId, ...(integrationId ? { integrationId } : {}) } }),
                 this.prisma.salesProduct.count({ where: { tenantId, ...(integrationId ? { integrationId } : {}) } }),
@@ -187,7 +189,7 @@ export class WeezeventSyncAdminService {
         const tenantId = user.tenantId;
         this.logger.log(`Resetting sync state for tenant ${tenantId}${integrationId ? ` (integration: ${integrationId})` : ''}${syncType ? ` (type: ${syncType})` : ''}`);
         
-        await this.incrementalSyncService.resetSyncState(tenantId, integrationId, syncType);
+        await this.syncState.resetSyncState(tenantId, integrationId, syncType);
         
         return { 
             success: true, 
