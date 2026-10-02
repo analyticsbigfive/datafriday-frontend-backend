@@ -12,7 +12,7 @@ import { liveTenantSpacePattern } from '../../shared/live-channel.util';
  * Chantier 379 (frontend/docs/chantiers/379_live_standalone_backend_driven) — indicateur
  * global "un event est live quelque part" (App.vue, monté une fois par session, survit à la
  * navigation inter-routes — même pattern que SyncJobFloatingWidget). Distinct de
- * SpacesController::liveStream (un espace précis) : ici un seul flux couvre TOUS les espaces
+ * SpaceAnalyticsController::liveStream (un espace précis) : ici un seul flux couvre TOUS les espaces
  * du tenant via un `psubscribe` (pattern Redis), pas une connexion par espace.
  *
  * Filtre par accès utilisateur (pas juste par tenant) : un utilisateur à accès restreint ne

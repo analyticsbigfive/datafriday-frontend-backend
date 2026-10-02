@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { SpacesController, ConfigurationsController } from './spaces.controller';
+import { SpacesController, } from './spaces.controller';
 import { PinnedSpacesController } from './pinned-spaces.controller';
 import { DashboardController } from './dashboard.controller';
 import { SpaceCacheService } from './services/space-cache.service';
@@ -22,6 +22,11 @@ import { PrismaModule } from '../../core/database/prisma.module';
 import { RedisModule } from '../../core/redis/redis.module';
 import { WeezeventModule } from '../weezevent/weezevent.module';
 import { LogisticsModule } from '../logistics/logistics.module';
+import { SpaceAnalyticsController } from './space-analytics.controller';
+import { SpaceShopsController } from './space-shops.controller';
+import { SpaceIntegrationsController } from './space-integrations.controller';
+import { SpaceAccessController } from './space-access.controller';
+import { ConfigurationsController } from './configurations.controller';
 
 @Module({
   imports: [PrismaModule, RedisModule, WeezeventModule, LogisticsModule],
@@ -30,6 +35,10 @@ import { LogisticsModule } from '../logistics/logistics.module';
     ConfigurationsController,
     PinnedSpacesController,
     DashboardController,
+    SpaceAnalyticsController,
+    SpaceShopsController,
+    SpaceIntegrationsController,
+    SpaceAccessController,
   ],
   providers: [
     SpaceCacheService,
