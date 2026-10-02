@@ -41,23 +41,26 @@ export class MenuItemWeezeventPriceService {
     menuItemId: string,
     weezeventProductId?: string,
   ): Promise<string> {
-    if (weezeventProductId) {
-      const m = await this.prisma.productMapping.findFirst({
-        where: { tenantId, menuItemId, salesProductId: weezeventProductId },
-        select: { salesProductId: true },
-      });
-      if (!m) throw new BadRequestException(`Le produit Weezevent ${weezeventProductId} n'est pas mappé à cet article`);
-      return m.salesProductId;
-    }
     const mappings = await this.prisma.productMapping.findMany({
-      where: { tenantId, menuItemId },
+      where: { tenantId, menuItemId, ...(weezeventProductId ? { salesProductId: weezeventProductId } : {}) },
       select: { salesProductId: true },
     });
-    if (mappings.length === 0) throw new BadRequestException(`Aucun produit Weezevent mappé à cet article`);
-    if (mappings.length > 1) {
+    return this.pickMappedProductId(mappings.map((m) => m.salesProductId), weezeventProductId);
+  }
+
+  /** Produit Weezevent retenu parmi ceux mappés à l'article (règle commune unitaire / en masse). */
+  private pickMappedProductId(mapped: string[], weezeventProductId?: string): string {
+    if (weezeventProductId) {
+      if (!mapped.includes(weezeventProductId)) {
+        throw new BadRequestException(`Le produit Weezevent ${weezeventProductId} n'est pas mappé à cet article`);
+      }
+      return weezeventProductId;
+    }
+    if (mapped.length === 0) throw new BadRequestException(`Aucun produit Weezevent mappé à cet article`);
+    if (mapped.length > 1) {
       throw new BadRequestException(`Plusieurs produits Weezevent mappés à cet article — précisez weezeventProductId`);
     }
-    return mappings[0].salesProductId;
+    return mapped[0];
   }
 
   /**
@@ -224,9 +227,15 @@ export class MenuItemWeezeventPriceService {
     const results: Array<{ menuItemId: string; changed: boolean; applied?: any; previous?: any; error?: string }> = [];
     const pairs: Array<{ menuItemId: string; productId: string; override?: { basePrice?: number | null; vatRate?: number | null } }> = [];
 
+    // Rattachements de tout le lot en une requête, puis même résolution que resolveMappedProductId.
+    const allMappings = await this.prisma.productMapping.findMany({
+      where: { tenantId, menuItemId: { in: [...new Set(items.map((it) => it.menuItemId))] } },
+      select: { menuItemId: true, salesProductId: true },
+    });
     for (const it of items) {
+      const mapped = allMappings.filter((m) => m.menuItemId === it.menuItemId).map((m) => m.salesProductId);
       try {
-        const productId = await this.resolveMappedProductId(tenantId, it.menuItemId, it.weezeventProductId);
+        const productId = this.pickMappedProductId(mapped, it.weezeventProductId);
         pairs.push({ menuItemId: it.menuItemId, productId, override: { basePrice: it.basePrice, vatRate: it.vatRate } });
       } catch (e) {
         results.push({ menuItemId: it.menuItemId, changed: false, error: e instanceof Error ? e.message : String(e) });
