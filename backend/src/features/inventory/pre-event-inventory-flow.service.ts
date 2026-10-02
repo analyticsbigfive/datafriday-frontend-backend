@@ -10,51 +10,14 @@ import {
 import { InventoryCountService } from './services/inventory-count.service';
 import { InventoryReconciliationService } from './services/inventory-reconciliation.service';
 import { InventoryLogisticPushService } from './services/inventory-logistic-push.service';
-
-/** Événement tel que lu pour le flux (sélection minimale, partagée cron/service). */
-export interface FlowEvent {
-  id: string;
-  tenantId: string;
-  spaceId: string;
-  name: string | null;
-  eventDate: Date;
-  eventStartDate: Date | null;
-  eventEndDate?: Date | null;
-  eventEndTime?: string | null;
-  /** `Event.sessions` brut : porte l'heure d'ouverture des portes (`doorsOpening`). */
-  sessions?: unknown;
-  /** Fuseau du space (`Space.timezone`), dans lequel `doorsOpening` est saisi. */
-  timezone: string;
-}
-
-export type PreEventRegenerateTrigger =
-  | 'pdv-complete'
-  | 'doors-open'
-  | 'post-doors-open-edit'
-  | 'phase-stop'
-  | 'count'
-  | 'manual';
-
-export interface PreEventRegenerateResult {
-  ok: boolean;
-  reason?: string;
-  reconciliationId?: string;
-  lineCount?: number;
-  /** Document créé (expurgé selon `canSeeExpected`), pour l'appel manuel. */
-  document?: unknown;
-  /** Résultat du push vers Logistic archivé sur la feuille (meta.logisticPush). */
-  logisticPush?: { ok: boolean; reason: string | null; lineCount: number } | null;
-}
-
-type PreEventWindowPhase = 'no-doors-open' | 'before' | 'editing' | 'locked';
-
-/** État de la fenêtre d'édition pre-event, exposé au front (instants UTC). */
-export interface PreEventWindowState {
-  phase: PreEventWindowPhase;
-  doorsOpenAt: Date | null;
-  editDeadline: Date | null;
-  doorsOpenDone: boolean;
-}
+import type {
+  FlowEvent,
+  PreEventRegenerateResult,
+  PreEventRegenerateTrigger,
+  PreEventWindowPhase,
+  PreEventWindowState,
+} from './pre-event-inventory-flow.types';
+import { extractPredictedUnits } from './pre-event-predicted-units';
 
 /**
  * Flux Pre-event Inventory autour de l'ouverture des portes (critères
@@ -313,7 +276,7 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
       select: { id: true, lines: true },
     });
     const previousLines = previous[0]?.lines ?? null;
-    const predictedUnits = options.predictedUnits ?? this.extractPredictedUnits(previousLines);
+    const predictedUnits = options.predictedUnits ?? extractPredictedUnits(previousLines);
 
     const created = await this.inventoryReconciliationService.createPreEventReconciliation(
       spaceId,
@@ -354,29 +317,6 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
       document: created,
       logisticPush: (created as any)?.meta?.logisticPush ?? null,
     };
-  }
-
-  /** Besoin prédit archivé sur une feuille existante → blob attendu par
-   *  createPreEventReconciliation ({ elementId: { itemId: unités } }). null si
-   *  aucune ligne n'en porte (colonnes prédit vides, comme aujourd'hui). */
-  private extractPredictedUnits(lines: unknown): Record<string, Record<string, number>> | null {
-    if (!Array.isArray(lines)) return null;
-    const out: Record<string, Record<string, number>> = {};
-    let found = false;
-    for (const l of lines as Array<Record<string, unknown>>) {
-      const elementId = l?.elementId;
-      const itemKey = l?.itemKey;
-      const predicted = Number(l?.predictedUnits);
-      if (
-        typeof elementId !== 'string' ||
-        typeof itemKey !== 'string' ||
-        !Number.isFinite(predicted)
-      )
-        continue;
-      (out[elementId] ??= {})[itemKey] = predicted;
-      found = true;
-    }
-    return found ? out : null;
   }
 
   /**

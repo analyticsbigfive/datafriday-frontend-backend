@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
-import { FlowEvent, PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
+import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
+import type { FlowEvent } from './pre-event-inventory-flow.types';
 import { PrismaService } from '../../core/database/prisma.service';
 import { InventoryBaselineService } from './services/inventory-baseline.service';
 import { InventoryCountService } from './services/inventory-count.service';

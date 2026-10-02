@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../../core/database/prisma.service';
-import { FlowEvent, PreEventInventoryFlowService } from '../pre-event-inventory-flow.service';
+import { PreEventInventoryFlowService } from '../pre-event-inventory-flow.service';
+import type { FlowEvent } from '../pre-event-inventory-flow.types';
 import { TenantContextService } from '../../../core/tenant/tenant-context.service';
 
 /**

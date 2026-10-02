@@ -45,6 +45,8 @@ module.exports = {
       },
     ],
     // P9 : la configuration se lit via AppConfigService (validée au démarrage).
+    // Un fichier source au-delà de 600 lignes se découpe par responsabilité (plan de remédiation P3).
+    'max-lines': ['error', { max: 600, skipBlankLines: false, skipComments: false }],
     'no-restricted-properties': [
       'error',
       { object: 'process', property: 'env', message: 'Lire la configuration via AppConfigService (src/config).' },
@@ -88,7 +90,7 @@ module.exports = {
     },
     {
       files: ['src/**/*.spec.ts'],
-      rules: { 'no-restricted-syntax': 'off' },
+      rules: { 'no-restricted-syntax': 'off', 'max-lines': 'off' },
     },
   ],
 };
