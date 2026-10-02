@@ -1,13 +1,19 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventAnalyticsGetSalesByProductQueryDto, WeezeventAnalyticsGetSalesByEventQueryDto, WeezeventAnalyticsGetMarginAnalysisQueryDto, WeezeventAnalyticsGetTopProductsQueryDto } from '../dto/weezevent-analytics.query.dto';
+import { AnalyticsFilter, productRevenue, salesByEvent, salesByProduct, soldLinesWithMenuItemCost } from './weezevent-sales-analytics.queries';
+
+/** Période maximale d'une analyse sans événement. */
+const MAX_ANALYTICS_SPAN_MS = 366 * 24 * 3600 * 1000;
 
 /**
  * Analyses de ventes Weezevent : ventes par produit et par événement, marges, meilleurs produits.
+ * Agrégées en SQL (`weezevent-sales-analytics.queries.ts`) : avant, toutes les transactions
+ * de la période étaient chargées en mémoire avec leurs lignes, et un mois de ventes suffisait
+ * à faire tomber l'API.
  */
 @Injectable()
 export class WeezeventSalesAnalyticsService {
-
     constructor(
         private readonly prisma: PrismaService,
     ) { }
@@ -17,65 +23,11 @@ export class WeezeventSalesAnalyticsService {
      */
     async getSalesByProduct(user: any, params: WeezeventAnalyticsGetSalesByProductQueryDto) {
         const { eventId, fromDate, toDate } = params;
-        const tenantId = user.tenantId;
-        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
-        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
-        const where: any = { tenantId, deletedAt: null };
-
-        if (eventId) where.eventId = eventId;
-        if (fromDate || toDate) {
-            where.transactionDate = {};
-            if (fromDate) where.transactionDate.gte = new Date(fromDate);
-            if (toDate) where.transactionDate.lte = new Date(toDate);
-        }
-
-        // Get transactions with items
-        const transactions = await this.prisma.salesTransaction.findMany({
-            where,
-            include: {
-                items: {
-                    include: {
-                        product: true,
-                    },
-                },
-            },
-        });
-
-        // Aggregate by product
-        const productSales = new Map<string, {
-            productId: string;
-            productName: string;
-            quantity: number;
-            totalAmount: number;
-            transactionCount: number;
-        }>();
-
-        for (const transaction of transactions) {
-            for (const item of transaction.items) {
-                const productId = item.productId || 'unknown';
-                const productName = item.productName || 'Unknown Product';
-
-                if (!productSales.has(productId)) {
-                    productSales.set(productId, {
-                        productId,
-                        productName,
-                        quantity: 0,
-                        totalAmount: 0,
-                        transactionCount: 0,
-                    });
-                }
-
-                const stats = productSales.get(productId)!;
-                stats.quantity += item.quantity;
-                stats.totalAmount += Number(item.unitPrice) * item.quantity;
-                stats.transactionCount++;
-            }
-        }
-
+        const data = await salesByProduct(this.prisma, this.analyticsFilter(user.tenantId, { eventId, fromDate, toDate }));
         return {
-            data: Array.from(productSales.values()).sort((a, b) => b.totalAmount - a.totalAmount),
+            data,
             meta: {
-                total: productSales.size,
+                total: data.length,
                 fromDate,
                 toDate,
                 eventId,
@@ -88,59 +40,11 @@ export class WeezeventSalesAnalyticsService {
      */
     async getSalesByEvent(user: any, params: WeezeventAnalyticsGetSalesByEventQueryDto) {
         const { fromDate, toDate } = params;
-        const tenantId = user.tenantId;
-        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
-        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
-        const where: any = { tenantId, deletedAt: null };
-
-        if (fromDate || toDate) {
-            where.transactionDate = {};
-            if (fromDate) where.transactionDate.gte = new Date(fromDate);
-            if (toDate) where.transactionDate.lte = new Date(toDate);
-        }
-
-        // Get transactions grouped by event
-        const transactions = await this.prisma.salesTransaction.findMany({
-            where,
-            include: {
-                event: true,
-                items: true,
-            },
-        });
-
-        // Aggregate by event
-        const eventSales = new Map<string, {
-            eventId: string;
-            eventName: string;
-            totalAmount: number;
-            transactionCount: number;
-            itemCount: number;
-        }>();
-
-        for (const transaction of transactions) {
-            const eventId = transaction.eventId || 'unknown';
-            const eventName = transaction.eventName || 'Unknown Event';
-
-            if (!eventSales.has(eventId)) {
-                eventSales.set(eventId, {
-                    eventId,
-                    eventName,
-                    totalAmount: 0,
-                    transactionCount: 0,
-                    itemCount: 0,
-                });
-            }
-
-            const stats = eventSales.get(eventId)!;
-            stats.totalAmount += Number(transaction.amount);
-            stats.transactionCount++;
-            stats.itemCount += transaction.items.length;
-        }
-
+        const data = await salesByEvent(this.prisma, this.analyticsFilter(user.tenantId, { fromDate, toDate }));
         return {
-            data: Array.from(eventSales.values()).sort((a, b) => b.totalAmount - a.totalAmount),
+            data,
             meta: {
-                total: eventSales.size,
+                total: data.length,
                 fromDate,
                 toDate,
             },
@@ -152,73 +56,34 @@ export class WeezeventSalesAnalyticsService {
      */
     async getMarginAnalysis(user: any, params: WeezeventAnalyticsGetMarginAnalysisQueryDto) {
         const { eventId, fromDate, toDate } = params;
-        const tenantId = user.tenantId;
-        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
-        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
-        const where: any = { tenantId, deletedAt: null };
-
-        if (eventId) where.eventId = eventId;
-        if (fromDate || toDate) {
-            where.transactionDate = {};
-            if (fromDate) where.transactionDate.gte = new Date(fromDate);
-            if (toDate) where.transactionDate.lte = new Date(toDate);
-        }
-
-        // Get transactions with items and product mappings
-        const transactions = await this.prisma.salesTransaction.findMany({
-            where,
-            include: {
-                items: {
-                    include: {
-                        product: {
-                            include: {
-                                mappings: {
-                                    include: {
-                                        menuItem: true,
-                                    },
-                                },
-                            },
-                        },
-                    },
-                },
-            },
-        });
+        const lines = await soldLinesWithMenuItemCost(this.prisma, this.analyticsFilter(user.tenantId, { eventId, fromDate, toDate }));
 
         // Calculate sales and costs
         let totalSales = 0;
         let totalCost = 0;
         let mappedItems = 0;
         let unmappedItems = 0;
-
         const productMargins: any[] = [];
 
-        for (const transaction of transactions) {
-            for (const item of transaction.items) {
-                const sales = Number(item.unitPrice) * item.quantity;
-                totalSales += sales;
-
-                // Check if product is mapped to a menu item
-                const mapping = item.product?.mappings?.[0];
-                if (mapping?.menuItem) {
-                    const menuItemCost = Number(mapping.menuItem.totalCost || 0);
-                    const itemCost = menuItemCost * item.quantity;
-                    totalCost += itemCost;
-                    mappedItems++;
-
-                    productMargins.push({
-                        productId: item.productId,
-                        productName: item.productName,
-                        menuItemId: mapping.menuItemId,
-                        menuItemName: mapping.menuItem.name,
-                        quantity: item.quantity,
-                        sales,
-                        cost: itemCost,
-                        margin: sales - itemCost,
-                        marginPercent: sales > 0 ? ((sales - itemCost) / sales) * 100 : 0,
-                    });
-                } else {
-                    unmappedItems++;
-                }
+        for (const line of lines) {
+            totalSales += line.sales;
+            if (line.menuItemId) {
+                const itemCost = (line.menuItemTotalCost ?? 0) * line.quantity;
+                totalCost += itemCost;
+                mappedItems++;
+                productMargins.push({
+                    productId: line.productId,
+                    productName: line.productName,
+                    menuItemId: line.menuItemId,
+                    menuItemName: line.menuItemName,
+                    quantity: line.quantity,
+                    sales: line.sales,
+                    cost: itemCost,
+                    margin: line.sales - itemCost,
+                    marginPercent: line.sales > 0 ? ((line.sales - itemCost) / line.sales) * 100 : 0,
+                });
+            } else {
+                unmappedItems++;
             }
         }
 
@@ -238,7 +103,7 @@ export class WeezeventSalesAnalyticsService {
                 unmappedItems,
                 mappingRate,
                 // Un item non mappé compte sa vente dans totalSales mais aucun coût (menuItem
-                // inconnu) dans totalCost — la marge est donc mécaniquement gonflée dès que
+                // inconnu) dans totalCost : la marge est donc mécaniquement gonflée dès que
                 // unmappedItems > 0, pas seulement quand mappingRate est "bas".
                 marginWarning: unmappedItems > 0
                     ? `Marge surestimée : ${unmappedItems} ligne(s) vendue(s) non mappée(s) à un MenuItem sont comptées dans le chiffre d'affaires sans coût connu (taux de mapping ${mappingRate}%).`
@@ -258,81 +123,44 @@ export class WeezeventSalesAnalyticsService {
      */
     async getTopProducts(user: any, params: WeezeventAnalyticsGetTopProductsQueryDto) {
         const { limit = 10, eventId, fromDate, toDate } = params;
-        const tenantId = user.tenantId;
-        // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
-        // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
-        const where: any = { tenantId, deletedAt: null };
-
-        if (eventId) where.eventId = eventId;
-        if (fromDate || toDate) {
-            where.transactionDate = {};
-            if (fromDate) where.transactionDate.gte = new Date(fromDate);
-            if (toDate) where.transactionDate.lte = new Date(toDate);
-        }
-
-        // Get transactions with items
-        const transactions = await this.prisma.salesTransaction.findMany({
-            where,
-            include: {
-                items: {
-                    include: {
-                        product: true,
-                    },
-                },
-            },
-        });
-
-        // Aggregate by product
-        const productStats = new Map<string, {
-            productId: string;
-            productName: string;
-            category: string | null;
-            quantity: number;
-            revenue: number;
-            averagePrice: number;
-        }>();
-
-        for (const transaction of transactions) {
-            for (const item of transaction.items) {
-                const productId = item.productId || 'unknown';
-                const productName = item.productName || 'Unknown Product';
-                const category = item.product?.categoryId || null;
-
-                if (!productStats.has(productId)) {
-                    productStats.set(productId, {
-                        productId,
-                        productName,
-                        category,
-                        quantity: 0,
-                        revenue: 0,
-                        averagePrice: 0,
-                    });
-                }
-
-                const stats = productStats.get(productId)!;
-                stats.quantity += item.quantity;
-                stats.revenue += Number(item.unitPrice) * item.quantity;
-            }
-        }
-
-        // Calculate average price
-        for (const stats of productStats.values()) {
-            stats.averagePrice = stats.quantity > 0 ? stats.revenue / stats.quantity : 0;
-        }
-
-        const topProducts = Array.from(productStats.values())
-            .sort((a, b) => b.revenue - a.revenue)
+        const all = await productRevenue(this.prisma, this.analyticsFilter(user.tenantId, { eventId, fromDate, toDate }));
+        const data = all
+            .map((p) => ({ ...p, averagePrice: p.quantity > 0 ? p.revenue / p.quantity : 0 }))
             .slice(0, limit);
-
         return {
-            data: topProducts,
+            data,
             meta: {
-                total: productStats.size,
+                total: all.length,
                 limit,
                 fromDate,
                 toDate,
                 eventId,
             },
+        };
+    }
+
+    /**
+     * Filtre commun des analyses. BUG-028 : exclut les transactions supprimées côté Weezevent
+     * (soft-delete deletedAt). Sans événement, une période explicite d'au plus 366 jours est
+     * exigée.
+     */
+    private analyticsFilter(tenantId: string, params: { eventId?: string; fromDate?: string; toDate?: string }): AnalyticsFilter {
+        const { eventId, fromDate, toDate } = params;
+        if (!eventId) {
+            const from = fromDate ? new Date(fromDate) : null;
+            const to = toDate ? new Date(toDate) : null;
+            if (!from || !to || Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+                throw new BadRequestException('fromDate et toDate sont requis sans eventId (période de 366 jours au plus).');
+            }
+            if (to < from || to.getTime() - from.getTime() > MAX_ANALYTICS_SPAN_MS) {
+                throw new BadRequestException('Période invalide : toDate après fromDate, 366 jours au plus.');
+            }
+        }
+        return {
+            tenantId,
+            eventId: eventId || undefined,
+            fromDate: fromDate ? new Date(fromDate) : undefined,
+            toDate: toDate ? new Date(toDate) : undefined,
         };
     }
 }
