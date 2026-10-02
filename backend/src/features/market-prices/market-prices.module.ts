@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { MarketPricesService } from './market-prices.service';
 import { MarketPricesController } from './market-prices.controller';
 import { MarketPriceTaxonomyService } from './market-price-taxonomy.service';
 import {
@@ -7,6 +6,9 @@ import {
   MarketPriceCategoriesController,
 } from './market-price-taxonomy.controller';
 import { PrismaModule } from '../../core/database/prisma.module';
+import { MarketPriceQueryService } from './services/market-price-query.service';
+import { MarketPriceRecipeSyncService } from './services/market-price-recipe-sync.service';
+import { MarketPricesService } from './market-prices.service';
 
 @Module({
   imports: [PrismaModule],
@@ -15,7 +17,13 @@ import { PrismaModule } from '../../core/database/prisma.module';
     MarketPriceTypesController,
     MarketPriceCategoriesController,
   ],
-  providers: [MarketPricesService, MarketPriceTaxonomyService],
-  exports: [MarketPricesService, MarketPriceTaxonomyService],
+  providers: [ MarketPriceTaxonomyService,
+    MarketPriceQueryService,
+    MarketPriceRecipeSyncService,
+    MarketPricesService,
+  ],
+  exports: [ MarketPriceTaxonomyService,
+    MarketPriceQueryService,
+  ],
 })
 export class MarketPricesModule {}

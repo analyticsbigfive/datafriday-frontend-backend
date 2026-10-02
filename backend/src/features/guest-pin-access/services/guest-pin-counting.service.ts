@@ -1,7 +1,6 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { PreEventInventoryFlowService } from '../../inventory/pre-event-inventory-flow.service';
-import { MarketPricesService } from '../../market-prices/market-prices.service';
 import { MenuComponentsService } from '../../menu-components/menu-components.service';
 import { SpaceMenuConfigurationService } from '../../space-menus/services/space-menu-configuration.service';
 import { StorageTypesService } from '../../storage-types/storage-types.service';
@@ -10,6 +9,7 @@ import { isInventoryPhase } from '../inventory-window-period';
 import type { GuestPinUser } from '../../../core/auth/strategies/jwt-guest-pin.strategy';
 import { MenuItemRecipeService } from '../../menu-items/services/menu-item-recipe.service';
 import { InventoryCountService } from '../../inventory/services/inventory-count.service';
+import { MarketPriceQueryService } from '../../market-prices/services/market-price-query.service';
 
 /**
  * Comptage côté invité : catalogue des articles du PDV ou du stockage, feuille d'inventaire, enregistrement et soumission du comptage.
@@ -21,7 +21,7 @@ export class GuestPinCountingService {
     private readonly inventoryCountService: InventoryCountService,
     private readonly preEventFlow: PreEventInventoryFlowService,
     private readonly menuItemRecipeService: MenuItemRecipeService,
-    private readonly marketPrices: MarketPricesService,
+    private readonly marketPriceQueryService: MarketPriceQueryService,
     private readonly menuComponents: MenuComponentsService,
     private readonly spaceMenus: SpaceMenuConfigurationService,
     private readonly storageTypes: StorageTypesService,
@@ -149,7 +149,7 @@ export class GuestPinCountingService {
         ? this.menuItemRecipeService.getRecipes(enabledIds, user.tenantId)
         : Promise.resolve({ items: [], suppliers: [] }),
       this.menuItemRecipeService.getRecipes([], user.tenantId),
-      this.marketPrices.findAll(user.tenantId, 1, 5000),
+      this.marketPriceQueryService.findAll(user.tenantId, 1, 5000),
       this.menuComponents.findAll(user.tenantId, 1, 5000),
     ]);
 
@@ -203,7 +203,7 @@ export class GuestPinCountingService {
 
     const [allRecipes, marketPricesPage, componentsPage, storageTypesPage] = await Promise.all([
       this.menuItemRecipeService.getRecipes([], user.tenantId),
-      this.marketPrices.findAll(user.tenantId, 1, 5000),
+      this.marketPriceQueryService.findAll(user.tenantId, 1, 5000),
       this.menuComponents.findAll(user.tenantId, 1, 5000),
       this.storageTypes.findAll(user.tenantId, 1, 500),
     ]);

@@ -1,4 +1,4 @@
-import { MarketPricesService } from './market-prices.service';
+import { createMarketPricesServices } from './services/market-prices-services.testing';
 
 // BUG-24: `deduplicate()` used to build its composite key from itemName + supplier only,
 // ignoring price/unit/quantity — so two genuinely different MarketPrice rows (different price
@@ -14,11 +14,10 @@ describe('MarketPricesService.deduplicate', () => {
   } as any;
 
   const mockStorage = {} as any;
-
-  let service: MarketPricesService;
+  let marketPricesService: any;
 
   beforeEach(() => {
-    service = new MarketPricesService(mockPrisma, mockStorage, { hasFullAccess: () => true, getAccessibleSpaceIds: async () => "ALL" } as any);
+    ({ marketPricesService } = createMarketPricesServices({ prisma: mockPrisma, storage: mockStorage, spaceAccess: { hasFullAccess: () => true } }));
     jest.clearAllMocks();
     mockPrisma.marketPrice.deleteMany.mockResolvedValue({ count: 0 });
   });
@@ -45,7 +44,7 @@ describe('MarketPricesService.deduplicate', () => {
       },
     ]);
 
-    const result = await service.deduplicate('tenant-1');
+    const result = await marketPricesService.deduplicate('tenant-1');
 
     expect(result.removed).toBe(0);
     expect(mockPrisma.marketPrice.deleteMany).not.toHaveBeenCalled();
@@ -73,7 +72,7 @@ describe('MarketPricesService.deduplicate', () => {
       },
     ]);
 
-    const result = await service.deduplicate('tenant-1');
+    const result = await marketPricesService.deduplicate('tenant-1');
 
     expect(result.removed).toBe(0);
     expect(mockPrisma.marketPrice.deleteMany).not.toHaveBeenCalled();
@@ -101,7 +100,7 @@ describe('MarketPricesService.deduplicate', () => {
       },
     ]);
 
-    const result = await service.deduplicate('tenant-1');
+    const result = await marketPricesService.deduplicate('tenant-1');
 
     expect(result.removed).toBe(0);
     expect(mockPrisma.marketPrice.deleteMany).not.toHaveBeenCalled();
@@ -130,7 +129,7 @@ describe('MarketPricesService.deduplicate', () => {
     ]);
     mockPrisma.marketPrice.deleteMany.mockResolvedValue({ count: 1 });
 
-    const result = await service.deduplicate('tenant-1');
+    const result = await marketPricesService.deduplicate('tenant-1');
 
     expect(result.removed).toBe(1);
     // orderBy createdAt desc means the first row (mp-newest) is kept, the later duplicate deleted.
@@ -157,11 +156,10 @@ describe('MarketPricesService.bulkCreate — upsert by id', () => {
   const mockStorage = {
     resolveImage: jest.fn().mockResolvedValue(undefined),
   } as any;
-
-  let service: MarketPricesService;
+  let marketPricesService: any;
 
   beforeEach(() => {
-    service = new MarketPricesService(mockPrisma, mockStorage, { hasFullAccess: () => true, getAccessibleSpaceIds: async () => "ALL" } as any);
+    ({ marketPricesService } = createMarketPricesServices({ prisma: mockPrisma, storage: mockStorage, spaceAccess: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => "ALL" } as any }));
     jest.clearAllMocks();
     mockStorage.resolveImage.mockResolvedValue(undefined);
   });
@@ -174,7 +172,7 @@ describe('MarketPricesService.bulkCreate — upsert by id', () => {
       price: '1.10',
     });
 
-    const result = await service.bulkCreate(
+    const result = await marketPricesService.bulkCreate(
       [{ id: 'mp-existing', itemName: 'Pomme de terre', unit: 'kg', price: 1.1, goodType: 'Food' } as any],
       'tenant-1',
     );
@@ -201,7 +199,7 @@ describe('MarketPricesService.bulkCreate — upsert by id', () => {
       price: '93.61',
     });
 
-    const result = await service.bulkCreate(
+    const result = await marketPricesService.bulkCreate(
       [{ id: 'market-price-1762288192688', itemName: 'Heineken - 30L', unit: 'l', price: 93.61, goodType: 'Beverage' } as any],
       'tenant-1',
     );
@@ -220,7 +218,7 @@ describe('MarketPricesService.bulkCreate — upsert by id', () => {
       price: '10.25',
     });
 
-    const result = await service.bulkCreate(
+    const result = await marketPricesService.bulkCreate(
       [{ itemName: 'Canelle', unit: 'kg', price: 10.25, goodType: 'Food' } as any],
       'tenant-1',
     );
