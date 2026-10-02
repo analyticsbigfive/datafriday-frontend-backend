@@ -135,32 +135,66 @@ export class StockItemIdentityService {
    * apprendre `unitsPerPack` (BUG-033/049).
    */
   async resolveUnitsPerPackForItemKey(itemKey: string, tenantId: string): Promise<number | null> {
-    const name = String(itemKey ?? '').trim();
-    if (!name) return null;
+    const map = await this.resolveUnitsPerPackForItemKeys([itemKey], tenantId);
+    return map.get(String(itemKey ?? '').trim()) ?? null;
+  }
 
-    // Plusieurs lignes peuvent partager ce nom (pas de contrainte unique sur
-    // itemName/name) — tri déterministe (BUG-133-02) pour ne plus dépendre d'un
-    // ordre Postgres arbitraire.
-    const mp = await this.prisma.marketPrice.findFirst({
-      where: { tenantId, deletedAt: null, itemName: { equals: name, mode: 'insensitive' } },
-      select: { packedUnits: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (mp?.packedUnits) return mp.packedUnits;
-
-    const comp = await this.prisma.menuComponent.findFirst({
-      where: { tenantId, deletedAt: null, name: { equals: name, mode: 'insensitive' } },
-      select: { packedUnits: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (comp?.packedUnits) return comp.packedUnits;
-
-    const mi = await this.prisma.menuItem.findFirst({
-      where: { tenantId, deletedAt: null, name: { equals: name, mode: 'insensitive' } },
-      select: { inventoryNumberOfUnits: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    return mi?.inventoryNumberOfUnits ?? null;
+  /**
+   * Version groupée de `resolveUnitsPerPackForItemKey` : trois requêtes pour tout le lot au lieu
+   * de trois par nom. Même règle par nom (comparaison insensible à la casse) : la ligne
+   * MarketPrice la plus ancienne si son packedUnits est renseigné, sinon le MenuComponent le
+   * plus ancien, sinon `inventoryNumberOfUnits` du MenuItem le plus ancien. Plusieurs lignes
+   * peuvent partager ce nom (pas de contrainte unique sur itemName/name) : tri déterministe
+   * (BUG-133-02). Clés du résultat : noms tels que fournis, après trim.
+   */
+  async resolveUnitsPerPackForItemKeys(itemKeys: string[], tenantId: string): Promise<Map<string, number | null>> {
+    const names = [...new Set(itemKeys.map((k) => String(k ?? '').trim()).filter(Boolean))];
+    const result = new Map<string, number | null>();
+    if (!names.length) return result;
+    const insensitive = <F extends string>(field: F) =>
+      names.map((n) => ({ [field]: { equals: n, mode: 'insensitive' as const } }));
+    const [marketPrices, components, menuItems] = await Promise.all([
+      this.prisma.marketPrice.findMany({
+        where: { tenantId, deletedAt: null, OR: insensitive('itemName') },
+        select: { itemName: true, packedUnits: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.menuComponent.findMany({
+        where: { tenantId, deletedAt: null, OR: insensitive('name') },
+        select: { name: true, packedUnits: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.menuItem.findMany({
+        where: { tenantId, deletedAt: null, OR: insensitive('name') },
+        select: { name: true, inventoryNumberOfUnits: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    ]);
+    // Plus ancienne ligne correspondant au nom. Prisma traduit `equals` insensible à la casse en
+    // ILIKE, où `%` et `_` sont des jokers (ex. « Heineken 0% 33cl » correspond à « Heineken 0%
+    // - CAN 33CL ») : on reproduit exactement cette correspondance pour ne rien changer aux
+    // résultats. Les rows arrivent déjà triées par createdAt croissant.
+    const matcher = (name: string) => {
+      if (!/[%_]/.test(name)) {
+        const lower = name.toLowerCase();
+        return (value: string) => value.toLowerCase() === lower;
+      }
+      const pattern = name
+        .split('')
+        .map((ch) => (ch === '%' ? '.*' : ch === '_' ? '.' : ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
+        .join('');
+      const re = new RegExp(`^${pattern}$`, 'is');
+      return (value: string) => re.test(value);
+    };
+    for (const name of names) {
+      const matches = matcher(name);
+      const mp = marketPrices.find((r) => matches(r.itemName));
+      if (mp?.packedUnits) { result.set(name, mp.packedUnits); continue; }
+      const comp = components.find((r) => matches(r.name));
+      if (comp?.packedUnits) { result.set(name, comp.packedUnits); continue; }
+      result.set(name, menuItems.find((r) => matches(r.name))?.inventoryNumberOfUnits ?? null);
+    }
+    return result;
   }
 
   /**

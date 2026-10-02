@@ -254,13 +254,16 @@ export class InventoryBaselineService {
     };
     // unitsPerPack par itemKey — même chaîne de résolution que la Logistique
     // (MarketPrice → MenuComponent → MenuItem.inventoryNumberOfUnits), mémoïsée.
-    const uppByNormKey = new Map<string, number | null>();
+    // Première itemKey rencontrée par nom normalisé, résolue en lot (même règle qu'avant).
+    const firstKeyByNorm = new Map<string, string>();
     for (const m of rows) {
       const nk = this.inventoryUnitResolverService.normalizeName(m.itemKey);
-      if (!uppByNormKey.has(nk)) {
-        uppByNormKey.set(nk, await this.stockItemIdentityService.resolveUnitsPerPackForItemKey(m.itemKey, tenantId));
-      }
+      if (!firstKeyByNorm.has(nk)) firstKeyByNorm.set(nk, m.itemKey);
     }
+    const uppByKey = await this.stockItemIdentityService.resolveUnitsPerPackForItemKeys([...firstKeyByNorm.values()], tenantId);
+    const uppByNormKey = new Map<string, number | null>(
+      [...firstKeyByNorm].map(([nk, itemKey]) => [nk, uppByKey.get(String(itemKey ?? '').trim()) ?? null]),
+    );
     const itemIds = rows.flatMap((m) => idsFor(m));
     const invUppByItemId = await this.inventoryUnitResolverService.resolveInventoryUnitsPerPack(itemIds, tenantId);
     const round2 = (n: number) => Math.round(n * 100) / 100;
