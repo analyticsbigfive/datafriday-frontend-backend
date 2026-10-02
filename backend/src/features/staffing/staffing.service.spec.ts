@@ -5,6 +5,19 @@ import {
   StaffingCalculatorService,
 } from './staffing-calculator.service';
 import { spaceAccessStub } from '../../core/auth/space-access.testing';
+import { StaffingContextService } from './services/staffing-context.service';
+import { StaffingGenerationService } from './services/staffing-generation.service';
+
+/** Services du staffing câblés sur le même prisma simulé. */
+function makeStaffingServices(prisma: any) {
+  const calculator = new StaffingCalculatorService();
+  const spaceAccess = spaceAccessStub();
+  const staffingContextService = new StaffingContextService(prisma, spaceAccess);
+  const staffingService = new StaffingService(prisma, calculator, spaceAccess, staffingContextService);
+  const staffingGenerationService = new StaffingGenerationService(prisma, calculator, staffingContextService, staffingService);
+  return { staffingService, staffingGenerationService };
+}
+
 
 /**
  * `getStaffing` : la fenêtre suggérée (portes − 2 h → fin + 1 h) suit les heures de
@@ -67,8 +80,8 @@ describe('StaffingService.getStaffing : horaires suggérés et recalage des lign
       _realigned: [] as any[],
       _settingsServed: false,
     };
-    const service = new StaffingService(prisma, new StaffingCalculatorService(), spaceAccessStub());
-    return { prisma, service };
+    const { staffingService } = makeStaffingServices(prisma);
+    return { prisma, staffingService };
   }
 
   const baseEvent = {
@@ -84,9 +97,9 @@ describe('StaffingService.getStaffing : horaires suggérés et recalage des lign
 
   it('portes renseignées après coup : la fenêtre suit (15:15 − 2 h → 22:50 + 1 h) et la ligne ALGO est recalée en base', async () => {
     const event = { ...baseEvent, sessions: JSON.stringify([{ doorsOpening: '15:15', showTime: '17:15' }]) };
-    const { prisma, service } = build(event, [line({})]);
+    const { prisma, staffingService } = build(event, [line({})]);
 
-    const out = await service.getStaffing('ev', 't1');
+    const out = await staffingService.getStaffing('ev', 't1');
 
     // Heure d'été Paris (UTC+2) : 15:15 → 13:15Z ; − 2 h = 11:15Z. 22:50 → 20:50Z ; + 1 h = 21:50Z.
     expect(out.schedule.startTime).toEqual(T('2026-09-19T11:15:00.000Z'));
@@ -110,13 +123,13 @@ describe('StaffingService.getStaffing : horaires suggérés et recalage des lign
     const event = { ...baseEvent, sessions: JSON.stringify([{ doorsOpening: '15:15' }]) };
     const aligned = { start: T('2026-09-19T11:15:00.000Z'), end: T('2026-09-19T21:50:00.000Z') };
     const inside = { start: T('2026-09-19T14:00:00.000Z'), end: T('2026-09-19T20:00:00.000Z') };
-    const { prisma, service } = build(event, [
+    const { prisma, staffingService } = build(event, [
       line({ id: 'u', userModified: true, startTime: inside.start, endTime: inside.end }),
       line({ id: 'm', source: 'MANUAL', startTime: inside.start, endTime: inside.end }),
       line({ id: 'ok', startTime: aligned.start, endTime: aligned.end }),
     ]);
 
-    const out = await service.getStaffing('ev', 't1');
+    const out = await staffingService.getStaffing('ev', 't1');
 
     expect(prisma._realigned).toEqual([]);
     const byId = Object.fromEntries(out.elements[0].lines.map((l: any) => [l.id, l]));
@@ -127,14 +140,14 @@ describe('StaffingService.getStaffing : horaires suggérés et recalage des lign
 
   it('une ligne modifiée à la main qui DÉBORDE de la fenêtre est ramenée dedans (curseur hors piste au chargement, retour Bertrand)', async () => {
     const event = { ...baseEvent, sessions: JSON.stringify([{ doorsOpening: '15:15' }]) };
-    const { prisma, service } = build(event, [
+    const { prisma, staffingService } = build(event, [
       // Réglée quand la fenêtre allait de 00:00 à 01:50 : 07:30 → 00:45 Paris.
       line({ id: 'u', userModified: true, startTime: T('2026-09-19T05:30:00.000Z'), endTime: T('2026-09-19T22:45:00.000Z') }),
       // Entièrement hors fenêtre : repart sur la fenêtre.
       line({ id: 'x', source: 'MANUAL', startTime: T('2026-09-19T02:00:00.000Z'), endTime: T('2026-09-19T04:00:00.000Z') }),
     ]);
 
-    const out = await service.getStaffing('ev', 't1');
+    const out = await staffingService.getStaffing('ev', 't1');
 
     const byId = Object.fromEntries(out.elements[0].lines.map((l: any) => [l.id, l]));
     expect(byId.u.startTime).toEqual(T('2026-09-19T11:15:00.000Z')); // clampé au début de fenêtre
@@ -146,8 +159,8 @@ describe('StaffingService.getStaffing : horaires suggérés et recalage des lign
 
   it("sans heure d'ouverture : repli sur le jour calendaire (comportement historique)", async () => {
     const event = { ...baseEvent, sessions: null, eventEndTime: null };
-    const { service } = build(event, []);
-    const out = await service.getStaffing('ev', 't1');
+    const { staffingService } = build(event, []);
+    const out = await staffingService.getStaffing('ev', 't1');
     // Jour à minuit UTC − 2 h, fin = portes + 6 h par défaut + 1 h.
     expect(out.schedule.startTime).toEqual(T('2026-09-18T22:00:00.000Z'));
     expect(out.schedule.endTime).toEqual(T('2026-09-19T07:00:00.000Z'));
@@ -159,7 +172,7 @@ describe('StaffingService.getStaffing : horaires suggérés et recalage des lign
  * Priorité : corps de la requête > version par défaut > ElementPerformance.revenue.
  * goalTpe = 1 000 € : 3 000 € donnent n = 3 (2 caissiers + 1 runner, sans responsable PDV).
  */
-describe('StaffingService.generate : source du CA prédictif et avertissements', () => {
+describe('StaffingGenerationService.generate : source du CA prédictif et avertissements', () => {
   const GOAL_TPE = 1000;
 
   const element = (id: string, perfRevenue: number | null) => ({
@@ -222,54 +235,54 @@ describe('StaffingService.generate : source du CA prédictif et avertissements',
       _txCalls: 0,
       _writes: [] as any[],
     };
-    const service = new StaffingService(prisma, new StaffingCalculatorService(), spaceAccessStub());
+    const { staffingService, staffingGenerationService } = makeStaffingServices(prisma);
     // La relecture (getStaffing) n'est pas l'objet de ces tests : on renvoie les avertissements.
     jest
-      .spyOn(service, 'getStaffing')
+      .spyOn(staffingService, 'getStaffing')
       .mockImplementation(async (_e: string, _t: string, warnings: any[] = []) => ({ warnings }) as any);
     const createdFor = (elementId: string) =>
       prisma._writes
         .filter((w: any) => w.op === 'createMany')
         .flatMap((w: any) => w.args.data)
         .filter((l: any) => l.elementId === elementId).length;
-    return { prisma, service, createdFor };
+    return { prisma, staffingGenerationService, createdFor };
   }
 
   it("le CA envoyé par l'écran est prioritaire sur la version par défaut", async () => {
-    const { prisma, service, createdFor } = build({
+    const { prisma, staffingGenerationService, createdFor } = build({
       elements: [element('el1', 0)],
       versionRecords: [{ shopId: 'el1', totalRevenue: 9000 }],
     });
-    await service.generate('ev', 't1', undefined, { el1: 3000 });
+    await staffingGenerationService.generate('ev', 't1', undefined, { el1: 3000 });
     expect(createdFor('el1')).toBe(3);
     expect(prisma.eventPredictVersion.findFirst).not.toHaveBeenCalled();
   });
 
   it.each([[undefined], [{}], [null]])('corps %p : repli sur la version par défaut (agrégée par shopId)', async (override) => {
-    const { prisma, service, createdFor } = build({
+    const { prisma, staffingGenerationService, createdFor } = build({
       elements: [element('el1', 0)],
       versionRecords: [
         { shopId: 'el1', totalRevenue: 1500 },
         { shopId: 'el1', totalRevenue: 500 },
       ],
     });
-    await service.generate('ev', 't1', undefined, override as any);
+    await staffingGenerationService.generate('ev', 't1', undefined, override as any);
     expect(prisma.eventPredictVersion.findFirst).toHaveBeenCalled();
     expect(createdFor('el1')).toBe(2);
   });
 
   it('ni corps ni version : repli sur ElementPerformance.revenue', async () => {
-    const { service, createdFor } = build({ elements: [element('el1', 4000)], versionRecords: null });
-    await service.generate('ev', 't1');
+    const { staffingGenerationService, createdFor } = build({ elements: [element('el1', 4000)], versionRecords: null });
+    await staffingGenerationService.generate('ev', 't1');
     expect(createdFor('el1')).toBe(4);
   });
 
   it('valeurs invalides ignorées ; un corps sans valeur exploitable retombe sur la version', async () => {
-    const { prisma, service, createdFor } = build({
+    const { prisma, staffingGenerationService, createdFor } = build({
       elements: [element('el1', 0)],
       versionRecords: [{ shopId: 'el1', totalRevenue: 2000 }],
     });
-    await service.generate('ev', 't1', undefined, {
+    await staffingGenerationService.generate('ev', 't1', undefined, {
       el1: -500,
       el2: 'abc',
       el3: Infinity,
@@ -281,11 +294,11 @@ describe('StaffingService.generate : source du CA prédictif et avertissements',
   });
 
   it('corps partiel : PDV absent du corps ou à valeur invalide retombe sur ElementPerformance, clé hors config jamais lue', async () => {
-    const { prisma, service, createdFor } = build({
+    const { prisma, staffingGenerationService, createdFor } = build({
       elements: [element('el1', 0), element('el2', 2000)],
       versionRecords: [{ shopId: 'el2', totalRevenue: 9000 }],
     });
-    await service.generate('ev', 't1', undefined, { el1: '3000', el2: -1, horsConfig: 50000 } as any);
+    await staffingGenerationService.generate('ev', 't1', undefined, { el1: '3000', el2: -1, horsConfig: 50000 } as any);
     expect(prisma.eventPredictVersion.findFirst).not.toHaveBeenCalled();
     expect(createdFor('el1')).toBe(3);
     expect(createdFor('el2')).toBe(2);
@@ -294,16 +307,16 @@ describe('StaffingService.generate : source du CA prédictif et avertissements',
   });
 
   it('aucun CA prédit sur aucun PDV : avertissement AUCUNE_LIGNE_GENEREE', async () => {
-    const { service } = build({ elements: [element('el1', 0), element('el2', null)], versionRecords: null });
-    const out: any = await service.generate('ev', 't1');
+    const { staffingGenerationService } = build({ elements: [element('el1', 0), element('el2', null)], versionRecords: null });
+    const out: any = await staffingGenerationService.generate('ev', 't1');
     const codes = out.warnings.map((w: any) => w.code);
     expect(codes).toContain('AUCUNE_LIGNE_GENEREE');
     expect(codes).not.toContain('CA_SOUS_OBJECTIF_TPE');
   });
 
   it("du CA mais tous les PDV sous l'objectif TPE : avertissement CA_SOUS_OBJECTIF_TPE avec le CA max", async () => {
-    const { service } = build({ elements: [element('el1', 0), element('el2', 0)], versionRecords: null });
-    const out: any = await service.generate('ev', 't1', undefined, { el1: 420, el2: 999.6 });
+    const { staffingGenerationService } = build({ elements: [element('el1', 0), element('el2', 0)], versionRecords: null });
+    const out: any = await staffingGenerationService.generate('ev', 't1', undefined, { el1: 420, el2: 999.6 });
     const w = out.warnings.find((x: any) => x.code === 'CA_SOUS_OBJECTIF_TPE');
     expect(w).toBeDefined();
     expect(w.message).toBe("Aucun PDV n'atteint l'objectif de 1 000 € par TPE (CA prédit max : 999,6 €).");

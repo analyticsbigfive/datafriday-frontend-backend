@@ -10,7 +10,7 @@ import { HrSinkingRuleService } from './services/hr-sinking-rule.service';
  * Règles « Sinking RH » (STF-2) : dotation conditionnelle d'un rôle selon la
  * catégorie FNB détectée sur un PDV (+ condition optionnelle sur un attribut
  * d'équipement, ex. nbFriteuses ≥ seuil). Consommées par
- * StaffingService.generate() — voir staffing-calculator.service.ts::applySinkingRules.
+ * StaffingGenerationService.generate() — voir staffing-calculator.service.ts::applySinkingRules.
  * CFG-2 Étape 4.5 : `fnbCategory` valide son existence contre Subtype (département `shop`)
  * dans HrRoleService.resolveFnbCategories(), plus de liste figée HR_FNB_CATEGORIES.
  */
