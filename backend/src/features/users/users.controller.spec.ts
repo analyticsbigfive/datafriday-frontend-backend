@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { UserRole } from '@prisma/client';
+import { UserAccessService } from './services/user-access.service';
+import { UserInvitationService } from './services/user-invitation.service';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -40,10 +42,9 @@ describe('UsersController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UsersController],
       providers: [
-        {
-          provide: UsersService,
-          useValue: mockUsersService,
-        },
+        { provide: UsersService, useValue: mockUsersService },
+        { provide: UserInvitationService, useValue: mockUsersService },
+        { provide: UserAccessService, useValue: mockUsersService },
       ],
     }).compile();
 
