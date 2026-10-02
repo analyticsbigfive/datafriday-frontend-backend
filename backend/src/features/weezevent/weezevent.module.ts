@@ -9,6 +9,11 @@ import { WeezeventCatalogSyncService } from './services/sync/catalog-sync.servic
 import { WeezeventQueuedEntitySyncService } from './services/sync/queued-entity-sync.service';
 import { WebhookSignatureService } from './services/webhook-signature.service';
 import { WebhookEventHandler } from './services/webhook-event.handler';
+import { WeezeventSalesDataQueryService } from './services/console/weezevent-sales-data-query.service';
+import { WeezeventProductCatalogService } from './services/console/weezevent-product-catalog.service';
+import { WeezeventProductMappingAdminService } from './services/console/weezevent-product-mapping-admin.service';
+import { WeezeventSyncAdminService } from './services/console/weezevent-sync-admin.service';
+import { WeezeventSyncJobService } from './services/console/weezevent-sync-job.service';
 import { WeezeventController } from './weezevent.controller';
 import { WebhookController } from './webhook.controller';
 import { WeezeventAnalyticsController } from './weezevent-analytics.controller';
@@ -58,6 +63,12 @@ import { LiveSyncRunnerService } from './services/live/live-sync-runner.service'
         WebhookHealthService,
         LiveHeartbeatService,
         LiveSyncRunnerService,
+        // Services de la console Weezevent (corps des routes de WeezeventController)
+        WeezeventSalesDataQueryService,
+        WeezeventProductCatalogService,
+        WeezeventProductMappingAdminService,
+        WeezeventSyncAdminService,
+        WeezeventSyncJobService,
     ],
     exports: [
         WeezeventClientService,

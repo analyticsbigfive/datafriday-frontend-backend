@@ -9,6 +9,11 @@ import { WeezeventClientService } from './services/weezevent-client.service';
 import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
 import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
+import { WeezeventSalesDataQueryService } from './services/console/weezevent-sales-data-query.service';
+import { WeezeventProductCatalogService } from './services/console/weezevent-product-catalog.service';
+import { WeezeventProductMappingAdminService } from './services/console/weezevent-product-mapping-admin.service';
+import { WeezeventSyncAdminService } from './services/console/weezevent-sync-admin.service';
+import { WeezeventSyncJobService } from './services/console/weezevent-sync-job.service';
 
 describe('WeezeventController', () => {
   let controller: WeezeventController;
@@ -122,6 +127,11 @@ describe('WeezeventController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [WeezeventController],
       providers: [
+        WeezeventSalesDataQueryService,
+        WeezeventProductCatalogService,
+        WeezeventProductMappingAdminService,
+        WeezeventSyncAdminService,
+        WeezeventSyncJobService,
         {
           provide: WeezeventSyncService,
           useValue: mockSyncService,
