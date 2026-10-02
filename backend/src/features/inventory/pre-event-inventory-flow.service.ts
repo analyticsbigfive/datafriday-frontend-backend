@@ -5,7 +5,6 @@ import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import {
   resolveDoorsOpenAt,
   resolveEventTransactionWindow,
-  resolvePreEventStart,
 } from '../../shared/utils/event-window.util';
 
 /** Événement tel que lu pour le flux (sélection minimale, partagée cron/service). */
@@ -41,14 +40,11 @@ export interface PreEventRegenerateResult {
   logisticPush?: { ok: boolean; reason: string | null; lineCount: number } | null;
 }
 
-export type PreEventWindowPhase = 'not-open' | 'no-doors-open' | 'before' | 'editing' | 'locked';
+export type PreEventWindowPhase = 'no-doors-open' | 'before' | 'editing' | 'locked';
 
 /** État de la fenêtre d'édition pre-event, exposé au front (instants UTC). */
 export interface PreEventWindowState {
   phase: PreEventWindowPhase;
-  /** Début de la période pre-event (minuit du jour du match, ou fin du match précédent
-   *  s'il finit après minuit). Avant : lecture seule. */
-  opensAt: Date | null;
   doorsOpenAt: Date | null;
   editDeadline: Date | null;
   doorsOpenDone: boolean;
@@ -72,8 +68,9 @@ export interface PreEventWindowState {
  *     manuelle, point de vente par point de vente, par le responsable logistique
  *     ou l'administrateur (règle Bertrand 2026-09-29). Au-delà des 30 minutes,
  *     l'écriture pre-event est refusée (403).
- *  4. Avant le début de la période (minuit le jour du match, ou fin du match
- *     précédent s'il finit après minuit), l'écriture pre-event est refusée.
+ *  4. Avant l'ouverture des portes, l'inventaire pre-event est modifiable à tout
+ *     moment, sans attendre le jour du match (Ulrich 2026-10-02, revenu sur
+ *     l'ouverture à minuit du 2026-09-29).
  *
  * "Doors Open" = `sessions[].doorsOpening` (heure locale du space) posée sur le
  * jour de l'event. `eventDate`/`eventStartDate` sont des jours calendaires ancrés
@@ -132,46 +129,15 @@ export class PreEventInventoryFlowService {
     return resolveEventTransactionWindow(event, event.timezone || 'Europe/Paris').end;
   }
 
-  windowState(
-    event: FlowEvent,
-    now: Date = new Date(),
-    opensAt: Date | null = null,
-  ): Omit<PreEventWindowState, 'doorsOpenDone'> {
+  windowState(event: FlowEvent, now: Date = new Date()): Omit<PreEventWindowState, 'doorsOpenDone'> {
     const doorsOpenAt = this.doorsOpenAt(event);
     const editDeadline = this.editDeadline(event);
-    if (opensAt && now < opensAt) {
-      return { phase: 'not-open', opensAt, doorsOpenAt, editDeadline };
-    }
     if (!doorsOpenAt || !editDeadline) {
-      return { phase: 'no-doors-open', opensAt, doorsOpenAt: null, editDeadline: null };
+      return { phase: 'no-doors-open', doorsOpenAt: null, editDeadline: null };
     }
     const phase: PreEventWindowPhase =
       now < doorsOpenAt ? 'before' : now <= editDeadline ? 'editing' : 'locked';
-    return { phase, opensAt, doorsOpenAt, editDeadline };
-  }
-
-  /**
-   * Début de la période pre-event (cf. resolvePreEventStart) : lit les events du même
-   * espace qui peuvent finir le jour du match (fin après minuit).
-   */
-  async preEventOpensAt(event: FlowEvent): Promise<Date> {
-    const day = new Date(event.eventStartDate ?? event.eventDate);
-    const neighbors = await this.prisma.event.findMany({
-      where: {
-        tenantId: event.tenantId,
-        spaceId: event.spaceId,
-        id: { not: event.id },
-        eventDate: { gte: new Date(day.getTime() - 3 * 24 * 60 * 60 * 1000), lte: day },
-      },
-      select: {
-        id: true,
-        eventDate: true,
-        eventStartDate: true,
-        eventEndDate: true,
-        eventEndTime: true,
-      },
-    });
-    return resolvePreEventStart(event, event.timezone || 'Europe/Paris', neighbors);
+    return { phase, doorsOpenAt, editDeadline };
   }
 
   /** Portes déjà ouvertes (heure passée, ou passage « portes ouvertes » déjà fait). */
@@ -193,7 +159,7 @@ export class PreEventInventoryFlowService {
   ): Promise<PreEventWindowState> {
     const event = await this.findEvent(spaceId, eventId, tenantId);
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
-    const state = this.windowState(event, new Date(), await this.preEventOpensAt(event));
+    const state = this.windowState(event);
     const marker = await this.prisma.kvStore.findUnique({
       where: { uniq_kv_store: { tenantId, key: this.doorsOpenKey(spaceId, eventId) } },
       select: { id: true },
@@ -216,14 +182,6 @@ export class PreEventInventoryFlowService {
     }
     const event = await this.findEvent(dto.spaceId, dto.eventId, tenantId);
     const now = new Date();
-    if (event) {
-      const opensAt = await this.preEventOpensAt(event);
-      if (now < opensAt) {
-        throw new ForbiddenException(
-          `Inventaire pré-événement pas encore ouvert : disponible à partir du ${formatLocal(opensAt, event.timezone)}.`,
-        );
-      }
-    }
     const doorsOpen = event ? this.doorsOpenAt(event) : null;
     const deadline = event ? this.editDeadline(event) : null;
     if (!event || !doorsOpen || !deadline) {
@@ -623,12 +581,3 @@ export class PreEventInventoryFlowService {
     return { ...rest, tenantId, spaceId, timezone: space?.timezone || 'Europe/Paris' };
   }
 }
-
-const formatLocal = (instant: Date, timeZone: string): string =>
-  new Intl.DateTimeFormat('fr-FR', {
-    timeZone: timeZone || 'Europe/Paris',
-    day: '2-digit',
-    month: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(instant);
