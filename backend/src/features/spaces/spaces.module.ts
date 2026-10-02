@@ -14,7 +14,6 @@ import { SpaceAnalyseBatchService } from './services/space-analyse-batch.service
 import { SpaceShopsService } from './services/space-shops.service';
 import { SpaceEventTimelineService } from './services/space-event-timeline.service';
 import { SpaceWeezeventEventService } from './services/space-weezevent-event.service';
-import { SpaceDashboardService } from './services/space-dashboard.service';
 import { SpaceAggregationService } from './services/space-aggregation.service';
 import { SpaceRevenueSummaryService } from './services/space-revenue-summary.service';
 import { PrismaModule } from '../../core/database/prisma.module';
@@ -28,6 +27,8 @@ import { SpaceAccessController } from './space-access.controller';
 import { ConfigurationsController } from './configurations.controller';
 import { SpaceConfigurationSaveService } from './services/space-configuration-save.service';
 import { SpaceConfigurationService } from './services/space-configuration.service';
+import { SpaceDashboardSectionsService } from './services/space-dashboard-sections.service';
+import { SpaceDashboardService } from './services/space-dashboard.service';
 
 @Module({
   imports: [PrismaModule, RedisModule, WeezeventModule, LogisticsModule],
@@ -46,7 +47,6 @@ import { SpaceConfigurationService } from './services/space-configuration.servic
     SpaceZoneElementsService,
     SpaceCrudService,
     SpaceAccessGrantService,
-    
     SpaceElementService,
     SpaceElementLayoutService,
     SpaceElementPlacementService,
@@ -55,18 +55,19 @@ import { SpaceConfigurationService } from './services/space-configuration.servic
     SpaceAnalyseBatchService,
     SpaceShopsService,
     SpaceWeezeventEventService,
-    SpaceDashboardService,
     SpaceAggregationService,
     SpaceRevenueSummaryService,
     SpaceConfigurationSaveService,
     SpaceConfigurationService,
+    SpaceDashboardSectionsService,
+    SpaceDashboardService,
   ],
   exports: [
     // Utilisés hors du module : invalidation (builder-v2), suppression d'élément (mappings).
     SpaceCacheService,
     SpaceElementService,
-    SpaceDashboardService,
     SpaceAggregationService,
+    SpaceDashboardService,
     // Première vente par PdV : arrêt du pre-event (InventoryCycleCronService).
     SpaceShopsService,
   ],
