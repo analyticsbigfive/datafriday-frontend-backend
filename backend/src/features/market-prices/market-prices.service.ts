@@ -201,15 +201,19 @@ export class MarketPricesService {
         // tombe silencieusement dans le flux de création normal ci-dessous : Prisma générera un
         // nouveau cuid, l'id fourni est simplement ignoré.
         if (dto.id) {
+          // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
           const existingById = await this.prisma.marketPrice.findFirst({
             where: { id: dto.id, tenantId },
           });
           if (existingById) {
+            // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
             const updateData = await this.buildMarketPriceUpdateData(dto);
+            // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
             const updated = await this.prisma.marketPrice.update({
               where: { id: existingById.id },
               data: updateData,
             });
+            // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
             await this.marketPriceRecipeSyncService.resyncLinkedRecipeCosts(updated, tenantId);
             result.updated.push(this.marketPriceQueryService.serialize(updated));
             continue;
@@ -257,6 +261,7 @@ export class MarketPricesService {
         // sans ce cast, TOUTE la vérification de doublon ci-dessous est un no-op silencieux dès
         // que le prix a une partie décimale non trivialement représentable en binaire (9.8, 8.54,
         // 9.3…). Toujours convertir en string avant de comparer un Decimal.
+        // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
         const existing = await this.prisma.marketPrice.findFirst({
           where: {
             tenantId,
@@ -271,7 +276,9 @@ export class MarketPricesService {
           continue;
         }
 
+        // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
         const image = await this.storage.resolveImage(dto.image, 'market-prices');
+        // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
         const price = await this.prisma.marketPrice.create({
           data: {
             tenantId,
@@ -301,6 +308,7 @@ export class MarketPricesService {
             inventoryPackaging: dto.inventoryPackaging,
           },
         });
+        // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
         await this.marketPriceRecipeSyncService.syncRecipeRecordForGoodType(price, dto.goodType, tenantId);
         result.created.push(this.marketPriceQueryService.serialize(price));
       } catch (error) {

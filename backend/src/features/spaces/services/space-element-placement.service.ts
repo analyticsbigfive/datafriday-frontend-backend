@@ -191,21 +191,22 @@ export class SpaceElementPlacementService {
     } else if (orderedElements.length) {
       // ── LEGACY v1 (à supprimer avec la fin de la migration v2) : Floor relationnel
       //    + sync JSON plus bas. Comportement historique conservé. ──
-      for (const [i, element] of orderedElements.entries()) {
-        await ensureV1Floor();
-        movedElements.push({ id: element.id, sourceFloorId: element.floorId ?? null });
-
-        await this.prisma.spaceElement.update({
-          where: { id: element.id },
-          data: {
-            floorId: floor.id,
-            forecourtId: null,
-            externalMerchId: null,
-            ...this.spaceElementLayoutService.elementGeometryData(i, opts.position, opts.shopDimensions),
-          },
-        });
-        updated.push(element.id);
-      }
+      await ensureV1Floor();
+      await this.prisma.$transaction(
+        orderedElements.map((element, i) =>
+          this.prisma.spaceElement.update({
+            where: { id: element.id },
+            data: {
+              floorId: floor.id,
+              forecourtId: null,
+              externalMerchId: null,
+              ...this.spaceElementLayoutService.elementGeometryData(i, opts.position, opts.shopDimensions),
+            },
+          }),
+        ),
+      );
+      movedElements.push(...orderedElements.map((element) => ({ id: element.id, sourceFloorId: element.floorId ?? null })));
+      updated.push(...orderedElements.map((element) => element.id));
       if (zoneName && floor && zoneName !== floor.name) {
         await this.prisma.floor.update({ where: { id: floor.id }, data: { name: zoneName } });
         floor.name = zoneName;
@@ -249,6 +250,11 @@ export class SpaceElementPlacementService {
           if (Array.isArray(jf.elements)) allElements.push(...jf.elements);
         }
 
+        // Éléments absents du JSON : relus en une requête pour construire leur entrée.
+        const missingIds = movedElements.filter((m) => !allElements.some((e: any) => e.id === m.id)).map((m) => m.id);
+        const relById = new Map(
+          (missingIds.length ? await this.prisma.spaceElement.findMany({ where: { id: { in: missingIds } } }) : []).map((e) => [e.id, e]),
+        );
         for (const movedEl of movedElements) {
           if (!updated.includes(movedEl.id)) continue;
           // Reuse the existing JSON representation if available, otherwise create a minimal stub
@@ -256,7 +262,7 @@ export class SpaceElementPlacementService {
           if (existing && !targetJsonFloor.elements.find((e: any) => e.id === movedEl.id)) {
             targetJsonFloor.elements.push(existing);
           } else if (!existing) {
-            const relElement = await this.prisma.spaceElement.findFirst({ where: { id: movedEl.id } });
+            const relElement = relById.get(movedEl.id);
             if (relElement) {
               targetJsonFloor.elements.push(toV1JsonElement(relElement));
             }
@@ -370,55 +376,72 @@ export class SpaceElementPlacementService {
     const zoneName = opts.zoneName?.trim() || null;
     let geomIndex = 0;
 
-    for (const elementId of elementIds) {
-      const element = await this.prisma.spaceElement.findFirst({
-        where: { id: elementId },
-        include: {
-          floor: { include: { config: { include: { space: true } } } },
-          forecourt: { include: { config: { include: { space: true } } } },
-          externalMerch: { include: { config: { include: { space: true } } } },
-          zone: { include: { space: true } }, // Builder v2
-        },
-      });
-      if (!element) continue;
-      const elemSpace = element.floor?.config?.space ?? element.forecourt?.config?.space ?? element.externalMerch?.config?.space ?? (element as any).zone?.space;
-      if (!elemSpace || elemSpace.tenantId !== tenantId || elemSpace.id !== spaceId) continue;
+    // Une lecture pour tous les éléments (au lieu d'une par élément), puis les écritures de
+    // chaque génération (v2 et v1) dans une transaction. Ordre et index de géométrie : ceux
+    // de `elementIds`, éléments hors espace ignorés comme avant.
+    const candidates = await this.prisma.spaceElement.findMany({
+      where: { id: { in: elementIds } },
+      include: {
+        floor: { include: { config: { include: { space: true } } } },
+        forecourt: { include: { config: { include: { space: true } } } },
+        externalMerch: { include: { config: { include: { space: true } } } },
+        zone: { include: { space: true } }, // Builder v2
+      },
+    });
+    const candidateById = new Map(candidates.map((e) => [e.id, e]));
+    const accepted = elementIds
+      .map((id) => candidateById.get(id))
+      .filter((element): element is (typeof candidates)[number] => {
+        if (!element) return false;
+        const elemSpace = element.floor?.config?.space ?? element.forecourt?.config?.space ?? element.externalMerch?.config?.space ?? (element as any).zone?.space;
+        return !!elemSpace && elemSpace.tenantId === tenantId && elemSpace.id === spaceId;
+      })
+      .map((element) => ({ element, geomIndex: geomIndex++ }));
+    const toV2 = accepted.filter(({ element }) => element.zoneId || spaceHasZones);
+    const toV1 = accepted.filter(({ element }) => !(element.zoneId || spaceHasZones));
 
-      // Builder v2 : déplacement de zone + adhésion — pas de JSON.
-      if (element.zoneId || spaceHasZones) {
-        const zone = await ensureTargetZone();
-        await this.prisma.spaceElement.update({
-          where: { id: elementId },
-          data: {
-            zoneId: zone.id,
-            floorId: null,
-            forecourtId: null,
-            externalMerchId: null,
-            ...this.spaceElementLayoutService.elementGeometryData(geomIndex++, opts.position, opts.shopDimensions),
-          },
-        });
-        await this.prisma.configurationElement.createMany({
-          data: [{ configId: config.id, elementId }],
+    // Builder v2 : déplacement de zone + adhésion, pas de JSON.
+    if (toV2.length) {
+      const zone = await ensureTargetZone();
+      await this.prisma.$transaction([
+        ...toV2.map(({ element, geomIndex: i }) =>
+          this.prisma.spaceElement.update({
+            where: { id: element.id },
+            data: {
+              zoneId: zone.id,
+              floorId: null,
+              forecourtId: null,
+              externalMerchId: null,
+              ...this.spaceElementLayoutService.elementGeometryData(i, opts.position, opts.shopDimensions),
+            },
+          }),
+        ),
+        this.prisma.configurationElement.createMany({
+          data: toV2.map(({ element }) => ({ configId: config.id, elementId: element.id })),
           skipDuplicates: true,
-        });
-        updatedV2.push(elementId);
-        continue;
-      }
+        }),
+      ]);
+      updatedV2.push(...toV2.map(({ element }) => element.id));
+    }
 
+    if (toV1.length) {
       await ensureV1Container();
-      movedElements.push({ id: element.id });
-
-      await this.prisma.spaceElement.update({
-        where: { id: elementId },
-        data: {
-          floorId: null,
-          forecourtId: null,
-          externalMerchId: null,
-          [c.fk]: target.id,
-          ...this.spaceElementLayoutService.elementGeometryData(geomIndex++, opts.position, opts.shopDimensions),
-        },
-      });
-      updated.push(elementId);
+      await this.prisma.$transaction(
+        toV1.map(({ element, geomIndex: i }) =>
+          this.prisma.spaceElement.update({
+            where: { id: element.id },
+            data: {
+              floorId: null,
+              forecourtId: null,
+              externalMerchId: null,
+              [c.fk]: target.id,
+              ...this.spaceElementLayoutService.elementGeometryData(i, opts.position, opts.shopDimensions),
+            },
+          }),
+        ),
+      );
+      movedElements.push(...toV1.map(({ element }) => ({ id: element.id })));
+      updated.push(...toV1.map(({ element }) => element.id));
     }
 
     // Nom + dimensions du dialogue appliqués à la zone cible v2 (hauteur exclue :
@@ -475,13 +498,18 @@ export class SpaceElementPlacementService {
       }
       if (!Array.isArray(jsonTarget.elements)) jsonTarget.elements = [];
 
+      // Éléments absents du JSON : relus en une requête pour construire leur entrée.
+      const missingIds = movedElements.filter((m) => !allElements.some((e: any) => e.id === m.id)).map((m) => m.id);
+      const relById = new Map(
+        (missingIds.length ? await this.prisma.spaceElement.findMany({ where: { id: { in: missingIds } } }) : []).map((e) => [e.id, e]),
+      );
       for (const movedEl of movedElements) {
         if (jsonTarget.elements.find((e: any) => e.id === movedEl.id)) continue;
         const existing = allElements.find((e: any) => e.id === movedEl.id);
         if (existing) {
           jsonTarget.elements.push(existing);
         } else {
-          const relElement = await this.prisma.spaceElement.findFirst({ where: { id: movedEl.id } });
+          const relElement = relById.get(movedEl.id);
           if (relElement) {
             jsonTarget.elements.push(toV1JsonElement(relElement));
           }

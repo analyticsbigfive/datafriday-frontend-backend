@@ -1591,11 +1591,15 @@ describe('Services des espaces', () => {
         .mockResolvedValue({ data: {}, version: 0 });
       mockPrismaService.externalMerch.findUnique.mockResolvedValue(null);
       mockPrismaService.externalMerch.create.mockResolvedValue({ id: 'em-1', name: 'Espace Externe', width: 200, length: 200 });
-      mockPrismaService.spaceElement.findFirst.mockResolvedValue({
+      // Lecture groupée des éléments (une requête), écritures dans une transaction.
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{
         id: 'el-1', floorId: 'f-0',
         floor: { config: { space: { id: spaceId, tenantId } } },
-      });
+      }]);
       mockPrismaService.spaceElement.update.mockResolvedValue({ id: 'el-1' });
+      mockPrismaService.$transaction.mockImplementation((arg: any) =>
+        Array.isArray(arg) ? Promise.all(arg) : arg(mockPrismaService),
+      );
 
       const res: any = await spaceElementPlacementService.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 'externalmerch');
 
