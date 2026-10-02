@@ -26,16 +26,24 @@ function isUniqueSlugConflict(err: unknown): boolean {
  * valable (cf. migration 20260908090000_guest_pin_slug_and_freeze pour le backfill des
  * lignes existantes).
  *
- * Résiste aux créations CONCURRENTES du même nom (plusieurs éléments créés en parallèle,
- * ex. `Promise.all` sur les éléments d'un floor) : au lieu d'un check-then-insert racy,
- * on retente la création avec un suffixe incrémenté si la contrainte unique sur `slug`
- * est violée — la seule stratégie correcte sous concurrence sans verrou applicatif.
+ * Le slug candidat est d'abord choisi parmi ceux encore libres (lecture des slugs déjà pris
+ * avec la même base) : dans une transaction interactive, une violation de contrainte annule
+ * la transaction Postgres entière (25P02), une nouvelle tentative y est donc impossible.
+ * C'était le cas de la duplication de zone Builder v2, dont les copies portent le nom de
+ * l'original. Pour les créations CONCURRENTES du même nom hors transaction (ex. `Promise.all`
+ * sur les éléments d'un floor), on retente encore avec le candidat libre suivant si la
+ * contrainte unique sur `slug` est violée.
  *
  * @param buildData construit le reste des champs `data` de `spaceElement.create`, appelé
  *   à nouveau à chaque tentative avec le slug candidat.
  */
 export async function createSpaceElementWithUniqueSlug<T>(
-  client: { spaceElement: { create: (args: { data: any; include?: any; select?: any }) => Promise<T> } },
+  client: {
+    spaceElement: {
+      create: (args: { data: any; include?: any; select?: any }) => Promise<T>;
+      findMany: (args: { where: { slug: { startsWith: string } }; select: { slug: true } }) => Promise<{ slug: string }[]>;
+    };
+  },
   name: string,
   buildData: (slug: string) => any,
   options?: { include?: any; select?: any; maxAttempts?: number },
@@ -43,8 +51,18 @@ export async function createSpaceElementWithUniqueSlug<T>(
   const base = baseSlugFor(name);
   const maxAttempts = options?.maxAttempts ?? 20;
 
+  const taken = new Set((await client.spaceElement.findMany({ where: { slug: { startsWith: base } }, select: { slug: true } })).map((r) => r.slug));
+  let index = 0;
+  const nextFreeSlug = () => {
+    for (;;) {
+      const candidate = index === 0 ? base : `${base}-${index + 1}`;
+      index++;
+      if (!taken.has(candidate)) return candidate;
+    }
+  };
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
+    const slug = nextFreeSlug();
     try {
       return await client.spaceElement.create({
         data: buildData(slug),
