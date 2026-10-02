@@ -21,7 +21,8 @@ describe('SimulationRunProcessor — tick d’auto-simulation QA (11_LIVE.md)', 
 
   beforeEach(() => {
     jest.clearAllMocks();
-    processor = new SimulationRunProcessor(mockPrisma, mockLogistics, mockQueue, passthroughTenantContext());
+    // Le même objet simulé porte simulateSale (simulation) et getSimulableShops (référentiel).
+    processor = new SimulationRunProcessor(mockPrisma, mockLogistics, mockLogistics, mockQueue, passthroughTenantContext());
   });
 
   it('run introuvable/pas actif → skip et retire le Job Scheduler (self-heal)', async () => {

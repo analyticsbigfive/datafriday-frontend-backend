@@ -3,9 +3,11 @@ import { Logger } from '@nestjs/common';
 import { Job, Queue } from 'bullmq';
 import { QUEUES } from '../../../core/queue/queue.constants';
 import { PrismaService } from '../../../core/database/prisma.service';
-import { LogisticsService, SimulationTickJobData } from '../logistics.service';
+import { SimulationTickJobData } from '../logistics.types';
 import { SimulationRun } from '@prisma/client';
 import { TenantContextService } from '../../../core/tenant/tenant-context.service';
+import { SalesSimulationService } from '../services/sales-simulation.service';
+import { StockReferentialService } from '../services/stock-referential.service';
 
 const AUTO_STOP_AFTER_CONSECUTIVE_ERRORS = 10;
 
@@ -22,7 +24,8 @@ export class SimulationRunProcessor extends WorkerHost {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly logistics: LogisticsService,
+    private readonly salesSimulationService: SalesSimulationService,
+    private readonly stockReferentialService: StockReferentialService,
     @InjectQueue(QUEUES.SIMULATION) private readonly queue: Queue<SimulationTickJobData>,
     private readonly tenantContext: TenantContextService,
   ) {
@@ -52,7 +55,7 @@ export class SimulationRunProcessor extends WorkerHost {
 
     try {
       const shops = (
-        await this.logistics.getSimulableShops(run.spaceId, run.tenantId, run.configId ?? undefined)
+        await this.stockReferentialService.getSimulableShops(run.spaceId, run.tenantId, run.configId ?? undefined)
       ).filter((s) => s.menuItemIds.length > 0);
       const shop = shops.length ? shops[Math.floor(Math.random() * shops.length)] : null;
       if (!shop) {
@@ -64,7 +67,7 @@ export class SimulationRunProcessor extends WorkerHost {
       }
 
       const menuItemId = shop.menuItemIds[Math.floor(Math.random() * shop.menuItemIds.length)];
-      const res = await this.logistics.simulateSale(
+      const res = await this.salesSimulationService.simulateSale(
         run.spaceId,
         shop.id,
         [{ menuItemId, quantity: 1 }],

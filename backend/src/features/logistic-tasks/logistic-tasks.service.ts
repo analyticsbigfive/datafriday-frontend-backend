@@ -2,10 +2,10 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { randomUUID } from 'crypto';
 import { LogisticTaskPriority, LogisticTaskStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
-import { LogisticsService } from '../logistics/logistics.service';
 import { StockItemKind } from '../logistics/dto/logistics.dto';
 import { CreateLogisticTaskBatchDto } from './dto/logistic-tasks.dto';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { StockMovementService } from '../logistics/services/stock-movement.service';
 
 /** Miroir de SHOP_TYPES (logistics.service.ts) : sert uniquement à choisir TRANSFER_SHOP
  * vs TRANSFER_STORAGE pour la contrepartie, même convention que LogisticMovementDialog. */
@@ -25,7 +25,7 @@ export class LogisticTasksService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly logisticsService: LogisticsService,
+    private readonly stockMovementService: StockMovementService,
     private readonly spaceAccess: SpaceAccessService,
   ) {}
 
@@ -226,7 +226,7 @@ export class LogisticTasksService {
 
     let movement: { id: string };
     try {
-      ({ movement } = await this.logisticsService.createMovement(
+      ({ movement } = await this.stockMovementService.createMovement(
         {
           spaceId: task.spaceId,
           elementId: task.sourceElementId,
@@ -272,7 +272,7 @@ export class LogisticTasksService {
     }
 
     try {
-      await this.logisticsService.confirmTransfer(task.pickupMovementId, {}, tenantId, userId);
+      await this.stockMovementService.confirmTransfer(task.pickupMovementId, {}, tenantId, userId);
     } catch (e) {
       await this.notifyTaskFailure(task, tenantId, 'drop', e as Error);
       throw e;
@@ -360,7 +360,7 @@ export class LogisticTasksService {
       throw new BadRequestException(`Tâche ${id} sans mouvement de récupération associé`);
     }
 
-    await this.logisticsService.reverseMovement(task.pickupMovementId, tenantId);
+    await this.stockMovementService.reverseMovement(task.pickupMovementId, tenantId);
 
     return this.prisma.logisticTask.update({
       where: { id: task.id },

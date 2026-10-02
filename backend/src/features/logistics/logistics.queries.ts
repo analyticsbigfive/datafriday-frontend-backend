@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { SqlClient } from '../../core/database/sql-client';
-import type { SalesRawRow } from './logistics.service';
+import type { SalesRawRow } from './logistics.types';
 
 /** Ventes agrégées par PdV et article depuis `since` (filtre déjà construit). `elementIds` non vide. */
 export function salesByElementSince(db: SqlClient, tenantId: string, elementIds: string[], sinceFilter: Prisma.Sql): Promise<SalesRawRow[]> {

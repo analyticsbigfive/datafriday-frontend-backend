@@ -464,7 +464,7 @@ export class EventsService {
 
   /**
    * `excludeSimulated` : masque les événements créés par l'outil QA « simuler une vente »
-   * (Event.isSimulated, cf. LogisticsService.ensureTodaySalesEvent). Opt-in et NON activé
+   * (Event.isSimulated, cf. SalesSimulationService.ensureTodaySalesEvent). Opt-in et NON activé
    * par défaut : la liste Events doit continuer à les afficher pour qu'on puisse les
    * supprimer à la main. Les consommateurs qui ne veulent que des événements exploitables
    * (EventPredict, écran Live — tous deux servis par le chargement d'espace du front) le

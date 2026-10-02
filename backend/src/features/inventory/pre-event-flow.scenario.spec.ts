@@ -241,7 +241,8 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
   beforeEach(() => {
     prisma = new FakePrisma();
     logistics = new FakeLogistics();
-    inventory = new InventoryService(prisma as any, logistics as any, new SpaceAccessService(prisma as any));
+    // FakeLogistics joue l'identité, les niveaux et la réconciliation de stock.
+    inventory = new InventoryService(prisma as any, logistics as any, logistics as any, logistics as any, new SpaceAccessService(prisma as any));
     flow = new PreEventInventoryFlowService(prisma as any, inventory);
     cron = new InventoryLiveInitCronService(prisma as any, flow, passthroughTenantContext());
 

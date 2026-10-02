@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { LogisticsService } from '../logistics/logistics.service';
+import { StockLevelService } from '../logistics/services/stock-level.service';
 import { InventoryService } from './inventory.service';
 import {
   buildPostEventLines,
@@ -35,7 +35,7 @@ export class PostEventDraftService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventory: InventoryService,
-    private readonly logistics: LogisticsService,
+    private readonly stockLevelService: StockLevelService,
   ) {}
 
   private contextKey(spaceId: string, eventId: string) {
@@ -156,7 +156,7 @@ export class PostEventDraftService {
       const current = untilByElement.get(r.shopId);
       if (!current || r.updatedAt > current) untilByElement.set(r.shopId, r.updatedAt);
     }
-    const consumption = await this.logistics.deriveEventConsumption(spaceId, eventId, tenantId, { untilByElement });
+    const consumption = await this.stockLevelService.deriveEventConsumption(spaceId, eventId, tenantId, { untilByElement });
 
     const names = await this.inventory.resolveItemKeysByIds([...itemIds], tenantId);
     const itemNameById = new Map([...names.entries()].map(([id, v]) => [id, v.name]));

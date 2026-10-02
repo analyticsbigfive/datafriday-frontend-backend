@@ -13,7 +13,7 @@ describe('VentilationDepositsService', () => {
       stockLevel: { findMany: jest.fn().mockResolvedValue([]) },
     };
     logistics = { writeReversal: jest.fn().mockResolvedValue({}), getElementItems: jest.fn().mockResolvedValue([]) };
-    service = new VentilationDepositsService(prisma, logistics);
+    service = new VentilationDepositsService(prisma, logistics, logistics);
   });
 
   it('cumule les dépôts du match par élément × article', async () => {

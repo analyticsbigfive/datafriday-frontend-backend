@@ -54,7 +54,7 @@ export class LogisticTasksController {
   }
 
   @Patch('logistic-tasks/:id/pickup')
-  @ApiOperation({ summary: 'Case "Récupérer" cochée : décrémente le stock source (LogisticsService.createMovement), statut → PICKED_UP.' })
+  @ApiOperation({ summary: 'Case "Récupérer" cochée : décrémente le stock source (StockMovementService.createMovement), statut → PICKED_UP.' })
   @ApiParam({ name: 'id', description: 'ID de la LogisticTask' })
   async pickup(@Param('id') id: string, @CurrentUser() user: any) {
     this.logger.log(`PATCH /logistic-tasks/${id}/pickup`);
@@ -62,7 +62,7 @@ export class LogisticTasksController {
   }
 
   @Patch('logistic-tasks/:id/drop')
-  @ApiOperation({ summary: 'Case "Déposer" cochée : crédite le stock destination (LogisticsService.confirmTransfer), statut → COMPLETED.' })
+  @ApiOperation({ summary: 'Case "Déposer" cochée : crédite le stock destination (StockMovementService.confirmTransfer), statut → COMPLETED.' })
   @ApiParam({ name: 'id', description: 'ID de la LogisticTask' })
   async drop(@Param('id') id: string, @CurrentUser() user: any) {
     this.logger.log(`PATCH /logistic-tasks/${id}/drop`);

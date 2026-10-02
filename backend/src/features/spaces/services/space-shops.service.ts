@@ -2,7 +2,6 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { RedisService } from '../../../core/redis/redis.service';
-import { LogisticsService } from '../../logistics/logistics.service';
 import { resolveEventTransactionWindow } from '../../../shared/utils/event-window.util';
 import { hasPermission, PermissionCheckableUser } from '../../../core/rbac/permission.util';
 import {
@@ -14,6 +13,7 @@ import {
 import { SpaceCacheService } from './space-cache.service';
 import { SpaceCrudService } from './space-crud.service';
 import { SpaceSalesScopeService } from './space-sales-scope.service';
+import { StockLevelService } from '../../logistics/services/stock-level.service';
 
 /**
  * PdV d'un espace, leur détail, statut live et inventaire live.
@@ -23,7 +23,7 @@ export class SpaceShopsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
-    private readonly logisticsService: LogisticsService,
+    private readonly stockLevelService: StockLevelService,
     private readonly spaceCacheService: SpaceCacheService,
     private readonly spaceCrudService: SpaceCrudService,
     private readonly spaceSalesScopeService: SpaceSalesScopeService,
@@ -257,6 +257,6 @@ export class SpaceShopsService {
    * écran. Passthrough volontairement fin : la logique vit dans LogisticsService, pas ici.
    */
   async getLiveInventory(spaceId: string, tenantId: string) {
-    return this.logisticsService.getLiveInventory(spaceId, tenantId);
+    return this.stockLevelService.getLiveInventory(spaceId, tenantId);
   }
 }

@@ -1,5 +1,5 @@
 import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
-import { LogisticsService } from '../logistics/logistics.service';
+import { StockReconciliationService } from '../logistics/services/stock-reconciliation.service';
 
 /**
  * Logistique mise à jour à chaque article marqué compté, envoi regroupé à la minute
@@ -107,7 +107,7 @@ describe('Logistique depuis les comptages (D1)', () => {
     });
   });
 
-  describe('LogisticsService : une ligne par match et par phase dans la liste', () => {
+  describe('StockReconciliationService : une ligne par match et par phase dans la liste', () => {
     const doc = (id: string, phase: string | null, lines: any[], at: string) => ({
       id,
       eventId: 'event-1',
@@ -124,7 +124,7 @@ describe('Logistique depuis les comptages (D1)', () => {
       doc('r1', 'pre-event', [{ elementId: 'a', itemKey: 'Coca' }], '2026-10-10T15:00:00Z'),
     ];
     let prisma: any;
-    let service: LogisticsService;
+    let service: StockReconciliationService;
 
     beforeEach(() => {
       prisma = {
@@ -134,12 +134,12 @@ describe('Logistique depuis les comptages (D1)', () => {
           findFirst: jest.fn().mockResolvedValue({ ...rows[0], spaceId: 'space-1', kind: null }),
         },
       };
-      service = new LogisticsService(prisma, {} as any, {} as any, {} as any, {
+      service = new StockReconciliationService(prisma, {
         hasFullAccess: () => true,
         getAccessibleSpaceIds: async () => 'ALL',
         assertSpaceAccessible: jest.fn().mockResolvedValue({ id: 'space-1', name: 'Space' }),
         assertCanAccessSpace: jest.fn().mockResolvedValue(undefined),
-      } as any);
+      } as any, {} as any, {} as any, {} as any);
     });
 
     it('regroupe les envois automatiques, garde les resets manuels à part', async () => {

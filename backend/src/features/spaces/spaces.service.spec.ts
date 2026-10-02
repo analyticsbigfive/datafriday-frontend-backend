@@ -4,7 +4,7 @@ import { WeezeventClientService } from '../weezevent/services/weezevent-client.s
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
-import { LogisticsService } from '../logistics/logistics.service';
+import { StockLevelService } from '../logistics/services/stock-level.service';
 import { SpaceRevenueSummaryService } from './services/space-revenue-summary.service';
 import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
 import { spaceAccessStub } from '../../core/auth/space-access.testing';
@@ -173,7 +173,7 @@ describe('Services des espaces', () => {
         { provide: SpaceAccessService, useValue: spaceAccessStub() },
         // Passthrough : les tests d'image vérifient le comportement DTO→DB, pas l'upload Storage.
         { provide: SupabaseStorageService, useValue: { resolveImage: jest.fn((value) => Promise.resolve(value)) } },
-        { provide: LogisticsService, useValue: mockLogisticsService },
+        { provide: StockLevelService, useValue: mockLogisticsService },
         // KPI de la liste des espaces : service dédié (cache par espace), hors périmètre de ces tests.
         { provide: SpaceRevenueSummaryService, useValue: { getSummaries: jest.fn().mockResolvedValue(new Map()) } },
       ],
@@ -1795,11 +1795,11 @@ describe('Services des espaces', () => {
     });
   });
 
-  // Passthrough vers LogisticsService (tracker front #22, LIVE_API_GUIDE.md §3) — la logique vit
-  // dans LogisticsService.getLiveInventory (testée dans logistics.service.spec.ts), on vérifie
+  // Passthrough vers StockLevelService (tracker front #22, LIVE_API_GUIDE.md §3) — la logique vit
+  // dans StockLevelService.getLiveInventory (testée dans logistics.service.spec.ts), on vérifie
   // uniquement le câblage ici.
   describe('getLiveInventory', () => {
-    it('delegates to LogisticsService.getLiveInventory with the same spaceId/tenantId', async () => {
+    it('delegates to StockLevelService.getLiveInventory with the same spaceId/tenantId', async () => {
       const expected = { shops: [], items: [] };
       mockLogisticsService.getLiveInventory.mockResolvedValue(expected);
 

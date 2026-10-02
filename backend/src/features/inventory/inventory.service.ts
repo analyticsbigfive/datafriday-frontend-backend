@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { StockMovementReason } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
-import { LogisticsService } from '../logistics/logistics.service';
 import { StockItemKind } from '../logistics/dto/logistics.dto';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
@@ -10,6 +9,9 @@ import { closeInventoryWindows } from './inventory-window-closure';
 import { subtractSalesSinceCount } from './sales-since-count';
 import { markInventoryCountsPushed } from './inventory.queries';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { StockItemIdentityService } from '../logistics/services/stock-item-identity.service';
+import { StockLevelService } from '../logistics/services/stock-level.service';
+import { StockReconciliationService } from '../logistics/services/stock-reconciliation.service';
 
 /** État de push Logistic des lignes d'un match, clé `elementId::itemId` (cf. pushCountToLogistic). */
 type LogisticPushState = Map<string, { id: string; updatedAt: Date; logisticPushedAt: Date | null }>;
@@ -20,7 +22,9 @@ export class InventoryService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly logistics: LogisticsService,
+    private readonly stockItemIdentityService: StockItemIdentityService,
+    private readonly stockLevelService: StockLevelService,
+    private readonly stockReconciliationService: StockReconciliationService,
     private readonly spaceAccess: SpaceAccessService,
   ) {}
 
@@ -429,7 +433,7 @@ export class InventoryService {
   // permission de l'écran inventaire (front.fb.spaceInventory), pas celle de la
   // Logistique.
   async getEventSalesConsumption(spaceId: string, eventId: string, tenantId: string) {
-    return this.logistics.deriveEventConsumption(spaceId, eventId, tenantId);
+    return this.stockLevelService.deriveEventConsumption(spaceId, eventId, tenantId);
   }
 
   // ── GET /inventory/:spaceId/pre-event/:eventId ───────────────────────────────
@@ -720,7 +724,7 @@ export class InventoryService {
    *  Chemin unique du GET pre-event-baseline, du GET post-event-baseline ET de
    *  la réconciliation pre-event : les trois ne peuvent pas diverger. */
   private async computeLogisticExpected(spaceId: string, tenantId: string) {
-    const { index, asOf } = await this.logistics.getExpectedStockIndex(spaceId, tenantId);
+    const { index, asOf } = await this.stockLevelService.getExpectedStockIndex(spaceId, tenantId);
     const expected = new Map<
       string,
       { packed: number; loose: number; units: number | null; unitsPerPack: number | null }
@@ -866,7 +870,7 @@ export class InventoryService {
     for (const m of rows) {
       const nk = this.normalizeName(m.itemKey);
       if (!uppByNormKey.has(nk)) {
-        uppByNormKey.set(nk, await this.logistics.resolveUnitsPerPackForItemKey(m.itemKey, tenantId));
+        uppByNormKey.set(nk, await this.stockItemIdentityService.resolveUnitsPerPackForItemKey(m.itemKey, tenantId));
       }
     }
     const itemIds = rows.flatMap((m) => idsFor(m));
@@ -1375,7 +1379,7 @@ export class InventoryService {
         (l) => state.get(`${l.elementId}::${l.itemRefId}`)?.updatedAt ?? null,
         {
           consumption: async (sinceByElement) =>
-            (await this.logistics.deriveEventConsumption(spaceId, event.id, tenantId, { sinceByElement })).lines,
+            (await this.stockLevelService.deriveEventConsumption(spaceId, event.id, tenantId, { sinceByElement })).lines,
           unitsPerPack: upp,
           normalize: (v) => this.normalizeName(v),
         },
@@ -1388,7 +1392,7 @@ export class InventoryService {
     }
 
     try {
-      await this.logistics.reset(
+      await this.stockReconciliationService.reset(
         spaceId,
         { eventId: event.id, eventName: event.name ?? undefined, lines: pushLines },
         tenantId,

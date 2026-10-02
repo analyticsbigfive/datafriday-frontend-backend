@@ -1,7 +1,15 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { LogisticsController } from './logistics.controller';
-import { LogisticsService } from './logistics.service';
+import { LogisticsElementScopeService } from './services/logistics-element-scope.service';
+import { StockItemIdentityService } from './services/stock-item-identity.service';
+import { RecipeExplosionService } from './services/recipe-explosion.service';
+import { StockReferentialService } from './services/stock-referential.service';
+import { StockMovementService } from './services/stock-movement.service';
+import { StockLossService } from './services/stock-loss.service';
+import { StockLevelService } from './services/stock-level.service';
+import { StockReconciliationService } from './services/stock-reconciliation.service';
+import { SalesSimulationService } from './services/sales-simulation.service';
 import { VentilationDepositsService } from './ventilation-deposits.service';
 import { PrismaModule } from '../../core/database/prisma.module';
 import { QUEUES } from '../../core/queue/queue.constants';
@@ -20,10 +28,29 @@ import { PricingModule } from '../../shared/pricing/pricing.module';
     PricingModule,
   ],
   controllers: [LogisticsController],
-  providers: [LogisticsService, VentilationDepositsService],
-  // Exporté pour SpacesModule (Live Inventory, LIVE_API_GUIDE.md §3) — aucun cycle, ni
-  // LogisticsModule ni ses dépendances n'importent SpacesModule.
+  providers: [
+    LogisticsElementScopeService,
+    StockItemIdentityService,
+    RecipeExplosionService,
+    StockReferentialService,
+    StockMovementService,
+    StockLossService,
+    StockLevelService,
+    StockReconciliationService,
+    SalesSimulationService,
+    VentilationDepositsService,
+  ],
+  // Utilisés par l'inventaire, les tâches logistiques, les espaces (inventaire live) et le worker
+  // (simulation). Aucun cycle : ni ce module ni ses dépendances n'importent SpacesModule.
   // VentilationDepositsService : accès PIN des logisticiens (GuestPinAccessModule).
-  exports: [LogisticsService, VentilationDepositsService],
+  exports: [
+    StockItemIdentityService,
+    StockMovementService,
+    StockLevelService,
+    StockReconciliationService,
+    StockReferentialService,
+    SalesSimulationService,
+    VentilationDepositsService,
+  ],
 })
 export class LogisticsModule {}

@@ -1,7 +1,16 @@
+import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
+import { QUEUES } from '../../core/queue/queue.constants';
+import { QueueService } from '../../core/queue/queue.service';
+import { getQueueToken } from '@nestjs/bullmq';
 import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { InventoryService } from './inventory.service';
-import { LogisticsService } from '../logistics/logistics.service';
+import { LogisticsElementScopeService } from '../logistics/services/logistics-element-scope.service';
+import { StockItemIdentityService } from '../logistics/services/stock-item-identity.service';
+import { RecipeExplosionService } from '../logistics/services/recipe-explosion.service';
+import { StockReferentialService } from '../logistics/services/stock-referential.service';
+import { StockLevelService } from '../logistics/services/stock-level.service';
+import { StockReconciliationService } from '../logistics/services/stock-reconciliation.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 
@@ -136,9 +145,18 @@ const mockPrisma = {
 
 // ── Suite ─────────────────────────────────────────────────────────────────────
 
+const LOGISTICS_SERVICES = [
+  LogisticsElementScopeService,
+  StockItemIdentityService,
+  RecipeExplosionService,
+  StockReferentialService,
+  StockLevelService,
+  StockReconciliationService,
+];
+
 describe('InventoryService', () => {
   let service: InventoryService;
-  let logistics: LogisticsService;
+  let logistics: StockReconciliationService;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -163,23 +181,20 @@ describe('InventoryService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InventoryService,
-        // LogisticsService RÉEL (normalizeLevel + resolveUnitsPerPackForItemKey) :
-        // c'est précisément sa sémantique de casse de pack qu'on veut rejouer.
+        // Services logistiques RÉELS (normalizeLevel + resolveUnitsPerPackForItemKey) :
+        // c'est précisément leur sémantique de casse de pack qu'on veut rejouer.
         // QueueService stubé : aucun chemin exercé ici n'enfile de job.
-        {
-          provide: LogisticsService,
-          useValue: new LogisticsService(mockPrisma as any, mockQueueService as any, mockSimulationQueue as any, {} as any, {
-            hasFullAccess: () => true,
-            getAccessibleSpaceIds: async () => 'ALL',
-          } as any),
-        },
+        ...LOGISTICS_SERVICES,
+        { provide: QueueService, useValue: mockQueueService },
+        { provide: getQueueToken(QUEUES.SIMULATION), useValue: mockSimulationQueue },
+        { provide: MenuItemPricingService, useValue: {} },
         { provide: PrismaService, useValue: mockPrisma },
         // Vrai contrôle d'accès espace, branché sur le Prisma simulé du test.
         { provide: SpaceAccessService, useFactory: (p: any) => new SpaceAccessService(p), inject: [PrismaService] },
       ],
     }).compile();
     service = module.get<InventoryService>(InventoryService);
-    logistics = module.get<LogisticsService>(LogisticsService);
+    logistics = module.get(StockReconciliationService);
   });
 
   it('should be defined', () => {

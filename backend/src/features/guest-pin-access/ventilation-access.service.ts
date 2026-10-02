@@ -4,7 +4,7 @@ import type { InventoryWindow } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
-import { LogisticsService } from '../logistics/logistics.service';
+import { StockMovementService } from '../logistics/services/stock-movement.service';
 import { VentilationDepositsService, normalizeItemName } from '../logistics/ventilation-deposits.service';
 import { generateSlug } from '../../shared/utils';
 import { isEventOver } from '../../shared/utils/event-window.util';
@@ -61,7 +61,7 @@ export class VentilationAccessService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly guestPin: GuestPinAccessService,
-    private readonly logistics: LogisticsService,
+    private readonly stockMovementService: StockMovementService,
     private readonly deposits: VentilationDepositsService,
     private readonly spaceAccess: SpaceAccessService,
   ) {}
@@ -249,7 +249,7 @@ export class VentilationAccessService {
     }
     if (dto.packed <= 0 && dto.loose <= 0) throw new BadRequestException('Quantité nulle');
     const itemKey = await this.deposits.resolveElementItemKey(user.spaceId, String(line.shopId), String(line.itemName ?? ''), user.tenantId);
-    const { movement } = await this.logistics.createMovement(
+    const { movement } = await this.stockMovementService.createMovement(
       {
         spaceId: user.spaceId,
         elementId: String(line.shopId),

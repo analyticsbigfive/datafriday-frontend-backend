@@ -18,11 +18,16 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { NotInProductionGuard } from '../../core/auth/guards/not-in-production.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
-import { LogisticsService } from './logistics.service';
 import { VentilationDepositsService } from './ventilation-deposits.service';
 import { ConfirmTransferDto, CreateMovementDto, InventoryResetDto, SimulateSaleDto } from './dto/logistics.dto';
 import { PurgeSimulatedSalesDto, StartSimulationRunDto } from './dto/simulation-run.dto';
 import { LogisticsGetStockQueryDto, LogisticsGetMarketPricesQueryDto, LogisticsGetHistoryQueryDto, LogisticsGetLossesQueryDto, LogisticsListSimulatedSalesQueryDto } from './dto/logistics.query.dto';
+import { SalesSimulationService } from './services/sales-simulation.service';
+import { StockLevelService } from './services/stock-level.service';
+import { StockLossService } from './services/stock-loss.service';
+import { StockMovementService } from './services/stock-movement.service';
+import { StockReconciliationService } from './services/stock-reconciliation.service';
+import { StockReferentialService } from './services/stock-referential.service';
 
 @ApiTags('Logistics')
 @ApiBearerAuth('supabase-jwt')
@@ -32,10 +37,13 @@ import { LogisticsGetStockQueryDto, LogisticsGetMarketPricesQueryDto, LogisticsG
 export class LogisticsController {
   private readonly logger = new Logger(LogisticsController.name);
 
-  constructor(
-    private readonly service: LogisticsService,
-    private readonly ventilation: VentilationDepositsService,
-  ) {}
+  constructor(private readonly salesSimulationService: SalesSimulationService,
+    private readonly stockLevelService: StockLevelService,
+    private readonly stockLossService: StockLossService,
+    private readonly stockMovementService: StockMovementService,
+    private readonly stockReconciliationService: StockReconciliationService,
+    private readonly stockReferentialService: StockReferentialService,
+    private readonly ventilation: VentilationDepositsService) {}
 
   @Get(':spaceId/stock')
   // Lecture seule ouverte au Réarmement (retour client 2026-09-02) : son moteur de
@@ -60,7 +68,7 @@ export class LogisticsController {
   ) {
     const { configId, eventId } = params;
     this.logger.log(`GET /logistics/${spaceId}/stock configId=${configId ?? '(auto)'}`);
-    return this.service.getStock(spaceId, user.tenantId, configId || undefined, eventId || undefined);
+    return this.stockLevelService.getStock(spaceId, user.tenantId, configId || undefined, eventId || undefined);
   }
 
   @Get(':spaceId/ventilation-deposits')
@@ -119,7 +127,7 @@ export class LogisticsController {
     @CurrentUser() user: any,
   ) {
     const { itemKey, currentMarketPriceId } = params;
-    return this.service.getMarketPricesForItem(spaceId, user.tenantId, itemKey, currentMarketPriceId);
+    return this.stockReferentialService.getMarketPricesForItem(spaceId, user.tenantId, itemKey, currentMarketPriceId);
   }
 
   @Post('movements')
@@ -133,7 +141,7 @@ export class LogisticsController {
     this.logger.log(
       `POST /logistics/movements element=${dto.elementId} item="${dto.itemKey}" ${dto.direction} reason=${dto.reason}`,
     );
-    return this.service.createMovement(dto, user.tenantId, user.id);
+    return this.stockMovementService.createMovement(dto, user.tenantId, user.id);
   }
 
   @Post('movements/:id/confirm')
@@ -147,7 +155,7 @@ export class LogisticsController {
   @ApiParam({ name: 'id', description: 'ID du StockMovement source (PENDING)' })
   async confirmTransfer(@Param('id') id: string, @Body() dto: ConfirmTransferDto, @CurrentUser() user: any) {
     this.logger.log(`POST /logistics/movements/${id}/confirm`);
-    return this.service.confirmTransfer(id, dto, user.tenantId, user.id);
+    return this.stockMovementService.confirmTransfer(id, dto, user.tenantId, user.id);
   }
 
   @Get('element/:elementId/pending-transfers')
@@ -158,7 +166,7 @@ export class LogisticsController {
   })
   @ApiParam({ name: 'elementId', description: 'ID du SpaceElement' })
   async getPendingTransfers(@Param('elementId') elementId: string, @CurrentUser() user: any) {
-    return this.service.getPendingTransfersForElement(elementId, user.tenantId);
+    return this.stockMovementService.getPendingTransfersForElement(elementId, user.tenantId);
   }
 
   @Get('element/:elementId/history')
@@ -175,7 +183,7 @@ export class LogisticsController {
     const { limit, cursor } = params;
     this.logger.log(`GET /logistics/element/${elementId}/history`);
     const parsedLimit = Number(limit);
-    return this.service.getHistory(
+    return this.stockMovementService.getHistory(
       elementId,
       user.tenantId,
       Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined,
@@ -194,7 +202,7 @@ export class LogisticsController {
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   async reset(@Param('spaceId') spaceId: string, @Body() dto: InventoryResetDto, @CurrentUser() user: any) {
     this.logger.log(`POST /logistics/${spaceId}/reset (${dto.lines?.length ?? 0} lignes)`);
-    return this.service.reset(spaceId, dto, user.tenantId, user.id);
+    return this.stockReconciliationService.reset(spaceId, dto, user.tenantId, user.id);
   }
 
   @Get(':spaceId/reconciliations')
@@ -202,7 +210,7 @@ export class LogisticsController {
   @ApiOperation({ summary: "Liste des réconciliations de l'espace (section Réconciliation)" })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   async listReconciliations(@Param('spaceId') spaceId: string, @CurrentUser() user: any) {
-    return this.service.listReconciliations(spaceId, user.tenantId);
+    return this.stockReconciliationService.listReconciliations(spaceId, user.tenantId);
   }
 
   @Get('reconciliations/:id')
@@ -210,7 +218,7 @@ export class LogisticsController {
   @ApiOperation({ summary: "Détail d'une réconciliation (lignes d'écart)" })
   @ApiParam({ name: 'id', description: 'ID de la réconciliation' })
   async getReconciliation(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.service.getReconciliation(id, user.tenantId, user);
+    return this.stockReconciliationService.getReconciliation(id, user.tenantId, user);
   }
 
   @Get('reconciliations/:id/export')
@@ -222,7 +230,7 @@ export class LogisticsController {
     @CurrentUser() user: any,
     @Res() reply: FastifyReply,
   ) {
-    const { reco, csv } = await this.service.exportReconciliationCsv(id, user.tenantId, user);
+    const { reco, csv } = await this.stockReconciliationService.exportReconciliationCsv(id, user.tenantId, user);
     const day = reco.createdAt.toISOString().slice(0, 10);
     const slug = (reco.eventName ?? 'inventaire').replace(/[^\p{L}\p{N}]+/gu, '-').toLowerCase();
     reply
@@ -243,7 +251,7 @@ export class LogisticsController {
     @CurrentUser() user: any,
     @Query('includeArchived') includeArchived?: string,
   ) {
-    return this.service.getLossesSummary(spaceId, user.tenantId, includeArchived === 'true');
+    return this.stockLossService.getLossesSummary(spaceId, user.tenantId, includeArchived === 'true');
   }
 
   @Get(':spaceId/losses')
@@ -260,7 +268,7 @@ export class LogisticsController {
   ) {
     const { limit, cursor, includeArchived } = params;
     const parsedLimit = Number(limit);
-    return this.service.getLosses(
+    return this.stockLossService.getLosses(
       spaceId,
       user.tenantId,
       Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : undefined,
@@ -274,7 +282,7 @@ export class LogisticsController {
   @ApiOperation({ summary: 'BUG-259-02 : export CSV de toutes les pertes de transfert (actives + archivées)' })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   async exportLosses(@Param('spaceId') spaceId: string, @CurrentUser() user: any, @Res() reply: FastifyReply) {
-    const csv = await this.service.exportLossesCsv(spaceId, user.tenantId);
+    const csv = await this.stockLossService.exportLossesCsv(spaceId, user.tenantId);
     const day = new Date().toISOString().slice(0, 10);
     reply
       .header('Content-Type', 'text/csv; charset=utf-8')
@@ -288,7 +296,7 @@ export class LogisticsController {
   @ApiOperation({ summary: 'BUG-259-02 : archive ("vide") toutes les pertes actives, jamais supprimées' })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   async archiveLosses(@Param('spaceId') spaceId: string, @CurrentUser() user: any) {
-    return this.service.archiveLosses(spaceId, user.tenantId, user.id);
+    return this.stockLossService.archiveLosses(spaceId, user.tenantId, user.id);
   }
 
   @Post(':spaceId/simulate-sale')
@@ -302,7 +310,7 @@ export class LogisticsController {
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   async simulateSale(@Param('spaceId') spaceId: string, @Body() dto: SimulateSaleDto, @CurrentUser() user: any) {
     this.logger.log(`POST /logistics/${spaceId}/simulate-sale element=${dto.elementId} (${dto.lines?.length ?? 0} lignes)${dto.realMode ? ' [realMode]' : ''}${dto.ensureLiveEvent ? ' [ensureLiveEvent]' : ''}`);
-    return this.service.simulateSale(spaceId, dto.elementId, dto.lines, user.tenantId, user.id, dto.realMode, dto.ensureLiveEvent);
+    return this.salesSimulationService.simulateSale(spaceId, dto.elementId, dto.lines, user.tenantId, user.id, dto.realMode, dto.ensureLiveEvent);
   }
 
   @Delete(':spaceId/simulate-sale')
@@ -317,7 +325,7 @@ export class LogisticsController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`DELETE /logistics/${spaceId}/simulate-sale element=${elementId}`);
-    return this.service.purgeSimulatedSales(spaceId, elementId, user.tenantId);
+    return this.salesSimulationService.purgeSimulatedSales(spaceId, elementId, user.tenantId);
   }
 
   @Post(':spaceId/simulation-runs')
@@ -335,7 +343,7 @@ export class LogisticsController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /logistics/${spaceId}/simulation-runs intervalMs=${dto.intervalMs}`);
-    return this.service.startSimulationRun(spaceId, user.tenantId, user.id, dto);
+    return this.salesSimulationService.startSimulationRun(spaceId, user.tenantId, user.id, dto);
   }
 
   @Post(':spaceId/simulation-runs/:runId/stop')
@@ -351,7 +359,7 @@ export class LogisticsController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /logistics/${spaceId}/simulation-runs/${runId}/stop`);
-    return this.service.stopSimulationRun(spaceId, runId, user.tenantId, user.id);
+    return this.salesSimulationService.stopSimulationRun(spaceId, runId, user.tenantId, user.id);
   }
 
   @Get(':spaceId/simulation-runs/active')
@@ -360,7 +368,7 @@ export class LogisticsController {
   @ApiOperation({ summary: "QA — run d'auto-simulation actif de l'espace, s'il y en a un (survit au reload/fermeture d'onglet)." })
   @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
   async getActiveSimulationRun(@Param('spaceId') spaceId: string, @CurrentUser() user: any) {
-    return this.service.getActiveSimulationRun(spaceId, user.tenantId);
+    return this.salesSimulationService.getActiveSimulationRun(spaceId, user.tenantId);
   }
 
   @Get(':spaceId/simulation-runs')
@@ -374,7 +382,7 @@ export class LogisticsController {
     @CurrentUser() user: any,
     @Query('limit') limit?: string,
   ) {
-    return this.service.listSimulationRuns(spaceId, user.tenantId, Number(limit) || 20);
+    return this.salesSimulationService.listSimulationRuns(spaceId, user.tenantId, Number(limit) || 20);
   }
 
   @Get(':spaceId/simulated-sales')
@@ -390,7 +398,7 @@ export class LogisticsController {
     @Query() params: LogisticsListSimulatedSalesQueryDto,
   ) {
     const { limit, cursor } = params;
-    return this.service.listSimulatedSales(spaceId, user.tenantId, Number(limit) || 50, cursor || undefined);
+    return this.salesSimulationService.listSimulatedSales(spaceId, user.tenantId, Number(limit) || 50, cursor || undefined);
   }
 
   @Post(':spaceId/simulated-sales/purge')
@@ -405,6 +413,6 @@ export class LogisticsController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /logistics/${spaceId}/simulated-sales/purge (${dto.transactionIds?.length ?? 0} ids)`);
-    return this.service.purgeSimulatedSalesByIds(spaceId, user.tenantId, dto.transactionIds);
+    return this.salesSimulationService.purgeSimulatedSalesByIds(spaceId, user.tenantId, dto.transactionIds);
   }
 }
