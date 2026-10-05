@@ -13,6 +13,7 @@ import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { IntegrationTransactionStatsService } from './integration-transaction-stats.service';
 import { BasketAggregationService } from './basket-aggregation.service';
+import { SyncStaleRowsService } from './sync-stale-rows.service';
 import {
   buildIntegrationClause,
   buildMatchClause,
@@ -39,7 +40,21 @@ export class AggregationService {
     private spaceIntegrationScope: SpaceIntegrationScopeService,
     private txStats: IntegrationTransactionStatsService,
     private basketAgg: BasketAggregationService,
+    private syncStaleRows: SyncStaleRowsService,
   ) {}
+
+  /**
+   * Progression BullMQ : purement indicative, le front lit celle d'AggregationJobLog en base.
+   * Incident Jean Bouin 2026-10-01 : un Redis saturé (OOM) faisait échouer ce seul appel et
+   * interrompait toute la reconstruction. Il ne doit jamais faire échouer le job.
+   */
+  private async reportProgress(job: Job<AggregationJobEnqueueData>, value: number) {
+    try {
+      await job.updateProgress(value);
+    } catch (err) {
+      this.logger.warn(`BullMQ progress ${value}% not recorded (LogId: ${job.data.jobLogId}): ${(err as Error).message}`);
+    }
+  }
 
   /**
    * Get events with their processing status for a space
@@ -216,7 +231,7 @@ export class AggregationService {
       where: { id: jobLogId },
       data: { status: 'running' },
     });
-    await job.updateProgress(0);
+    await this.reportProgress(job, 0);
 
     const where: any = { tenantId, spaceId };
     if (eventIds?.length) where.id = { in: eventIds };
@@ -359,7 +374,7 @@ export class AggregationService {
             integrationId: window.mode === 'integration-range' ? window.integrationId : integrationId,
           });
         } catch (err) {
-          results.push({ eventId: event.id, eventName: event.name, status: 'error', error: err.message });
+          results.push({ eventId: event.id, eventName: event.name, date: event.eventDate, status: 'error', error: err.message });
         }
 
         // Mise à jour progression DB + BullMQ après chaque event traité — currentEventStep
@@ -373,7 +388,7 @@ export class AggregationService {
             metadata: { ...jobMetadata, eventIds: events.map((e) => e.id), currentEventStep: 0, currentEventTotalSteps: EVENT_SUB_STEPS },
           },
         });
-        await job.updateProgress(Math.min(Math.round((processedCount / events.length) * 100), 99));
+        await this.reportProgress(job, Math.min(Math.round((processedCount / events.length) * 100), 99));
       }
 
       // BUG-375-02 (2026-08-26) : un event en échec individuel (catch ci-dessus) n'empêchait
@@ -408,7 +423,7 @@ export class AggregationService {
             .join(', ')}`,
         );
       }
-      await job.updateProgress(100);
+      await this.reportProgress(job, 100);
 
       // BUG-143-01 : les endpoints batch Analyse cachent leurs réponses par event (TTL 6 h
       // pour un event passé) — sans cette purge, une re-agrégation servirait des données
@@ -468,7 +483,7 @@ export class AggregationService {
   }
 
   /**
-   * Synchronize: cleanup + rebuild all aggregation data for a space.
+   * Synchronize: rebuild all aggregation data for a space, puis retrait des lignes non réécrites.
    * Version BullMQ — enqueue un job full rebuild. Retourne immédiatement.
    */
   async synchronize(tenantId: string, spaceId: string, integrationId?: string) {
@@ -505,7 +520,7 @@ export class AggregationService {
 
   /**
    * Logique de synchronisation réelle — appelée par AggregationProcessor.
-   * Nettoie toutes les agrégats du space puis délègue à executeProcessEvents.
+   * Délègue la reconstruction à executeProcessEvents puis balaie les lignes périmées.
    */
   async executeSynchronize(job: Job<AggregationJobEnqueueData>) {
     const { tenantId, spaceId, jobLogId, integrationId } = job.data;
@@ -515,24 +530,24 @@ export class AggregationService {
       where: { id: jobLogId },
       data: { status: 'running' },
     });
-    await job.updateProgress(2);
+    await this.reportProgress(job, 2);
 
-    // Phase 1: cleanup atomique (#9) — scopé par integrationId quand fourni (BUG-318-02) :
-    // sinon, synchroniser l'intégration B purgeait aussi la contribution de l'intégration A pour
-    // TOUT l'espace, avant de ne reconstruire que celle de B (executeProcessEvents ci-dessous est
-    // déjà scopé, voir BUG-317-02).
-    const cleanupWhere: any = { tenantId, spaceId };
-    if (integrationId) cleanupWhere.integrationId = integrationId;
-    await this.prisma.$transaction([
-      this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: cleanupWhere }),
-      this.prisma.spaceProductRevenueDailyAgg.deleteMany({ where: cleanupWhere }),
-      this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: cleanupWhere }),
-      this.prisma.spaceBasketMinuteAgg.deleteMany({ where: cleanupWhere }),
-    ]);
-    await job.updateProgress(5);
+    // Incident Jean Bouin 2026-10-01 : plus de purge globale AVANT la reconstruction. Elle vidait
+    // l'intégration entière pour l'espace, et un plantage en cours de route (puis chaque relance
+    // BullMQ, qui la rejouait) laissait les events non encore retraités sans aucune donnée.
+    // executeProcessEvents efface et réécrit déjà chaque event ; le balayage de fin retire le
+    // reste, scopé par integrationId quand il est fourni (BUG-318-02).
+    const syncStartedAt = await this.syncStaleRows.databaseNow();
 
-    // Phase 2: retraitement (executeProcessEvents gère le job log status + progression)
+    // Phase 1: retraitement (executeProcessEvents gère le job log status + progression)
     const result = await this.executeProcessEvents(job);
+
+    // Phase 2: lignes non réécrites par ce run (events retirés, résidus), events en échec épargnés.
+    const failedEvents = result.results
+      .filter((r) => r.status === 'error')
+      .map((r) => ({ eventId: r.eventId, date: r.date }));
+    const swept = await this.syncStaleRows.purge(tenantId, spaceId, integrationId, syncStartedAt, failedEvents);
+    if (swept) this.logger.log(`Synchronize ${jobLogId}: ${swept} stale aggregate row(s) removed after rebuild`);
 
     // Phase 3: résumé
     const summary = await this.prisma.spaceRevenueMinuteAgg.aggregate({
