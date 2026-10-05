@@ -442,6 +442,11 @@
             {{ t('anItemLevelEmpty') }}
           </v-alert>
 
+          <AggregationGapAlert
+            :events="aggregationGapEvents"
+            @open-data-integration="router.push({ name: 'data-integration-fb' })"
+          />
+
           <!-- BUG-350-01 — le périmètre dépasse le cap item-level : le CA affiché
                sous-compte. Bandeau permanent, pas seulement un snackbar fugace. -->
           <v-alert
@@ -784,6 +789,8 @@ const EventPredictView = asyncComponentWithChunkReload(() => import('@/component
 import GenericByEventChart from '../charts/GenericByEventChart.vue'
 import ShopItemEventsDialog from '../dialogs/ShopItemEventsDialog.vue'
 import UnalignedEventsDialog from '../dialogs/UnalignedEventsDialog.vue'
+import AggregationGapAlert from '../AggregationGapAlert.vue'
+import { useAggregationGap } from '@/composables/useAggregationGap'
 
 import { useFilters } from '@/composables/useFilters'
 import { useMetricsCalculator } from '@/composables/useMetricsCalculator'
@@ -1163,10 +1170,24 @@ const kpiSourceState = computed(() =>
 // record item-level et plus rien en vol (batch KO, PdV non mappés, dates d'event
 // hors fenêtre — cf. « Match 10 Mai », BUG-247-01). Sans ce message, l'écran
 // affiche 0 € et se lit comme « pas de ventes », ce qui est souvent faux.
+// Incident Jean Bouin 2026-10-01 : events au CA enregistré (bande KPI, rollup) mais sans
+// détail de vente (agrégats vidés par une resynchronisation interrompue). Bandeau dédié, qui
+// nomme les events et renvoie vers Data Integration.
+const { gapEvents: aggregationGapEvents } = useAggregationGap({
+  events: filteredEvents,
+  itemRecords: globalItemRecords,
+  loadedEventIds: mainLoadedEventIds,
+  sourceState: itemRecordsSourceState,
+  fetchError: itemRecordsError,
+  isPredict: isPredictRecords,
+})
+
 const itemLevelEmpty = computed(() =>
   !isPredictRecords.value
   && kpiSourceState.value === 'empty'
   && (filteredEvents.value || []).length > 0
+  // Le bandeau dédié ci-dessus dit déjà pourquoi, et pour quels events.
+  && !aggregationGapEvents.value.length
 )
 
 // ─── Grain ARTICLE en mode Predict ─────────────────────────────────────────
