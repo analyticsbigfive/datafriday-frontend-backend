@@ -6,6 +6,7 @@ import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { IntegrationTransactionStatsService } from './integration-transaction-stats.service';
 import { BasketAggregationService } from './basket-aggregation.service';
+import { SyncStaleRowsService } from './sync-stale-rows.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { MappingsService } from '../mappings/mappings.service';
@@ -123,6 +124,7 @@ describe('AggregationService', () => {
         SpaceIntegrationScopeService,
         IntegrationTransactionStatsService,
         BasketAggregationService,
+        SyncStaleRowsService,
       ],
     }).compile();
 
@@ -1141,19 +1143,103 @@ describe('AggregationService', () => {
       mockPrisma.spaceRevenueMinuteAgg.deleteMany.mockResolvedValue({ count: 5 });
       mockPrisma.spaceProductRevenueDailyAgg.deleteMany.mockResolvedValue({ count: 2 });
       mockPrisma.spaceRevenueMinuteItemAgg.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.spaceBasketMinuteAgg.deleteMany.mockResolvedValue({ count: 0 });
+      mockPrisma.locationSpaceMapping.findMany.mockResolvedValue([{ salesLocationId: INT_ID }]);
+      mockPrisma.space.findFirst.mockResolvedValue({ timezone: 'Europe/Paris' });
+      mockPrisma.event.update.mockResolvedValue({});
     });
 
-    it('nettoie les 4 tables dans une transaction atomique (fix #9)', async () => {
-      const job = makeBullJob({ type: 'synchronize' });
+    const SYNC_NOW = new Date('2026-10-01T12:53:43Z');
+    // `$queryRaw` sert au repli MIN/MAX de la fenêtre ET à l'horloge base du balayage.
+    const queryRawRows = () =>
+      mockPrisma.$queryRaw.mockResolvedValue([{ now: SYNC_NOW, minDate: null, maxDate: null }]);
+
+    it('Incident Jean Bouin 2026-10-01 : aucune purge globale AVANT la reconstruction (seules les purges par event précèdent les INSERT)', async () => {
+      queryRawRows();
+      const job = makeBullJob({ type: 'synchronize', eventIds: undefined });
       await service.executeSynchronize(job);
 
-      expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
-      const txOps = mockPrisma.$transaction.mock.calls[0][0];
-      // Les 4 deleteMany (minute, jour, item, paniers) doivent être dans la même transaction
-      expect(txOps).toHaveLength(4);
+      const firstInsert = mockPrisma.$executeRaw.mock.invocationCallOrder[0];
+      const deletesBeforeRebuild = mockPrisma.spaceRevenueMinuteAgg.deleteMany.mock.calls.filter(
+        (_: any, i: number) => mockPrisma.spaceRevenueMinuteAgg.deleteMany.mock.invocationCallOrder[i] < firstInsert,
+      );
+      // Uniquement les purges ciblées par event (weezeventEventId), jamais l'intégration entière.
+      expect(deletesBeforeRebuild.length).toBeGreaterThan(0);
+      for (const [arg] of deletesBeforeRebuild) {
+        if (arg.where.integrationId && typeof arg.where.integrationId === 'object') continue; // purge BUG-384-02 (notIn)
+        expect(arg.where.weezeventEventId).toBe(EVENT_1);
+      }
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it("balaie APRÈS la reconstruction les lignes non réécrites (updatedAt < début du run), scopé par l'intégration du job, sur les 4 tables", async () => {
+      queryRawRows();
+      const job = makeBullJob({ type: 'synchronize', eventIds: undefined });
+      await service.executeSynchronize(job);
+
+      const sweep = { tenantId: TENANT, spaceId: SPACE, updatedAt: { lt: SYNC_NOW }, integrationId: INT_ID };
+      expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenLastCalledWith({ where: sweep });
+      expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenLastCalledWith({ where: sweep });
+      expect(mockPrisma.spaceBasketMinuteAgg.deleteMany).toHaveBeenLastCalledWith({ where: sweep });
+      expect(mockPrisma.spaceProductRevenueDailyAgg.deleteMany).toHaveBeenLastCalledWith({ where: sweep });
+      // Le balayage suit le dernier INSERT.
+      const lastInsert = Math.max(...mockPrisma.$executeRaw.mock.invocationCallOrder);
+      const sweepCall = Math.max(...mockPrisma.spaceProductRevenueDailyAgg.deleteMany.mock.invocationCallOrder);
+      expect(sweepCall).toBeGreaterThan(lastInsert);
+    });
+
+    it('sans integrationId, le balayage couvre tout le space (resync global explicite, BUG-318-02)', async () => {
+      queryRawRows();
+      const job = makeBullJob({ type: 'synchronize', eventIds: undefined, integrationId: undefined });
+      mockPrisma.locationSpaceMapping.findMany.mockResolvedValue([{ salesLocationId: INT_ID }]);
+      await service.executeSynchronize(job);
+
+      expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenLastCalledWith({
+        where: { tenantId: TENANT, spaceId: SPACE, updatedAt: { lt: SYNC_NOW } },
+      });
+    });
+
+    it("un event en échec garde ses lignes existantes : exclu du balayage (minute, article, paniers) et son jour épargné (journalier)", async () => {
+      queryRawRows();
+      const failing = { ...makeEvent(EVENT_2), eventDate: new Date('2026-09-19T00:00:00Z') };
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1), failing]);
+      // EVENT_2 : son INSERT minute échoue (4 $executeRaw par event : minute, jour, article, paniers → 5e appel).
+      let call = 0;
+      mockPrisma.$executeRaw.mockImplementation(() => {
+        call += 1;
+        return call === 5 ? Promise.reject(new Error('statement timeout')) : Promise.resolve(0);
+      });
+      const job = makeBullJob({ type: 'synchronize', eventIds: undefined });
+      await service.executeSynchronize(job);
+
+      const keep = { OR: [{ weezeventEventId: null }, { weezeventEventId: { notIn: [EVENT_2] } }] };
+      const base = { tenantId: TENANT, spaceId: SPACE, updatedAt: { lt: SYNC_NOW }, integrationId: INT_ID };
+      expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenLastCalledWith({ where: { ...base, ...keep } });
+      expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenLastCalledWith({ where: { ...base, ...keep } });
+      expect(mockPrisma.spaceBasketMinuteAgg.deleteMany).toHaveBeenLastCalledWith({
+        where: { ...base, weezeventEventId: { notIn: [EVENT_2] } },
+      });
+      expect(mockPrisma.spaceProductRevenueDailyAgg.deleteMany).toHaveBeenLastCalledWith({
+        where: { ...base, day: { notIn: [new Date('2026-09-19T00:00:00Z')] } },
+      });
+    });
+
+    it('si la reconstruction plante, aucun balayage : les lignes déjà en base restent intactes', async () => {
+      queryRawRows();
+      mockPrisma.aggregationJobLog.update
+        .mockResolvedValueOnce({}) // running (synchronize)
+        .mockResolvedValueOnce({}) // running (process-events)
+        .mockRejectedValue(new Error('db down'));
+      const job = makeBullJob({ type: 'synchronize', eventIds: undefined });
+      await expect(service.executeSynchronize(job)).rejects.toThrow();
+
+      // Seule la purge BUG-384-02 (intégrations étrangères, `notIn`) a pu passer, jamais le balayage.
+      const sweeps = mockPrisma.spaceProductRevenueDailyAgg.deleteMany.mock.calls.filter(([a]: any) => a.where.updatedAt);
+      expect(sweeps).toHaveLength(0);
     });
 
     it('retourne un summary avec totalRevenue', async () => {
+      queryRawRows();
       mockPrisma.spaceRevenueMinuteAgg.aggregate.mockResolvedValue({
         _sum: { revenueHt: '1234.56', transactionsCount: 100, itemsCount: 500 },
         _count: { _all: 200 },
@@ -1166,29 +1252,18 @@ describe('AggregationService', () => {
       expect(result.summary.totalTransactions).toBe(100);
     });
 
-    // ─── BUG-318-02 ──────────────────────────────────────────────────────────
-    it('BUG-318-02 : le cleanup Phase 1 est scopé par integrationId quand il est fourni (makeBullJob() en fournit un par défaut)', async () => {
-      const job = makeBullJob({ type: 'synchronize' });
-      await service.executeSynchronize(job);
+    it("Incident Jean Bouin 2026-10-01 : Redis saturé sur la progression BullMQ n'interrompt plus la reconstruction", async () => {
+      queryRawRows();
+      mockPrisma.event.findMany.mockResolvedValue([makeEvent(EVENT_1), makeEvent(EVENT_2, 5)]);
+      const job = makeBullJob({ type: 'synchronize', eventIds: undefined });
+      job.updateProgress.mockRejectedValue(new Error("OOM command not allowed when used memory > 'maxmemory'."));
 
-      expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
-        where: { tenantId: TENANT, spaceId: SPACE, integrationId: INT_ID },
-      });
-      expect(mockPrisma.spaceProductRevenueDailyAgg.deleteMany).toHaveBeenCalledWith({
-        where: { tenantId: TENANT, spaceId: SPACE, integrationId: INT_ID },
-      });
-      expect(mockPrisma.spaceRevenueMinuteItemAgg.deleteMany).toHaveBeenCalledWith({
-        where: { tenantId: TENANT, spaceId: SPACE, integrationId: INT_ID },
-      });
-    });
+      const result = await service.executeSynchronize(job);
 
-    it('BUG-318-02 : le cleanup Phase 1 purge tout le space (sans filtre) si integrationId est absent — resync global explicite', async () => {
-      const job = makeBullJob({ type: 'synchronize', integrationId: undefined });
-      await service.executeSynchronize(job);
-
-      expect(mockPrisma.spaceRevenueMinuteAgg.deleteMany).toHaveBeenCalledWith({
-        where: { tenantId: TENANT, spaceId: SPACE },
-      });
+      expect(result.processed).toBe(2);
+      expect(mockPrisma.aggregationJobLog.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: 'completed' }) }),
+      );
     });
   });
 
