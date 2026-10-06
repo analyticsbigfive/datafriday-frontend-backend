@@ -133,6 +133,7 @@ class FakePrisma {
   stockReconciliation = new Table('stockReconciliation', this);
   kvStore = new Table('kvStore', this);
   inventoryWindow = new Table('inventoryWindow', this);
+  guestPinAccess = new Table('guestPinAccess', this);
   spaceElement = new Table('spaceElement', this);
   menuItem = new Table('menuItem', this);
   marketPrice = new Table('marketPrice', this);
@@ -395,11 +396,12 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
     );
     expect(marker).toBeTruthy();
     expect(marker!.value.result).toMatchObject({ ok: true });
+    // PIN conservé : il est lié à l'event (document Bertrand 2026-10-06).
     expect(prisma.inventoryWindow.rows[0]).toMatchObject({
       status: 'closed',
       closedBy: 'system-doors-open',
-      pinLookupHash: null,
-      pinCiphertext: null,
+      pinLookupHash: 'hash',
+      pinCiphertext: 'cipher',
     });
     sheet = sheets()[0];
     expect(sheets()).toHaveLength(1);
@@ -445,17 +447,17 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
       deltaLoose: -1,
     });
     expect(line(sheet, 'pdv1', ITEM.cookie)).toMatchObject({ deltaLoose: -3 }); // toujours l'écart d'origine
-    // Règle Bertrand 2026-09-29 : après l'ouverture des portes, la feuille est régénérée
-    // mais Logistic n'est PAS recalé automatiquement.
-    expect(logistics.resets).toHaveLength(3);
-    expect(sheet.meta.logisticPush).toMatchObject({ ok: false, reason: 'no-counts' });
-
-    // Mise à jour manuelle du PDV 1 par le responsable logistique : seul ce PDV part.
-    const manual = await flow.pushElementToLogistic(SPACE, EVENT_A, TENANT, 'resp-logistique', 'pdv1');
-    expect(manual.logisticPush).toMatchObject({ ok: true });
+    // Document Bertrand 2026-10-06 (D1) : après l'ouverture des portes aussi, la feuille
+    // régénérée recale Logistic, avec le seul article modifié (push incrémental).
     expect(logistics.resets).toHaveLength(4);
+    expect(sheet.meta.logisticPush).toMatchObject({ ok: true });
     expect(resetKeys(lastReset())).toEqual([`pdv1::${ITEM.water}`]);
     expect(logistics.looseOf('pdv1', NAME.cookie)).toBe(4); // la vente du début de match n'est pas effacée
+
+    // Plus rien de nouveau : un envoi supplémentaire ne recale rien.
+    const manual = await flow.pushElementToLogistic(SPACE, EVENT_A, TENANT, 'resp-logistique', 'pdv1');
+    expect(manual.logisticPush).toMatchObject({ ok: false, reason: 'nothing-new' });
+    expect(logistics.resets).toHaveLength(4);
 
     // ── B4. Après 30 min (17:31Z) : verrou complet, cron silencieux ────────
     at('2026-09-19T17:31:00.000Z');
@@ -494,7 +496,8 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
     at('2026-09-19T00:30:00.000Z');
     await count('pdv1', ITEM.cookie, 7);
     await cron.autoInitLiveStockForOpenEvents();
-    expect(prisma.kvStore.rows).toHaveLength(0);
+    // Seul le marqueur d'envoi Logistic (D1) est posé : ni « portes ouvertes » ni feuille à régénérer.
+    expect(prisma.kvStore.rows.map((r) => r.key)).toEqual([`inventory-logistic-dirty:pre-event:${SPACE}:${EVENT_A}`]);
     expect(prisma.inventoryWindow.rows[0].status).toBe('open');
     expect((await flow.getWindowState(SPACE, EVENT_A, TENANT)).phase).toBe('no-doors-open');
 
@@ -502,7 +505,7 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
     at('2026-09-19T20:00:00.000Z');
     await count('pdv1', ITEM.cookie, 6);
     await cron.autoInitLiveStockForOpenEvents();
-    expect(prisma.kvStore.rows).toHaveLength(0);
+    expect(prisma.kvStore.rows.map((r) => r.key)).toEqual([`inventory-logistic-dirty:pre-event:${SPACE}:${EVENT_A}`]);
 
     // Passage manuel (bouton « Ouverture des portes »).
     const event = await flow.findEvent(SPACE, EVENT_A, TENANT);

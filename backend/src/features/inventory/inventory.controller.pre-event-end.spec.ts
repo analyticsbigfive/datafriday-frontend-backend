@@ -9,7 +9,7 @@ import { InventoryController } from './inventory.controller';
  */
 describe('InventoryController.regeneratePreEventReconciliation (PDV complet, staff)', () => {
     const preEventFlow = { regenerateOnPdvComplete: jest.fn().mockResolvedValue({ ok: true, reconciliationId: 'reco-1', lineCount: 12 }) };
-    const controller = new InventoryController({} as any, preEventFlow as any);
+    const controller = new InventoryController({} as any, preEventFlow as any, {} as any);
     const user = { id: 'user-1', tenantId: 'tenant-1' };
 
     beforeEach(() => jest.clearAllMocks());
@@ -17,12 +17,17 @@ describe('InventoryController.regeneratePreEventReconciliation (PDV complet, sta
     it("délègue au flux pre-event avec le trigger 'pdv-complete' et le PDV concerné", async () => {
         const result = await controller.regeneratePreEventReconciliation('space-1', { eventId: 'event-1', elementId: 'shop-1' } as any, user);
         expect(result).toEqual({ ok: true, reconciliationId: 'reco-1', lineCount: 12 });
-        // Le flux décide s'il pousse Logistic (avant les portes) ou seulement la feuille (après).
-        expect(preEventFlow.regenerateOnPdvComplete).toHaveBeenCalledWith('space-1', 'event-1', 'tenant-1', 'user-1', 'shop-1');
+        expect(preEventFlow.regenerateOnPdvComplete).toHaveBeenCalledWith('space-1', 'event-1', 'tenant-1', 'user-1', 'shop-1', null);
+    });
+
+    it("transmet le besoin prédit calculé par l'écran (seul chemin depuis le retrait du bouton, 2026-10-06)", async () => {
+        const predictedUnits = { 'shop-1': { 'mi-1': 40 } };
+        await controller.regeneratePreEventReconciliation('space-1', { eventId: 'event-1', elementId: 'shop-1', predictedUnits } as any, user);
+        expect(preEventFlow.regenerateOnPdvComplete).toHaveBeenCalledWith('space-1', 'event-1', 'tenant-1', 'user-1', 'shop-1', predictedUnits);
     });
 
     it('sans PDV explicite : régénération du match entier', async () => {
         await controller.regeneratePreEventReconciliation('space-1', { eventId: 'event-1' } as any, user);
-        expect(preEventFlow.regenerateOnPdvComplete).toHaveBeenCalledWith('space-1', 'event-1', 'tenant-1', 'user-1', undefined);
+        expect(preEventFlow.regenerateOnPdvComplete).toHaveBeenCalledWith('space-1', 'event-1', 'tenant-1', 'user-1', undefined, null);
     });
 });

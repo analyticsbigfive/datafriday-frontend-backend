@@ -42,6 +42,7 @@ describe('GuestPinAccessService : fin de l\'inventaire pre-event (invité)', () 
         redis = { get: jest.fn().mockResolvedValue(0), ttl: jest.fn().mockResolvedValue(0), set: jest.fn(), incr: jest.fn() };
         service = new GuestPinAccessService(
             prisma, redis, {} as any, {} as any, preEventFlow, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
+            {} as any, // postEventDraft
         );
     });
 
@@ -74,7 +75,7 @@ describe('GuestPinAccessService : fin de l\'inventaire pre-event (invité)', () 
             prisma.inventoryWindow.findMany.mockResolvedValue([]);
             expect(await service.getPublicContext('buvette-d')).toEqual({ elementName: 'Buvette D', active: false });
             expect(prisma.inventoryWindow.findMany).toHaveBeenCalledWith(
-                expect.objectContaining({ where: expect.objectContaining({ status: 'open', pinLookupHash: { not: null } }) }),
+                expect.objectContaining({ where: expect.objectContaining({ pinLookupHash: { not: null } }) }),
             );
         });
 

@@ -60,7 +60,10 @@ export class JwtGuestPinStrategy extends PassportStrategy(Strategy, 'jwt-guest-p
       include: { window: true },
     });
 
-    if (!access || access.status !== 'active' || access.window.status !== 'open') {
+    // Seule la ligne du PDV fait foi : toute clôture de fenêtre la révoque
+    // (closeInventoryWindows), et un PDV peut être rouvert individuellement alors
+    // que sa fenêtre est arrêtée (document Bertrand 2026-10-06, pages 3 à 6).
+    if (!access || access.status !== 'active') {
       throw new UnauthorizedException('Accès invité révoqué ou fenêtre clôturée');
     }
 
