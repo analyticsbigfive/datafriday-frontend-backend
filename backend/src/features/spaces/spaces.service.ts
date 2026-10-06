@@ -2101,6 +2101,44 @@ export class SpacesService {
   }
 
   /**
+   * Nombre de ventes validées de l'espace depuis `since` (même périmètre que
+   * `getLiveStatus` : intégration mappée, PdV de l'espace, transactions 'V' non supprimées).
+   * Sert au cycle d'inventaire (document Bertrand 2026-10-06) : le pre-event s'arrête sur un
+   * vrai démarrage des ventes, pas sur une vente de test isolée.
+   */
+  async countValidSalesSince(spaceId: string, tenantId: string, since: Date): Promise<number> {
+    const [locationMapping, shopIds] = await Promise.all([
+      this.prisma.locationSpaceMapping.findFirst({
+        where: { tenantId, spaceId },
+        select: { salesLocationId: true },
+      }),
+      this.resolveShopIdsForSpace(spaceId, tenantId),
+    ]);
+    if (shopIds.length === 0) return 0;
+    const integrationId = locationMapping?.salesLocationId ?? null;
+    const integrationClause = integrationId
+      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+      : Prisma.sql``;
+    const shopScopeClause = integrationId
+      ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))`
+      : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
+    const rows: { n: number }[] = await this.prisma.$queryRaw(Prisma.sql`
+      SELECT COUNT(DISTINCT t.id)::int AS n
+      FROM "WeezeventTransaction" t
+      LEFT JOIN "WeezeventLocationShopMapping" mem
+        ON mem."weezeventLocationId" = t."locationId"
+       AND mem."tenantId" = ${tenantId}
+      WHERE t."tenantId" = ${tenantId}
+        ${integrationClause}
+        AND t.status = 'V'
+        AND t."deletedAt" IS NULL
+        AND t."transactionDate" >= ${since}
+        AND ${shopScopeClause}
+    `);
+    return Number(rows[0]?.n ?? 0);
+  }
+
+  /**
    * Onglet Inventaire live (tracker front #22, LIVE_API_GUIDE.md §3) — délègue au module
    * Logistic, qui calcule déjà cette combinaison Restock + décrément par vente pour son propre
    * écran. Passthrough volontairement fin : la logique vit dans LogisticsService, pas ici.

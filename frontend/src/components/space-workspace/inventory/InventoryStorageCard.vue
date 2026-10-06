@@ -8,28 +8,32 @@
         <!-- « Voir tout l'inventaire » : réserve d'une autre configuration que celle de l'event. -->
         <span v-if="entry?.element?.outsideEventConfig" class="si-card-outside">{{ t('invOutsideEventConfig') }}</span>
       </div>
-      <span class="si-card-item-count">{{ countedItems }} / {{ items.length }} {{ t('invCardItems') }}</span>
+      <span class="si-card-item-count">
+        {{ countedItems }} / {{ items.length }} {{ t('invCardItems') }}
+        <InventoryStatusDot :status="countingStatus" class="si-card-dot" />
+      </span>
     </header>
 
     <!-- Comptage storage : progression + statut + action (parité shops) -->
     <div class="si-storage-count">
       <v-progress-linear
         :model-value="progress"
-        :color="isCounted ? 'success' : 'warning'"
+        :color="countingStatusColor(countingStatus)"
         height="5"
         rounded
         class="si-storage-bar"
       />
+      <!-- Libellé de statut retiré, mêmes règles que les boutiques (pastille,
+           accès PIN ▶ / ■, document Bertrand 2026-10-06). -->
       <div class="si-storage-count-row">
-        <v-chip
-          size="x-small"
-          variant="flat"
-          :color="isCounted ? 'success' : 'warning'"
-          :prepend-icon="isCounted ? 'mdi-check-circle' : 'mdi-clipboard-list-outline'"
-          class="si-storage-status"
-        >
-          {{ statusLabel }}
-        </v-chip>
+        <PdvAccessToggle
+          v-if="pinAccess"
+          :space-id="pinAccess.spaceId"
+          :event-id="pinAccess.eventId"
+          :phase="pinAccess.phase"
+          :element-id="entry.element.id"
+          @error="$emit('error', $event)"
+        />
         <v-btn
           :color="isCounted ? 'success' : 'primary'"
           variant="flat"
@@ -88,19 +92,26 @@
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import InventoryStatusDot from './InventoryStatusDot.vue'
+import PdvAccessToggle from './PdvAccessToggle.vue'
+import { countingStatusColor } from '@/utils/inventoryCountingStatus'
 
 export default {
   name: 'InventoryStorageCard',
+  components: { InventoryStatusDot, PdvAccessToggle },
   props: {
     entry: { type: Object, required: true },
     // Nombre d'articles comptés (isCounted) sur ce stockage → pilote progression + libellé.
     countedItems: { type: Number, default: 0 },
     progress: { type: Number, default: 0 },
-    statusLabel: { type: String, default: '' },
+    // 'to-count' | 'in-progress' | 'counted' (utils/inventoryCountingStatus).
+    countingStatus: { type: String, default: 'to-count' },
+    // { spaceId, eventId, phase } quand l'utilisateur gère l'accès PIN ; null sinon.
+    pinAccess: { type: Object, default: null },
   },
-  emits: ['start-count'],
+  emits: ['start-count', 'error'],
   setup() {
-    return { t: useI18n().t }
+    return { t: useI18n().t, countingStatusColor }
   },
   data() {
     return { expanded: false }
@@ -160,13 +171,8 @@ export default {
 .si-card-item-count { font-size: 0.78rem; color: #6B7280; white-space: nowrap; }
 .si-storage-count { padding: 4px 16px 8px; display: flex; flex-direction: column; gap: 8px; }
 .si-storage-bar { width: 100%; }
-.si-storage-count-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.si-storage-status {
-  font-weight: 800;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  font-size: 0.66rem;
-}
+.si-storage-count-row { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.si-card-dot { margin-left: 4px; }
 .si-storage-action { border-radius: 6px; text-transform: none; font-weight: 700; }
 .si-card-items { list-style: none; padding: 0 10px; margin: 0 0 4px; display: flex; flex-direction: column; gap: 1px; }
 .si-storage-item { padding: 7px 8px; border-radius: 8px; transition: background 0.15s ease; }

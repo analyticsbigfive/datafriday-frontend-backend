@@ -53,25 +53,17 @@ export async function saveInventoryCount(inventoryCountData) {
 // docs/modules/10_POST_EVENT_INVENTORY.md §7.
 
 /**
- * Crée le document de réconciliation post-événement.
- * POST /inventory/:spaceId/reconciliations
- * @param {string} spaceId
- * @param {{eventId: string, eventName?: string, lines: Array<object>,
- *   preEventSource?: string,
- *   salesUnjoined?: {shopNames?: string[], itemNames?: string[], units?: number},
- *   countedProgress?: number[]}} payload
- *   `preEventSource`/`salesUnjoined`/`countedProgress` (BUG-238/241) : contexte de
- *   fabrication archivé dans `StockReconciliation.meta` — un écart produit par une
- *   source manquante doit rester distinguable d'un manquant réel.
+ * Contexte de la réconciliation post-event (lot 4b, document Bertrand 2026-10-06) :
+ * colonnes que seul l'écran calcule (prédit, coût, unité), par ligne. Le serveur tient
+ * le document et le reconstruit aussitôt ; renvoie `{ ok, document }`.
+ * POST /inventory/:spaceId/post-event-context
  */
-export async function createPostEventReconciliation(spaceId, payload) {
-  return api.post(`/inventory/${spaceId}/reconciliations`, payload)
-}
-
-/** Brouillon de LA feuille post-event du match (PDV complet, recomptage) : remplace la
- *  précédente sans toucher à Logistic ni à la fenêtre PIN. Même payload que ci-dessus. */
-export async function createPostEventReconciliationDraft(spaceId, payload) {
-  return api.post(`/inventory/${spaceId}/reconciliations/draft`, payload)
+export async function savePostEventContext(spaceId, { eventId, lines, predictedSource }) {
+  return api.post(`/inventory/${spaceId}/post-event-context`, {
+    eventId,
+    lines,
+    ...(predictedSource ? { predictedSource } : {}),
+  })
 }
 
 /** « Recompter » un point de vente en post-event : ses articles repassent à compter
@@ -97,19 +89,6 @@ export async function listInventoryReconciliations(spaceId) {
  */
 export async function deleteInventoryReconciliation(spaceId, id) {
   return api.delete(`/inventory/${spaceId}/reconciliations/${id}`)
-}
-
-/**
- * Bouton "Update Logistic" — pousse manuellement le comptage courant (Pre ou
- * Post-event) vers le registre Logistic, sans créer de document de réconciliation.
- * POST /inventory/:spaceId/push-to-logistic
- */
-/** `elementId` : un seul point de vente (mise à jour manuelle par PDV, règle Bertrand
- *  2026-09-29) ; absent = tous. Réservé à front.fb.logisticReconcile. */
-export async function pushInventoryCountToLogistic(spaceId, eventId, phase, elementId = null) {
-  const body = { eventId, phase }
-  if (elementId) body.elementId = elementId
-  return api.post(`/inventory/${spaceId}/push-to-logistic`, body)
 }
 
 /**
@@ -163,32 +142,20 @@ export async function getEventSalesConsumption(spaceId, eventId) {
 }
 
 /**
- * Crée la réconciliation PRE-event (attendu vs compté) — lignes construites
- * CÔTÉ SERVEUR (le client, potentiellement sans la permission « attendus »,
- * ne les fournit pas).
- * POST /inventory/:spaceId/pre-event-reconciliations
- */
-export async function createPreEventReconciliation(spaceId, eventId, predictedUnits = null) {
-  // `predictedUnits` ({ elementId: { itemId: unités } }) est la SEULE donnée de
-  // ligne que le client fournit : le scénario Event Predict vit côté front, le
-  // réimplémenter côté serveur donnerait deux moteurs qui divergeraient.
-  return api.post(`/inventory/${spaceId}/pre-event-reconciliations`, {
-    eventId,
-    ...(predictedUnits ? { predictedUnits } : {}),
-  })
-}
-
-/**
  * (Re)génère LA feuille pre-event du match depuis les comptages vivants et
  * recale la Logistique. Appelé quand tous les articles d'un PDV viennent d'être
  * marqués comptés (le serveur ne connaît pas la liste explosée des articles).
  * POST /inventory/:spaceId/pre-event-reconciliations/regenerate
  * @returns {Promise<{ok: boolean, reconciliationId?: string, lineCount?: number, reason?: string}>}
  */
-export async function regeneratePreEventReconciliation(spaceId, eventId, elementId = null) {
+export async function regeneratePreEventReconciliation(spaceId, eventId, elementId = null, predictedUnits = null) {
+  // `predictedUnits` : besoin prédit du scénario (seul l'écran le calcule). Depuis le
+  // retrait de « Générer la réconciliation » (2026-10-06), c'est le seul chemin qui le
+  // transmet au serveur ; les régénérations suivantes le reprennent de la feuille.
   return api.post(`/inventory/${spaceId}/pre-event-reconciliations/regenerate`, {
     eventId,
     ...(elementId ? { elementId } : {}),
+    ...(predictedUnits ? { predictedUnits } : {}),
   })
 }
 
@@ -201,17 +168,6 @@ export async function regeneratePreEventReconciliation(spaceId, eventId, element
  */
 export async function getPreEventWindow(spaceId, eventId) {
   return api.get(`/inventory/${spaceId}/pre-event-window/${eventId}`)
-}
-
-/**
- * Passage « portes ouvertes » manuel : clôt la fenêtre PIN pre-event, génère la
- * feuille et pousse l'incrément de comptage vers Logistic. Idempotent côté
- * serveur (already-initialized si déjà passé, par le cron ou à la main).
- * POST /inventory/:spaceId/pre-event-doors-open
- * @returns {Promise<{ok: boolean, reconciliationId?: string, lineCount?: number, reason?: string}>}
- */
-export async function triggerPreEventDoorsOpen(spaceId, eventId) {
-  return api.post(`/inventory/${spaceId}/pre-event-doors-open`, { eventId })
 }
 
 /**

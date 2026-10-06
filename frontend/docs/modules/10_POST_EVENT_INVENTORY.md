@@ -24,6 +24,12 @@
 > ([237](../bugs/237_post_event_prerempli_par_comptage_pre_event.md) à
 > [241](../bugs/241_getpreeventinventory_repli_legacy_hors_event.md)) **et corrigés le jour même**
 > (backend 41/41, front 478 verts). Déploiement conjoint requis : § 13.4.
+>
+> **Évolution validée le 2026-10-06, pas encore codée** : le document Bertrand « Pre et Post event
+> Inventory cycle » redéfinit le cycle des phases, le bandeau (PIN automatique, Arrêt / Reprise), les
+> lignes PDV et la mise à jour Logistique à chaque article marqué compté. Il prime sur les règles
+> antérieures décrites ici, notamment celle du 2026-09-29 (Logistique manuelle après l'ouverture des
+> portes). Plan, décisions et écarts : [chantier inventory_cycle_pre_post_v2](../chantiers/inventory_cycle_pre_post_v2/PLAN.md).
 
 ---
 

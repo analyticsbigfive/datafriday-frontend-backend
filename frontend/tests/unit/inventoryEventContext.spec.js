@@ -1,6 +1,6 @@
 // Contexte évènement des écrans d'inventaire : normalisation + règle d'ancrage
 // « un match = un eventId » (docs/modules/10_POST_EVENT_INVENTORY.md §12.4).
-import { describeAnchorEvent, pickAnchorEvent } from '@/utils/inventoryEventContext'
+import { describeAnchorEvent, pickAnchorEvent, postEventChoices } from '@/utils/inventoryEventContext'
 
 const NOW = new Date('2026-08-04T12:00:00Z').getTime()
 
@@ -112,5 +112,19 @@ describe('matchLabel', () => {
   it('chaîne vide sur une entrée absente ou non-objet', () => {
     expect(matchLabel(null)).toBe('')
     expect(matchLabel('AJA-Angers')).toBe('')
+  })
+})
+
+describe('postEventChoices (liste déroulante du Post-event, document Bertrand 2026-10-06)', () => {
+  it('propose le dernier event commencé et le prochain', () => {
+    const { last, next } = postEventChoices(EVENTS, { now: NOW, timeZone: 'Europe/Paris' })
+    expect(last?.id).toBe('p2')
+    expect(next?.id).toBe('f1')
+  })
+
+  it('aucun event à venir : seul le dernier est proposé', () => {
+    const { last, next } = postEventChoices(EVENTS.slice(0, 2), { now: NOW, timeZone: 'Europe/Paris' })
+    expect(last?.id).toBe('p2')
+    expect(next).toBeNull()
   })
 })

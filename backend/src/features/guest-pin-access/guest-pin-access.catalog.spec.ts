@@ -31,6 +31,7 @@ describe('GuestPinAccessService.getCatalog (BUG-383-02 : articles = union des co
         const menuComponents = { findAll: jest.fn().mockResolvedValue({ data: [] }) };
         service = new GuestPinAccessService(
             prisma, {} as any, {} as any, {} as any, {} as any, menuItems, marketPrices as any, menuComponents as any, {} as any, {} as any, {} as any,
+            {} as any, // postEventDraft
         );
     });
 

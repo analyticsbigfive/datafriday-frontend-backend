@@ -3,6 +3,7 @@ import {
   buildPostEventReconciliationLines,
   buildSoldUnitsFromConsumption,
   computeReconciliationSummary,
+  postEventContextLines,
 } from '@/utils/postEventReconciliation'
 
 const K = reconciliationKey
@@ -335,5 +336,20 @@ describe('buildPostEventReconciliationLines — mouvements Logistic de la fenêt
     })
     expect(lines).toHaveLength(1)
     expect(lines[0].movementUnits).toBe(12)
+  })
+})
+
+describe('postEventContextLines (contexte envoyé au serveur, lot 4b)', () => {
+  it('garde seulement les colonnes que le serveur ne sait pas calculer', () => {
+    const [ctx] = postEventContextLines([
+      { elementId: 'pdv1', itemKey: 'coca', predictedUnits: 400, unitCost: 2, unit: 'u', unitsPerPack: 24, packaging: 'Carton', countedUnits: 85, soldUnits: 380 },
+    ])
+    expect(ctx).toEqual({ elementId: 'pdv1', itemKey: 'coca', predictedUnits: 400, unitCost: 2, unit: 'u', unitsPerPack: 24, packaging: 'Carton' })
+  })
+
+  it('écarte les lignes inadressables, null par défaut', () => {
+    expect(postEventContextLines([{ itemKey: 'x' }, { elementId: 'a', itemKey: 'b' }])).toEqual([
+      { elementId: 'a', itemKey: 'b', predictedUnits: null, unitCost: null, unit: null, unitsPerPack: null, packaging: null },
+    ])
   })
 })

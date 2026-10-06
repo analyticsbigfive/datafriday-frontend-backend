@@ -37,7 +37,11 @@ describe('PreEventInventoryFlowService', () => {
       upsert: jest.fn().mockResolvedValue({}),
       delete: jest.fn().mockResolvedValue({}),
     },
-    inventoryWindow: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    inventoryWindow: {
+      findMany: jest.fn().mockResolvedValue([{ id: 'win-pre' }]),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    guestPinAccess: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     inventoryCount: { findFirst: jest.fn().mockResolvedValue(null) },
   };
 
@@ -177,25 +181,30 @@ describe('PreEventInventoryFlowService', () => {
   });
 
   describe('saveCount', () => {
-    it('hors phase pre-event : simple délégation, aucun verrou ni marquage', async () => {
+    /** Clés KvStore posées par saveCount : feuille à régénérer et/ou envoi Logistic (D1). */
+    const upsertedKeys = () =>
+      mockPrisma.kvStore.upsert.mock.calls.map(([arg]: any) => arg.where.uniq_kv_store.key);
+    const LOGISTIC_PRE = 'inventory-logistic-dirty:pre-event:space-1:event-1';
+
+    it('hors phase pre-event : simple délégation, aucun verrou, envoi Logistic seulement', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(prismaEventOpenedAgo(90));
       await service.saveCount({ ...baseDto, phase: 'post-event' }, 'tenant-1', 'user-1');
       expect(mockInventory.saveInventoryCounts).toHaveBeenCalledTimes(1);
       expect(mockPrisma.event.findFirst).not.toHaveBeenCalled();
-      expect(mockPrisma.kvStore.upsert).not.toHaveBeenCalled();
+      expect(upsertedKeys()).toEqual(['inventory-logistic-dirty:post-event:space-1:event-1']);
     });
 
     it("sans heure d'ouverture des portes : aucun verrou, même le jour du match", async () => {
       mockPrisma.event.findFirst.mockResolvedValue(eventWithoutDoors());
       await service.saveCount(baseDto, 'tenant-1', 'user-1');
       expect(mockInventory.saveInventoryCounts).toHaveBeenCalledTimes(1);
-      expect(mockPrisma.kvStore.upsert).not.toHaveBeenCalled();
+      expect(upsertedKeys()).toEqual([LOGISTIC_PRE]);
     });
 
-    it('avant les portes : sauvegarde sans marquer dirty', async () => {
+    it('avant les portes : sauvegarde sans marquer la feuille, article marqué à envoyer', async () => {
       await service.saveCount(baseDto, 'tenant-1', 'user-1');
       expect(mockInventory.saveInventoryCounts).toHaveBeenCalledWith(baseDto, 'tenant-1', 'user-1');
-      expect(mockPrisma.kvStore.upsert).not.toHaveBeenCalled();
+      expect(upsertedKeys()).toEqual([LOGISTIC_PRE]);
     });
 
     it('dans les 30 min après les portes : sauvegarde ET marque la feuille à régénérer', async () => {
@@ -387,7 +396,7 @@ describe('PreEventInventoryFlowService', () => {
           key: 'live-pre-event-init:space-1:event-1',
         }),
       });
-      expect(mockPrisma.inventoryWindow.updateMany).toHaveBeenCalledWith(
+      expect(mockPrisma.inventoryWindow.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
             tenantId: 'tenant-1',
@@ -396,13 +405,15 @@ describe('PreEventInventoryFlowService', () => {
             phase: 'pre-event',
             status: 'open',
           },
-          data: expect.objectContaining({
-            status: 'closed',
-            closedBy: 'system-doors-open',
-            pinLookupHash: null,
-            pinCiphertext: null,
-          }),
         }),
+      );
+      // PIN conservé (lié à l'event), accès PDV révoqués (document Bertrand 2026-10-06).
+      expect(mockPrisma.inventoryWindow.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['win-pre'] }, status: 'open' },
+        data: expect.objectContaining({ status: 'closed', closedBy: 'system-doors-open' }),
+      });
+      expect(mockPrisma.guestPinAccess.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { windowId: { in: ['win-pre'] }, status: 'active' } }),
       );
       expect(mockInventory.createPreEventReconciliation).toHaveBeenCalledWith(
         'space-1',
@@ -479,7 +490,7 @@ describe('PreEventInventoryFlowService', () => {
       expect(mockInventory.createPreEventReconciliation).not.toHaveBeenCalled();
     });
 
-    it('dirty : retire le marqueur puis régénère la feuille SANS pousser Logistic (manuel après les portes)', async () => {
+    it('dirty : retire le marqueur puis régénère la feuille ET pousse Logistic (D1, document Bertrand 2026-10-06)', async () => {
       mockPrisma.kvStore.findUnique.mockResolvedValue({ id: 'kv-dirty' });
       const result = await service.flushDirty(flowEvent(5));
       expect(mockPrisma.kvStore.delete).toHaveBeenCalledWith({ where: { id: 'kv-dirty' } });
@@ -493,7 +504,8 @@ describe('PreEventInventoryFlowService', () => {
         null,
         expect.objectContaining({ trigger: 'post-doors-open-edit' }),
         null,
-        [],
+        // undefined = tous les PDV partent vers Logistic.
+        undefined,
       );
     });
 

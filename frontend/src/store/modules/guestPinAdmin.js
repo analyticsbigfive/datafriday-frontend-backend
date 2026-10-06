@@ -5,15 +5,14 @@
 // des actions que le directeur vient de faire lui-même.
 
 import {
-  createOrReopenWindow,
   getStatusBoard,
   getPeriods,
-  setWindowPin,
-  revokeAccess,
-  reactivateAccess,
   validateAccess,
   requestCorrection,
-  closeWindow,
+  startWindow,
+  stopWindow,
+  startElement,
+  stopElement,
 } from '@/api/endpoints/guestPinAdmin.api'
 
 const state = {
@@ -64,29 +63,23 @@ const actions = {
     return periods
   },
 
-  async openWindow({ dispatch }, { spaceId, eventId, phase, showExpected }) {
-    await createOrReopenWindow({ spaceId, eventId, phase, showExpected })
-    return dispatch('fetchStatusBoard', { spaceId, eventId })
+  /** ▶ / ■ du bandeau (tous les PDV) et des lignes PDV (un seul). Le serveur renvoie
+   *  le tableau de statut à jour : pas de second aller-retour. */
+  async startWindow({ commit }, { spaceId, eventId, phase }) {
+    const windows = await startWindow({ spaceId, eventId, phase })
+    commit('SET_WINDOWS', { spaceId, eventId, windows })
   },
-
-  /** Retourne { windowId, pin } — le PIN en clair (PARTAGÉ par tous les PDV de la
-   *  fenêtre), affiché une seule fois. */
-  async generateWindowPin({ state, dispatch }, windowId) {
-    const result = await setWindowPin(windowId)
-    await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
-    return result
+  async stopWindow({ commit }, { spaceId, eventId, phase }) {
+    const windows = await stopWindow({ spaceId, eventId, phase })
+    commit('SET_WINDOWS', { spaceId, eventId, windows })
   },
-
-  async revoke({ state, dispatch }, accessId) {
-    await revokeAccess(accessId)
-    await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
+  async startElement({ commit }, { spaceId, eventId, phase, elementId }) {
+    const windows = await startElement({ spaceId, eventId, phase, elementId })
+    commit('SET_WINDOWS', { spaceId, eventId, windows })
   },
-
-  /** Réactive un PDV précédemment révoqué, sans toucher au PIN partagé. */
-  async reactivate({ state, dispatch }, accessId) {
-    const result = await reactivateAccess(accessId)
-    await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
-    return result
+  async stopElement({ commit }, { spaceId, eventId, phase, elementId }) {
+    const windows = await stopElement({ spaceId, eventId, phase, elementId })
+    commit('SET_WINDOWS', { spaceId, eventId, windows })
   },
 
   /** Verrouille l'écriture invité pour ce PDV (relecture directeur terminée). */
@@ -99,14 +92,6 @@ const actions = {
   /** Renvoie ce PDV pour correction : réouvre l'écriture, même PIN. */
   async requestCorrection({ state, dispatch }, accessId) {
     const result = await requestCorrection(accessId)
-    await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
-    return result
-  },
-
-  /** Clôture : révoque TOUS les accès invité de la fenêtre et pousse la logistique
-   *  (réutilise l'action existante POST /inventory/:spaceId/push-to-logistic côté serveur). */
-  async close({ state, dispatch }, windowId) {
-    const result = await closeWindow(windowId)
     await dispatch('fetchStatusBoard', { spaceId: state.spaceId, eventId: state.eventId })
     return result
   },
