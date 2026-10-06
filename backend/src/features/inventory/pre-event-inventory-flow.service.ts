@@ -1,7 +1,8 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { InventoryService } from './inventory.service';
 import { closeInventoryWindows } from './inventory-window-closure';
+import { PostEventDraftService } from './post-event-draft.service';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import {
   resolveDoorsOpenAt,
@@ -28,6 +29,8 @@ export type PreEventRegenerateTrigger =
   | 'pdv-complete'
   | 'doors-open'
   | 'post-doors-open-edit'
+  | 'phase-stop'
+  | 'count'
   | 'manual';
 
 export interface PreEventRegenerateResult {
@@ -100,6 +103,9 @@ export class PreEventInventoryFlowService {
 
   static readonly DOORS_OPEN_MARKER_PREFIX = 'live-pre-event-init';
   static readonly DIRTY_MARKER_PREFIX = 'pre-event-reco-dirty';
+  /** « À envoyer vers Logistic » : posé à chaque article marqué compté, pre ET post,
+   *  staff ET invité PIN, vidé chaque minute (InventoryLogisticSyncCronService). */
+  static readonly LOGISTIC_DIRTY_PREFIX = 'inventory-logistic-dirty';
 
   /** File d'attente par match : une régénération à la fois. */
   private readonly regenerateQueues = new Map<string, Promise<unknown>>();
@@ -107,6 +113,8 @@ export class PreEventInventoryFlowService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly inventoryService: InventoryService,
+    // Optionnel : les tests unitaires du flux pre-event ne le fournissent pas.
+    @Optional() private readonly postEventDraft?: PostEventDraftService,
   ) {}
 
   // ── Dates ────────────────────────────────────────────────────────────────────
@@ -178,6 +186,17 @@ export class PreEventInventoryFlowService {
    * portes connue, simple délégation.
    */
   async saveCount(dto: CreateInventoryCountDto, tenantId: string, userId?: string) {
+    const saved = await this.saveCountGuarded(dto, tenantId, userId);
+    // Document Bertrand 2026-10-06 (D1) : « Marquer compté » met la Logistique à jour,
+    // pre ET post, y compris après l'ouverture des portes. Envoi regroupé à la minute :
+    // chaque envoi recalcule le stock de tout l'espace (LogisticsService.reset).
+    if (dto.isCounted === true && dto.eventId && (dto.phase === 'pre-event' || dto.phase === 'post-event')) {
+      await this.markLogisticDirty(dto.spaceId, dto.eventId, tenantId, dto.phase);
+    }
+    return saved;
+  }
+
+  private async saveCountGuarded(dto: CreateInventoryCountDto, tenantId: string, userId?: string) {
     if (dto.phase !== 'pre-event' || !dto.eventId) {
       return this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
     }
@@ -248,6 +267,8 @@ export class PreEventInventoryFlowService {
       canSeeExpected?: boolean;
       /** PDV poussés vers Logistic (undefined = tous, [] = aucun : feuille seule). */
       pushElementIds?: string[];
+      /** false : pas de snapshot (envoi de la minute) ; le snapshot est figé à l'arrêt (D15). */
+      snapshot?: boolean;
     } = {},
   ): Promise<PreEventRegenerateResult> {
     const key = `${tenantId}:${spaceId}:${eventId}`;
@@ -277,6 +298,7 @@ export class PreEventInventoryFlowService {
       predictedUnits?: Record<string, Record<string, number>> | null;
       canSeeExpected?: boolean;
       pushElementIds?: string[];
+      snapshot?: boolean;
     },
   ): Promise<PreEventRegenerateResult> {
     const event = await this.findEvent(spaceId, eventId, tenantId);
@@ -318,11 +340,13 @@ export class PreEventInventoryFlowService {
       });
     }
 
-    await this.inventoryService.upsertInventory(
-      { spaceId, eventId, kind: 'pre-event', inventoryCounts: blob },
-      tenantId,
-      actor,
-    );
+    if (options.snapshot !== false) {
+      await this.inventoryService.upsertInventory(
+        { spaceId, eventId, kind: 'pre-event', inventoryCounts: blob },
+        tenantId,
+        actor,
+      );
+    }
 
     const lineCount = Array.isArray((created as any)?.lines)
       ? (created as any).lines.length
@@ -363,9 +387,10 @@ export class PreEventInventoryFlowService {
   }
 
   /**
-   * Tous les articles d'un PDV sont comptés (staff ou invité PIN). Avant l'ouverture des
-   * portes : feuille régénérée et Logistic recalée (critère 2026-09-14). Après : feuille
-   * seule, Logistic reste à mettre à jour à la main (règle Bertrand 2026-09-29).
+   * Tous les articles d'un PDV sont comptés (staff ou invité PIN) : feuille régénérée et
+   * Logistic recalée, avant comme après l'ouverture des portes (document Bertrand
+   * 2026-10-06, D1 : la règle du 2026-09-29 « Logistic manuelle après les portes » est
+   * abandonnée).
    */
   async regenerateOnPdvComplete(
     spaceId: string,
@@ -373,10 +398,11 @@ export class PreEventInventoryFlowService {
     tenantId: string,
     actor: string,
     elementId?: string | null,
+    /** Besoin prédit fourni par l'écran ; null : celui de la feuille précédente. */
+    predictedUnits: Record<string, Record<string, number>> | null = null,
   ): Promise<PreEventRegenerateResult> {
     const event = await this.findEvent(spaceId, eventId, tenantId);
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
-    const afterDoors = await this.isAfterDoorsOpen(event);
     return this.regenerate(
       spaceId,
       eventId,
@@ -384,7 +410,7 @@ export class PreEventInventoryFlowService {
       actor,
       'pdv-complete',
       elementId ? { elementId } : {},
-      afterDoors ? { pushElementIds: [] } : {},
+      predictedUnits ? { predictedUnits } : {},
     );
   }
 
@@ -534,20 +560,85 @@ export class PreEventInventoryFlowService {
     if (!dirty) return { ok: false, reason: 'clean' };
     await this.prisma.kvStore.delete({ where: { id: dirty.id } });
     try {
-      // Feuille seule : après l'ouverture des portes, Logistic est mis à jour à la main.
+      // Logistic recalée aussi (D1, document Bertrand 2026-10-06).
       return await this.regenerate(
         event.spaceId,
         event.id,
         event.tenantId,
         'system-post-doors-open-edit',
         'post-doors-open-edit',
-        {},
-        { pushElementIds: [] },
       );
     } catch (error) {
       await this.markDirty(event.spaceId, event.id, event.tenantId);
       throw error;
     }
+  }
+
+  // ── Logistique à chaque article marqué compté (D1) ──────────────────────────
+
+  private logisticDirtyKey(phase: 'pre-event' | 'post-event', spaceId: string, eventId: string): string {
+    return `${PreEventInventoryFlowService.LOGISTIC_DIRTY_PREFIX}:${phase}:${spaceId}:${eventId}`;
+  }
+
+  async markLogisticDirty(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+    phase: 'pre-event' | 'post-event',
+  ): Promise<void> {
+    const key = this.logisticDirtyKey(phase, spaceId, eventId);
+    const value = { spaceId, eventId, phase, at: new Date().toISOString() };
+    await this.prisma.kvStore.upsert({
+      where: { uniq_kv_store: { tenantId, key } },
+      create: { tenantId, key, value },
+      update: { value },
+    });
+  }
+
+  /**
+   * Envoie vers Logistic les articles marqués comptés depuis le dernier envoi, pour
+   * chaque (espace, event, phase) marqué. Push INCRÉMENTAL (seules les lignes modifiées
+   * depuis leur dernier envoi partent). Le marqueur est retiré AVANT l'envoi : un
+   * comptage concurrent le repose et part au tick suivant ; reposé en cas d'échec.
+   */
+  async flushLogisticDirty(): Promise<number> {
+    const markers = await this.prisma.kvStore.findMany({
+      where: { key: { startsWith: `${PreEventInventoryFlowService.LOGISTIC_DIRTY_PREFIX}:` } },
+    });
+    let pushed = 0;
+    for (const marker of markers) {
+      const v = (marker.value ?? {}) as { spaceId?: string; eventId?: string; phase?: string };
+      const tenantId = marker.tenantId;
+      if (!tenantId || !v.spaceId || !v.eventId || (v.phase !== 'pre-event' && v.phase !== 'post-event')) {
+        await this.prisma.kvStore.delete({ where: { id: marker.id } }).catch(() => undefined);
+        continue;
+      }
+      await this.prisma.kvStore.delete({ where: { id: marker.id } }).catch(() => undefined);
+      try {
+        if (v.phase === 'pre-event') {
+          // Feuille pre-event à jour + Logistic (push incrémental inclus), sans snapshot.
+          const result = await this.regenerate(v.spaceId, v.eventId, tenantId, 'system-inventory-count', 'count', {}, { snapshot: false });
+          if (result.ok) pushed++;
+        } else {
+          const result = await this.inventoryService.pushPendingCountToLogistic(
+            v.spaceId,
+            v.eventId,
+            tenantId,
+            v.phase,
+            'system-inventory-count',
+          );
+          if (result.ok) pushed++;
+          // Réconciliation post-event tenue à jour par le serveur (lot 4b).
+          await this.postEventDraft?.rebuild(v.spaceId, v.eventId, tenantId);
+        }
+      } catch (error: any) {
+        this.logger.warn(
+          `Envoi Logistic du comptage ${v.phase} en échec (réessai au tick suivant) : space ${v.spaceId} / event ${v.eventId} : ${error?.message}`,
+        );
+        await this.markLogisticDirty(v.spaceId, v.eventId, tenantId, v.phase);
+      }
+    }
+    return pushed;
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────

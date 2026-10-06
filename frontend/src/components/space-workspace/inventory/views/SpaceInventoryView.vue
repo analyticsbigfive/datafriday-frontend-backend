@@ -219,8 +219,8 @@
               · {{ t('preInvEditingAfterDoors').replace('{time}', preEventDeadlineLabel) }}
             </span>
             <!-- Aucune heure d'ouverture des portes sur l'event (sessions.doorsOpening) :
-                 pas de passage automatique ni de verrou, le bouton « Ouverture des
-                 portes » le déclenche à la main. -->
+                 pas de passage automatique ni de verrou ; Arrêt / Démarrage du
+                 bandeau à la main. -->
             <span v-else-if="preEventWindow.hasNoDoorsOpen && !preEventWindow.doorsOpenDone" class="si-band-title__warn">
               · {{ t('preInvNoDoorsOpenTime') }}
             </span>
@@ -310,82 +310,6 @@
             @click="mobileActionsSheet = true"
           >
             <v-icon size="20">mdi-dots-vertical</v-icon>
-          </v-btn>
-          <!-- Mobile uniquement : "Mettre à jour la Logistique" + "Générer la
-               réconciliation" (Update Logistic / Save desktop ci-dessous) regroupés
-               dans un menu compact déclenché par une icône, plutôt que 2 boutons
-               pleine largeur — la réconciliation reste désactivée tant que le
-               comptage n'est pas complet (isCountComplete). -->
-          <v-menu v-if="isMobile" offset="6">
-            <template #activator="{ props: menuProps }">
-              <v-btn v-bind="menuProps" icon variant="text" class="si-band-btn" :aria-label="t('invSave')">
-                <v-icon size="20">mdi-play-circle-outline</v-icon>
-              </v-btn>
-            </template>
-            <v-list density="compact" min-width="240">
-              <v-list-item v-if="canTriggerDoorsOpen" :disabled="doorsOpening" @click="onDoorsOpen">
-                <template #prepend><v-icon size="18">mdi-door-open</v-icon></template>
-                <v-list-item-title>{{ t('preInvDoorsOpenBtn') }}</v-list-item-title>
-              </v-list-item>
-              <v-list-item v-if="selectedEventId && canUpdateLogistic" :disabled="pushingToLogistic" @click="onUpdateLogistic">
-                <template #prepend><v-icon size="18">mdi-warehouse</v-icon></template>
-                <v-list-item-title>{{ t('invUpdateLogistic') }}</v-list-item-title>
-              </v-list-item>
-              <v-list-item v-if="canUpdateLogistic" :disabled="!isCountComplete || saving || recoCreating" @click="onSaveAll">
-                <template #prepend><v-icon size="18">mdi-content-save</v-icon></template>
-                <v-list-item-title>
-                  {{ t('invSave') }}
-                  <span v-if="inventoryStats.totalItems" class="si-menu-item-progress">
-                    {{ inventoryStats.countedItems }}/{{ inventoryStats.totalItems }}
-                  </span>
-                </v-list-item-title>
-              </v-list-item>
-            </v-list>
-          </v-menu>
-          <!-- Passage « portes ouvertes » manuel (pre-event staff) : repli quand
-               l'event n'a pas d'heure d'ouverture, ou pour avancer le passage.
-               Disparaît une fois le passage fait (cron ou main). -->
-          <v-btn
-            v-if="canTriggerDoorsOpen"
-            variant="outlined"
-            class="si-band-btn si-band-btn--desktop"
-            :loading="doorsOpening"
-            :disabled="doorsOpening"
-            @click="onDoorsOpen"
-          >
-            <v-icon size="16" class="mr-1">mdi-door-open</v-icon>
-            {{ t('preInvDoorsOpenBtn') }}
-          </v-btn>
-          <!-- Mise à jour Logistic et réconciliation : responsable logistique ou
-               administrateur du site (front.fb.logisticReconcile, règle Bertrand
-               2026-09-29). Les autres comptent, sans toucher au registre. -->
-          <v-btn
-            v-if="selectedEventId && canUpdateLogistic"
-            variant="outlined"
-            class="si-band-btn si-band-btn--desktop"
-            :loading="pushingToLogistic"
-            :disabled="pushingToLogistic"
-            @click="onUpdateLogistic"
-          >
-            <v-icon size="16" class="mr-1">mdi-warehouse</v-icon>
-            {{ t('invUpdateLogistic') }}
-          </v-btn>
-          <v-btn
-            v-if="canUpdateLogistic"
-            :loading="saving || recoCreating"
-            :disabled="saving || recoCreating"
-            class="si-band-btn si-band-btn--save si-band-btn--desktop"
-            @click="onSaveAll"
-          >
-            <v-icon size="16" class="mr-1">mdi-content-save</v-icon>
-            {{ t('invSave') }}
-            <span
-              v-if="inventoryStats.totalItems"
-              class="si-save-progress"
-              :class="{ 'si-save-progress-done': isCountComplete }"
-            >
-              {{ inventoryStats.countedItems }}/{{ inventoryStats.totalItems }}
-            </span>
           </v-btn>
         </div>
       </div>
@@ -948,18 +872,14 @@ import { getAllSpaces, getSpaceEventTimelineBatch } from '@/api/endpoints/space.
 import InventoryReconciliationSection from '@/components/space-workspace/inventory/InventoryReconciliationSection.vue'
 import InventoryReconciliationView from '@/components/space-workspace/inventory/InventoryReconciliationView.vue'
 import {
-  createPostEventReconciliation,
-  createPostEventReconciliationDraft,
   listInventoryReconciliations,
   deleteInventoryReconciliation,
   getPreEventInventory,
   getPreEventBaseline,
   getPostEventBaseline,
-  createPreEventReconciliation,
   regeneratePreEventReconciliation,
-  triggerPreEventDoorsOpen,
   getEventSalesConsumption,
-  pushInventoryCountToLogistic,
+  savePostEventContext,
 } from '@/api/endpoints/inventory.api'
 import { buildPreEventExpected, expectedKey, flattenExpectedUnits } from '@/utils/preEventExpected'
 import { loadPredictedNeed, lookupPredictedNeed, buildRestockNeedIndex } from '@/composables/usePredictedNeed'
@@ -978,6 +898,7 @@ import {
   reconciliationKey,
   buildPostEventReconciliationLines,
   buildSoldUnitsFromConsumption,
+  postEventContextLines,
 } from '@/utils/postEventReconciliation'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
@@ -1165,7 +1086,6 @@ export default {
       // sélection courante (remplace le contenu central), états réseau.
       reconciliations: [],
       recoLoading: false,
-      recoCreating: false,
       selectedReconciliationId: null,
       // Pre-event Inventory : quantités attendues sous Packed/Loose (null = pas
       // encore chargé OU permission absente) — map `expectedKey(el,item)` →
@@ -1201,8 +1121,6 @@ export default {
       errorText: '',
       successSnackbar: false,
       successText: '',
-      pushingToLogistic: false,
-      doorsOpening: false,
       mock: { shopsWithInventory: [], storagesWithInventory: [], merchWithInventory: [] },
       TOP_TABS,
       TOOLBOX_ITEMS,
@@ -1270,7 +1188,6 @@ export default {
       const cfg = this.route?.query?.configuration || this.route?.query?.config || ''
       return `${this.route?.params?.spaceId || ''}::${this.route?.query?.event || ''}::${cfg}`
     },
-    saving() { return !!this.store.state.inventory?.saving },
     inventoryError() { return this.store.state.inventory?.error || null },
     spaceLabel() { return this.currentSpace?.name || this.route?.params?.spaceId || null },
     events() { return this.store.state.analyse?.events || [] },
@@ -1403,14 +1320,6 @@ export default {
       if (this.guestSession.isGuestMode) return false
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.logisticReconcile') : false
-    },
-    /** Bouton « Ouverture des portes » : pre-event staff, event ancré, passage pas
-     *  encore fait (le serveur reste idempotent de toute façon). */
-    canTriggerDoorsOpen() {
-      if (!this.canUpdateLogistic) return false
-      if (!this.isPreMode || this.guestSession.isGuestMode || isDemoMode()) return false
-      if (!this.selectedEventId || this.preEventWindow.phase === 'unknown') return false
-      return !this.preEventWindow.doorsOpenDone
     },
     /** Heure de fin de la fenêtre d'édition (HH:MM locale) pour le bandeau. */
     preEventDeadlineLabel() {
@@ -1902,32 +1811,6 @@ export default {
         countedItems: shopCounted + storageCounted + merchCounted,
       }
     },
-    isCountComplete() {
-      const { totalItems, countedItems } = this.inventoryStats
-      return totalItems > 0 && countedItems >= totalItems
-    },
-    /** Articles (par nom) qui resteront inchangés dans Logistic si on pousse maintenant —
-     *  "Update Logistic" ne touche jamais un PDV/article non compté (décision Bertrand,
-     *  2026-08-26 : ne jamais écraser un stock non vérifié par un 0). Affiché dans la
-     *  confirmation du bouton pour que l'utilisateur sache AVANT de confirmer ce qui ne
-     *  bougera pas. */
-    uncountedItemsSummary() {
-      const entries = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
-      const byName = new Map()
-      for (const entry of entries) {
-        if (!entry?.element) continue
-        for (const item of this.elementItems(entry)) {
-          const stat = byName.get(item.name) || { counted: 0, total: 0 }
-          stat.total += 1
-          if (this.isItemCounted(entry.element.id, item.id)) stat.counted += 1
-          byName.set(item.name, stat)
-        }
-      }
-      return [...byName.entries()]
-        .filter(([, s]) => s.counted < s.total)
-        .map(([name, s]) => ({ name, counted: s.counted, total: s.total }))
-        .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
-    },
     overviewMetrics() {
       return [
         {
@@ -2266,6 +2149,9 @@ export default {
         // a la même dépendance (périmètre des PdV affichés).
         this.fetchPreExpected()
         this.fetchPredictedNeed()
+        // Post-event : contexte de la réconciliation (prédit, coût, unité) envoyé au
+        // serveur, qui tient le document (lot 4b). Différé et sérialisé par le scheduler.
+        if (!this.isPreMode) this.postDraftScheduler?.schedule()
         // Stock Logistic LIVE (demande Bertrand 2026-08-27) : la même quantité que
         // la carte Logistic elle-même affiche pour cet article/élément, pour
         // comparer d'un coup d'œil avec ce qui est en cours de comptage ici.
@@ -2514,7 +2400,12 @@ export default {
       if (isDemoMode() || !this.selectedEventId) return
       const spaceId = this.route.params.spaceId
       try {
-        const result = await regeneratePreEventReconciliation(spaceId, this.selectedEventId, elementId)
+        const result = await regeneratePreEventReconciliation(
+          spaceId,
+          this.selectedEventId,
+          elementId,
+          this.predictedUnitsBlobForReco(),
+        )
         if (result?.ok) {
           await this.loadReconciliations(spaceId, { silent: true })
           this.successText = this.t('invPreEventSheetRegenerated')
@@ -2522,166 +2413,6 @@ export default {
         }
       } catch (e) {
         console.warn('[SpaceInventory] régénération feuille pre-event KO:', e?.message)
-      }
-    },
-    async onSaveAll() {
-      // Garde douce (option 2) : si l'inventaire est incomplet, on confirme sans
-      // jamais bloquer (le bouton reste toujours actif).
-      if (!this.isCountComplete && this.inventoryStats.totalItems) {
-        const { countedItems, totalItems } = this.inventoryStats
-        const ok = await confirmDialog({
-          title: this.t('invIncompleteTitle'),
-          message: `${countedItems}/${totalItems} ${this.t('invIncompleteMsgPrefix')}`,
-          confirmText: this.t('invSaveAnyway'),
-          cancelText: this.t('invContinueCounting'),
-          confirmColor: 'deep-orange',
-          icon: 'mdi-alert-outline',
-          iconColor: 'warning',
-        })
-        if (!ok) return
-      }
-      try {
-        // kind = phase du comptage → snapshots discriminés (cycle pre↔post, docs modules/10 §8).
-        await this.store.dispatch('inventory/saveInventory', {
-          kind: this.isPreMode ? 'pre-event' : 'post-event',
-        })
-      } catch (e) {
-        // Échec API → toast et on ne crée PAS de réconciliation.
-        this.errorText = e?.userMessage || e?.message || this.t('invSaveError')
-        this.errorSnackbar = true
-        return
-      }
-      // Après sauvegarde : GÉNÉRATION du document de réconciliation (attendu vs
-      // compté en mode pre ; restant-théorique vs compté en mode post) puis
-      // ouverture de sa vue (spec 2026-07-20 — remplace l'ancienne navigation
-      // automatique vers le Réarmement du 2026-07-06 ; le Réarmement reste
-      // accessible par le dropdown Tools). Voir docs/modules/10_POST_EVENT_INVENTORY.md §7-8.
-      if (this.isPreMode) await this.createPreReconciliationAfterSave()
-      else await this.createReconciliationAfterSave()
-    },
-    /** Bouton « Ouverture des portes » : clôt la fenêtre PIN pre-event, génère la
-     *  feuille et pousse l'incrément vers Logistic (même chemin que le cron). */
-    async onDoorsOpen() {
-      if (!this.selectedEventId) return
-      const ok = await confirmDialog({
-        title: this.t('preInvDoorsOpenConfirmTitle'),
-        message: this.t('preInvDoorsOpenConfirmMsg'),
-        confirmText: this.t('preInvDoorsOpenBtn'),
-        cancelText: this.t('cancel') || 'Cancel',
-        confirmColor: 'deep-orange',
-        icon: 'mdi-door-open',
-        iconColor: 'warning',
-      })
-      if (!ok) return
-      const spaceId = this.route.params.spaceId
-      this.doorsOpening = true
-      try {
-        const result = await triggerPreEventDoorsOpen(spaceId, this.selectedEventId)
-        await Promise.all([
-          this.preEventWindow.refresh(),
-          this.loadReconciliations(spaceId, { silent: true }),
-          this.$store.dispatch('guestPinAdmin/fetchStatusBoard', { spaceId, eventId: this.selectedEventId }).catch(() => null),
-        ])
-        if (result?.ok) {
-          this.successText = this.t('preInvDoorsOpenSuccess')
-          this.successSnackbar = true
-        } else {
-          this.successText = this.t('preInvDoorsOpenNoop').replace('{reason}', result?.reason || '?')
-          this.successSnackbar = true
-        }
-      } catch (e) {
-        this.errorText = e?.userMessage || e?.response?.data?.message || this.t('preInvDoorsOpenError')
-        this.errorSnackbar = true
-      } finally {
-        this.doorsOpening = false
-      }
-    },
-    /** Bouton "Update Logistic" : pousse manuellement le comptage courant vers le
-     *  registre Logistic (écrase les StockLevel avec les quantités comptées),
-     *  sans créer de document de réconciliation — même mécanisme que le recalage
-     *  automatique déclenché par "Create Reconciliation" (pushCountToLogistic),
-     *  mais explicite et confirmable. */
-    async onUpdateLogistic() {
-      if (!this.selectedEventId) return
-      const uncounted = this.uncountedItemsSummary
-      let message = this.t('invUpdateLogisticConfirmMsg')
-      if (uncounted.length) {
-        const maxShown = 15
-        const lines = uncounted.slice(0, maxShown).map((u) => `• ${u.name} (${u.counted}/${u.total})`)
-        if (uncounted.length > maxShown) {
-          lines.push(this.t('invUpdateLogisticConfirmMore').replace('{n}', uncounted.length - maxShown))
-        }
-        message = `${message}\n\n${this.t('invUpdateLogisticConfirmUncountedIntro')}\n${lines.join('\n')}`
-      }
-      const ok = await confirmDialog({
-        title: this.t('invUpdateLogisticConfirmTitle'),
-        message,
-        confirmText: this.t('invUpdateLogisticConfirmBtn'),
-        cancelText: this.t('cancel') || 'Cancel',
-        confirmColor: 'deep-orange',
-        icon: 'mdi-alert-outline',
-        iconColor: 'warning',
-      })
-      if (!ok) return
-      const spaceId = this.route.params.spaceId
-      this.pushingToLogistic = true
-      try {
-        // Simple mise à jour du registre : ne clôt plus la fenêtre PIN (règle Bertrand
-        // 2026-09-29). Le post-event se termine à la génération de la réconciliation
-        // (serveur), le pre-event à l'ouverture des portes.
-        await pushInventoryCountToLogistic(
-          spaceId,
-          this.selectedEventId,
-          this.isPreMode ? 'pre-event' : 'post-event',
-        )
-        this.successText = this.t('invUpdateLogisticSuccess')
-        this.successSnackbar = true
-      } catch (e) {
-        this.errorText = e?.userMessage || e?.response?.data?.message || this.t('invUpdateLogisticError')
-        this.errorSnackbar = true
-      } finally {
-        this.pushingToLogistic = false
-      }
-    },
-    /** Mode PRE : le backend construit les lignes (attendu vs compté) — le client,
-     *  potentiellement sans la permission « attendus », ne les a jamais eues. */
-    async createPreReconciliationAfterSave() {
-      const spaceId = this.route.params.spaceId
-      const ev = (this.events || []).find((e) => String(e.id) === String(this.selectedEventId))
-      if (!ev) return
-      this.recoCreating = true
-      try {
-        if (isDemoMode()) {
-          // Démo : pas de backend → document local minimal non persisté.
-          const doc = {
-            id: `demo-pre-${Date.now()}`,
-            eventId: ev.id,
-            eventName: ev.name || ev.eventName || null,
-            kind: 'pre-event',
-            createdAt: new Date().toISOString(),
-            lines: [],
-          }
-          this.reconciliations = [doc, ...this.reconciliations]
-          this.selectedReconciliationId = doc.id
-          return
-        }
-        // Besoin prédit du scénario de référence → 2e colonne d'écart du document.
-        // Absent (pas de version par défaut) → colonnes prédit à « — », pas 0.
-        const created = await createPreEventReconciliation(
-          spaceId,
-          ev.id,
-          this.predictedUnitsBlobForReco(),
-        )
-        // UNE feuille par match : le serveur a remplacé la précédente, on recharge
-        // la liste plutôt que d'empiler localement un document supprimé.
-        await this.loadReconciliations(spaceId, { silent: true })
-        this.selectedReconciliationId = created.id
-      } catch (e) {
-        console.warn('[SpaceInventory] création réconciliation pre-event KO:', e?.message)
-        this.errorText = e?.userMessage || this.t('invRecoCreateError')
-        this.errorSnackbar = true
-      } finally {
-        this.recoCreating = false
       }
     },
     /** Charge les attendus de l'écran courant (permission requise dans les deux
@@ -2958,105 +2689,6 @@ export default {
       if (!current) return null
       return isPostEventStarted(current, new Date(), this.spaceTimeZone) ? current : null
     },
-    async createReconciliationAfterSave() {
-      const spaceId = this.route.params.spaceId
-      const recoEvent = this.resolveReconciliationEvent()
-      if (!recoEvent) {
-        // Refus EXPLICITE (plus de repli vers un autre match) : event de l'écran
-        // non fini → message dédié ; aucun event résolu → message existant.
-        // Le comptage, lui, est déjà sauvegardé.
-        const current = (this.events || []).find((e) => String(e.id) === String(this.selectedEventId))
-        this.errorText = current ? this.t('invRecoEventNotFinished') : this.t('invRecoNoPastEvent')
-        this.errorSnackbar = true
-        return
-      }
-      this.recoCreating = true
-      try {
-        const { lines, meta } = await this.buildReconciliationLines(spaceId, recoEvent)
-        if (isDemoMode()) {
-          // Démo : document local non persisté (parité avec l'inventaire démo,
-          // qui vit déjà 100% en localStorage).
-          const doc = {
-            id: `demo-${Date.now()}`,
-            eventId: recoEvent.id,
-            eventName: recoEvent.name || recoEvent.eventName || null,
-            kind: 'post-event',
-            createdAt: new Date().toISOString(),
-            lines,
-            meta: {
-              baseline: {
-                source: meta.preEventSource,
-                fallback: meta.baselineFallback,
-                uncoveredElements: meta.baselineUncoveredElements,
-              },
-              salesUnjoined: meta.salesUnjoined,
-              salesSource: meta.salesSource,
-              predictedSource: meta.predictedSource,
-              predictedUnjoined: meta.predictedUnjoined,
-              perimeterExcluded: meta.perimeterExcluded,
-            },
-          }
-          this.reconciliations = [doc, ...this.reconciliations]
-          this.selectedReconciliationId = doc.id
-          return
-        }
-        const basePayload = {
-          eventId: recoEvent.id,
-          eventName: recoEvent.name || recoEvent.eventName || undefined,
-          lines,
-        }
-        let created
-        try {
-          created = await createPostEventReconciliation(spaceId, this.postEventReconciliationPayload(basePayload, meta))
-        } catch (e) {
-          // Réflexe BUG-228 : le DTO backend est en whitelist stricte
-          // (`forbidNonWhitelisted`). Sur un serveur pas encore redéployé, les
-          // champs de contexte renvoient 400 « property X should not exist » —
-          // le document vaut mieux sans son contexte que pas de document du tout.
-          const msg = String(e?.response?.data?.message || e?.message || '')
-          if (e?.response?.status !== 400 || !/should not exist/i.test(msg)) throw e
-          console.warn('[SpaceInventory] backend sans contexte de réconciliation — repli sans meta:', msg)
-          created = await createPostEventReconciliation(spaceId, basePayload)
-        }
-        // La réponse API est le document complet (lines incluses) → en tête de liste,
-        // à la place de la feuille post-event précédente du match (supprimée côté serveur).
-        this.replacePostEventSheet(created)
-        this.selectedReconciliationId = created.id
-        // La réconciliation post-event clôt le post-event côté serveur (fenêtre PIN
-        // comprise, règle Bertrand 2026-09-29) : le panneau PIN doit le refléter.
-        this.$store
-          .dispatch('guestPinAdmin/fetchStatusBoard', { spaceId, eventId: this.selectedEventId })
-          .catch(() => null)
-      } catch (e) {
-        console.warn('[SpaceInventory] création réconciliation KO:', e?.message)
-        // Ventes indisponibles (réseau) : message dédié — pas de document créé,
-        // le comptage est déjà sauvegardé, recliquer le bouton retente.
-        this.errorText = e?.salesFetchFailed
-          ? this.t('invRecoSalesError')
-          : (e?.userMessage || this.t('invRecoCreateError'))
-        this.errorSnackbar = true
-      } finally {
-        this.recoCreating = false
-      }
-    },
-    /** Payload complet (contexte de fabrication inclus) d'une feuille post-event. */
-    postEventReconciliationPayload(basePayload, meta) {
-      return {
-        ...basePayload,
-        preEventSource: meta.preEventSource,
-        ...(meta.salesUnjoined ? { salesUnjoined: meta.salesUnjoined } : {}),
-        countedProgress: meta.countedProgress,
-        // Q35 : grain de la source « Vendu ». Un backend antérieur le rejette
-        // en 400 « should not exist » → repli basePayload (BUG-228).
-        salesSource: meta.salesSource,
-        // BUG-378-02 : même réflexe, mêmes champs optionnels côté DTO.
-        predictedSource: meta.predictedSource,
-        ...(meta.predictedUnjoined ? { predictedUnjoined: meta.predictedUnjoined } : {}),
-        ...(meta.perimeterExcluded ? { perimeterExcluded: meta.perimeterExcluded } : {}),
-        ...(meta.baselineFallback ? { baselineFallback: meta.baselineFallback } : {}),
-        baselineUncoveredElements: meta.baselineUncoveredElements,
-      }
-    },
     /** UNE feuille post-event par match : la nouvelle remplace la précédente dans la liste. */
     replacePostEventSheet(doc) {
       const sameMatch = (r) =>
@@ -3064,23 +2696,24 @@ export default {
       this.reconciliations = [doc, ...this.reconciliations.filter((r) => !sameMatch(r))]
     },
     /**
-     * Feuille post-event du match régénérée en BROUILLON (PDV complet, recomptage) :
-     * mêmes lignes que la version finale, sans Logistic ni clôture du post-event.
-     * Silencieuse : n'ouvre pas le document, la version finale reste « Générer la
-     * réconciliation ».
+     * Contexte de la réconciliation post-event envoyé au serveur (lot 4b, document
+     * Bertrand 2026-10-06) : le serveur tient le document à jour à chaque article marqué
+     * compté, staff ou PIN ; l'écran lui fournit les colonnes qu'il est seul à savoir
+     * calculer (prédit Event Predict au grain inventaire, coût, unité). Envoyé à
+     * l'ouverture de l'écran et quand un PDV devient complet. Silencieux.
      */
-    async regeneratePostEventDraft() {
+    async sendPostEventContext() {
       if (this.isPreMode || this.guestSession.isGuestMode || isDemoMode()) return
       const spaceId = this.route.params.spaceId
       const recoEvent = this.resolveReconciliationEvent()
       if (!spaceId || !recoEvent) return
       const { lines, meta } = await this.buildReconciliationLines(spaceId, recoEvent)
-      const payload = this.postEventReconciliationPayload(
-        { eventId: recoEvent.id, eventName: recoEvent.name || recoEvent.eventName || undefined, lines },
-        meta,
-      )
-      const draft = await createPostEventReconciliationDraft(spaceId, payload)
-      if (draft?.id) this.replacePostEventSheet(draft)
+      const result = await savePostEventContext(spaceId, {
+        eventId: recoEvent.id,
+        lines: postEventContextLines(lines),
+        ...(meta.predictedSource ? { predictedSource: meta.predictedSource } : {}),
+      })
+      if (result?.document?.id) this.replacePostEventSheet(result.document)
     },
     /** Un PDV vient d'être remis à compter (« Recompter ») : comptages rechargés. */
     async onElementRecounted() {
@@ -3612,7 +3245,7 @@ export default {
     // Rechargement des réconciliations à chaque tick du polling live (méthode de
     // la vue, hors de portée du setup).
     this.livePollExtra = () => this.loadReconciliations(this.route?.params?.spaceId, { silent: true })
-    this.postDraftScheduler = usePostEventDraftScheduler(() => this.regeneratePostEventDraft())
+    this.postDraftScheduler = usePostEventDraftScheduler(() => this.sendPostEventContext())
   },
   mounted() {
     this.updateViewportMode()
@@ -3713,16 +3346,6 @@ export default {
   border-color: var(--si-primary);
 }
 .si-save-btn { text-transform: none; font-weight: 700; }
-.si-save-progress {
-  margin-left: 8px;
-  padding: 0 7px;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.25);
-  font-size: 0.72rem;
-  font-weight: 800;
-  line-height: 1.5;
-}
-.si-save-progress-done { background: rgba(22, 163, 74, 0.9); color: #fff; }
 
 .si-mobile-actions-sheet {
   border-radius: 16px 16px 0 0;
@@ -4062,7 +3685,6 @@ export default {
   color: #fff;
 }
 .si-mobile-tools-trigger:active { transform: scale(.94); }
-.si-menu-item-progress { margin-left: 6px; opacity: .65; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 900px) {
   .si-toggle--desktop { display: none; }
@@ -4542,10 +4164,6 @@ export default {
   }
   .si-tab {
     white-space: nowrap;
-  }
-  .si-save-progress {
-    margin-left: 5px;
-    padding: 0 6px;
   }
   .si-mobile-sheet-actions {
     grid-template-columns: 1fr;

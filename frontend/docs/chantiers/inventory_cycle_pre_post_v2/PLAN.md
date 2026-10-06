@@ -117,9 +117,11 @@ Pre(N) ── ouverture des portes de N ──▶ Post(N) ── démarrage de P
 | D15 | Snapshots de phase (`InventorySnapshot.kind`) | Figés **à l'arrêt de la phase** (automatique ou manuel), plus au clic sur « Générer la réconciliation » qui disparaît. Ils restent la référence du « Qty left » post, de la limite BUG-237 et du repli du match suivant. | Conséquence de la suppression du bouton (pages 7, 8) |
 | D16 | Livraison pendant le match | Une livraison ne déclenche l'arrêt du post qu'**après la fin réelle du match N**. Un réassort saisi en `DELIVERY` pendant le match ne coupe rien. | Conséquence absurde sinon (post ouvert dès les portes) |
 | D17 | Vente qui arrête le pre | Seule une vente **rattachée à l'event N** (ou dans sa fenêtre du jour) compte. Ventes hors match (event de saison Weezevent, privatisation) et tests de caisse ignorés. | Même raisonnement que D16 |
-| D18 | Bouton « Ouverture des portes » | **À valider par Ulrich.** Recommandation : le retirer, l'Arrêt du pre et le démarrage automatique du post le remplacent. | Redondant avec la page 4 |
-| D19 | Ventes prises en compte dans la réconciliation post | Bornées à l'**heure du comptage de chaque ligne** : un PDV compté à 21h et qui vend encore ne doit pas afficher un faux manquant. | Conséquence du post ouvert dès les portes (pages 1, 2) |
+| D18 | Bouton « Ouverture des portes » | **Retiré** (Ulrich, 2026-10-06) : l'Arrêt du pre et le démarrage automatique du post aux portes le remplacent. Sans heure d'ouverture, Arrêt / Démarrage du bandeau à la main. | Redondant avec la page 4 |
+| D19 | Ventes prises en compte dans la réconciliation post | Bornées, **par PDV**, à l'heure de son dernier « Marquer compté » (Ulrich, 2026-10-06) : un PDV compté à 21h et qui vend encore ne doit pas afficher un faux manquant. | Conséquence du post ouvert dès les portes (pages 1, 2) |
 | D20 | Droits | Inchangés : PIN, Arrêt / Reprise et ▶ / ■ réservés à `front.fb.guestPinManage`. Les invités PIN ne voient pas le menu burger des statuts. Imprimer est conservé dans le bandeau. | Document muet |
+| D22 | Délai de mise à jour de la Logistique | Envoi **regroupé à la minute** (Ulrich, 2026-10-06) : chaque envoi recalcule le stock de tout l'espace. Dans la liste de l'écran Logistique, les envois d'un même match et d'une même phase forment une seule ligne. | §5.1, option A |
+| D23 | Découpage du lot 4 | **4a** : Logistique automatique, boutons « Mettre à jour la Logistique » et « Ouverture des portes » retirés, snapshots figés (D15). **4b** : réconciliation post côté serveur, « Générer la réconciliation » retiré, D19. | Ulrich, 2026-10-06 |
 | D21 | Liste d'events | Le sélecteur « dernier / prochain » devient visible sur desktop (post) et remplace la liste du tiroir mobile, « Indépendant d'un évènement » compris. Le pre n'a pas de sélecteur. | Pages 3, 4 |
 
 ---
@@ -254,6 +256,44 @@ phase existe dès son arrêt.
 - **Reste** : D15 (snapshot figé à l'arrêt de chaque phase), à faire avec le lot 4, qui en a besoin.
 
 ### Lot 4 : Logistique et réconciliation à chaque article
+
+Découpé en 4a puis 4b (D23).
+
+**4a fait (2026-10-06)** :
+- `PreEventInventoryFlowService.saveCount` (point d'entrée staff ET invité PIN) pose un marqueur
+  `inventory-logistic-dirty:{phase}:{espace}:{event}` à chaque article marqué compté ;
+  `InventoryLogisticSyncCronService` l'envoie chaque minute (push incrémental existant,
+  `pushPendingCountToLogistic`). Désactivable par `INVENTORY_LOGISTIC_SYNC_CRON_ENABLED=false`.
+- Après l'ouverture des portes, la feuille pre-event recale aussi la Logistique (PDV complet, 30 min
+  d'édition) : la règle du 2026-09-29 est abandonnée (D1).
+- Fin de phase (Arrêt, démarrage de l'autre phase, livraison, vente) : derniers comptages envoyés et
+  snapshot figé (D15) ; pre : feuille régénérée ; post : snapshot `post-event`.
+- Écran Logistique : les recalages issus des comptages d'un match et d'une phase forment une ligne ;
+  l'ouvrir ou l'exporter donne la dernière valeur de chaque article (lecture seule, rien n'est supprimé).
+- Boutons « Mettre à jour la Logistique » et « Ouverture des portes » retirés (desktop et mobile).
+  Routes serveur `push-to-logistic` et `pre-event-doors-open` conservées, plus appelées par l'écran.
+
+**4b fait (2026-10-06)**, choix Ulrich : lignes pour les seuls articles marqués comptés.
+- `PostEventDraftService` (+ `post-event-reconciliation.builder.ts`, calcul pur) tient la réconciliation
+  post-event : reconstruite à chaque envoi de la minute (staff ET invité PIN), à l'arrêt du post-event
+  et à la réception du contexte de l'écran. Même formule et même forme de ligne que l'écran.
+- Sources serveur : comptage (articles marqués comptés), avant-match (snapshot), mouvements du match,
+  ventes éclatées par ingrédient. **D19** : ventes de chaque PDV arrêtées à son dernier « Marquer compté »
+  (`deriveEventConsumption(…, { untilByElement })`, EXPLAIN vérifié : même plan, index `basket_cover`).
+- Les recalages d'inventaire (`INVENTORY_RESET`) sont exclus du terme « mouvements » : avec les envois de
+  la minute, ils auraient fait du manquant un mouvement.
+- Plus de repli « stock Logistique » comme point de départ : la Logistique porte le comptage post-event
+  pendant le match (D1). PDV sans avant-match : restant et manquant à « — ».
+- Prédit, coût et unité : calculés par l'écran staff (seul à éclater menus et scénario) et envoyés comme
+  **contexte** (`POST /inventory/:spaceId/post-event-context`) à l'ouverture et quand un PDV devient
+  complet ; le serveur les reprend ligne à ligne. Coût serveur en repli : prix marché (ingrédient),
+  coût unitaire (composant).
+- Pre-event : feuille régénérée à la minute (sans snapshot, figé à l'arrêt) ; le prédit passe par la
+  régénération « PDV complet » (`regenerate` reçoit `predictedUnits`), seul chemin depuis le retrait du
+  bouton.
+- Bouton « Générer la réconciliation » retiré (pre et post, desktop et mobile) ; le brouillon est le
+  document de référence (D2). Routes serveur `reconciliations`, `reconciliations/draft` et
+  `pre-event-reconciliations` conservées, plus appelées par l'écran.
 
 - « Marquer compté » met à jour la Logistique (staff et PIN), pre et post (D1).
 - Réconciliation brouillon mise à jour à chaque article, pre et post, calculée côté serveur, ventes bornées

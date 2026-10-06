@@ -52,6 +52,7 @@ describe('GuestPinAccessService : Démarrage / Reprise et Arrêt', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any, // postEventDraft
     );
     jest.spyOn(service as any, 'assertSpaceAccess').mockResolvedValue(undefined);
     jest.spyOn(service as any, 'assertPeriodOpen').mockResolvedValue(undefined);

@@ -262,7 +262,7 @@ export class InventoryService {
     dto: CreatePostEventReconciliationDto,
     tenantId: string,
     userId?: string,
-    options: { draft?: boolean } = {},
+    options: { draft?: boolean; extraMeta?: Record<string, unknown> } = {},
   ) {
     const draft = !!options.draft;
     this.logger.log(
@@ -313,6 +313,7 @@ export class InventoryService {
           perimeterExcluded: dto.perimeterExcluded ?? null,
           // Brouillon régénéré en cours de comptage : Logistic pas encore mis à jour.
           draft,
+          ...(options.extraMeta ?? {}),
         },
         createdBy: userId ?? null,
       } as any,
@@ -509,7 +510,7 @@ export class InventoryService {
    * cas de collision d'id. Un id résolu dans NI l'un NI l'autre reste orphelin —
    * même limitation connue que `itemNameById` plus haut (Q39/Q45).
    */
-  private async resolveItemKeysByIds(
+  async resolveItemKeysByIds(
     itemIds: string[],
     tenantId: string,
   ): Promise<Map<string, { name: string; kind: StockItemKind }>> {
@@ -548,7 +549,7 @@ export class InventoryService {
   /** Miroir TS de `normalizeStr` front (src/utils/predictiveAnalytics.js:70) —
    *  MÊME normalisation des deux côtés, sinon la jointure par nom
    *  (StockMovement.itemKey = nom libre ↔ MenuItem.name) diverge. */
-  private normalizeName(v: unknown): string {
+  normalizeName(v: unknown): string {
     if (v == null) return '';
     return String(v)
       .normalize('NFD')
@@ -607,7 +608,7 @@ export class InventoryService {
    *  packs de 12. Q39 tranchera quel référentiel fait foi *en amont* ; ici on
    *  garantit seulement que le nombre affiché et le champ qu'il légende parlent
    *  de la même chose. */
-  private async resolveInventoryUnitsPerPack(
+  async resolveInventoryUnitsPerPack(
     itemIds: string[],
     tenantId: string,
   ): Promise<Map<string, number>> {
@@ -821,7 +822,7 @@ export class InventoryService {
    *  (décision 2026-07-30 #2). NON clampé : la réconciliation a besoin du
    *  mouvement réel du registre, pas d'un stock physique — le dériver d'une
    *  soustraction de stocks rendrait leur clamp. */
-  private async netMovementUnitsForEventWindow(
+  async netMovementUnitsForEventWindow(
     spaceId: string,
     tenantId: string,
     event: { id: string; eventDate: Date; eventEndDate: Date | null },
@@ -844,7 +845,11 @@ export class InventoryService {
         tenantId,
         spaceId,
         createdAt: { gt: from, lt: to },
-        reason: { notIn: [StockMovementReason.SALE] },
+        // INVENTORY_RESET exclu : depuis le 2026-10-06 (D1), la Logistique est recalée
+        // depuis le comptage post-event PENDANT le match ; ces recalages ne sont pas des
+        // mouvements physiques (livraison, transfert, perte) et feraient du manquant un
+        // « mouvement ».
+        reason: { notIn: [StockMovementReason.SALE, StockMovementReason.INVENTORY_RESET] },
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { elementId: true, itemKey: true, menuItemId: true, packedDelta: true, looseDelta: true },
@@ -1455,12 +1460,7 @@ export class InventoryService {
     });
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
 
-    const merged = await this.getBySpaceAndEvent(spaceId, event.id, tenantId, phase);
-    const countedBlob = pickElements(
-      (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>,
-      elementId ? [elementId] : undefined,
-    );
-    const result = await this.pushCountToLogistic(spaceId, tenantId, phase, event, countedBlob, userId);
+    const result = await this.pushEventCountToLogistic(spaceId, event, tenantId, phase, userId, elementId);
     if (!result.ok) {
       throw new BadRequestException(
         result.reason === 'no-counts' || result.reason === 'no-addressable-lines'
@@ -1471,6 +1471,55 @@ export class InventoryService {
       );
     }
     return result;
+  }
+
+  /**
+   * Envoi AUTOMATIQUE des articles marqués comptés depuis le dernier envoi (document
+   * Bertrand 2026-10-06, D1) : même chemin incrémental que le bouton, sans exception.
+   * `{ ok:false, reason:'nothing-new' }` est le cas normal quand rien n'a changé.
+   */
+  async pushPendingCountToLogistic(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+    phase: 'pre-event' | 'post-event',
+    userId?: string,
+  ): Promise<{ ok: boolean; reason?: string; lineCount?: number }> {
+    const event = await this.prisma.event.findFirst({
+      where: { id: eventId, spaceId, tenantId },
+      select: { id: true, name: true },
+    });
+    if (!event) return { ok: false, reason: 'event-not-found' };
+    return this.pushEventCountToLogistic(spaceId, event, tenantId, phase, userId);
+  }
+
+  private async pushEventCountToLogistic(
+    spaceId: string,
+    event: { id: string; name?: string | null },
+    tenantId: string,
+    phase: 'pre-event' | 'post-event',
+    userId?: string,
+    elementId?: string | null,
+  ) {
+    const merged = await this.getBySpaceAndEvent(spaceId, event.id, tenantId, phase);
+    const countedBlob = pickElements(
+      (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>,
+      elementId ? [elementId] : undefined,
+    );
+    return this.pushCountToLogistic(spaceId, tenantId, phase, event, countedBlob, userId);
+  }
+
+  /**
+   * Snapshot post-event FIGÉ à l'arrêt de la phase (document Bertrand 2026-10-06, D15) :
+   * référence du repli « post-event du match précédent » du match suivant. Sans comptage,
+   * rien n'est écrit.
+   */
+  async freezePostEventSnapshot(spaceId: string, eventId: string, tenantId: string, userId?: string) {
+    const merged = await this.getBySpaceAndEvent(spaceId, eventId, tenantId, 'post-event');
+    const blob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, unknown>>;
+    const hasCounts = Object.values(blob).some((byItem) => Object.keys(byItem ?? {}).length > 0);
+    if (!hasCounts) return null;
+    return this.upsertInventory({ spaceId, eventId, kind: 'post-event', inventoryCounts: blob } as any, tenantId, userId);
   }
 
   /**

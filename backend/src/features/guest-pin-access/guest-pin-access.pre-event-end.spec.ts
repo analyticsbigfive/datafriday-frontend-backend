@@ -42,6 +42,7 @@ describe('GuestPinAccessService : fin de l\'inventaire pre-event (invité)', () 
         redis = { get: jest.fn().mockResolvedValue(0), ttl: jest.fn().mockResolvedValue(0), set: jest.fn(), incr: jest.fn() };
         service = new GuestPinAccessService(
             prisma, redis, {} as any, {} as any, preEventFlow, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
+            {} as any, // postEventDraft
         );
     });
 

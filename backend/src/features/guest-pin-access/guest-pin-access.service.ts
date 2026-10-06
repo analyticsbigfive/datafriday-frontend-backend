@@ -14,6 +14,7 @@ import { AuditService } from '../../core/audit/audit.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { PreEventInventoryFlowService } from '../inventory/pre-event-inventory-flow.service';
+import { PostEventDraftService } from '../inventory/post-event-draft.service';
 import { decryptPin, encryptPin } from './guest-pin-crypto';
 import { closeInventoryWindows, revokeWindowAccesses } from '../inventory/inventory-window-closure';
 import { MenuItemsService } from '../menu-items/menu-items.service';
@@ -76,6 +77,7 @@ export class GuestPinAccessService {
     private readonly spaceAccess: SpaceAccessService,
     private readonly configService: ConfigService,
     private readonly jwt: JwtService,
+    private readonly postEventDraft: PostEventDraftService,
   ) {}
 
   /** STAFF/VIEWER limités à leurs espaces accordés (SpaceAccessGuard ne s'applique
@@ -844,6 +846,39 @@ export class GuestPinAccessService {
     } else {
       await revokeWindowAccesses(this.prisma, [window.id], actorId);
     }
+    await this.freezePhase(window, actorId);
+  }
+
+  /**
+   * Fin d'une phase (D15, document Bertrand 2026-10-06) : les derniers articles comptés
+   * partent vers Logistic sans attendre le tick, et le snapshot de la phase est figé.
+   * Pre : feuille régénérée (snapshot + Logistic, PreEventInventoryFlowService). Post :
+   * Logistic puis snapshot post-event. Jamais bloquant : l'arrêt a déjà eu lieu.
+   */
+  private async freezePhase(window: InventoryWindow, actorId: string): Promise<void> {
+    try {
+      if (window.phase === 'pre-event') {
+        await this.preEventFlow.regenerate(window.spaceId, window.eventId, window.tenantId, actorId, 'phase-stop');
+      } else {
+        await this.inventoryService.pushPendingCountToLogistic(
+          window.spaceId,
+          window.eventId,
+          window.tenantId,
+          'post-event',
+          actorId,
+        );
+        await this.inventoryService.freezePostEventSnapshot(
+          window.spaceId,
+          window.eventId,
+          window.tenantId,
+          actorId.startsWith('system-') ? undefined : actorId,
+        );
+        // Réconciliation post-event à jour à l'arrêt : c'est le document final (D2).
+        await this.postEventDraft.rebuild(window.spaceId, window.eventId, window.tenantId);
+      }
+    } catch (error: any) {
+      this.logger.warn(`Fin de phase ${window.phase} (fenêtre ${window.id}) : figement en échec : ${error?.message}`);
+    }
   }
 
   /** ■ du bandeau : coupe l'accès par PIN de tous les PDV, PIN conservé. */
@@ -933,6 +968,7 @@ export class GuestPinAccessService {
     });
     for (const w of open) {
       await this.closeWindowRecord(w, actorId, { pushToLogistic: false, reason: 'phase-switch' });
+      await this.freezePhase(w, actorId);
     }
   }
 
