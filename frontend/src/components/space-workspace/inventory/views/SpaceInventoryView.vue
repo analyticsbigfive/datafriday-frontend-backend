@@ -35,7 +35,7 @@
         :storage-floor-options="storageFloorOptions"
         :selected-storages="selectedStorages"
         :selected-storage-floors="selectedStorageFloors"
-        :selected-event-id="selectedEventId"
+        :selected-event-id="contextEventId"
         :search="search"
         :counting-statuses="countingStatuses"
         :event-options="eventOptions"
@@ -57,7 +57,7 @@
         :reco-loading="recoLoading"
         @select-reconciliation="onDrawerSelectReconciliation"
         @delete-reconciliation="onDeleteReconciliation"
-        @update:selected-event-id="selectedEventId = $event"
+        @update:selected-event-id="selectEvent"
         @update:search="search = $event"
         @update:counting-statuses="countingStatuses = $event"
         @update:selected-shops="selectedShops = $event"
@@ -156,7 +156,7 @@
         <v-icon size="20">mdi-menu</v-icon>
       </button>
       <!-- Titre du bandeau (parité Analyse / Réarmement / Logistique). -->
-      <div class="si-band-title">
+      <div class="si-band-title" :class="{ 'si-band-title--pin': pinAccess && !activeReconciliation }">
         <h1 class="si-band-title__main">{{ t(isPreMode ? 'preInvPageTitle' : 'invPageTitle') }}</h1>
         <!-- Invité : nom du PDV + statut de session, pas le contexte événement staff. -->
         <p v-if="guestSession.isGuestMode" class="si-band-title__sub">
@@ -176,24 +176,38 @@
              espace. L'ancrage est automatique et silencieux (docs modules/10
              §12.4) — sans ce sous-titre, l'écran ne dit jamais quel match il
              affiche, ni pourquoi ce n'est pas celui du deep-link. -->
-        <!-- BUG-352-01 : le nom court de la fiche (« PFC-Nice ») a été RETIRÉ —
-             `contextAnchorLabel` nomme déjà le match par ses deux équipes
-             (« Prochain Évènement : Paris FC vs OGC Nice »). Les deux côte à côte
-             donnaient l'impression de DEUX événements empilés. `matchLabel`
-             retombe sur le nom de la fiche quand les équipes ne sont pas
-             renseignées : rien n'est perdu. La computed reste utilisée par
-             l'en-tête d'impression. -->
+        <!-- Nom du match (équipes, sinon nom de la fiche) et date ; le nom court de la
+             fiche n'est plus empilé à côté (BUG-352-01). -->
         <p v-else-if="contextEvent" class="si-band-title__sub">
           <!-- Mobile : "{match} - {date} @ {showTime}" compact (retour utilisateur),
                le détail desktop (préfixe/espace/avertissement) ne tenait plus sur
                1 ligne. -->
           <template v-if="isMobile">{{ contextEventCompactLabel }}</template>
           <template v-else>
-            <strong class="si-band-title__event">{{ contextAnchorLabel }}</strong>
-            <span v-if="contextEventDateLabel"> · {{ contextEventDateLabel }}</span>
-            <span v-if="spaceLabel"> · {{ spaceLabel }}</span>
-            <span v-if="countsAreEventIndependent" class="si-band-title__warn">
-              · {{ t('invContextCountsIndependent') }}
+            <!-- « {match} · {date} » (document Bertrand 2026-10-06, pages 3 et 4).
+                 Post : liste déroulante dernier / prochain event. -->
+            <v-menu v-if="eventOptions.length > 1" location="bottom start">
+              <template #activator="{ props: menuProps }">
+                <button v-bind="menuProps" type="button" class="si-band-event-btn">
+                  <strong class="si-band-title__event">{{ contextEventLabel }}</strong>
+                  <v-icon size="18">mdi-menu-down</v-icon>
+                </button>
+              </template>
+              <v-list density="compact" min-width="260">
+                <v-list-item
+                  v-for="opt in eventOptions"
+                  :key="opt.value"
+                  :active="String(opt.value) === String(contextEventId)"
+                  @click="selectEvent(opt.value)"
+                >
+                  <v-list-item-title>{{ opt.label }}</v-list-item-title>
+                  <v-list-item-subtitle>{{ opt.hint }}</v-list-item-subtitle>
+                </v-list-item>
+              </v-list>
+            </v-menu>
+            <strong v-else class="si-band-title__event">{{ contextEventLabel }}</strong>
+            <span v-if="postEventNotStarted" class="si-band-title__warn">
+              · {{ t('invPostEventNotStarted') }}
             </span>
             <!-- Fenêtre des 30 min après l'ouverture des portes (critère
                  d'acceptation 2026-09-14) : modifications encore possibles, feuille
@@ -218,6 +232,16 @@
         <p v-else-if="spaceLabel" class="si-band-title__sub">
           {{ spaceLabel }} · {{ t(isPreMode ? 'preInvNoUpcoming' : 'invContextNoPastEvent') }}
         </p>
+        <!-- PIN de l'event + statut de l'inventaire + Arrêt / Reprise pour tous les
+             PDV (document Bertrand 2026-10-06, pages 3 et 4). Se charge lui-même ;
+             les boutons ▶ / ■ des lignes PDV lisent le même store. -->
+        <InventoryPinBand
+          v-if="pinAccess && !activeReconciliation"
+          :space-id="pinAccess.spaceId"
+          :event-id="pinAccess.eventId"
+          :phase="pinAccess.phase"
+          :count-status="inventoryCountStatus"
+        />
       </div>
 
       <!-- Invité : "J'ai terminé" à la place de tout le bloc staff (Print/QR/
@@ -495,7 +519,7 @@
           :expected-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedForField : null)"
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
-          :readonly="guestSession.isReadonly || preEventWindow.isLocked"
+          :readonly="guestSession.isReadonly || preEventWindow.isLocked || postEventNotStarted"
           :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="countingShop = null"
@@ -616,8 +640,10 @@
                   :show-guest-pin="canManageGuestPin"
                   :phase="guestPinPhase"
                   :logistic-update="pdvLogisticUpdate"
+                  :pin-access="pinAccess"
                   @start-count="startCount"
                   @recounted="onElementRecounted"
+                  @error="showError"
                 />
               </template>
               <template v-else>
@@ -628,7 +654,9 @@
                   :counted-items="countedInElement(entry)"
                   :progress="progressForElement(entry)"
                   :counting-status="storageStatusFor(entry)"
+                  :pin-access="pinAccess"
                   @start-count="startCount"
+                  @error="showError"
                 />
               </template>
             </div>
@@ -645,20 +673,10 @@
     />
       </div>
 
-      <!-- Colonne DROITE : accès PIN puis résumé inventaire. Les sous-statuts de
-           comptage sont passés dans le menu burger du corps de page (document
-           Bertrand 2026-10-06, pages 7 et 8). -->
+      <!-- Colonne DROITE : résumé inventaire. La section « Accès PIN PDV » est passée
+           dans le bandeau rouge (InventoryPinBand), les sous-statuts de comptage dans
+           le menu burger du corps de page (document Bertrand 2026-10-06). -->
       <div v-if="!guestSession.isGuestMode && (activeTab === 'shops' || activeTab === 'storage')" class="si-aggregate-col wsl-side">
-        <!-- Accès PIN invité — remplace la page /spaces/:spaceId/guest-pin-access
-             (orpheline). Composant autonome : se charge lui-même, GuestPinBadge (sur
-             chaque carte) lit le même store réactivement. -->
-        <GuestPinAccessPanel
-          v-if="canManageGuestPin && activeTab === 'shops'"
-          :space-id="guestPinSpaceId"
-          :event-id="guestPinEventId"
-          :phase="guestPinPhase"
-        />
-
         <aside class="si-aggregate">
         <InventoryAggregateView
           v-if="activeTab === 'shops'"
@@ -794,7 +812,7 @@
           :expected-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedForField : null)"
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
-          :readonly="guestSession.isReadonly || preEventWindow.isLocked"
+          :readonly="guestSession.isReadonly || preEventWindow.isLocked || postEventNotStarted"
           :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="closeMobileCounting"
@@ -836,8 +854,7 @@
         <h1>{{ t('invPrintInvTitle') }}</h1>
         <div class="si-print-sub">
           <strong>{{ spaceLabel }}</strong>
-          <!-- Event d'ANCRAGE et non `selectedEventOption` : eventOptions ne liste
-               que les events PASSÉS → en mode pre l'en-tête d'impression était muet. -->
+          <!-- Event d'ANCRAGE : vaut pour les deux modes (eventOptions est vide en pre). -->
           <span v-if="contextEventName"> · {{ contextEventName }}</span>
           <span v-if="contextEventDateLabel"> · {{ contextEventDateLabel }}</span>
           <span v-if="printDate"> · {{ printDate }}</span>
@@ -913,7 +930,7 @@ import InventoryAggregateView from '@/components/space-workspace/inventory/Inven
 import InventoryCountingInterface from '@/components/space-workspace/inventory/InventoryCountingInterface.vue'
 import LogisticMovementDialog from '@/components/space-workspace/shared/LogisticMovementDialog.vue'
 import InventoryShopCard from '@/components/space-workspace/inventory/InventoryShopCard.vue'
-import GuestPinAccessPanel from '@/components/space-workspace/inventory/GuestPinAccessPanel.vue'
+import InventoryPinBand from '@/components/space-workspace/inventory/InventoryPinBand.vue'
 import InventoryStorageCard from '@/components/space-workspace/inventory/InventoryStorageCard.vue'
 import InventoryStorageAggregateView from '@/components/space-workspace/inventory/InventoryStorageAggregateView.vue'
 import InventoryFilterDrawer from '@/components/space-workspace/inventory/drawers/InventoryFilterDrawer.vue'
@@ -965,7 +982,7 @@ import {
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 // Contexte évènement du bandeau (nom + date + règle d'ancrage).
-import { describeAnchorEvent, matchLabel } from '@/utils/inventoryEventContext'
+import { describeAnchorEvent, matchLabel, postEventChoices } from '@/utils/inventoryEventContext'
 import { parseEventDate } from '@/utils/dateFr'
 import { isPostEventStarted, pickInventoryAnchorEvent } from '@/utils/eventLifecycle'
 import { newlyCompletedElements, usePostEventDraftScheduler } from '@/composables/usePostEventDraftScheduler'
@@ -996,7 +1013,7 @@ export default {
     InventoryCountingInterface,
     LogisticMovementDialog,
     InventoryShopCard,
-    GuestPinAccessPanel,
+    InventoryPinBand,
     InventoryStorageCard,
     InventoryStorageAggregateView,
     InventoryFilterDrawer,
@@ -1277,14 +1294,11 @@ export default {
       if (!d) return ''
       return d.toLocaleDateString(this.intlLocale, { day: '2-digit', month: 'short', year: 'numeric' })
     },
-    /** Pourquoi CE match (retours JLH 13/08) : les deux modes nomment leur
-     *  match d'ancrage, composé des équipes quand elles sont connues —
-     *  pre : « Prochain Évènement : {match} » (match à venir),
-     *  post : « Post Inventaire de l'évènement : {match} » (dernier terminé). */
-    contextAnchorLabel() {
+    /** « {match} · {date} » du bandeau (document Bertrand 2026-10-06, pages 3 et 4 :
+     *  plus de préfixe « Post Inventaire de l'évènement : » ni de nom d'espace). */
+    contextEventLabel() {
       const match = matchLabel(this.contextEvent)
-      return this.t(this.isPreMode ? 'preInvContextAnchorNext' : 'invContextAnchorLast')
-        .replace('{match}', match)
+      return this.contextEventDateLabel ? `${match} · ${this.contextEventDateLabel}` : match
     },
     /** Sous-titre event compact, mobile uniquement : "{match} - {date} @
      *  {showTime}" (retour utilisateur) — sans le préfixe "Prochain
@@ -1298,10 +1312,18 @@ export default {
       if (this.contextEvent.showTime) label += ` @ ${this.contextEvent.showTime}`
       return label
     },
-    /** Le filtre de comptage a été mis sur « Indépendant d'un évènement » : les
-     *  saisies ne partent PAS sur le match affiché — à signaler explicitement. */
-    countsAreEventIndependent() {
-      return !!this.contextEventId && !this.selectedEventId
+    /** Post-event affiché sur le PROCHAIN event (liste déroulante) : ses portes ne
+     *  sont pas ouvertes, le comptage reste en lecture seule (un comptage post-event
+     *  rattaché à un match à venir fausserait la référence du pre-event suivant). */
+    postEventNotStarted() {
+      if (this.isPreMode || !this.contextEvent) return false
+      return !isPostEventStarted(this.contextEvent, new Date(), this.spaceTimeZone)
+    },
+    /** Dernier et prochain event proposés en post-event, parmi ceux dont la
+     *  configuration est connue (sinon l'écran ne saurait pas quoi afficher). */
+    postEventChoices() {
+      const known = (e) => this.configurations.some((c) => String(c.id) === String(e?.configurationId))
+      return postEventChoices((this.events || []).filter(known), { timeZone: this.spaceTimeZone })
     },
     /** Fuseau du space, dans lequel sont saisies ouverture des portes et heure de fin. */
     spaceTimeZone() {
@@ -1424,17 +1446,24 @@ export default {
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.preInventoryPredicted') : false
     },
-    /** Accès PIN invité (générer/reset/révoquer un PIN par PDV) — cf. GuestPinBadge.vue
-     *  et GuestPinAccessPanel.vue, montés uniquement si cette permission est accordée. */
+    /** Accès PIN invité (PIN du bandeau, ▶ / ■ par PDV, validation) — cf.
+     *  InventoryPinBand.vue, PdvAccessToggle.vue et GuestPinBadge.vue, montés
+     *  uniquement si cette permission est accordée. */
     canManageGuestPin() {
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.guestPinManage') : false
     },
-    guestPinSpaceId() {
-      return this.route?.params?.spaceId ?? null
+    /** { spaceId, eventId, phase } de l'accès PIN géré depuis cet écran (bandeau et
+     *  ▶ / ■ des lignes PDV) ; null sans le droit, sans event, en démo ou en invité. */
+    pinAccess() {
+      if (!this.canManageGuestPin || this.guestSession.isGuestMode || isDemoMode()) return null
+      const spaceId = this.route?.params?.spaceId
+      if (!spaceId || !this.selectedEventId) return null
+      return { spaceId: String(spaceId), eventId: String(this.selectedEventId), phase: this.guestPinPhase }
     },
-    guestPinEventId() {
-      return this.selectedEventId ?? null
+    /** Avancement de l'inventaire de l'event, pour le statut du bandeau. */
+    inventoryCountStatus() {
+      return countingStatusOf(this.inventoryStats.totalItems, this.inventoryStats.countedItems)
     },
     guestPinPhase() {
       return this.isPreMode ? 'pre-event' : 'post-event'
@@ -1576,24 +1605,21 @@ export default {
       // ordre alphabétique, articles réduits par les filtres de gauche.
       return this.facetFilteredCards.map((e) => this.withItemFilters(this.normalizeCountingEntry(e)))
     },
+    /** Liste déroulante du Post-event (document Bertrand 2026-10-06, page 3) : le
+     *  dernier event dont les portes sont ouvertes et le prochain. Pre-event : aucune
+     *  liste, l'event est toujours le prochain. */
     eventOptions() {
-      const now = new Date()
-      const past = this.events
-        .filter((e) => isPostEventStarted(e, now, this.spaceTimeZone))
-        .sort((a, b) => {
-          const da = new Date(a.date || a.eventDate).getTime()
-          const db = new Date(b.date || b.eventDate).getTime()
-          return db - da
-        })
-      const opts = past.map((e) => ({
-        value: e.id,
-        label: `${e.name || e.eventName} — ${e.date || e.eventDate || ''}`,
-      }))
-      return [{ value: null, label: this.t('invEventIndependent') }, ...opts]
-    },
-    selectedEventOption() {
-      const ev = this.eventOptions.find((o) => o.value === this.selectedEventId)
-      return ev?.value ? ev : null
+      if (this.isPreMode) return []
+      const { last, next } = this.postEventChoices
+      const option = (e, hintKey) => {
+        const d = parseEventDate(describeAnchorEvent(e)?.dateISO)
+        const date = d ? d.toLocaleDateString(this.intlLocale, { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+        return { value: e.id, label: date ? `${matchLabel(e)} · ${date}` : matchLabel(e), hint: this.t(hintKey) }
+      }
+      return [
+        last && option(last, 'invEventLast'),
+        next && option(next, 'invEventNext'),
+      ].filter(Boolean)
     },
     activeCards() {
       if (this.activeTab === 'shops') return this.realShops
@@ -1964,6 +1990,18 @@ export default {
       if (!this.demo) enableDemoMode()
     },
     countingStatusColor,
+    showError(message) {
+      this.errorText = message
+      this.errorSnackbar = true
+    },
+    /** Choix d'un event dans la liste déroulante (post-event) : l'URL porte l'event,
+     *  resolveEventContext le relit au rechargement. */
+    async selectEvent(eventId) {
+      if (!eventId || String(eventId) === String(this.contextEventId)) return
+      this.countingShop = null
+      await this.router.replace({ query: { ...this.route.query, event: eventId } }).catch(() => {})
+      await this.loadForSpace(this.route?.params?.spaceId)
+    },
     /** Un statut passe-t-il le filtre du menu burger ? */
     matchesStatusFilter(status) {
       return matchesCountingStatuses(status, this.countingStatuses)
@@ -2074,7 +2112,10 @@ export default {
       // utils/eventLifecycle.js). Mêmes instants que les fenêtres PIN côté serveur.
       const tz = this.spaceTimeZone
       if (ev && this.isPreMode) ev = null
-      if (ev && !this.isPreMode && !isPostEventStarted(ev, new Date(), tz)) ev = null
+      // Exception : le PROCHAIN event, choisi dans la liste déroulante du post-event
+      // (document Bertrand 2026-10-06, page 3), affiché en lecture seule.
+      const isNextChoice = ev && String(ev.id) === String(this.postEventChoices.next?.id)
+      if (ev && !this.isPreMode && !isNextChoice && !isPostEventStarted(ev, new Date(), tz)) ev = null
       // Ancrage par défaut (entrée directe ou ?event= rejeté ci-dessus). L'URL
       // est synchronisée (replace, pas de watcher route ici → pas de re-run)
       // pour rester partageable.
@@ -3887,9 +3928,18 @@ export default {
 
 /* Titre du bandeau (blanc, parité .av-header__title). */
 .si-band-title { min-width: 0; margin-right: auto; }
+/* Avec la ligne PIN : le bloc titre prend la largeur disponible pour que ■ ▶ se
+   calent à droite du bandeau (maquette Bertrand 2026-10-06, pages 3 et 4). */
+.si-band-title--pin { flex: 1 1 360px; }
 .si-band-title__main { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; }
 .si-band-title__sub { margin: 2px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, 0.78); }
 .si-band-title__event { font-weight: 700; color: #fff; }
+.si-band-event-btn {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 0; border: 0; background: transparent; color: #fff; cursor: pointer;
+  font: inherit;
+}
+.si-band-event-btn:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.6); outline-offset: 2px; }
 .si-band-title__anchor { opacity: 0.82; }
 .si-band-title__warn { opacity: 0.95; font-weight: 600; }
 .si-band-title__lock { color: #b91c1c; }

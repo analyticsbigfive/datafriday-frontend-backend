@@ -133,6 +133,7 @@ class FakePrisma {
   stockReconciliation = new Table('stockReconciliation', this);
   kvStore = new Table('kvStore', this);
   inventoryWindow = new Table('inventoryWindow', this);
+  guestPinAccess = new Table('guestPinAccess', this);
   spaceElement = new Table('spaceElement', this);
   menuItem = new Table('menuItem', this);
   marketPrice = new Table('marketPrice', this);
@@ -395,11 +396,12 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
     );
     expect(marker).toBeTruthy();
     expect(marker!.value.result).toMatchObject({ ok: true });
+    // PIN conservé : il est lié à l'event (document Bertrand 2026-10-06).
     expect(prisma.inventoryWindow.rows[0]).toMatchObject({
       status: 'closed',
       closedBy: 'system-doors-open',
-      pinLookupHash: null,
-      pinCiphertext: null,
+      pinLookupHash: 'hash',
+      pinCiphertext: 'cipher',
     });
     sheet = sheets()[0];
     expect(sheets()).toHaveLength(1);

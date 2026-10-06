@@ -66,3 +66,21 @@ export function matchLabel(event) {
 export function pickAnchorEvent(events, { isPreMode = false, now = Date.now(), timeZone } = {}) {
   return pickInventoryAnchorEvent(events, isPreMode ? 'pre' : 'post', new Date(now), timeZone)
 }
+
+/**
+ * Évènements proposés par la liste déroulante du Post-event Inventory (document
+ * Bertrand « Pre et Post event Inventory cycle », 2026-10-06, page 3) : le DERNIER
+ * évènement dont les portes sont ouvertes (choix par défaut) et le PROCHAIN dont les
+ * portes ne le sont pas encore. Même règle d'ouverture des portes que l'ancrage.
+ *
+ * @param {Array<object>} events
+ * @param {{ now?: number, timeZone?: string }} [options]
+ * @returns {{ last: object|null, next: object|null }}
+ */
+export function postEventChoices(events, { now = Date.now(), timeZone } = {}) {
+  const at = new Date(now)
+  return {
+    last: pickInventoryAnchorEvent(events, 'post', at, timeZone),
+    next: pickInventoryAnchorEvent(events, 'pre', at, timeZone),
+  }
+}

@@ -40,20 +40,20 @@
       :element-name="entry.element.name"
     />
 
-    <!-- Mise à jour Logistic de ce PDV (responsable logistique / administrateur) :
-         composant à part entière, cf. PdvLogisticUpdateButton.vue. -->
-    <PdvLogisticUpdateButton
-      v-if="logisticUpdate"
-      :space-id="logisticUpdate.spaceId"
-      :event-id="logisticUpdate.eventId"
-      :phase="logisticUpdate.phase"
+    <!-- Accès QR code + PIN de ce PDV (▶ / ■), à la place de l'ancien bouton
+         « Mettre à jour la Logistique pour ce PDV » (document Bertrand 2026-10-06,
+         page 5). Composant à part entière, cf. PdvAccessToggle.vue. -->
+    <PdvAccessToggle
+      v-if="pinAccess"
+      :space-id="pinAccess.spaceId"
+      :event-id="pinAccess.eventId"
+      :phase="pinAccess.phase"
       :element-id="entry.element.id"
-      :element-name="entry.element.name"
-      :has-counts="countedItems > 0"
+      @error="$emit('error', $event)"
     />
 
-    <!-- « Recompter » ce PDV : post-event seulement, même droit que la mise à jour
-         Logistic. Composant à part entière, cf. PdvRecountButton.vue. -->
+    <!-- « Recompter » ce PDV : post-event seulement, responsable logistique ou
+         administrateur. Composant à part entière, cf. PdvRecountButton.vue. -->
     <PdvRecountButton
       v-if="logisticUpdate && logisticUpdate.phase === 'post-event'"
       :space-id="logisticUpdate.spaceId"
@@ -83,7 +83,7 @@
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import GuestPinBadge from './GuestPinBadge.vue'
-import PdvLogisticUpdateButton from './PdvLogisticUpdateButton.vue'
+import PdvAccessToggle from './PdvAccessToggle.vue'
 import PdvRecountButton from './PdvRecountButton.vue'
 import InventoryStatusDot from './InventoryStatusDot.vue'
 
@@ -103,12 +103,15 @@ const props = defineProps({
   // phase transite tel quel, aucune logique dans cette carte.
   showGuestPin: { type: Boolean, default: false },
   phase: { type: String, default: null },
-  // { spaceId, eventId, phase } quand l'utilisateur peut mettre Logistic à jour par
-  // PDV (front.fb.logisticReconcile) ; null sinon, aucun bouton.
+  // { spaceId, eventId, phase } quand l'utilisateur peut recompter un PDV
+  // (front.fb.logisticReconcile) ; null sinon, aucun bouton « Recompter ».
   logisticUpdate: { type: Object, default: null },
+  // { spaceId, eventId, phase } quand l'utilisateur gère l'accès PIN
+  // (front.fb.guestPinManage) ; null sinon, aucun bouton ▶ / ■.
+  pinAccess: { type: Object, default: null },
 })
 
-defineEmits(['start-count', 'recounted'])
+defineEmits(['start-count', 'recounted', 'error'])
 
 const shopTypeText = computed(() => {
   const v = props.entry?.element?.shopType

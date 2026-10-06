@@ -112,7 +112,7 @@ Pre(N) ── ouverture des portes de N ──▶ Post(N) ── démarrage de P
 | D10 | Boutons de la ligne PDV | « Mettre à jour la Logistique pour ce PDV » disparaît (remplacé par ▶ / ■). « Recompter » (↻) reste. | Page 5 |
 | D11 | PDV entièrement compté | Le bouton ▶ / ■ reste affiché (rouvrir un recomptage). | Choix Ulrich |
 | D12 | Stockages | Mêmes règles que les boutiques. | Choix Ulrich |
-| D13 | « Le manager voit les quantités attendues » | Réglage déplacé dans le bandeau, à côté du PIN. | Il vivait dans la section PIN supprimée |
+| D13 | « Le manager voit les quantités attendues » | **Sans objet** (vérifié le 2026-10-06) : aucun écran ne posait ce réglage, `showExpected` restait toujours à faux, et l'invité ne voit plus d'attendu depuis le chantier 381. Rien à déplacer. | Code |
 | D14 | Filtres « Ouvert » / « Fermé » | Conservés. | Document muet |
 | D15 | Snapshots de phase (`InventorySnapshot.kind`) | Figés **à l'arrêt de la phase** (automatique ou manuel), plus au clic sur « Générer la réconciliation » qui disparaît. Ils restent la référence du « Qty left » post, de la limite BUG-237 et du repli du match suivant. | Conséquence de la suppression du bouton (pages 7, 8) |
 | D16 | Livraison pendant le match | Une livraison ne déclenche l'arrêt du post qu'**après la fin réelle du match N**. Un réassort saisi en `DELIVERY` pendant le match ne coupe rien. | Conséquence absurde sinon (post ouvert dès les portes) |
@@ -183,7 +183,7 @@ est toujours alphabétique ; chaque filtre de gauche réduit la liste comme atte
 
 ### Lot 2 : bandeau et accès par PDV
 
-- Bandeau : PIN, statut global, boutons Arrêt et Reprise, réglage « attendus visibles » (D13).
+- Bandeau : PIN, statut global, boutons Arrêt et Reprise.
 - Post : sélecteur dernier / prochain event, desktop et tiroir mobile (D6, D21).
 - Sous-titre « Nom · date » ; Imprimer conservé ; bouton « Ouverture des portes » selon D18.
 - Section « Accès PIN PDV » supprimée (`GuestPinAccessPanel.vue`), libellé erroné « clôture via Mettre à
@@ -195,11 +195,34 @@ est toujours alphabétique ; chaque filtre de gauche réduit la liste comme atte
 **Acceptation** : le PIN et le statut sont visibles dans le bandeau ; Arrêt coupe tous les accès PIN ; un
 PDV rouvert avec ▶ est de nouveau accessible par son QR code.
 
+**Fait (2026-10-06)** :
+- **Modèle d'accès** (serveur) : toute clôture de fenêtre passe par
+  `inventory/inventory-window-closure.ts`, qui **conserve le PIN** (lié à l'event, une reprise rouvre avec
+  le même code) et **révoque toutes les lignes d'accès PDV** (D8). L'accès invité ne dépend plus que de la
+  ligne du PDV (`jwt-guest-pin.strategy`) ; à la connexion, sans ligne, seule une fenêtre ouverte laisse
+  entrer. C'est ce qui permet de rouvrir un seul PDV alors que la fenêtre est arrêtée. Migration de données
+  `20261006120000_guest_pin_closed_windows_revoked` (révoque les lignes encore actives des fenêtres déjà
+  closes, sinon un jeton invité encore valide y redeviendrait accepté).
+- **Routes** `POST inventory-windows/start|stop` (bandeau) et `elements/start|stop` (ligne PDV), droit
+  `front.fb.guestPinManage`, refusées hors période. Démarrer une phase arrête l'autre, pour l'espace (bandeau)
+  ou pour le PDV (ligne) : l'exclusivité prévue au lot 3 est faite ici. L'Arrêt ne pousse rien (D7).
+- **Écran** : `InventoryPinBand.vue` (ligne PIN du bandeau), `PdvAccessToggle.vue` (▶ / ■ boutiques et
+  stockages), `useInventoryPinAccess.js`, `utils/guestPinAccessState.js`. Supprimés : `GuestPinAccessPanel`,
+  `SetWindowPinDialog`, `PdvLogisticUpdateButton` ; Révoquer / Réactiver retirés de la pastille clé.
+- **Liste dernier / prochain event** (post, desktop et tiroir mobile), « Indépendant d'un évènement »
+  retiré. Sur le prochain event, le comptage est en **lecture seule** (portes pas ouvertes) : déduction de la
+  règle « un comptage post-event rattaché à un match à venir fausse la référence du pre-event suivant ».
+- Sous-titre « match · date » sans préfixe ni nom d'espace, pre et post.
+- Routes serveur devenues inutilisées par l'écran, conservées pour l'instant : `POST inventory-windows`,
+  `:windowId/pin`, `pins/:id/revoke|reactivate`, `:windowId/close`.
+- Reste : D18 (bouton « Ouverture des portes »), en attente de décision.
+
 ### Lot 3 : cycle des phases
 
 - PIN préparés à l'avance pour les events à venir (état « préparé », connexion refusée tant que la phase
   n'est pas active, D9).
-- Une seule phase ouverte par espace : démarrer le pre ferme le post, et inversement ; même règle par PDV.
+- ~~Une seule phase ouverte par espace : démarrer le pre ferme le post, et inversement ; même règle par PDV.~~
+  Fait au lot 2 pour les démarrages manuels ; reste à l'appliquer aux démarrages automatiques.
 - Arrêt automatique du post à la première livraison (`StockMovementReason.DELIVERY`) sur l'espace, après
   la fin réelle du match, puis ouverture du pre de l'event suivant (D3, D16).
 - Arrêt automatique du pre à la première vente rattachée au match ou à l'ouverture des portes (D4, D17).

@@ -49,16 +49,8 @@
                 <Undo2 :size="15" />
               </button>
             </div>
-            <div v-else-if="status === 'revoked'" class="gpb-pop-actions">
-              <button type="button" class="gpb-pop-btn gpb-pop-btn--pri" :title="t('guestPinAdminReactivate')" :disabled="working" @click="onReactivate">
-                <RefreshCw :size="15" />
-              </button>
-            </div>
-            <div v-else-if="status === 'seen'" class="gpb-pop-actions">
-              <button type="button" class="gpb-pop-btn gpb-pop-btn--danger" :title="t('guestPinAdminRevoke')" :disabled="working" @click="onRevoke">
-                <Ban :size="15" />
-              </button>
-            </div>
+            <!-- Arrêter / rouvrir l'accès de ce PDV : bouton ▶ / ■ de la ligne
+                 (PdvAccessToggle, document Bertrand 2026-10-06). -->
           </div>
         </v-card-text>
       </v-card>
@@ -69,25 +61,25 @@
 </template>
 
 <script>
-import { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2, QrCode } from 'lucide-vue-next';
+import { KeyRound, Ban, UserCheck, FileCheck, Lock, Check, Undo2, QrCode } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import GuestPinQrDialog from '@/components/guest-pin-manage/dialogs/GuestPinQrDialog.vue';
 
 /**
  * Statut PAR PDV, porté par chaque carte — une pastille (couleur + icône),
- * jamais de PIN généré ici (décision produit 2026-09-08 : UN SEUL PIN partagé
- * par TOUTE la fenêtre, généré depuis GuestPinAccessPanel.vue). La ligne
+ * jamais de PIN généré ici (UN SEUL PIN partagé par TOUTE la fenêtre, affiché
+ * dans le bandeau, InventoryPinBand.vue). La ligne
  * GuestPinAccess est auto-créée au premier login du manager — tant que
  * personne ne s'est connecté pour ce PDV, `access` est null ici (statut
  * "waiting", aucune action possible).
  *
  * Ne fait AUCUN fetch lui-même : lit l'accès réactivement dans le store
- * `guestPinAdmin` (déjà peuplé par GuestPinAccessPanel, monté une fois dans la
- * colonne de droite) — pas de prop-drilling depuis SpaceInventoryView.
+ * `guestPinAdmin` (déjà peuplé par InventoryPinBand, monté une fois dans le
+ * bandeau) — pas de prop-drilling depuis SpaceInventoryView.
  */
 export default {
   name: 'GuestPinBadge',
-  components: { KeyRound, RefreshCw, Ban, UserCheck, FileCheck, Lock, Check, Undo2, QrCode, GuestPinQrDialog },
+  components: { KeyRound, Ban, UserCheck, FileCheck, Lock, Check, Undo2, QrCode, GuestPinQrDialog },
 
   props: {
     phase: { type: String, required: true }, // 'pre-event' | 'post-event'
@@ -158,26 +150,6 @@ export default {
         return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
       } catch {
         return '';
-      }
-    },
-
-    async onRevoke() {
-      if (!this.access) return;
-      this.working = true;
-      try {
-        await this.$store.dispatch('guestPinAdmin/revoke', this.access.id);
-      } finally {
-        this.working = false;
-      }
-    },
-
-    async onReactivate() {
-      if (!this.access) return;
-      this.working = true;
-      try {
-        await this.$store.dispatch('guestPinAdmin/reactivate', this.access.id);
-      } finally {
-        this.working = false;
       }
     },
 
@@ -282,5 +254,4 @@ export default {
 .gpb-pop-btn:disabled { opacity: 0.5; cursor: default; }
 .gpb-pop-btn--pri { background: #059669; border-color: #059669; color: #fff; }
 .gpb-pop-btn--pri:hover { background: #047857; border-color: #047857; }
-.gpb-pop-btn--danger:hover { border-color: #dc2626; color: #dc2626; }
 </style>

@@ -6,6 +6,7 @@ import { StockItemKind } from '../logistics/dto/logistics.dto';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
+import { closeInventoryWindows } from './inventory-window-closure';
 
 /** État de push Logistic des lignes d'un match, clé `elementId::itemId` (cf. pushCountToLogistic). */
 type LogisticPushState = Map<string, { id: string; updatedAt: Date; logisticPushedAt: Date | null }>;
@@ -348,17 +349,12 @@ export class InventoryService {
     // (la réconciliation vient de pousser le comptage). La fenêtre PIN invité est close,
     // les managers PDV n'écrivent plus. Écrit directement (GuestPinAccessModule dépend de
     // ce module, pas l'inverse), même forme que la clôture « portes ouvertes ».
-    await this.prisma.inventoryWindow.updateMany({
-      where: { tenantId, spaceId, eventId: event.id, phase: 'post-event', status: 'open' },
-      data: {
-        status: 'closed',
-        closedAt: new Date(),
-        closedBy: userId ?? 'post-event-reconciliation',
-        pinLookupHash: null,
-        pinCiphertext: null,
-        pushedToLogisticAt: new Date(),
-      },
-    });
+    const closedAt = new Date();
+    await closeInventoryWindows(
+      this.prisma,
+      { tenantId, spaceId, eventId: event.id, phase: 'post-event' },
+      { closedAt, closedBy: userId ?? 'post-event-reconciliation', pushedToLogisticAt: closedAt },
+    );
 
     return created;
   }

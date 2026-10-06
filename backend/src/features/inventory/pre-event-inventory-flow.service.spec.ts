@@ -37,7 +37,11 @@ describe('PreEventInventoryFlowService', () => {
       upsert: jest.fn().mockResolvedValue({}),
       delete: jest.fn().mockResolvedValue({}),
     },
-    inventoryWindow: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    inventoryWindow: {
+      findMany: jest.fn().mockResolvedValue([{ id: 'win-pre' }]),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    guestPinAccess: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     inventoryCount: { findFirst: jest.fn().mockResolvedValue(null) },
   };
 
@@ -387,7 +391,7 @@ describe('PreEventInventoryFlowService', () => {
           key: 'live-pre-event-init:space-1:event-1',
         }),
       });
-      expect(mockPrisma.inventoryWindow.updateMany).toHaveBeenCalledWith(
+      expect(mockPrisma.inventoryWindow.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
             tenantId: 'tenant-1',
@@ -396,13 +400,15 @@ describe('PreEventInventoryFlowService', () => {
             phase: 'pre-event',
             status: 'open',
           },
-          data: expect.objectContaining({
-            status: 'closed',
-            closedBy: 'system-doors-open',
-            pinLookupHash: null,
-            pinCiphertext: null,
-          }),
         }),
+      );
+      // PIN conservé (lié à l'event), accès PDV révoqués (document Bertrand 2026-10-06).
+      expect(mockPrisma.inventoryWindow.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['win-pre'] }, status: 'open' },
+        data: expect.objectContaining({ status: 'closed', closedBy: 'system-doors-open' }),
+      });
+      expect(mockPrisma.guestPinAccess.updateMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { windowId: { in: ['win-pre'] }, status: 'active' } }),
       );
       expect(mockInventory.createPreEventReconciliation).toHaveBeenCalledWith(
         'space-1',

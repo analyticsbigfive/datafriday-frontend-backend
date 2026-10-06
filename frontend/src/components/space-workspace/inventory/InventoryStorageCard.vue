@@ -23,8 +23,17 @@
         rounded
         class="si-storage-bar"
       />
-      <!-- Libellé de statut retiré, mêmes règles que les boutiques (pastille). -->
+      <!-- Libellé de statut retiré, mêmes règles que les boutiques (pastille,
+           accès PIN ▶ / ■, document Bertrand 2026-10-06). -->
       <div class="si-storage-count-row">
+        <PdvAccessToggle
+          v-if="pinAccess"
+          :space-id="pinAccess.spaceId"
+          :event-id="pinAccess.eventId"
+          :phase="pinAccess.phase"
+          :element-id="entry.element.id"
+          @error="$emit('error', $event)"
+        />
         <v-btn
           :color="isCounted ? 'success' : 'primary'"
           variant="flat"
@@ -84,11 +93,12 @@
 <script>
 import { useI18n } from '@/i18n/useI18n'
 import InventoryStatusDot from './InventoryStatusDot.vue'
+import PdvAccessToggle from './PdvAccessToggle.vue'
 import { countingStatusColor } from '@/utils/inventoryCountingStatus'
 
 export default {
   name: 'InventoryStorageCard',
-  components: { InventoryStatusDot },
+  components: { InventoryStatusDot, PdvAccessToggle },
   props: {
     entry: { type: Object, required: true },
     // Nombre d'articles comptés (isCounted) sur ce stockage → pilote progression + libellé.
@@ -96,8 +106,10 @@ export default {
     progress: { type: Number, default: 0 },
     // 'to-count' | 'in-progress' | 'counted' (utils/inventoryCountingStatus).
     countingStatus: { type: String, default: 'to-count' },
+    // { spaceId, eventId, phase } quand l'utilisateur gère l'accès PIN ; null sinon.
+    pinAccess: { type: Object, default: null },
   },
-  emits: ['start-count'],
+  emits: ['start-count', 'error'],
   setup() {
     return { t: useI18n().t, countingStatusColor }
   },

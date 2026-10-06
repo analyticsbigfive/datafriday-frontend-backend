@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { InventoryService } from './inventory.service';
+import { closeInventoryWindows } from './inventory-window-closure';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import {
   resolveDoorsOpenAt,
@@ -434,22 +435,11 @@ export class PreEventInventoryFlowService {
     if (!claimed) return { ok: false, reason: 'already-initialized' };
 
     try {
-      const closed = await this.prisma.inventoryWindow.updateMany({
-        where: {
-          tenantId: event.tenantId,
-          spaceId: event.spaceId,
-          eventId: event.id,
-          phase: 'pre-event',
-          status: 'open',
-        },
-        data: {
-          status: 'closed',
-          closedAt: now,
-          closedBy: actor,
-          pinLookupHash: null,
-          pinCiphertext: null,
-        },
-      });
+      const closed = await closeInventoryWindows(
+        this.prisma,
+        { tenantId: event.tenantId, spaceId: event.spaceId, eventId: event.id, phase: 'pre-event' },
+        { closedAt: now, closedBy: actor },
+      );
       if (closed.count) {
         this.logger.log(
           `Fenêtre invité pre-event clôturée à l'ouverture des portes : space ${event.spaceId} / event ${event.id}`,

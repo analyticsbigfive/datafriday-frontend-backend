@@ -15,7 +15,10 @@
         </v-btn>
       </div>
 
+      <!-- Post-event : dernier / prochain event (document Bertrand 2026-10-06) ;
+           liste vide en pre-event, l'event y est toujours le prochain. -->
       <v-select
+        v-if="eventOptions.length > 1"
         :model-value="selectedEventId"
         :items="eventOptions"
         item-title="label"

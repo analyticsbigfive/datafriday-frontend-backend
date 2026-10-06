@@ -5,7 +5,7 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import type { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { GuestPinAccessService } from './guest-pin-access.service';
-import { CreateWindowDto } from './dto/create-window.dto';
+import { CreateWindowDto, WindowElementDto, WindowTargetDto } from './dto/create-window.dto';
 
 /**
  * Surface directeur — guards globaux standards (JwtDatabaseGuard/TenantGuard/
@@ -24,6 +24,34 @@ export class GuestPinAdminController {
   @ApiOperation({ summary: 'Démarrer (ou rouvrir) une fenêtre pré/post-event' })
   async createWindow(@Body() dto: CreateWindowDto, @CurrentUser() user: CurrentUserData) {
     return this.service.createOrReopenWindow(dto, user);
+  }
+
+  @Post('start')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Démarrage / Reprise du bandeau : ouvre l\'accès PIN à tous les PDV, arrête l\'autre phase' })
+  async start(@Body() dto: WindowTargetDto, @CurrentUser() user: CurrentUserData) {
+    return this.service.startWindow(dto, user);
+  }
+
+  @Post('stop')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Arrêt du bandeau : coupe l\'accès PIN de tous les PDV, sans push Logistic, PIN conservé' })
+  async stop(@Body() dto: WindowTargetDto, @CurrentUser() user: CurrentUserData) {
+    return this.service.stopWindow(dto, user);
+  }
+
+  @Post('elements/start')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Ouvre l\'accès PIN à un seul PDV (même fenêtre arrêtée), arrête l\'autre phase pour ce PDV' })
+  async startElement(@Body() dto: WindowElementDto, @CurrentUser() user: CurrentUserData) {
+    return this.service.startElement(dto, user);
+  }
+
+  @Post('elements/stop')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Coupe l\'accès PIN d\'un seul PDV' })
+  async stopElement(@Body() dto: WindowElementDto, @CurrentUser() user: CurrentUserData) {
+    return this.service.stopElement(dto, user);
   }
 
   @Get(':spaceId/:eventId')
