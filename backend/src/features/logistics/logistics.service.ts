@@ -11,6 +11,7 @@ import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto, StockItemKind } from './dto/logistics.dto';
 import { StartSimulationRunDto } from './dto/simulation-run.dto';
 import { pickNextEventBeforeDoorsOpen } from '../../shared/utils/event-window.util';
+import { canAdoptStockLevelByName } from './stock-level-identity';
 
 export interface SimulationTickJobData {
   runId: string;
@@ -233,8 +234,9 @@ export class LogisticsService {
     //  1. itemIdentity connue → cherche par itemRefId (précis, insensible à un renommage) ; si
     //     absent, cherche par itemKey MAIS n'adopte la ligne trouvée que si elle est encore
     //     "libre" (itemRefId null, jamais rattachée — cas legacy à guérir) ou déjà rattachée à
-    //     CETTE identité. Une ligne déjà rattachée à une AUTRE identité est un vrai homonyme
-    //     (même nom, article différent) : on ne la touche jamais, une nouvelle ligne est créée.
+    //     CETTE identité, ou si c'est une variante de prix du même produit (deux MarketPrice de
+    //     même nom, cf. canAdoptStockLevelByName). Sinon c'est un vrai homonyme (même nom,
+    //     article différent) : on ne la touche jamais, une nouvelle ligne est créée.
     //  2. itemIdentity inconnue (résolution échouée) → seul repli possible, comportement
     //     historique inchangé.
     let existing = itemIdentity
@@ -246,7 +248,7 @@ export class LogisticsService {
       const byName = await tx.stockLevel.findUnique({
         where: { uniq_stock_level: { tenantId, elementId: element.id, itemKey } },
       });
-      if (byName && (!itemIdentity || !byName.itemRefId || byName.itemRefId === itemIdentity.itemRefId)) {
+      if (byName && canAdoptStockLevelByName(byName, itemIdentity)) {
         existing = byName;
       }
     }
@@ -2573,7 +2575,7 @@ export class LogisticsService {
         // (encore sous l'ancien nom) et créerait une ligne StockLevel fantôme à partir de 0.
         const existingRows = await tx.stockLevel.findMany({
           where: { tenantId, spaceId, elementId: { in: [...new Set(recoLines.map((l) => l.elementId))] } },
-          select: { id: true, elementId: true, itemKey: true, itemRefId: true },
+          select: { id: true, elementId: true, itemKey: true, itemKind: true, itemRefId: true },
         });
         const existingByKey = new Map(existingRows.map((l) => [`${l.elementId}::${l.itemKey}`, l]));
         const existingByRefId = new Map(
@@ -2582,6 +2584,9 @@ export class LogisticsService {
         // Même garde qu'applyLevelDelta : identité d'abord (précise), nom en repli SEULEMENT si
         // la ligne trouvée par nom n'est pas déjà rattachée à une AUTRE identité (vrai homonyme —
         // même nom, article différent) — sinon deux homonymes fusionneraient dans une seule ligne.
+        // Une variante de prix (deux MarketPrice de même nom) est le même produit : adoptée, sinon
+        // la création d'une seconde ligne de même nom violait uniq_stock_level et annulait tout
+        // le reset (cf. canAdoptStockLevelByName).
         const resolveExistingId = (line: (typeof recoLines)[number]) => {
           const identity = identityFor(line.itemKey);
           if (identity) {
@@ -2589,7 +2594,7 @@ export class LogisticsService {
             if (byRef) return byRef.id;
           }
           const byKey = existingByKey.get(`${line.elementId}::${line.itemKey}`);
-          if (byKey && (!identity || !byKey.itemRefId || byKey.itemRefId === identity.itemRefId)) return byKey.id;
+          if (byKey && canAdoptStockLevelByName(byKey, identity)) return byKey.id;
           return undefined;
         };
         const toCreate = recoLines.filter((l) => !resolveExistingId(l));
