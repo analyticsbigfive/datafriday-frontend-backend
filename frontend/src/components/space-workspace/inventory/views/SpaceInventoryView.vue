@@ -35,11 +35,11 @@
         :storage-floor-options="storageFloorOptions"
         :selected-storages="selectedStorages"
         :selected-storage-floors="selectedStorageFloors"
-        :selected-event-id="selectedEventId"
+        :selected-event-id="contextEventId"
         :search="search"
-        :counting-status-tab="countingStatusTab"
+        :counting-statuses="countingStatuses"
         :event-options="eventOptions"
-        :counting-tabs="COUNTING_TABS"
+        :counting-status-options="countingStatusOptions"
         :shop-options="shopOptions"
         :shop-type-options="shopTypeOptions"
         :shop-area-options="shopAreaOptions"
@@ -57,9 +57,9 @@
         :reco-loading="recoLoading"
         @select-reconciliation="onDrawerSelectReconciliation"
         @delete-reconciliation="onDeleteReconciliation"
-        @update:selected-event-id="selectedEventId = $event"
+        @update:selected-event-id="selectEvent"
         @update:search="search = $event"
-        @update:counting-status-tab="countingStatusTab = $event"
+        @update:counting-statuses="countingStatuses = $event"
         @update:selected-shops="selectedShops = $event"
         @update:selected-shop-types="selectedShopTypes = $event"
         @update:selected-shop-areas="selectedShopAreas = $event"
@@ -156,7 +156,7 @@
         <v-icon size="20">mdi-menu</v-icon>
       </button>
       <!-- Titre du bandeau (parité Analyse / Réarmement / Logistique). -->
-      <div class="si-band-title">
+      <div class="si-band-title" :class="{ 'si-band-title--pin': pinAccess && !activeReconciliation }">
         <h1 class="si-band-title__main">{{ t(isPreMode ? 'preInvPageTitle' : 'invPageTitle') }}</h1>
         <!-- Invité : nom du PDV + statut de session, pas le contexte événement staff. -->
         <p v-if="guestSession.isGuestMode" class="si-band-title__sub">
@@ -176,24 +176,38 @@
              espace. L'ancrage est automatique et silencieux (docs modules/10
              §12.4) — sans ce sous-titre, l'écran ne dit jamais quel match il
              affiche, ni pourquoi ce n'est pas celui du deep-link. -->
-        <!-- BUG-352-01 : le nom court de la fiche (« PFC-Nice ») a été RETIRÉ —
-             `contextAnchorLabel` nomme déjà le match par ses deux équipes
-             (« Prochain Évènement : Paris FC vs OGC Nice »). Les deux côte à côte
-             donnaient l'impression de DEUX événements empilés. `matchLabel`
-             retombe sur le nom de la fiche quand les équipes ne sont pas
-             renseignées : rien n'est perdu. La computed reste utilisée par
-             l'en-tête d'impression. -->
+        <!-- Nom du match (équipes, sinon nom de la fiche) et date ; le nom court de la
+             fiche n'est plus empilé à côté (BUG-352-01). -->
         <p v-else-if="contextEvent" class="si-band-title__sub">
           <!-- Mobile : "{match} - {date} @ {showTime}" compact (retour utilisateur),
                le détail desktop (préfixe/espace/avertissement) ne tenait plus sur
                1 ligne. -->
           <template v-if="isMobile">{{ contextEventCompactLabel }}</template>
           <template v-else>
-            <strong class="si-band-title__event">{{ contextAnchorLabel }}</strong>
-            <span v-if="contextEventDateLabel"> · {{ contextEventDateLabel }}</span>
-            <span v-if="spaceLabel"> · {{ spaceLabel }}</span>
-            <span v-if="countsAreEventIndependent" class="si-band-title__warn">
-              · {{ t('invContextCountsIndependent') }}
+            <!-- « {match} · {date} » (document Bertrand 2026-10-06, pages 3 et 4).
+                 Post : liste déroulante dernier / prochain event. -->
+            <v-menu v-if="eventOptions.length > 1" location="bottom start">
+              <template #activator="{ props: menuProps }">
+                <button v-bind="menuProps" type="button" class="si-band-event-btn">
+                  <strong class="si-band-title__event">{{ contextEventLabel }}</strong>
+                  <v-icon size="18">mdi-menu-down</v-icon>
+                </button>
+              </template>
+              <v-list density="compact" min-width="260">
+                <v-list-item
+                  v-for="opt in eventOptions"
+                  :key="opt.value"
+                  :active="String(opt.value) === String(contextEventId)"
+                  @click="selectEvent(opt.value)"
+                >
+                  <v-list-item-title>{{ opt.label }}</v-list-item-title>
+                  <v-list-item-subtitle>{{ opt.hint }}</v-list-item-subtitle>
+                </v-list-item>
+              </v-list>
+            </v-menu>
+            <strong v-else class="si-band-title__event">{{ contextEventLabel }}</strong>
+            <span v-if="postEventNotStarted" class="si-band-title__warn">
+              · {{ t('invPostEventNotStarted') }}
             </span>
             <!-- Fenêtre des 30 min après l'ouverture des portes (critère
                  d'acceptation 2026-09-14) : modifications encore possibles, feuille
@@ -205,8 +219,8 @@
               · {{ t('preInvEditingAfterDoors').replace('{time}', preEventDeadlineLabel) }}
             </span>
             <!-- Aucune heure d'ouverture des portes sur l'event (sessions.doorsOpening) :
-                 pas de passage automatique ni de verrou, le bouton « Ouverture des
-                 portes » le déclenche à la main. -->
+                 pas de passage automatique ni de verrou ; Arrêt / Démarrage du
+                 bandeau à la main. -->
             <span v-else-if="preEventWindow.hasNoDoorsOpen && !preEventWindow.doorsOpenDone" class="si-band-title__warn">
               · {{ t('preInvNoDoorsOpenTime') }}
             </span>
@@ -218,6 +232,16 @@
         <p v-else-if="spaceLabel" class="si-band-title__sub">
           {{ spaceLabel }} · {{ t(isPreMode ? 'preInvNoUpcoming' : 'invContextNoPastEvent') }}
         </p>
+        <!-- PIN de l'event + statut de l'inventaire + Arrêt / Reprise pour tous les
+             PDV (document Bertrand 2026-10-06, pages 3 et 4). Se charge lui-même ;
+             les boutons ▶ / ■ des lignes PDV lisent le même store. -->
+        <InventoryPinBand
+          v-if="pinAccess && !activeReconciliation"
+          :space-id="pinAccess.spaceId"
+          :event-id="pinAccess.eventId"
+          :phase="pinAccess.phase"
+          :count-status="inventoryCountStatus"
+        />
       </div>
 
       <!-- Invité : "J'ai terminé" à la place de tout le bloc staff (Print/QR/
@@ -287,82 +311,6 @@
           >
             <v-icon size="20">mdi-dots-vertical</v-icon>
           </v-btn>
-          <!-- Mobile uniquement : "Mettre à jour la Logistique" + "Générer la
-               réconciliation" (Update Logistic / Save desktop ci-dessous) regroupés
-               dans un menu compact déclenché par une icône, plutôt que 2 boutons
-               pleine largeur — la réconciliation reste désactivée tant que le
-               comptage n'est pas complet (isCountComplete). -->
-          <v-menu v-if="isMobile" offset="6">
-            <template #activator="{ props: menuProps }">
-              <v-btn v-bind="menuProps" icon variant="text" class="si-band-btn" :aria-label="t('invSave')">
-                <v-icon size="20">mdi-play-circle-outline</v-icon>
-              </v-btn>
-            </template>
-            <v-list density="compact" min-width="240">
-              <v-list-item v-if="canTriggerDoorsOpen" :disabled="doorsOpening" @click="onDoorsOpen">
-                <template #prepend><v-icon size="18">mdi-door-open</v-icon></template>
-                <v-list-item-title>{{ t('preInvDoorsOpenBtn') }}</v-list-item-title>
-              </v-list-item>
-              <v-list-item v-if="selectedEventId && canUpdateLogistic" :disabled="pushingToLogistic" @click="onUpdateLogistic">
-                <template #prepend><v-icon size="18">mdi-warehouse</v-icon></template>
-                <v-list-item-title>{{ t('invUpdateLogistic') }}</v-list-item-title>
-              </v-list-item>
-              <v-list-item v-if="canUpdateLogistic" :disabled="!isCountComplete || saving || recoCreating" @click="onSaveAll">
-                <template #prepend><v-icon size="18">mdi-content-save</v-icon></template>
-                <v-list-item-title>
-                  {{ t('invSave') }}
-                  <span v-if="inventoryStats.totalItems" class="si-menu-item-progress">
-                    {{ inventoryStats.countedItems }}/{{ inventoryStats.totalItems }}
-                  </span>
-                </v-list-item-title>
-              </v-list-item>
-            </v-list>
-          </v-menu>
-          <!-- Passage « portes ouvertes » manuel (pre-event staff) : repli quand
-               l'event n'a pas d'heure d'ouverture, ou pour avancer le passage.
-               Disparaît une fois le passage fait (cron ou main). -->
-          <v-btn
-            v-if="canTriggerDoorsOpen"
-            variant="outlined"
-            class="si-band-btn si-band-btn--desktop"
-            :loading="doorsOpening"
-            :disabled="doorsOpening"
-            @click="onDoorsOpen"
-          >
-            <v-icon size="16" class="mr-1">mdi-door-open</v-icon>
-            {{ t('preInvDoorsOpenBtn') }}
-          </v-btn>
-          <!-- Mise à jour Logistic et réconciliation : responsable logistique ou
-               administrateur du site (front.fb.logisticReconcile, règle Bertrand
-               2026-09-29). Les autres comptent, sans toucher au registre. -->
-          <v-btn
-            v-if="selectedEventId && canUpdateLogistic"
-            variant="outlined"
-            class="si-band-btn si-band-btn--desktop"
-            :loading="pushingToLogistic"
-            :disabled="pushingToLogistic"
-            @click="onUpdateLogistic"
-          >
-            <v-icon size="16" class="mr-1">mdi-warehouse</v-icon>
-            {{ t('invUpdateLogistic') }}
-          </v-btn>
-          <v-btn
-            v-if="canUpdateLogistic"
-            :loading="saving || recoCreating"
-            :disabled="saving || recoCreating"
-            class="si-band-btn si-band-btn--save si-band-btn--desktop"
-            @click="onSaveAll"
-          >
-            <v-icon size="16" class="mr-1">mdi-content-save</v-icon>
-            {{ t('invSave') }}
-            <span
-              v-if="inventoryStats.totalItems"
-              class="si-save-progress"
-              :class="{ 'si-save-progress-done': isCountComplete }"
-            >
-              {{ inventoryStats.countedItems }}/{{ inventoryStats.totalItems }}
-            </span>
-          </v-btn>
         </div>
       </div>
     </div>
@@ -429,29 +377,15 @@
             </button>
           </div>
 
-          <!-- Tri + filtre Ouvert/Fermé (onglet Boutiques) — masqué sur mobile
-               (< 900px, retour utilisateur : prenait trop de place, cf. maquette
-               Post/Pre-Event Inventory mobile). -->
+          <!-- Statut de comptage (menu burger) + filtre Ouvert/Fermé (onglet
+               Boutiques) — masqué sur mobile (< 900px, le tiroir de filtres porte
+               le statut). Tris supprimés, liste toujours alphabétique (document
+               Bertrand 2026-10-06, pages 7 et 8). -->
           <div v-if="!isMobile" class="si-sort-bar">
-            <span class="si-sort-label">{{ t('invSort') }}</span>
-            <button
-              type="button"
-              class="si-sort-chip"
-              :class="{ 'si-sort-chip-active': sortMode === 'name' }"
-              @click="sortMode = 'name'"
-            >{{ t('invSortName') }}</button>
-            <button
-              type="button"
-              class="si-sort-chip"
-              :class="{ 'si-sort-chip-active': sortMode === 'to-count' }"
-              @click="sortMode = 'to-count'"
-            >{{ t('invSortToCount') }}</button>
-            <button
-              type="button"
-              class="si-sort-chip"
-              :class="{ 'si-sort-chip-active': sortMode === 'stock-asc' }"
-              @click="sortMode = 'stock-asc'"
-            >{{ t('invSortStockAsc') }}</button>
+            <InventoryCountingStatusMenu
+              v-model="countingStatuses"
+              :counts="countingStatusCounts"
+            />
 
             <!-- Ouvert/Fermé n'est proposé que si les deux camps existent : sur cet
                  écran `isOpen` vaut « a des articles assignés » (backend :
@@ -494,12 +428,12 @@
 
         <!-- Counting interface inline desktop -->
         <InventoryCountingInterface
-          v-if="countingShop && !isMobile"
-          :shop="countingShop"
+          v-if="countingShopView && !isMobile"
+          :shop="countingShopView"
           :shops="countingSiblings"
-          :counted="countedInElement(countingShop)"
-          :total="countingShop.consolidatedInventory.length"
-          :progress="progressForElement(countingShop)"
+          :counted="countedInElement(countingShopView)"
+          :total="countingShopView.consolidatedInventory.length"
+          :progress="progressForElement(countingShopView)"
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
@@ -509,7 +443,7 @@
           :expected-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedForField : null)"
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
-          :readonly="guestSession.isReadonly || preEventWindow.isLocked"
+          :readonly="guestSession.isReadonly || preEventWindow.isLocked || postEventNotStarted"
           :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="countingShop = null"
@@ -625,13 +559,15 @@
                   :total-items="totalItemsForCard(entry)"
                   :counted-items="countedInShop(entry)"
                   :progress="progressForCard(entry)"
-                  :status-label="statusLabel(entry)"
-                  :status-color="statusColor(entry)"
+                  :counting-status="statusFor(entry)"
+                  :status-color="countingStatusColor(statusFor(entry))"
                   :show-guest-pin="canManageGuestPin"
                   :phase="guestPinPhase"
                   :logistic-update="pdvLogisticUpdate"
+                  :pin-access="pinAccess"
                   @start-count="startCount"
                   @recounted="onElementRecounted"
+                  @error="showError"
                 />
               </template>
               <template v-else>
@@ -641,8 +577,10 @@
                   :entry="entry"
                   :counted-items="countedInElement(entry)"
                   :progress="progressForElement(entry)"
-                  :status-label="storageStatusLabel(entry)"
+                  :counting-status="storageStatusFor(entry)"
+                  :pin-access="pinAccess"
                   @start-count="startCount"
+                  @error="showError"
                 />
               </template>
             </div>
@@ -659,42 +597,10 @@
     />
       </div>
 
-      <!-- Colonne DROITE : sous-statuts de comptage (segmented) AU-DESSUS du
-           résumé inventaire, puis la carte agrégat. -->
+      <!-- Colonne DROITE : résumé inventaire. La section « Accès PIN PDV » est passée
+           dans le bandeau rouge (InventoryPinBand), les sous-statuts de comptage dans
+           le menu burger du corps de page (document Bertrand 2026-10-06). -->
       <div v-if="!guestSession.isGuestMode && (activeTab === 'shops' || activeTab === 'storage')" class="si-aggregate-col wsl-side">
-        <!-- À compter / Comptés — segmented, filtrent la liste. -->
-        <div class="si-substatus si-substatus--side">
-          <button
-            v-for="s in COUNTING_TABS"
-            :key="s.value"
-            type="button"
-            class="si-substatus-btn"
-            :class="{ 'si-substatus-btn-active': countingStatusTab === s.value }"
-            @click="countingStatusTab = s.value"
-          >
-            {{ countingTabLabel(s.value) }}
-            <span class="si-substatus-count">{{ subTabCount(s.value) }}</span>
-          </button>
-          <v-tooltip location="bottom" max-width="300">
-            <template #activator="{ props: tipProps }">
-              <v-icon v-bind="tipProps" size="16" class="si-substatus-help">
-                mdi-help-circle-outline
-              </v-icon>
-            </template>
-            <span>{{ t('invCountedTooltip') }}</span>
-          </v-tooltip>
-        </div>
-
-        <!-- Accès PIN invité — remplace la page /spaces/:spaceId/guest-pin-access
-             (orpheline). Composant autonome : se charge lui-même, GuestPinBadge (sur
-             chaque carte) lit le même store réactivement. -->
-        <GuestPinAccessPanel
-          v-if="canManageGuestPin && activeTab === 'shops'"
-          :space-id="guestPinSpaceId"
-          :event-id="guestPinEventId"
-          :phase="guestPinPhase"
-        />
-
         <aside class="si-aggregate">
         <InventoryAggregateView
           v-if="activeTab === 'shops'"
@@ -814,13 +720,13 @@
         transition="dialog-bottom-transition"
       >
         <InventoryCountingInterface
-          v-if="countingShop"
-          :shop="countingShop"
+          v-if="countingShopView"
+          :shop="countingShopView"
           :shops="countingSiblings"
           mobile
-          :counted="countedInElement(countingShop)"
-          :total="countingShop.consolidatedInventory.length"
-          :progress="progressForElement(countingShop)"
+          :counted="countedInElement(countingShopView)"
+          :total="countingShopView.consolidatedInventory.length"
+          :progress="progressForElement(countingShopView)"
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
@@ -830,7 +736,7 @@
           :expected-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedForField : null)"
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
-          :readonly="guestSession.isReadonly || preEventWindow.isLocked"
+          :readonly="guestSession.isReadonly || preEventWindow.isLocked || postEventNotStarted"
           :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="closeMobileCounting"
@@ -872,8 +778,7 @@
         <h1>{{ t('invPrintInvTitle') }}</h1>
         <div class="si-print-sub">
           <strong>{{ spaceLabel }}</strong>
-          <!-- Event d'ANCRAGE et non `selectedEventOption` : eventOptions ne liste
-               que les events PASSÉS → en mode pre l'en-tête d'impression était muet. -->
+          <!-- Event d'ANCRAGE : vaut pour les deux modes (eventOptions est vide en pre). -->
           <span v-if="contextEventName"> · {{ contextEventName }}</span>
           <span v-if="contextEventDateLabel"> · {{ contextEventDateLabel }}</span>
           <span v-if="printDate"> · {{ printDate }}</span>
@@ -925,7 +830,16 @@ import { useStore } from 'vuex'
 import { useRouter, useRoute } from 'vue-router'
 import { safePush } from '@/utils/chunkReload'
 import { useI18n } from '@/i18n/useI18n'
-import { COUNTING_STATUS, COUNTING_TABS as RAW_TABS, emptyInventoryCount } from '@/types/inventoryCount'
+import { COUNTING_STATUS, emptyInventoryCount } from '@/types/inventoryCount'
+import {
+  COUNTING_STATUS_LABEL_KEYS,
+  COUNTING_STATUS_VALUES,
+  DEFAULT_COUNTING_STATUSES,
+  countingStatusColor,
+  countingStatusOf,
+  isDefaultCountingStatuses,
+  matchesCountingStatuses,
+} from '@/utils/inventoryCountingStatus'
 import { useInventoryData } from '@/composables/useInventoryData'
 import { useInventoryScope } from '@/composables/useInventoryScope'
 import { useGuestInventorySession } from '@/composables/useGuestInventorySession'
@@ -940,11 +854,12 @@ import InventoryAggregateView from '@/components/space-workspace/inventory/Inven
 import InventoryCountingInterface from '@/components/space-workspace/inventory/InventoryCountingInterface.vue'
 import LogisticMovementDialog from '@/components/space-workspace/shared/LogisticMovementDialog.vue'
 import InventoryShopCard from '@/components/space-workspace/inventory/InventoryShopCard.vue'
-import GuestPinAccessPanel from '@/components/space-workspace/inventory/GuestPinAccessPanel.vue'
+import InventoryPinBand from '@/components/space-workspace/inventory/InventoryPinBand.vue'
 import InventoryStorageCard from '@/components/space-workspace/inventory/InventoryStorageCard.vue'
 import InventoryStorageAggregateView from '@/components/space-workspace/inventory/InventoryStorageAggregateView.vue'
 import InventoryFilterDrawer from '@/components/space-workspace/inventory/drawers/InventoryFilterDrawer.vue'
 import InventoryFilterPanel from '@/components/InventoryFilterPanel.vue'
+import InventoryCountingStatusMenu from '@/components/space-workspace/inventory/InventoryCountingStatusMenu.vue'
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
 import InventoryMenuCoverageDrawer from '@/components/space-workspace/inventory/drawers/InventoryMenuCoverageDrawer.vue'
@@ -957,18 +872,14 @@ import { getAllSpaces, getSpaceEventTimelineBatch } from '@/api/endpoints/space.
 import InventoryReconciliationSection from '@/components/space-workspace/inventory/InventoryReconciliationSection.vue'
 import InventoryReconciliationView from '@/components/space-workspace/inventory/InventoryReconciliationView.vue'
 import {
-  createPostEventReconciliation,
-  createPostEventReconciliationDraft,
   listInventoryReconciliations,
   deleteInventoryReconciliation,
   getPreEventInventory,
   getPreEventBaseline,
   getPostEventBaseline,
-  createPreEventReconciliation,
   regeneratePreEventReconciliation,
-  triggerPreEventDoorsOpen,
   getEventSalesConsumption,
-  pushInventoryCountToLogistic,
+  savePostEventContext,
 } from '@/api/endpoints/inventory.api'
 import { buildPreEventExpected, expectedKey, flattenExpectedUnits } from '@/utils/preEventExpected'
 import { loadPredictedNeed, lookupPredictedNeed, buildRestockNeedIndex } from '@/composables/usePredictedNeed'
@@ -987,11 +898,12 @@ import {
   reconciliationKey,
   buildPostEventReconciliationLines,
   buildSoldUnitsFromConsumption,
+  postEventContextLines,
 } from '@/utils/postEventReconciliation'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 // Contexte évènement du bandeau (nom + date + règle d'ancrage).
-import { describeAnchorEvent, matchLabel } from '@/utils/inventoryEventContext'
+import { describeAnchorEvent, matchLabel, postEventChoices } from '@/utils/inventoryEventContext'
 import { parseEventDate } from '@/utils/dateFr'
 import { isPostEventStarted, pickInventoryAnchorEvent } from '@/utils/eventLifecycle'
 import { newlyCompletedElements, usePostEventDraftScheduler } from '@/composables/usePostEventDraftScheduler'
@@ -1003,11 +915,6 @@ const TOP_TABS = [
   { value: 'merch',   labelKey: 'invTabMerch',   labelKeyShort: 'invTabMerchShort',   icon: 'mdi-shopping' },
 ]
 
-const COUNTING_TABS = RAW_TABS
-const COUNTING_TAB_KEYS = {
-  'to-count': 'invStatusToCount',
-  counted: 'invStatusCounted',
-}
 
 const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'invToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
@@ -1027,11 +934,12 @@ export default {
     InventoryCountingInterface,
     LogisticMovementDialog,
     InventoryShopCard,
-    GuestPinAccessPanel,
+    InventoryPinBand,
     InventoryStorageCard,
     InventoryStorageAggregateView,
     InventoryFilterDrawer,
     InventoryFilterPanel,
+    InventoryCountingStatusMenu,
     WorkspaceAppHeader,
     WorkspaceToolSelect,
     InventoryMenuCoverageDrawer,
@@ -1140,11 +1048,11 @@ export default {
       movementError: null,
       logisticsStockLoaded: false,
       demoSheet: false,
-      countingStatusTab: 'to-count',
+      // Filtre de statut (menu burger), sélection multiple : 'to-count' |
+      // 'in-progress' | 'counted'. Défaut = tout ce qui n'est pas terminé.
+      countingStatuses: [...DEFAULT_COUNTING_STATUSES],
       // Filtre ouvert/fermé du bandeau (onglet Boutiques) : 'all' | 'open' | 'closed'.
       shopStatusFilter: 'all',
-      // Tri des cartes (colonne centre) : 'name' | 'to-count' | 'stock-asc'.
-      sortMode: 'name',
       // Index courant du carousel boutiques (mobile).
       selectedEventId: null,
       // Event d'ANCRAGE de l'écran, résolu par resolveEventContext. DISTINCT de
@@ -1178,7 +1086,6 @@ export default {
       // sélection courante (remplace le contenu central), états réseau.
       reconciliations: [],
       recoLoading: false,
-      recoCreating: false,
       selectedReconciliationId: null,
       // Pre-event Inventory : quantités attendues sous Packed/Loose (null = pas
       // encore chargé OU permission absente) — map `expectedKey(el,item)` →
@@ -1214,10 +1121,7 @@ export default {
       errorText: '',
       successSnackbar: false,
       successText: '',
-      pushingToLogistic: false,
-      doorsOpening: false,
       mock: { shopsWithInventory: [], storagesWithInventory: [], merchWithInventory: [] },
-      COUNTING_TABS,
       TOP_TABS,
       TOOLBOX_ITEMS,
     }
@@ -1247,16 +1151,16 @@ export default {
       return TOP_TABS.filter((tab) => tab.value !== 'merch' || this.showMerchModule)
     },
     // Compteurs ouvert/fermé du bandeau (calque Space Menus : ouvert = isOpen !== false).
-    // Croisés avec l'onglet À compter/Comptés courant → le badge reflète EXACTEMENT
-    // ce que la liste affichera (sinon « Fermé 10 » mais liste vide, cf. intersection).
+    // Croisés avec le filtre de statut courant → le badge reflète EXACTEMENT ce que
+    // la liste affichera (sinon « Fermé 10 » mais liste vide, cf. intersection).
     openShopsCount() {
       return (this.realShops || []).filter(
-        (c) => c?.element?.isOpen !== false && this.statusFor(c) === this.countingStatusTab,
+        (c) => c?.element?.isOpen !== false && this.matchesStatusFilter(this.statusFor(c)),
       ).length
     },
     closedShopsCount() {
       return (this.realShops || []).filter(
-        (c) => c?.element?.isOpen === false && this.statusFor(c) === this.countingStatusTab,
+        (c) => c?.element?.isOpen === false && this.matchesStatusFilter(this.statusFor(c)),
       ).length
     },
     /** Les deux camps existent-ils ? Sinon la paire de pills est masquée (l'un des
@@ -1284,7 +1188,6 @@ export default {
       const cfg = this.route?.query?.configuration || this.route?.query?.config || ''
       return `${this.route?.params?.spaceId || ''}::${this.route?.query?.event || ''}::${cfg}`
     },
-    saving() { return !!this.store.state.inventory?.saving },
     inventoryError() { return this.store.state.inventory?.error || null },
     spaceLabel() { return this.currentSpace?.name || this.route?.params?.spaceId || null },
     events() { return this.store.state.analyse?.events || [] },
@@ -1308,14 +1211,11 @@ export default {
       if (!d) return ''
       return d.toLocaleDateString(this.intlLocale, { day: '2-digit', month: 'short', year: 'numeric' })
     },
-    /** Pourquoi CE match (retours JLH 13/08) : les deux modes nomment leur
-     *  match d'ancrage, composé des équipes quand elles sont connues —
-     *  pre : « Prochain Évènement : {match} » (match à venir),
-     *  post : « Post Inventaire de l'évènement : {match} » (dernier terminé). */
-    contextAnchorLabel() {
+    /** « {match} · {date} » du bandeau (document Bertrand 2026-10-06, pages 3 et 4 :
+     *  plus de préfixe « Post Inventaire de l'évènement : » ni de nom d'espace). */
+    contextEventLabel() {
       const match = matchLabel(this.contextEvent)
-      return this.t(this.isPreMode ? 'preInvContextAnchorNext' : 'invContextAnchorLast')
-        .replace('{match}', match)
+      return this.contextEventDateLabel ? `${match} · ${this.contextEventDateLabel}` : match
     },
     /** Sous-titre event compact, mobile uniquement : "{match} - {date} @
      *  {showTime}" (retour utilisateur) — sans le préfixe "Prochain
@@ -1329,10 +1229,18 @@ export default {
       if (this.contextEvent.showTime) label += ` @ ${this.contextEvent.showTime}`
       return label
     },
-    /** Le filtre de comptage a été mis sur « Indépendant d'un évènement » : les
-     *  saisies ne partent PAS sur le match affiché — à signaler explicitement. */
-    countsAreEventIndependent() {
-      return !!this.contextEventId && !this.selectedEventId
+    /** Post-event affiché sur le PROCHAIN event (liste déroulante) : ses portes ne
+     *  sont pas ouvertes, le comptage reste en lecture seule (un comptage post-event
+     *  rattaché à un match à venir fausserait la référence du pre-event suivant). */
+    postEventNotStarted() {
+      if (this.isPreMode || !this.contextEvent) return false
+      return !isPostEventStarted(this.contextEvent, new Date(), this.spaceTimeZone)
+    },
+    /** Dernier et prochain event proposés en post-event, parmi ceux dont la
+     *  configuration est connue (sinon l'écran ne saurait pas quoi afficher). */
+    postEventChoices() {
+      const known = (e) => this.configurations.some((c) => String(c.id) === String(e?.configurationId))
+      return postEventChoices((this.events || []).filter(known), { timeZone: this.spaceTimeZone })
     },
     /** Fuseau du space, dans lequel sont saisies ouverture des portes et heure de fin. */
     spaceTimeZone() {
@@ -1413,14 +1321,6 @@ export default {
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.logisticReconcile') : false
     },
-    /** Bouton « Ouverture des portes » : pre-event staff, event ancré, passage pas
-     *  encore fait (le serveur reste idempotent de toute façon). */
-    canTriggerDoorsOpen() {
-      if (!this.canUpdateLogistic) return false
-      if (!this.isPreMode || this.guestSession.isGuestMode || isDemoMode()) return false
-      if (!this.selectedEventId || this.preEventWindow.phase === 'unknown') return false
-      return !this.preEventWindow.doorsOpenDone
-    },
     /** Heure de fin de la fenêtre d'édition (HH:MM locale) pour le bandeau. */
     preEventDeadlineLabel() {
       const d = this.preEventWindow.deadline
@@ -1455,17 +1355,24 @@ export default {
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.preInventoryPredicted') : false
     },
-    /** Accès PIN invité (générer/reset/révoquer un PIN par PDV) — cf. GuestPinBadge.vue
-     *  et GuestPinAccessPanel.vue, montés uniquement si cette permission est accordée. */
+    /** Accès PIN invité (PIN du bandeau, ▶ / ■ par PDV, validation) — cf.
+     *  InventoryPinBand.vue, PdvAccessToggle.vue et GuestPinBadge.vue, montés
+     *  uniquement si cette permission est accordée. */
     canManageGuestPin() {
       const can = this.store.getters['auth/can']
       return typeof can === 'function' ? can('front.fb.guestPinManage') : false
     },
-    guestPinSpaceId() {
-      return this.route?.params?.spaceId ?? null
+    /** { spaceId, eventId, phase } de l'accès PIN géré depuis cet écran (bandeau et
+     *  ▶ / ■ des lignes PDV) ; null sans le droit, sans event, en démo ou en invité. */
+    pinAccess() {
+      if (!this.canManageGuestPin || this.guestSession.isGuestMode || isDemoMode()) return null
+      const spaceId = this.route?.params?.spaceId
+      if (!spaceId || !this.selectedEventId) return null
+      return { spaceId: String(spaceId), eventId: String(this.selectedEventId), phase: this.guestPinPhase }
     },
-    guestPinEventId() {
-      return this.selectedEventId ?? null
+    /** Avancement de l'inventaire de l'event, pour le statut du bandeau. */
+    inventoryCountStatus() {
+      return countingStatusOf(this.inventoryStats.totalItems, this.inventoryStats.countedItems)
     },
     guestPinPhase() {
       return this.isPreMode ? 'pre-event' : 'post-event'
@@ -1598,35 +1505,30 @@ export default {
     menuCoverageIssueCount() {
       return totalCoverageIssues(this.menuCoverageReports)
     },
-    /** Liste de navigation prev/next dans l'interface de comptage : siblings du
-     *  même onglet, normalisés (consolidatedInventory) pour que shops ET storages
-     *  passent par la même interface sans la dénaturer. */
+    /** Liste de navigation prev/next dans l'interface de comptage, normalisée
+     *  (consolidatedInventory) pour que shops ET storages passent par la même
+     *  interface sans la dénaturer. */
     countingSiblings() {
       if (!this.countingShop) return []
-      const list =
-        this.activeTab === 'storage' ? this.realStorages
-          : this.activeTab === 'merch' ? this.realMerch
-            : this.realShops
-      return list.map((e) => this.normalizeCountingEntry(e))
+      // Mêmes PDV que la liste (recherche, facettes, Ouvert / Fermé), dans le même
+      // ordre alphabétique, articles réduits par les filtres de gauche.
+      return this.facetFilteredCards.map((e) => this.withItemFilters(this.normalizeCountingEntry(e)))
     },
+    /** Liste déroulante du Post-event (document Bertrand 2026-10-06, page 3) : le
+     *  dernier event dont les portes sont ouvertes et le prochain. Pre-event : aucune
+     *  liste, l'event est toujours le prochain. */
     eventOptions() {
-      const now = new Date()
-      const past = this.events
-        .filter((e) => isPostEventStarted(e, now, this.spaceTimeZone))
-        .sort((a, b) => {
-          const da = new Date(a.date || a.eventDate).getTime()
-          const db = new Date(b.date || b.eventDate).getTime()
-          return db - da
-        })
-      const opts = past.map((e) => ({
-        value: e.id,
-        label: `${e.name || e.eventName} — ${e.date || e.eventDate || ''}`,
-      }))
-      return [{ value: null, label: this.t('invEventIndependent') }, ...opts]
-    },
-    selectedEventOption() {
-      const ev = this.eventOptions.find((o) => o.value === this.selectedEventId)
-      return ev?.value ? ev : null
+      if (this.isPreMode) return []
+      const { last, next } = this.postEventChoices
+      const option = (e, hintKey) => {
+        const d = parseEventDate(describeAnchorEvent(e)?.dateISO)
+        const date = d ? d.toLocaleDateString(this.intlLocale, { day: '2-digit', month: 'short', year: 'numeric' }) : ''
+        return { value: e.id, label: date ? `${matchLabel(e)} · ${date}` : matchLabel(e), hint: this.t(hintKey) }
+      }
+      return [
+        last && option(last, 'invEventLast'),
+        next && option(next, 'invEventNext'),
+      ].filter(Boolean)
     },
     activeCards() {
       if (this.activeTab === 'shops') return this.realShops
@@ -1768,7 +1670,7 @@ export default {
     hasActiveFilters() {
       return !!(
         this.search ||
-        this.countingStatusTab !== 'to-count' ||
+        !isDefaultCountingStatuses(this.countingStatuses) ||
         this.selectedShops.length ||
         this.selectedShopTypes.length ||
         this.selectedShopAreas.length ||
@@ -1793,7 +1695,11 @@ export default {
         return nameOk && typeOk && catOk
       }
     },
-    filteredCards() {
+    /** Cartes de l'onglet actif après recherche, facettes de gauche et pills
+     *  Ouvert / Fermé, SANS le filtre de statut : sert aussi à la navigation de
+     *  l'interface de comptage, où un PDV qui vient d'être terminé doit rester
+     *  atteignable. Ordre alphabétique. */
+    facetFilteredCards() {
       let cards = this.activeCards
       const q = (this.search || '').trim().toLowerCase()
       if (q) {
@@ -1833,7 +1739,6 @@ export default {
         } else if (this.shopStatusFilter === 'closed') {
           cards = cards.filter((c) => c.element?.isOpen === false)
         }
-        cards = cards.filter((c) => this.statusFor(c) === this.countingStatusTab)
       } else if (this.activeTab === 'storage') {
         // Facettes storage (stockages / étages / articles) puis statut.
         if (this.selectedStorages.length) {
@@ -1846,25 +1751,43 @@ export default {
           const matchItem = this.itemMatchesMenuFilters
           cards = cards.filter((c) => this.elementItems(c).some(matchItem))
         }
-        cards = cards.filter((c) => this.storageStatusFor(c) === this.countingStatusTab)
+      }
+      // Toujours alphabétique, cartes vides en bas (utils/inventoryCardSort).
+      return [...cards].sort(compareInventoryCards)
+    },
+    /** Liste affichée : cartes filtrées puis filtre de statut (menu burger). */
+    filteredCards() {
+      const statusOf = this.activeTab === 'shops' ? this.statusFor : this.storageStatusFor
+      return this.facetFilteredCards.filter((c) => this.matchesStatusFilter(statusOf(c)))
+    },
+    /** Nombre d'éléments par statut, croisé avec la pill Ouvert / Fermé : le menu
+     *  burger annonce ce que la liste montrera. */
+    countingStatusCounts() {
+      const counts = Object.fromEntries(COUNTING_STATUS_VALUES.map((v) => [v, 0]))
+      if (this.activeTab === 'shops') {
+        this.realShops.forEach((c) => {
+          if (this.matchesShopStatusPill(c)) counts[this.statusFor(c)] += 1
+        })
       } else {
-        // Merch : filtrage par statut (parité React storagesToCount/storagesCounted)
-        cards = cards.filter((c) => this.storageStatusFor(c) === this.countingStatusTab)
+        const source = this.activeTab === 'storage' ? this.realStorages : this.realMerch
+        source.forEach((c) => { counts[this.storageStatusFor(c)] += 1 })
       }
-      // Tri : cartes vides (0 item) toujours en bas ; au-dessus, l'ordre suit le
-      // tri choisi (nom / à compter d'abord / stock croissant), départagé par nom.
-      // « Stock croissant » se base sur l'indice de référence de l'écran (besoin
-      // prédit avant match, stock restant après) et retombe sur le compté quand il
-      // n'y en a pas — l'ancienne clé lisait deux champs inexistants et laissait
-      // toutes les cartes à 0.
-      const accessors = {
-        expectedUnitsFor: (elementId, item) => this.expectedTotalFor(elementId, item),
-        countedUnitsFor: (elementId, item) => this.totalForItem(elementId, item),
-        isItemCounted: this.isItemCounted,
-      }
-      const mode = this.sortMode
-      cards = [...cards].sort((a, b) => compareInventoryCards(a, b, { mode, ...accessors }))
-      return cards
+      return counts
+    },
+    /** Options du filtre de statut du tiroir mobile (libellés traduits). */
+    countingStatusOptions() {
+      return COUNTING_STATUS_VALUES.map((value) => ({
+        value,
+        label: this.t(COUNTING_STATUS_LABEL_KEYS[value]),
+      }))
+    },
+    /** PDV en cours de comptage, réduit aux articles qui passent les filtres
+     *  « Articles du menu » / « Type & catégorie » du panneau de gauche. Avant, ces
+     *  filtres ne s'appliquaient qu'à la liste des PDV : une fois le comptage ouvert,
+     *  ils restaient sans effet (« les filtres ne fonctionnent pas », document
+     *  Bertrand 2026-10-06, pages 7 et 8). */
+    countingShopView() {
+      return this.countingShop ? this.withItemFilters(this.countingShop) : null
     },
     inventoryStats() {
       // La complétude intègre désormais le Storage (réserve centrale) et le Merch
@@ -1887,32 +1810,6 @@ export default {
         totalItems: shopTotal + storageTotal + merchTotal,
         countedItems: shopCounted + storageCounted + merchCounted,
       }
-    },
-    isCountComplete() {
-      const { totalItems, countedItems } = this.inventoryStats
-      return totalItems > 0 && countedItems >= totalItems
-    },
-    /** Articles (par nom) qui resteront inchangés dans Logistic si on pousse maintenant —
-     *  "Update Logistic" ne touche jamais un PDV/article non compté (décision Bertrand,
-     *  2026-08-26 : ne jamais écraser un stock non vérifié par un 0). Affiché dans la
-     *  confirmation du bouton pour que l'utilisateur sache AVANT de confirmer ce qui ne
-     *  bougera pas. */
-    uncountedItemsSummary() {
-      const entries = [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])]
-      const byName = new Map()
-      for (const entry of entries) {
-        if (!entry?.element) continue
-        for (const item of this.elementItems(entry)) {
-          const stat = byName.get(item.name) || { counted: 0, total: 0 }
-          stat.total += 1
-          if (this.isItemCounted(entry.element.id, item.id)) stat.counted += 1
-          byName.set(item.name, stat)
-        }
-      }
-      return [...byName.entries()]
-        .filter(([, s]) => s.counted < s.total)
-        .map(([name, s]) => ({ name, counted: s.counted, total: s.total }))
-        .sort((a, b) => a.name.localeCompare(b.name, 'fr'))
     },
     overviewMetrics() {
       return [
@@ -1975,9 +1872,31 @@ export default {
     activateDemo() {
       if (!this.demo) enableDemoMode()
     },
-    /** Libellé i18n d'un sous-onglet de statut (to-count / counted). */
-    countingTabLabel(value) {
-      return this.t(COUNTING_TAB_KEYS[value] || '')
+    countingStatusColor,
+    showError(message) {
+      this.errorText = message
+      this.errorSnackbar = true
+    },
+    /** Choix d'un event dans la liste déroulante (post-event) : l'URL porte l'event,
+     *  resolveEventContext le relit au rechargement. */
+    async selectEvent(eventId) {
+      if (!eventId || String(eventId) === String(this.contextEventId)) return
+      this.countingShop = null
+      await this.router.replace({ query: { ...this.route.query, event: eventId } }).catch(() => {})
+      await this.loadForSpace(this.route?.params?.spaceId)
+    },
+    /** Un statut passe-t-il le filtre du menu burger ? */
+    matchesStatusFilter(status) {
+      return matchesCountingStatuses(status, this.countingStatuses)
+    },
+    /** Copie d'une entrée de comptage réduite aux articles qui passent les filtres
+     *  articles du panneau de gauche ; l'entrée elle-même sans filtre actif. */
+    withItemFilters(entry) {
+      if (!entry || !Array.isArray(entry.consolidatedInventory)) return entry
+      if (!this.selectedMenuItems.length && !this.selectedItemTypes.length && !this.selectedItemCategories.length) {
+        return entry
+      }
+      return { ...entry, consolidatedInventory: entry.consolidatedInventory.filter(this.itemMatchesMenuFilters) }
     },
     // Pills ouvert/fermé : re-cliquer la pill active la désactive (retour 'all').
     toggleShopStatus(status) {
@@ -2076,7 +1995,10 @@ export default {
       // utils/eventLifecycle.js). Mêmes instants que les fenêtres PIN côté serveur.
       const tz = this.spaceTimeZone
       if (ev && this.isPreMode) ev = null
-      if (ev && !this.isPreMode && !isPostEventStarted(ev, new Date(), tz)) ev = null
+      // Exception : le PROCHAIN event, choisi dans la liste déroulante du post-event
+      // (document Bertrand 2026-10-06, page 3), affiché en lecture seule.
+      const isNextChoice = ev && String(ev.id) === String(this.postEventChoices.next?.id)
+      if (ev && !this.isPreMode && !isNextChoice && !isPostEventStarted(ev, new Date(), tz)) ev = null
       // Ancrage par défaut (entrée directe ou ?event= rejeté ci-dessus). L'URL
       // est synchronisée (replace, pas de watcher route ici → pas de re-run)
       // pour rester partageable.
@@ -2227,6 +2149,9 @@ export default {
         // a la même dépendance (périmètre des PdV affichés).
         this.fetchPreExpected()
         this.fetchPredictedNeed()
+        // Post-event : contexte de la réconciliation (prédit, coût, unité) envoyé au
+        // serveur, qui tient le document (lot 4b). Différé et sérialisé par le scheduler.
+        if (!this.isPreMode) this.postDraftScheduler?.schedule()
         // Stock Logistic LIVE (demande Bertrand 2026-08-27) : la même quantité que
         // la carte Logistic elle-même affiche pour cet article/élément, pour
         // comparer d'un coup d'œil avec ce qui est en cours de comptage ici.
@@ -2267,10 +2192,10 @@ export default {
     resetInventoryFilters() {
       this.clearFacetSelections()
       this.search = ''
-      // Réinitialise aussi les axes bandeau (pill + À compter/Comptés) pour garantir
+      // Réinitialise aussi les axes bandeau (pill + statut de comptage) pour garantir
       // une liste non vide depuis l'état « Aucun élément » (sinon reset inefficace).
       this.shopStatusFilter = 'all'
-      this.countingStatusTab = 'to-count'
+      this.countingStatuses = [...DEFAULT_COUNTING_STATUSES]
     },
     /** Vide les facettes seules (le switch d'onglet garde recherche + statut). */
     clearFacetSelections() {
@@ -2322,24 +2247,10 @@ export default {
     totalItemsForCard(entry) {
       return entry.consolidatedInventory?.length || entry.storageInventory?.length || entry.merchInventory?.length || 0
     },
+    /** Statut à 3 états (document Bertrand 2026-10-06) : 'to-count' (rien
+     *  compté), 'in-progress' (en partie), 'counted' (tout compté). */
     statusFor(shop) {
-      // Parité React (SpaceInventory.tsx:635-652) : statut binaire. Tous les
-      // articles comptés => 'counted', sinon 'to-count'. Pas d'état "jeté" ni
-      // "en cours" : une boutique partiellement comptée reste dans 'to-count'.
-      const total = (shop.consolidatedInventory || []).length
-      const counted = this.countedInShop(shop)
-      return total > 0 && counted === total ? COUNTING_STATUS.COUNTED : 'to-count'
-    },
-    statusLabel(entry) {
-      return this.statusFor(entry) === COUNTING_STATUS.COUNTED
-        ? this.t('invStatusCounted')
-        : this.t('invStatusToCount')
-    },
-    statusClass(entry) {
-      return this.statusFor(entry) === COUNTING_STATUS.COUNTED ? 'si-status-ok' : 'si-status-pending'
-    },
-    statusColor(entry) {
-      return this.statusFor(entry) === COUNTING_STATUS.COUNTED ? 'success' : 'grey'
+      return countingStatusOf((shop.consolidatedInventory || []).length, this.countedInShop(shop))
     },
     progressForCard(entry) {
       const total = this.totalItemsForCard(entry)
@@ -2365,29 +2276,12 @@ export default {
       if (this.shopStatusFilter === 'closed') return c?.element?.isOpen === false
       return true
     },
-    subTabCount(value) {
-      // Tous les onglets ont des compteurs de statut (parité React). Croisé avec le
-      // pill Ouvert/Fermé courant → badge = ce que la liste montrera (pas de faux « Comptés 1 »).
-      if (this.activeTab === 'shops') {
-        return this.realShops.filter(
-          (c) => this.statusFor(c) === value && this.matchesShopStatusPill(c),
-        ).length
-      }
-      const source = this.activeTab === 'storage' ? this.realStorages : this.realMerch
-      return source.filter((c) => this.storageStatusFor(c) === value).length
-    },
-    /** Statut d'une entrée storage/merch : counted si tous les items ont isCounted (parité React). */
+    /** Statut d'une entrée storage/merch, mêmes 3 états que les boutiques. */
     storageStatusFor(entry) {
       const items = [...(entry.storageInventory || []), ...(entry.merchInventory || [])]
-      if (!items.length) return 'to-count'
       const shopCounts = this.inventoryCounts[entry.element.id] || {}
       const countedCount = items.filter((it) => shopCounts[it.id]?.isCounted).length
-      return countedCount === items.length ? COUNTING_STATUS.COUNTED : 'to-count'
-    },
-    storageStatusLabel(entry) {
-      return this.storageStatusFor(entry) === COUNTING_STATUS.COUNTED
-        ? this.t('invStatusCounted')
-        : this.t('invStatusToCount')
+      return countingStatusOf(items.length, countedCount)
     },
     /** Items d'une entrée, qu'elle soit shop (consolidatedInventory) ou storage/merch. */
     elementItems(entry) {
@@ -2416,7 +2310,10 @@ export default {
     },
     /** Ouvre l'interface de comptage pour un shop OU un storage (normalisé). */
     startCount(entry) {
-      this.countingShop = this.normalizeCountingEntry(entry)
+      // La navigation de l'interface émet une copie filtrée (countingSiblings) :
+      // on garde l'entrée complète, le filtrage reste dans countingShopView.
+      const full = (entry?.element?.id && this.findElementEntry(entry.element.id)) || entry
+      this.countingShop = this.normalizeCountingEntry(full)
     },
     /** Toast quand tous les articles d'un PDV / stockage viennent d'être comptés. */
     notifyIfElementComplete(elementId) {
@@ -2503,7 +2400,12 @@ export default {
       if (isDemoMode() || !this.selectedEventId) return
       const spaceId = this.route.params.spaceId
       try {
-        const result = await regeneratePreEventReconciliation(spaceId, this.selectedEventId, elementId)
+        const result = await regeneratePreEventReconciliation(
+          spaceId,
+          this.selectedEventId,
+          elementId,
+          this.predictedUnitsBlobForReco(),
+        )
         if (result?.ok) {
           await this.loadReconciliations(spaceId, { silent: true })
           this.successText = this.t('invPreEventSheetRegenerated')
@@ -2511,166 +2413,6 @@ export default {
         }
       } catch (e) {
         console.warn('[SpaceInventory] régénération feuille pre-event KO:', e?.message)
-      }
-    },
-    async onSaveAll() {
-      // Garde douce (option 2) : si l'inventaire est incomplet, on confirme sans
-      // jamais bloquer (le bouton reste toujours actif).
-      if (!this.isCountComplete && this.inventoryStats.totalItems) {
-        const { countedItems, totalItems } = this.inventoryStats
-        const ok = await confirmDialog({
-          title: this.t('invIncompleteTitle'),
-          message: `${countedItems}/${totalItems} ${this.t('invIncompleteMsgPrefix')}`,
-          confirmText: this.t('invSaveAnyway'),
-          cancelText: this.t('invContinueCounting'),
-          confirmColor: 'deep-orange',
-          icon: 'mdi-alert-outline',
-          iconColor: 'warning',
-        })
-        if (!ok) return
-      }
-      try {
-        // kind = phase du comptage → snapshots discriminés (cycle pre↔post, docs modules/10 §8).
-        await this.store.dispatch('inventory/saveInventory', {
-          kind: this.isPreMode ? 'pre-event' : 'post-event',
-        })
-      } catch (e) {
-        // Échec API → toast et on ne crée PAS de réconciliation.
-        this.errorText = e?.userMessage || e?.message || this.t('invSaveError')
-        this.errorSnackbar = true
-        return
-      }
-      // Après sauvegarde : GÉNÉRATION du document de réconciliation (attendu vs
-      // compté en mode pre ; restant-théorique vs compté en mode post) puis
-      // ouverture de sa vue (spec 2026-07-20 — remplace l'ancienne navigation
-      // automatique vers le Réarmement du 2026-07-06 ; le Réarmement reste
-      // accessible par le dropdown Tools). Voir docs/modules/10_POST_EVENT_INVENTORY.md §7-8.
-      if (this.isPreMode) await this.createPreReconciliationAfterSave()
-      else await this.createReconciliationAfterSave()
-    },
-    /** Bouton « Ouverture des portes » : clôt la fenêtre PIN pre-event, génère la
-     *  feuille et pousse l'incrément vers Logistic (même chemin que le cron). */
-    async onDoorsOpen() {
-      if (!this.selectedEventId) return
-      const ok = await confirmDialog({
-        title: this.t('preInvDoorsOpenConfirmTitle'),
-        message: this.t('preInvDoorsOpenConfirmMsg'),
-        confirmText: this.t('preInvDoorsOpenBtn'),
-        cancelText: this.t('cancel') || 'Cancel',
-        confirmColor: 'deep-orange',
-        icon: 'mdi-door-open',
-        iconColor: 'warning',
-      })
-      if (!ok) return
-      const spaceId = this.route.params.spaceId
-      this.doorsOpening = true
-      try {
-        const result = await triggerPreEventDoorsOpen(spaceId, this.selectedEventId)
-        await Promise.all([
-          this.preEventWindow.refresh(),
-          this.loadReconciliations(spaceId, { silent: true }),
-          this.$store.dispatch('guestPinAdmin/fetchStatusBoard', { spaceId, eventId: this.selectedEventId }).catch(() => null),
-        ])
-        if (result?.ok) {
-          this.successText = this.t('preInvDoorsOpenSuccess')
-          this.successSnackbar = true
-        } else {
-          this.successText = this.t('preInvDoorsOpenNoop').replace('{reason}', result?.reason || '?')
-          this.successSnackbar = true
-        }
-      } catch (e) {
-        this.errorText = e?.userMessage || e?.response?.data?.message || this.t('preInvDoorsOpenError')
-        this.errorSnackbar = true
-      } finally {
-        this.doorsOpening = false
-      }
-    },
-    /** Bouton "Update Logistic" : pousse manuellement le comptage courant vers le
-     *  registre Logistic (écrase les StockLevel avec les quantités comptées),
-     *  sans créer de document de réconciliation — même mécanisme que le recalage
-     *  automatique déclenché par "Create Reconciliation" (pushCountToLogistic),
-     *  mais explicite et confirmable. */
-    async onUpdateLogistic() {
-      if (!this.selectedEventId) return
-      const uncounted = this.uncountedItemsSummary
-      let message = this.t('invUpdateLogisticConfirmMsg')
-      if (uncounted.length) {
-        const maxShown = 15
-        const lines = uncounted.slice(0, maxShown).map((u) => `• ${u.name} (${u.counted}/${u.total})`)
-        if (uncounted.length > maxShown) {
-          lines.push(this.t('invUpdateLogisticConfirmMore').replace('{n}', uncounted.length - maxShown))
-        }
-        message = `${message}\n\n${this.t('invUpdateLogisticConfirmUncountedIntro')}\n${lines.join('\n')}`
-      }
-      const ok = await confirmDialog({
-        title: this.t('invUpdateLogisticConfirmTitle'),
-        message,
-        confirmText: this.t('invUpdateLogisticConfirmBtn'),
-        cancelText: this.t('cancel') || 'Cancel',
-        confirmColor: 'deep-orange',
-        icon: 'mdi-alert-outline',
-        iconColor: 'warning',
-      })
-      if (!ok) return
-      const spaceId = this.route.params.spaceId
-      this.pushingToLogistic = true
-      try {
-        // Simple mise à jour du registre : ne clôt plus la fenêtre PIN (règle Bertrand
-        // 2026-09-29). Le post-event se termine à la génération de la réconciliation
-        // (serveur), le pre-event à l'ouverture des portes.
-        await pushInventoryCountToLogistic(
-          spaceId,
-          this.selectedEventId,
-          this.isPreMode ? 'pre-event' : 'post-event',
-        )
-        this.successText = this.t('invUpdateLogisticSuccess')
-        this.successSnackbar = true
-      } catch (e) {
-        this.errorText = e?.userMessage || e?.response?.data?.message || this.t('invUpdateLogisticError')
-        this.errorSnackbar = true
-      } finally {
-        this.pushingToLogistic = false
-      }
-    },
-    /** Mode PRE : le backend construit les lignes (attendu vs compté) — le client,
-     *  potentiellement sans la permission « attendus », ne les a jamais eues. */
-    async createPreReconciliationAfterSave() {
-      const spaceId = this.route.params.spaceId
-      const ev = (this.events || []).find((e) => String(e.id) === String(this.selectedEventId))
-      if (!ev) return
-      this.recoCreating = true
-      try {
-        if (isDemoMode()) {
-          // Démo : pas de backend → document local minimal non persisté.
-          const doc = {
-            id: `demo-pre-${Date.now()}`,
-            eventId: ev.id,
-            eventName: ev.name || ev.eventName || null,
-            kind: 'pre-event',
-            createdAt: new Date().toISOString(),
-            lines: [],
-          }
-          this.reconciliations = [doc, ...this.reconciliations]
-          this.selectedReconciliationId = doc.id
-          return
-        }
-        // Besoin prédit du scénario de référence → 2e colonne d'écart du document.
-        // Absent (pas de version par défaut) → colonnes prédit à « — », pas 0.
-        const created = await createPreEventReconciliation(
-          spaceId,
-          ev.id,
-          this.predictedUnitsBlobForReco(),
-        )
-        // UNE feuille par match : le serveur a remplacé la précédente, on recharge
-        // la liste plutôt que d'empiler localement un document supprimé.
-        await this.loadReconciliations(spaceId, { silent: true })
-        this.selectedReconciliationId = created.id
-      } catch (e) {
-        console.warn('[SpaceInventory] création réconciliation pre-event KO:', e?.message)
-        this.errorText = e?.userMessage || this.t('invRecoCreateError')
-        this.errorSnackbar = true
-      } finally {
-        this.recoCreating = false
       }
     },
     /** Charge les attendus de l'écran courant (permission requise dans les deux
@@ -2947,105 +2689,6 @@ export default {
       if (!current) return null
       return isPostEventStarted(current, new Date(), this.spaceTimeZone) ? current : null
     },
-    async createReconciliationAfterSave() {
-      const spaceId = this.route.params.spaceId
-      const recoEvent = this.resolveReconciliationEvent()
-      if (!recoEvent) {
-        // Refus EXPLICITE (plus de repli vers un autre match) : event de l'écran
-        // non fini → message dédié ; aucun event résolu → message existant.
-        // Le comptage, lui, est déjà sauvegardé.
-        const current = (this.events || []).find((e) => String(e.id) === String(this.selectedEventId))
-        this.errorText = current ? this.t('invRecoEventNotFinished') : this.t('invRecoNoPastEvent')
-        this.errorSnackbar = true
-        return
-      }
-      this.recoCreating = true
-      try {
-        const { lines, meta } = await this.buildReconciliationLines(spaceId, recoEvent)
-        if (isDemoMode()) {
-          // Démo : document local non persisté (parité avec l'inventaire démo,
-          // qui vit déjà 100% en localStorage).
-          const doc = {
-            id: `demo-${Date.now()}`,
-            eventId: recoEvent.id,
-            eventName: recoEvent.name || recoEvent.eventName || null,
-            kind: 'post-event',
-            createdAt: new Date().toISOString(),
-            lines,
-            meta: {
-              baseline: {
-                source: meta.preEventSource,
-                fallback: meta.baselineFallback,
-                uncoveredElements: meta.baselineUncoveredElements,
-              },
-              salesUnjoined: meta.salesUnjoined,
-              salesSource: meta.salesSource,
-              predictedSource: meta.predictedSource,
-              predictedUnjoined: meta.predictedUnjoined,
-              perimeterExcluded: meta.perimeterExcluded,
-            },
-          }
-          this.reconciliations = [doc, ...this.reconciliations]
-          this.selectedReconciliationId = doc.id
-          return
-        }
-        const basePayload = {
-          eventId: recoEvent.id,
-          eventName: recoEvent.name || recoEvent.eventName || undefined,
-          lines,
-        }
-        let created
-        try {
-          created = await createPostEventReconciliation(spaceId, this.postEventReconciliationPayload(basePayload, meta))
-        } catch (e) {
-          // Réflexe BUG-228 : le DTO backend est en whitelist stricte
-          // (`forbidNonWhitelisted`). Sur un serveur pas encore redéployé, les
-          // champs de contexte renvoient 400 « property X should not exist » —
-          // le document vaut mieux sans son contexte que pas de document du tout.
-          const msg = String(e?.response?.data?.message || e?.message || '')
-          if (e?.response?.status !== 400 || !/should not exist/i.test(msg)) throw e
-          console.warn('[SpaceInventory] backend sans contexte de réconciliation — repli sans meta:', msg)
-          created = await createPostEventReconciliation(spaceId, basePayload)
-        }
-        // La réponse API est le document complet (lines incluses) → en tête de liste,
-        // à la place de la feuille post-event précédente du match (supprimée côté serveur).
-        this.replacePostEventSheet(created)
-        this.selectedReconciliationId = created.id
-        // La réconciliation post-event clôt le post-event côté serveur (fenêtre PIN
-        // comprise, règle Bertrand 2026-09-29) : le panneau PIN doit le refléter.
-        this.$store
-          .dispatch('guestPinAdmin/fetchStatusBoard', { spaceId, eventId: this.selectedEventId })
-          .catch(() => null)
-      } catch (e) {
-        console.warn('[SpaceInventory] création réconciliation KO:', e?.message)
-        // Ventes indisponibles (réseau) : message dédié — pas de document créé,
-        // le comptage est déjà sauvegardé, recliquer le bouton retente.
-        this.errorText = e?.salesFetchFailed
-          ? this.t('invRecoSalesError')
-          : (e?.userMessage || this.t('invRecoCreateError'))
-        this.errorSnackbar = true
-      } finally {
-        this.recoCreating = false
-      }
-    },
-    /** Payload complet (contexte de fabrication inclus) d'une feuille post-event. */
-    postEventReconciliationPayload(basePayload, meta) {
-      return {
-        ...basePayload,
-        preEventSource: meta.preEventSource,
-        ...(meta.salesUnjoined ? { salesUnjoined: meta.salesUnjoined } : {}),
-        countedProgress: meta.countedProgress,
-        // Q35 : grain de la source « Vendu ». Un backend antérieur le rejette
-        // en 400 « should not exist » → repli basePayload (BUG-228).
-        salesSource: meta.salesSource,
-        // BUG-378-02 : même réflexe, mêmes champs optionnels côté DTO.
-        predictedSource: meta.predictedSource,
-        ...(meta.predictedUnjoined ? { predictedUnjoined: meta.predictedUnjoined } : {}),
-        ...(meta.perimeterExcluded ? { perimeterExcluded: meta.perimeterExcluded } : {}),
-        ...(meta.baselineFallback ? { baselineFallback: meta.baselineFallback } : {}),
-        baselineUncoveredElements: meta.baselineUncoveredElements,
-      }
-    },
     /** UNE feuille post-event par match : la nouvelle remplace la précédente dans la liste. */
     replacePostEventSheet(doc) {
       const sameMatch = (r) =>
@@ -3053,23 +2696,24 @@ export default {
       this.reconciliations = [doc, ...this.reconciliations.filter((r) => !sameMatch(r))]
     },
     /**
-     * Feuille post-event du match régénérée en BROUILLON (PDV complet, recomptage) :
-     * mêmes lignes que la version finale, sans Logistic ni clôture du post-event.
-     * Silencieuse : n'ouvre pas le document, la version finale reste « Générer la
-     * réconciliation ».
+     * Contexte de la réconciliation post-event envoyé au serveur (lot 4b, document
+     * Bertrand 2026-10-06) : le serveur tient le document à jour à chaque article marqué
+     * compté, staff ou PIN ; l'écran lui fournit les colonnes qu'il est seul à savoir
+     * calculer (prédit Event Predict au grain inventaire, coût, unité). Envoyé à
+     * l'ouverture de l'écran et quand un PDV devient complet. Silencieux.
      */
-    async regeneratePostEventDraft() {
+    async sendPostEventContext() {
       if (this.isPreMode || this.guestSession.isGuestMode || isDemoMode()) return
       const spaceId = this.route.params.spaceId
       const recoEvent = this.resolveReconciliationEvent()
       if (!spaceId || !recoEvent) return
       const { lines, meta } = await this.buildReconciliationLines(spaceId, recoEvent)
-      const payload = this.postEventReconciliationPayload(
-        { eventId: recoEvent.id, eventName: recoEvent.name || recoEvent.eventName || undefined, lines },
-        meta,
-      )
-      const draft = await createPostEventReconciliationDraft(spaceId, payload)
-      if (draft?.id) this.replacePostEventSheet(draft)
+      const result = await savePostEventContext(spaceId, {
+        eventId: recoEvent.id,
+        lines: postEventContextLines(lines),
+        ...(meta.predictedSource ? { predictedSource: meta.predictedSource } : {}),
+      })
+      if (result?.document?.id) this.replacePostEventSheet(result.document)
     },
     /** Un PDV vient d'être remis à compter (« Recompter ») : comptages rechargés. */
     async onElementRecounted() {
@@ -3483,7 +3127,7 @@ export default {
     },
     resetFilters() {
       this.search = ''
-      this.countingStatusTab = 'to-count'
+      this.countingStatuses = [...DEFAULT_COUNTING_STATUSES]
     },
     /** Navigation vers un autre outil — miroir de handleToolboxChange React. */
     onToolboxSelect(value) {
@@ -3601,7 +3245,7 @@ export default {
     // Rechargement des réconciliations à chaque tick du polling live (méthode de
     // la vue, hors de portée du setup).
     this.livePollExtra = () => this.loadReconciliations(this.route?.params?.spaceId, { silent: true })
-    this.postDraftScheduler = usePostEventDraftScheduler(() => this.regeneratePostEventDraft())
+    this.postDraftScheduler = usePostEventDraftScheduler(() => this.sendPostEventContext())
   },
   mounted() {
     this.updateViewportMode()
@@ -3702,16 +3346,6 @@ export default {
   border-color: var(--si-primary);
 }
 .si-save-btn { text-transform: none; font-weight: 700; }
-.si-save-progress {
-  margin-left: 8px;
-  padding: 0 7px;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.25);
-  font-size: 0.72rem;
-  font-weight: 800;
-  line-height: 1.5;
-}
-.si-save-progress-done { background: rgba(22, 163, 74, 0.9); color: #fff; }
 
 .si-mobile-actions-sheet {
   border-radius: 16px 16px 0 0;
@@ -3864,43 +3498,6 @@ export default {
 .si-tab-active { color: var(--si-primary); border-bottom-color: var(--si-primary); }
 .si-tab-count { color: var(--si-faint); font-weight: 500; margin-left: 4px; }
 
-.si-substatus {
-  display: inline-flex; gap: 6px;
-  background: var(--si-subtle); padding: 3px;
-  border: 1px solid var(--si-border);
-  border-radius: 8px; margin-bottom: 0;
-}
-.si-substatus-btn {
-  appearance: none; border: none; background: transparent;
-  padding: 4px 10px;
-  font-size: 12px; font-weight: 600;
-  color: var(--si-muted);
-  border-radius: 8px; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 6px;
-}
-.si-substatus-btn-active {
-  background: var(--si-surface); color: var(--si-primary);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
-}
-.si-substatus-count {
-  background: rgba(15, 23, 42, 0.08);
-  border-radius: 999px;
-  padding: 0 6px;
-  font-size: 0.7rem;
-}
-.si-substatus-help {
-  color: #94a3b8;
-  cursor: help;
-  margin-left: 2px;
-  align-self: center;
-}
-.si-substatus-help:hover { color: #475569; }
-/* Variante colonne gauche : segmented pleine largeur (déplacé du bandeau). */
-.si-substatus--side {
-  display: flex;
-  width: 100%;
-}
-.si-substatus--side .si-substatus-btn { flex: 1 1 0; justify-content: center; }
 
 /* ============ Bandeau rouge « Space Menus » (onglets + pills + recherche) ======
    Calque visuel de SpaceMenuView (.smv-*) : fond rouge charte, contrôles blancs
@@ -3935,10 +3532,6 @@ export default {
 .si-subnav .si-tab-active { color: var(--si-primary); border-bottom-color: var(--si-primary); }
 .si-subnav .si-tab-count { color: var(--si-faint); font-weight: 500; margin-left: 4px; }
 .si-sort-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.si-sort-label {
-  font-size: 0.72rem; font-weight: 700; color: var(--si-muted);
-  text-transform: uppercase; letter-spacing: 0.03em; margin-right: 2px;
-}
 .si-sort-chip {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 5px 12px; border: 1px solid var(--si-border); border-radius: 100px;
@@ -3958,9 +3551,18 @@ export default {
 
 /* Titre du bandeau (blanc, parité .av-header__title). */
 .si-band-title { min-width: 0; margin-right: auto; }
+/* Avec la ligne PIN : le bloc titre prend la largeur disponible pour que ■ ▶ se
+   calent à droite du bandeau (maquette Bertrand 2026-10-06, pages 3 et 4). */
+.si-band-title--pin { flex: 1 1 360px; }
 .si-band-title__main { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; }
 .si-band-title__sub { margin: 2px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, 0.78); }
 .si-band-title__event { font-weight: 700; color: #fff; }
+.si-band-event-btn {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 0; border: 0; background: transparent; color: #fff; cursor: pointer;
+  font: inherit;
+}
+.si-band-event-btn:focus-visible { outline: 2px solid rgba(255, 255, 255, 0.6); outline-offset: 2px; }
 .si-band-title__anchor { opacity: 0.82; }
 .si-band-title__warn { opacity: 0.95; font-weight: 600; }
 .si-band-title__lock { color: #b91c1c; }
@@ -4018,8 +3620,7 @@ export default {
   min-width: 0;
   justify-content: space-between;
 }
-.si-band-right .si-status-pills,
-.si-band-right .si-substatus { flex: 0 0 auto; }
+.si-band-right .si-status-pills { flex: 0 0 auto; }
 
 /* Toggle du panneau de filtres (icône drawer, à gauche du bandeau rouge). */
 .si-band-toggle {
@@ -4084,7 +3685,6 @@ export default {
   color: #fff;
 }
 .si-mobile-tools-trigger:active { transform: scale(.94); }
-.si-menu-item-progress { margin-left: 6px; opacity: .65; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 900px) {
   .si-toggle--desktop { display: none; }
@@ -4164,18 +3764,6 @@ export default {
 .si-status-pill.active .si-status-pill-count { background: rgba(255, 49, 49, 0.15); color: #ff3131; }
 .si-status-pill--closed.active .si-status-pill-count { background: rgba(55, 65, 81, 0.15); color: #374151; }
 
-/* Sous-statuts comptage sur le bandeau */
-.si-segrow--band .si-substatus {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.25);
-}
-.si-segrow--band .si-substatus-btn { color: rgba(255, 255, 255, 0.85); }
-.si-segrow--band .si-substatus-btn:hover { color: #fff; }
-.si-segrow--band .si-substatus-btn-active { background: #fff; color: #ff3131; }
-.si-segrow--band .si-substatus-count { background: rgba(255, 255, 255, 0.25); color: #fff; }
-.si-segrow--band .si-substatus-btn-active .si-substatus-count { background: rgba(255, 49, 49, 0.15); color: #ff3131; }
-.si-segrow--band .si-substatus-help { color: rgba(255, 255, 255, 0.7); }
-.si-segrow--band .si-substatus-help:hover { color: #fff; }
 
 /* Recherche PdV/articles — géométrie alignée sur la ref Menu Items/Market Price
    (rounded-md 8px, 36px, pleine largeur, icône à gauche) ; reste translucide/charte. */
@@ -4506,7 +4094,6 @@ export default {
   .si-actions { width: 100%; margin-left: 0; }
   .si-event-select, .si-search-field { width: 100%; max-width: none; min-width: 0; }
   .si-tabs { overflow-x: auto; }
-  .si-substatus { max-width: 100%; overflow-x: auto; }
   /* Bandeau rouge : reste sur 1 seule ligne (hamburger + titre/event + icônes),
      PAS de retour à la ligne — retour utilisateur. Remplace le flex-wrap:wrap
      posé ci-dessus. Marge NÉGATIVE (pas juste 0) : .si-body (son ancêtre,
@@ -4561,8 +4148,7 @@ export default {
     gap: 8px;
     border-bottom: 0;
   }
-  .si-tabs,
-  .si-substatus {
+  .si-tabs {
     width: 100%;
     overflow-x: auto;
   }
@@ -4578,10 +4164,6 @@ export default {
   }
   .si-tab {
     white-space: nowrap;
-  }
-  .si-save-progress {
-    margin-left: 5px;
-    padding: 0 6px;
   }
   .si-mobile-sheet-actions {
     grid-template-columns: 1fr;
@@ -4629,7 +4211,6 @@ export default {
 .si-back,
 .si-toolnav-btn,
 .si-tab,
-.si-substatus-btn,
 .si-btn {
   border-radius: var(--fb-radius-control, 8px) !important;
 }
@@ -4647,7 +4228,6 @@ export default {
 .si-back:focus-visible,
 .si-toolnav-btn:focus-visible,
 .si-tab:focus-visible,
-.si-substatus-btn:focus-visible,
 .si-btn:focus-visible {
   outline: 3px solid rgba(255, 49, 49, 0.18);
   outline-offset: 2px;
@@ -4661,8 +4241,7 @@ export default {
   background: var(--fb-primary-hover, #ff3131) !important;
 }
 .si-toolnav-btn,
-.si-tab,
-.si-substatus-btn {
+.si-tab {
   transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 .si-card,
@@ -4678,8 +4257,7 @@ export default {
 .si-card-name,
 .si-stat strong,
 .si-card-meta-row strong,
-.si-tab-count,
-.si-substatus-count {
+.si-tab-count {
   font-variant-numeric: tabular-nums;
 }
 .si-status-ok {
@@ -4795,19 +4373,12 @@ export default {
    translucides noirs, ascenseurs, shimmer du skeleton, état désactivé.
    Le bandeau rouge (#ff3131 + contrôles blancs) est volontairement identique
    dans les deux thèmes — parité Space Menus, cf. commentaire plus haut. */
-.v-theme--dataFridayDark .space-inventory-view .si-substatus-count,
 .v-theme--dataFridayDark .space-inventory-view .si-sort-chip-count {
   background: rgba(255, 255, 255, 0.12);
 }
 /* Le chip de tri actif reste rouge : son compteur garde son blanc translucide. */
 .v-theme--dataFridayDark .space-inventory-view .si-sort-chip-active .si-sort-chip-count {
   background: rgba(255, 255, 255, 0.25);
-}
-.v-theme--dataFridayDark .space-inventory-view .si-substatus-help:hover {
-  color: #e2e8f0;
-}
-.v-theme--dataFridayDark .space-inventory-view .si-substatus-btn-active {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 /* Ascenseurs : le gris clair #D1D5DB tranchait sur le fond sombre. */
 .v-theme--dataFridayDark .space-inventory-view .si-main,

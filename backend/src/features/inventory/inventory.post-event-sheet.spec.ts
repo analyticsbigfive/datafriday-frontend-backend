@@ -48,9 +48,21 @@ describe('InventoryService, feuille post-event et recomptage par PDV', () => {
     await service.createPostEventReconciliation('space-1', dto, 'tenant-1', 'user-1');
     expect(prisma.stockReconciliation.deleteMany).toHaveBeenCalled();
     expect(push).toHaveBeenCalled();
-    expect(prisma.inventoryWindow.updateMany).toHaveBeenCalledWith(
+    expect(prisma.inventoryWindow.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { tenantId: 'tenant-1', spaceId: 'space-1', eventId: 'event-1', phase: 'post-event', status: 'open' },
+      }),
+    );
+    expect(prisma.inventoryWindow.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ['win-post'] }, status: 'open' } }),
+    );
+    // PIN conservé (lié à l'event), accès PDV révoqués (document Bertrand 2026-10-06).
+    const data = prisma.inventoryWindow.updateMany.mock.calls[0][0].data;
+    expect(data).not.toHaveProperty('pinLookupHash');
+    expect(prisma.guestPinAccess.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { windowId: { in: ['win-post'] }, status: 'active' },
+        data: expect.objectContaining({ status: 'revoked' }),
       }),
     );
   });

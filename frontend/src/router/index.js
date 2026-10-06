@@ -241,7 +241,7 @@ const routes = [
 
       // Accès PIN invité : plus une page à part (orpheline, jamais reliée à aucun
       // menu) — intégré directement dans Pre-event/Post-event Inventory
-      // (GuestPinBadge par carte + GuestPinAccessPanel colonne de droite).
+      // (PIN dans le bandeau, ▶ / ■ et GuestPinBadge par ligne PDV).
 
       {
         // Live (chantier 379, frontend/docs/chantiers/379_live_standalone_backend_driven) :

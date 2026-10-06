@@ -14,11 +14,13 @@ import { AuditService } from '../../core/audit/audit.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { InventoryService } from '../inventory/inventory.service';
 import { PreEventInventoryFlowService } from '../inventory/pre-event-inventory-flow.service';
+import { PostEventDraftService } from '../inventory/post-event-draft.service';
 import { decryptPin, encryptPin } from './guest-pin-crypto';
+import { closeInventoryWindows, revokeWindowAccesses } from '../inventory/inventory-window-closure';
 import { MenuItemsService } from '../menu-items/menu-items.service';
 import { MarketPricesService } from '../market-prices/market-prices.service';
 import { MenuComponentsService } from '../menu-components/menu-components.service';
-import { CreateWindowDto } from './dto/create-window.dto';
+import { CreateWindowDto, WindowElementDto, WindowTargetDto } from './dto/create-window.dto';
 import { SaveGuestCountDto } from './dto/save-guest-count.dto';
 import {
   InventoryWindowPhase,
@@ -75,6 +77,7 @@ export class GuestPinAccessService {
     private readonly spaceAccess: SpaceAccessService,
     private readonly configService: ConfigService,
     private readonly jwt: JwtService,
+    private readonly postEventDraft: PostEventDraftService,
   ) {}
 
   /** STAFF/VIEWER limités à leurs espaces accordés (SpaceAccessGuard ne s'applique
@@ -152,25 +155,31 @@ export class GuestPinAccessService {
   async getPublicContext(slug: string): Promise<GuestPinPublicContext> {
     const element = await this.resolveElementBySlug(slug);
     if (!element || !element.spaceId) return { elementName: element?.name ?? null, active: false };
-
-    const windows = await this.prisma.inventoryWindow.findMany({
-      where: { spaceId: element.spaceId, status: 'open', pinLookupHash: { not: null } },
-      select: { id: true },
-    });
-    if (!windows.length) return { elementName: element.name, active: false };
-
-    // Ce PDV précis a pu être révoqué individuellement — la fenêtre reste ouverte
-    // pour les autres, mais l'écran de connexion doit refléter SON statut à lui.
-    const revoked = await this.prisma.guestPinAccess.findMany({
-      where: {
-        windowId: { in: windows.map((w) => w.id) },
-        elementId: element.id,
-        status: { not: 'active' },
-      },
-      select: { windowId: true },
-    });
-    const active = revoked.length < windows.length;
+    const active = await this.isElementReachable(element.spaceId, element.id);
     return { elementName: element.name, active };
+  }
+
+  /**
+   * Ce PDV est-il joignable par PIN en ce moment ? Oui si une fenêtre AVEC PIN lui est
+   * ouverte : soit la fenêtre est ouverte en masse et ce PDV n'y a pas été arrêté, soit
+   * ce PDV y a été rouvert individuellement (fenêtre arrêtée, document Bertrand
+   * 2026-10-06 pages 3 et 4 : « peuvent être rendus accessibles individuellement »).
+   */
+  private async isElementReachable(spaceId: string, elementId: string): Promise<boolean> {
+    const windows = await this.prisma.inventoryWindow.findMany({
+      where: { spaceId, pinLookupHash: { not: null } },
+      select: { id: true, status: true },
+    });
+    if (!windows.length) return false;
+    const accesses = await this.prisma.guestPinAccess.findMany({
+      where: { windowId: { in: windows.map((w) => w.id) }, elementId },
+      select: { windowId: true, status: true },
+    });
+    const accessByWindow = new Map(accesses.map((a) => [a.windowId, a.status]));
+    return windows.some((w) => {
+      const status = accessByWindow.get(w.id);
+      return status ? status === 'active' : w.status === 'open';
+    });
   }
 
   // ── Invité : login ───────────────────────────────────────────────────────────
@@ -197,28 +206,24 @@ export class GuestPinAccessService {
     }
 
     const element = await this.resolveElementBySlug(slug);
-    const armed = element?.spaceId
-      ? await this.prisma.inventoryWindow.count({
-          where: { spaceId: element.spaceId, status: 'open', pinLookupHash: { not: null } },
-        })
-      : 0;
+    const armed = element?.spaceId ? await this.isElementReachable(element.spaceId, element.id) : false;
 
-    // PDV inconnu, ou aucune fenêtre ouverte AVEC PIN pour son espace — même écran
+    // PDV inconnu, ou aucune fenêtre AVEC PIN ne lui est ouverte — même écran
     // "Accès inactif" (déjà annoncé par getPublicContext avant toute saisie). Pas de
     // compteur d'échec ici : rien à brute-forcer, aucun PIN n'est comparé.
     if (!element || !armed) {
       return { state: 'inactive' };
     }
-    // `armed` n'est non nul que quand `element.spaceId` était non-null (ligne
+    // `armed` n'est vrai que quand `element.spaceId` était non-null (ligne
     // ci-dessus) — TS ne le déduit pas à travers deux variables distinctes.
     const spaceId = element.spaceId as string;
 
     // C'est le PIN qui désigne la fenêtre (pinLookupHash est unique) : pre-event et
-    // post-event peuvent être ouvertes en même temps sur le même espace, un
-    // findFirst "n'importe quelle fenêtre ouverte" comparait alors le PIN
-    // post-event au hash pre-event et le rejetait.
+    // post-event ont chacune leur PIN. La fenêtre peut être arrêtée (le PIN est
+    // conservé, document Bertrand 2026-10-06) : c'est alors la ligne du PDV qui dit
+    // s'il a été rouvert individuellement.
     const window = await this.prisma.inventoryWindow.findFirst({
-      where: { spaceId, status: 'open', pinLookupHash: this.hashPin(pin) },
+      where: { spaceId, pinLookupHash: this.hashPin(pin) },
     });
     if (!window) {
       const count = await this.registerLoginFailure(rlKey);
@@ -228,9 +233,13 @@ export class GuestPinAccessService {
     let access = await this.prisma.guestPinAccess.findUnique({
       where: { uniq_guest_pin_access_per_element: { windowId: window.id, elementId: element.id } },
     });
-    // Ce PDV précis a été révoqué par le directeur — le PIN partagé reste valide
-    // pour les AUTRES PDV, mais pas pour celui-ci.
+    // Ce PDV précis a été arrêté (■ sur sa ligne, ou arrêt de toute la fenêtre) —
+    // le PIN partagé reste valide pour les AUTRES PDV ouverts, mais pas pour celui-ci.
     if (access && access.status !== 'active') {
+      return { state: 'inactive' };
+    }
+    // Pas de ligne : seul un accès ouvert en masse (fenêtre ouverte) laisse entrer.
+    if (!access && window.status !== 'open') {
       return { state: 'inactive' };
     }
     if (!access) {
@@ -562,9 +571,12 @@ export class GuestPinAccessService {
 
   async createOrReopenWindow(dto: CreateWindowDto, user: CurrentUserData) {
     await this.assertSpaceAccess(user, dto.spaceId);
-    const tenantId = user.tenantId!;
-    const actorUserId = user.id;
-    await this.assertPeriodOpen(dto.spaceId, dto.eventId, tenantId, dto.phase);
+    await this.assertPeriodOpen(dto.spaceId, dto.eventId, user.tenantId!, dto.phase);
+    return this.openWindowRecord(dto, user.tenantId!, user.id);
+  }
+
+  /** Ouvre (ou rouvre) la fenêtre de cette phase pour cet event. */
+  private async openWindowRecord(dto: CreateWindowDto, tenantId: string, actorUserId: string) {
 
     // Une seule fenêtre ouverte par espace et par phase (index partiel
     // InventoryWindow_one_open_per_space_phase) : une fenêtre d'un AUTRE match restée
@@ -612,14 +624,16 @@ export class GuestPinAccessService {
       },
     });
 
-    await this.audit.log({
-      tenantId,
-      userId: actorUserId,
-      action: 'CREATE',
-      entity: 'InventoryWindow',
-      entityId: window.id,
-      metadata: { spaceId: dto.spaceId, eventId: dto.eventId, phase: dto.phase },
-    });
+    if (!actorUserId.startsWith('system-')) {
+      await this.audit.log({
+        tenantId,
+        userId: actorUserId,
+        action: 'CREATE',
+        entity: 'InventoryWindow',
+        entityId: window.id,
+        metadata: { spaceId: dto.spaceId, eventId: dto.eventId, phase: dto.phase },
+      });
+    }
 
     return window;
   }
@@ -688,7 +702,6 @@ export class GuestPinAccessService {
    */
   async setWindowPin(windowId: string, user: CurrentUserData) {
     const tenantId = user.tenantId!;
-    const actorUserId = user.id;
     const window = await this.prisma.inventoryWindow.findFirst({ where: { id: windowId, tenantId } });
     if (!window) throw new NotFoundException('Fenêtre introuvable');
     await this.assertSpaceAccess(user, window.spaceId);
@@ -701,7 +714,12 @@ export class GuestPinAccessService {
       tenantId,
       window.phase as InventoryWindowPhase,
     );
+    const pin = await this.assignPin(windowId, tenantId, user.id);
+    return { windowId, pin };
+  }
 
+  /** Pose un nouveau PIN (unique sur toute la base) sur la fenêtre et le retourne en clair. */
+  private async assignPin(windowId: string, tenantId: string, actorUserId: string): Promise<string> {
     for (let attempt = 0; attempt < PIN_GENERATION_MAX_RETRIES; attempt++) {
       const pin = this.generatePin();
       const pinLookupHash = this.hashPin(pin);
@@ -716,23 +734,272 @@ export class GuestPinAccessService {
           },
         });
 
-        await this.audit.log({
-          tenantId,
-          userId: actorUserId,
-          action: 'UPDATE',
-          entity: 'InventoryWindow',
-          entityId: windowId,
-          metadata: { action: 'set-pin' },
-        });
+        // Acteur système (PIN préparé à l'avance) : AuditLog.userId est obligatoire.
+        if (!actorUserId.startsWith('system-')) {
+          await this.audit.log({
+            tenantId,
+            userId: actorUserId,
+            action: 'UPDATE',
+            entity: 'InventoryWindow',
+            entityId: windowId,
+            metadata: { action: 'set-pin' },
+          });
+        }
 
-        return { windowId, pin };
+        return pin;
       } catch (error: any) {
-        // Collision sur pinLookupHash (@unique) — une autre fenêtre a déjà ce PIN actif.
+        // Collision sur pinLookupHash (@unique) — une autre fenêtre a déjà ce PIN.
         if (error?.code === 'P2002' && attempt < PIN_GENERATION_MAX_RETRIES - 1) continue;
         throw error;
       }
     }
     throw new BadRequestException('Impossible de générer un PIN unique, réessayez');
+  }
+
+  /** PIN de la fenêtre, généré s'il n'existe pas encore (fenêtre antérieure au PIN
+   *  conservé, ou PIN illisible faute de chiffrement réversible). */
+  private async ensurePin(window: InventoryWindow, actorUserId: string): Promise<void> {
+    if (window.pinLookupHash && window.pinCiphertext) return;
+    await this.assignPin(window.id, window.tenantId, actorUserId);
+  }
+
+  /**
+   * Fenêtre PRÉPARÉE (document Bertrand 2026-10-06 : « générer automatiquement les codes
+   * PIN pour tous les événements à l'avance ») : créée arrêtée, avec son PIN. Personne ne
+   * se connecte tant que la phase n'est pas démarrée (sans ligne PDV, seule une fenêtre
+   * ouverte laisse entrer). Sans effet si la fenêtre existe déjà.
+   */
+  async prepareWindow(
+    target: WindowTargetDto,
+    tenantId: string,
+    actorId: string,
+  ): Promise<'created' | 'exists'> {
+    let window = await this.findWindow(target.spaceId, target.eventId, tenantId, target.phase);
+    if (window?.pinLookupHash && window.pinCiphertext) return 'exists';
+    if (!window) {
+      const now = new Date();
+      try {
+        window = await this.prisma.inventoryWindow.create({
+          data: {
+            tenantId,
+            spaceId: target.spaceId,
+            eventId: target.eventId,
+            phase: target.phase,
+            status: 'closed',
+            openedBy: actorId,
+            closedAt: now,
+            closedBy: actorId,
+          },
+        });
+      } catch (error: any) {
+        // Créée entre-temps (▶ d'un PDV, autre tick) : rien à faire.
+        if (error?.code === 'P2002') return 'exists';
+        throw error;
+      }
+    }
+    await this.ensurePin(window, actorId);
+    return 'created';
+  }
+
+  // ── Bandeau et lignes PDV : Démarrage / Reprise et Arrêt ──────────────────────
+  //
+  // Document Bertrand « Pre et Post event Inventory cycle » (2026-10-06, pages 3 à 6).
+  // Démarrer une phase arrête l'autre, pour tout l'espace (bandeau) ou pour un PDV
+  // (ligne). L'Arrêt coupe l'accès par PIN sans pousser vers la Logistique.
+
+  /** ▶ du bandeau : ouvre l'accès par PIN à tous les PDV pour cette phase. */
+  async startWindow(dto: WindowTargetDto, user: CurrentUserData) {
+    await this.assertSpaceAccess(user, dto.spaceId);
+    const tenantId = user.tenantId!;
+    await this.assertPeriodOpen(dto.spaceId, dto.eventId, tenantId, dto.phase);
+    await this.startPhase(dto, tenantId, user.id);
+    return this.getStatusBoard(dto.spaceId, dto.eventId, user);
+  }
+
+  /**
+   * Démarre une phase pour tous les PDV : arrête l'autre phase de l'espace (sans push),
+   * ouvre la fenêtre, rouvre les PDV arrêtés un par un, garantit le PIN. Partagé par le
+   * bandeau et par les démarrages automatiques (InventoryCycleCronService), sans contrôle
+   * de droits ni de période : c'est à l'appelant de les faire.
+   */
+  async startPhase(target: WindowTargetDto, tenantId: string, actorId: string): Promise<InventoryWindow> {
+    await this.stopOtherPhase(target.spaceId, tenantId, target.phase, actorId);
+    const window = await this.openWindowRecord(target, tenantId, actorId);
+    // Reprise : les PDV arrêtés un par un sont rouverts avec les autres.
+    await this.prisma.guestPinAccess.updateMany({
+      where: { windowId: window.id, status: { not: 'active' } },
+      data: { status: 'active', revokedAt: null, revokedBy: null },
+    });
+    await this.ensurePin(window, actorId);
+    return window;
+  }
+
+  /** Arrête une phase pour tous les PDV, PIN conservé, sans push Logistic (bandeau et
+   *  arrêts automatiques). Ferme aussi les PDV rouverts un par un. */
+  async stopPhaseWindow(
+    window: InventoryWindow,
+    actorId: string,
+    reason: 'manual-stop' | 'delivery' | 'sale',
+  ): Promise<void> {
+    if (window.status === 'open') {
+      await this.closeWindowRecord(window, actorId, { pushToLogistic: false, reason });
+    } else {
+      await revokeWindowAccesses(this.prisma, [window.id], actorId);
+    }
+    await this.freezePhase(window, actorId);
+  }
+
+  /**
+   * Fin d'une phase (D15, document Bertrand 2026-10-06) : les derniers articles comptés
+   * partent vers Logistic sans attendre le tick, et le snapshot de la phase est figé.
+   * Pre : feuille régénérée (snapshot + Logistic, PreEventInventoryFlowService). Post :
+   * Logistic puis snapshot post-event. Jamais bloquant : l'arrêt a déjà eu lieu.
+   */
+  private async freezePhase(window: InventoryWindow, actorId: string): Promise<void> {
+    try {
+      if (window.phase === 'pre-event') {
+        await this.preEventFlow.regenerate(window.spaceId, window.eventId, window.tenantId, actorId, 'phase-stop');
+      } else {
+        await this.inventoryService.pushPendingCountToLogistic(
+          window.spaceId,
+          window.eventId,
+          window.tenantId,
+          'post-event',
+          actorId,
+        );
+        await this.inventoryService.freezePostEventSnapshot(
+          window.spaceId,
+          window.eventId,
+          window.tenantId,
+          actorId.startsWith('system-') ? undefined : actorId,
+        );
+        // Réconciliation post-event à jour à l'arrêt : c'est le document final (D2).
+        await this.postEventDraft.rebuild(window.spaceId, window.eventId, window.tenantId);
+      }
+    } catch (error: any) {
+      this.logger.warn(`Fin de phase ${window.phase} (fenêtre ${window.id}) : figement en échec : ${error?.message}`);
+    }
+  }
+
+  /** ■ du bandeau : coupe l'accès par PIN de tous les PDV, PIN conservé. */
+  async stopWindow(dto: WindowTargetDto, user: CurrentUserData) {
+    await this.assertSpaceAccess(user, dto.spaceId);
+    const tenantId = user.tenantId!;
+    const window = await this.findWindow(dto.spaceId, dto.eventId, tenantId, dto.phase);
+    if (window) await this.stopPhaseWindow(window, user.id, 'manual-stop');
+    return this.getStatusBoard(dto.spaceId, dto.eventId, user);
+  }
+
+  /** ▶ d'une ligne PDV : ouvre l'accès par PIN à ce seul PDV, même fenêtre arrêtée. */
+  async startElement(dto: WindowElementDto, user: CurrentUserData) {
+    await this.assertSpaceAccess(user, dto.spaceId);
+    const tenantId = user.tenantId!;
+    await this.assertPeriodOpen(dto.spaceId, dto.eventId, tenantId, dto.phase);
+
+    let window = await this.findWindow(dto.spaceId, dto.eventId, tenantId, dto.phase);
+    if (!window) {
+      // Aucune fenêtre encore : créée ARRÊTÉE, seul ce PDV sera ouvert.
+      window = await this.prisma.inventoryWindow.create({
+        data: {
+          tenantId,
+          spaceId: dto.spaceId,
+          eventId: dto.eventId,
+          phase: dto.phase,
+          status: 'closed',
+          openedBy: user.id,
+          closedAt: new Date(),
+          closedBy: user.id,
+        },
+      });
+    }
+    await this.ensurePin(window, user.id);
+
+    // Exclusivité par PDV : l'autre phase est arrêtée pour ce PDV.
+    const otherPhase = dto.phase === 'pre-event' ? 'post-event' : 'pre-event';
+    const others = await this.prisma.inventoryWindow.findMany({
+      where: { tenantId, spaceId: dto.spaceId, phase: otherPhase },
+      select: { id: true },
+    });
+    for (const other of others) {
+      await this.setElementAccess(other.id, tenantId, dto.spaceId, dto.elementId, 'revoked', user.id);
+    }
+    await this.setElementAccess(window.id, tenantId, dto.spaceId, dto.elementId, 'active', user.id);
+    await this.audit.log({
+      tenantId,
+      userId: user.id,
+      action: 'UPDATE',
+      entity: 'InventoryWindow',
+      entityId: window.id,
+      metadata: { action: 'start-element', elementId: dto.elementId },
+    });
+    return this.getStatusBoard(dto.spaceId, dto.eventId, user);
+  }
+
+  /** ■ d'une ligne PDV : coupe l'accès par PIN de ce seul PDV. */
+  async stopElement(dto: WindowElementDto, user: CurrentUserData) {
+    await this.assertSpaceAccess(user, dto.spaceId);
+    const tenantId = user.tenantId!;
+    const window = await this.findWindow(dto.spaceId, dto.eventId, tenantId, dto.phase);
+    if (window) {
+      await this.setElementAccess(window.id, tenantId, dto.spaceId, dto.elementId, 'revoked', user.id);
+      await this.audit.log({
+        tenantId,
+        userId: user.id,
+        action: 'UPDATE',
+        entity: 'InventoryWindow',
+        entityId: window.id,
+        metadata: { action: 'stop-element', elementId: dto.elementId },
+      });
+    }
+    return this.getStatusBoard(dto.spaceId, dto.eventId, user);
+  }
+
+  findWindow(spaceId: string, eventId: string, tenantId: string, phase: InventoryWindowPhase) {
+    return this.prisma.inventoryWindow.findUnique({
+      where: { uniq_inventory_window: { tenantId, spaceId, eventId, phase } },
+    });
+  }
+
+  /** Arrête toute fenêtre de l'autre phase encore ouverte sur l'espace, sans push. */
+  private async stopOtherPhase(spaceId: string, tenantId: string, phase: InventoryWindowPhase, actorId: string) {
+    const otherPhase = phase === 'pre-event' ? 'post-event' : 'pre-event';
+    const open = await this.prisma.inventoryWindow.findMany({
+      where: { tenantId, spaceId, phase: otherPhase, status: 'open' },
+    });
+    for (const w of open) {
+      await this.closeWindowRecord(w, actorId, { pushToLogistic: false, reason: 'phase-switch' });
+      await this.freezePhase(w, actorId);
+    }
+  }
+
+  /** Ligne d'accès d'un PDV sur une fenêtre, créée au besoin. */
+  private async setElementAccess(
+    windowId: string,
+    tenantId: string,
+    spaceId: string,
+    elementId: string,
+    status: 'active' | 'revoked',
+    actorId: string,
+  ) {
+    const revoked = status === 'revoked';
+    await this.prisma.guestPinAccess.upsert({
+      where: { uniq_guest_pin_access_per_element: { windowId, elementId } },
+      create: {
+        tenantId,
+        windowId,
+        spaceId,
+        elementId,
+        status,
+        createdBy: actorId,
+        revokedAt: revoked ? new Date() : null,
+        revokedBy: revoked ? actorId : null,
+      },
+      update: {
+        status,
+        revokedAt: revoked ? new Date() : null,
+        revokedBy: revoked ? actorId : null,
+      },
+    });
   }
 
   async revokeAccess(accessId: string, user: CurrentUserData) {
@@ -873,30 +1140,20 @@ export class GuestPinAccessService {
   async closeWindowRecord(
     window: InventoryWindow,
     actorId: string,
-    options: { pushToLogistic: boolean; reason: 'manual' | 'superseded' | 'period-end' },
+    options: {
+      pushToLogistic: boolean;
+      reason: 'manual' | 'manual-stop' | 'phase-switch' | 'superseded' | 'period-end' | 'delivery' | 'sale';
+    },
   ): Promise<{ ok: boolean; reason?: string }> {
     const tenantId = window.tenantId;
     const windowId = window.id;
 
-    // La clôture (= révocation de tous les accès invité de cette fenêtre) est
-    // inconditionnelle : elle prend effet même si le push logistique échoue
-    // ensuite (ex. "aucun item compté"). Ne jamais faire dépendre la révocation
-    // du succès de la synchro. pinLookupHash=null libère la valeur (contrainte
-    // unique) pour qu'une future fenêtre puisse retomber sur le même PIN à 6
-    // chiffres sans collision — le login le rejette de toute façon déjà via
-    // `window.status === 'open'`, ce n'est qu'une libération de la valeur.
-    // Conditionnel sur status 'open' : le cron et un clic directeur simultanés ne
-    // clôturent (et ne poussent) qu'une fois.
-    const closed = await this.prisma.inventoryWindow.updateMany({
-      where: { id: windowId, status: 'open' },
-      data: {
-        status: 'closed',
-        closedAt: new Date(),
-        closedBy: actorId,
-        pinLookupHash: null,
-        pinCiphertext: null,
-      },
-    });
+    // La clôture (= révocation de tous les accès invité de cette fenêtre, PIN conservé,
+    // cf. closeInventoryWindows) est inconditionnelle : elle prend effet même si le
+    // push logistique échoue ensuite (ex. "aucun item compté"). Ne jamais faire
+    // dépendre la révocation du succès de la synchro. Le cron et un clic directeur
+    // simultanés ne clôturent (et ne poussent) qu'une fois.
+    const closed = await closeInventoryWindows(this.prisma, { id: windowId }, { closedAt: new Date(), closedBy: actorId });
     if (!closed.count) return { ok: false, reason: 'already-closed' };
 
     let pushResult: { ok: boolean; reason?: string } = { ok: false, reason: 'not-attempted' };

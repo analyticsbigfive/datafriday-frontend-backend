@@ -965,7 +965,7 @@ describe('InventoryService', () => {
       mockPrisma.stockReconciliation.findFirst.mockResolvedValue(null);
     });
 
-    it('fenêtre movementUnits : du comptage pre-event à eventEndDate + 1 j, SALE exclus', async () => {
+    it('fenêtre movementUnits : du comptage pre-event à eventEndDate + 1 j, SALE et INVENTORY_RESET exclus', async () => {
       const preAt = new Date('2026-07-09T10:00:00Z');
       wirePreEventSnapshot(preAt);
       mockPrisma.stockLevel.findMany.mockResolvedValue([]);
@@ -975,7 +975,8 @@ describe('InventoryService', () => {
 
       const { where } = mockPrisma.stockMovement.findMany.mock.calls[0][0];
       expect(where.createdAt).toEqual({ gt: preAt, lt: new Date('2026-07-11T23:00:00Z') });
-      expect(where.reason).toEqual({ notIn: ['SALE'] });
+      // INVENTORY_RESET : recalages depuis le comptage pendant le match (D1, 2026-10-06), pas des mouvements.
+      expect(where.reason).toEqual({ notIn: ['SALE', 'INVENTORY_RESET'] });
     });
 
     it("sans comptage pre-event : la fenêtre démarre à eventDate — et l'attendu, lui, existe toujours", async () => {

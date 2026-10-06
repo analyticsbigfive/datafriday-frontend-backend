@@ -15,7 +15,10 @@
         </v-btn>
       </div>
 
+      <!-- Post-event : dernier / prochain event (document Bertrand 2026-10-06) ;
+           liste vide en pre-event, l'event y est toujours le prochain. -->
       <v-select
+        v-if="eventOptions.length > 1"
         :model-value="selectedEventId"
         :items="eventOptions"
         item-title="label"
@@ -38,17 +41,22 @@
         class="mb-3"
         @update:model-value="$emit('update:search', $event)"
       />
+      <!-- Statut de comptage, sélection multiple (même filtre que le menu burger
+           desktop, InventoryCountingStatusMenu). -->
       <v-select
-        :model-value="countingStatusTab"
-        :items="countingTabs"
+        :model-value="countingStatuses"
+        :items="countingStatusOptions"
         item-title="label"
         item-value="value"
+        multiple
+        chips
+        closable-chips
         density="compact"
         variant="outlined"
         hide-details
         :label="t('invFilterStatus')"
         class="mb-3"
-        @update:model-value="$emit('update:countingStatusTab', $event)"
+        @update:model-value="$emit('update:countingStatuses', $event)"
       />
 
       <!-- Facettes stockages — onglet Storage -->
@@ -264,9 +272,9 @@ export default {
     activeTab: { type: String, default: 'shops' },
     selectedEventId: { type: [String, Number, null], default: null },
     search: { type: String, default: '' },
-    countingStatusTab: { type: String, default: 'to-count' },
+    countingStatuses: { type: Array, default: () => [] },
     eventOptions: { type: Array, default: () => [] },
-    countingTabs: { type: Array, default: () => [] },
+    countingStatusOptions: { type: Array, default: () => [] },
     // Facettes avancées
     shopOptions: { type: Array, default: () => [] },
     shopTypeOptions: { type: Array, default: () => [] },
@@ -293,7 +301,7 @@ export default {
     'update:modelValue',
     'update:selectedEventId',
     'update:search',
-    'update:countingStatusTab',
+    'update:countingStatuses',
     'update:selectedShops',
     'update:selectedShopTypes',
     'update:selectedShopAreas',

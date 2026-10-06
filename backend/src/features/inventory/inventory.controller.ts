@@ -23,6 +23,8 @@ import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
 import { CreatePreEventReconciliationDto } from './dto/create-pre-event-reconciliation.dto';
 import { RecountElementDto } from './dto/recount-element.dto';
+import { PostEventContextDto } from './dto/post-event-context.dto';
+import { PostEventDraftService } from './post-event-draft.service';
 import { PushToLogisticDto } from './dto/push-to-logistic.dto';
 import { RegeneratePreEventReconciliationDto } from './dto/regenerate-pre-event-reconciliation.dto';
 import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
@@ -38,6 +40,7 @@ export class InventoryController {
   constructor(
     private readonly inventoryService: InventoryService,
     private readonly preEventFlow: PreEventInventoryFlowService,
+    private readonly postEventDraft: PostEventDraftService,
   ) {}
 
   /** BUG-233 — l'appelant a-t-il le droit de VOIR les quantités attendues ?
@@ -254,13 +257,14 @@ export class InventoryController {
     this.logger.log(
       `POST /inventory/${spaceId}/pre-event-reconciliations/regenerate eventId=${dto.eventId} element=${dto.elementId ?? '-'}`,
     );
-    // Après l'ouverture des portes : feuille seule, Logistic reste manuel.
+    // Feuille + Logistic, avant comme après les portes (D1, document Bertrand 2026-10-06).
     return this.preEventFlow.regenerateOnPdvComplete(
       spaceId,
       dto.eventId,
       user.tenantId,
       user.id,
       dto.elementId,
+      dto.predictedUnits ?? null,
     );
   }
 
@@ -330,6 +334,21 @@ export class InventoryController {
     return this.inventoryService.createPostEventReconciliation(spaceId, dto, user.tenantId, user.id, {
       draft: true,
     });
+  }
+
+  // Contexte de la réconciliation post-event (prédit, coût, unité calculés par l'écran) :
+  // le serveur tient le document et le reconstruit aussitôt (lot 4b, 2026-10-06).
+  @Post(':spaceId/post-event-context')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: "Contexte de l'écran pour la réconciliation post-event, puis brouillon reconstruit" })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  async savePostEventContext(
+    @Param('spaceId') spaceId: string,
+    @Body() dto: PostEventContextDto,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`POST /inventory/${spaceId}/post-event-context eventId=${dto.eventId} lines=${dto.lines?.length ?? 0}`);
+    return this.postEventDraft.saveContext(spaceId, dto, user.tenantId, user.id);
   }
 
   @Post(':spaceId/recount-element')

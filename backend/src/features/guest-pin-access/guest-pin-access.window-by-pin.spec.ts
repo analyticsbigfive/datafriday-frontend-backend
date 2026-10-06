@@ -43,8 +43,7 @@ describe('GuestPinAccessService : deux fenêtres ouvertes, le PIN désigne la fe
         }),
       },
       inventoryWindow: {
-        count: jest.fn().mockResolvedValue(2),
-        findMany: jest.fn().mockResolvedValue([{ id: 'win-pre' }, { id: 'win-post' }]),
+        findMany: jest.fn().mockImplementation(async () => [preWindow, postWindow]),
         // Simule le filtre Prisma `pinLookupHash: <hash>` sur les deux fenêtres ouvertes.
         findFirst: jest
           .fn()
@@ -96,6 +95,7 @@ describe('GuestPinAccessService : deux fenêtres ouvertes, le PIN désigne la fe
       {} as any,
       configService as any,
       jwt as any,
+      {} as any, // postEventDraft
     );
   });
 
@@ -123,18 +123,45 @@ describe('GuestPinAccessService : deux fenêtres ouvertes, le PIN désigne la fe
   });
 
   it("avant saisie, le PDV est actif si au moins une fenêtre ouverte avec PIN ne l'a pas révoqué", async () => {
-    prisma.guestPinAccess.findMany.mockResolvedValue([{ windowId: 'win-pre' }]); // révoqué en pre-event seulement
+    prisma.guestPinAccess.findMany.mockResolvedValue([{ windowId: 'win-pre', status: 'revoked' }]); // révoqué en pre-event seulement
     expect(await service.getPublicContext('buvette-d')).toEqual({
       elementName: 'Buvette D',
       active: true,
     });
     prisma.guestPinAccess.findMany.mockResolvedValue([
-      { windowId: 'win-pre' },
-      { windowId: 'win-post' },
+      { windowId: 'win-pre', status: 'revoked' },
+      { windowId: 'win-post', status: 'revoked' },
     ]);
     expect(await service.getPublicContext('buvette-d')).toEqual({
       elementName: 'Buvette D',
       active: false,
+    });
+  });
+
+  describe('fenêtre arrêtée, PIN conservé (document Bertrand 2026-10-06)', () => {
+    beforeEach(() => {
+      preWindow.status = 'closed';
+      postWindow.status = 'closed';
+    });
+    afterEach(() => {
+      preWindow.status = 'open';
+      postWindow.status = 'open';
+    });
+
+    it('sans ligne pour ce PDV : accès inactif, aucun échec compté', async () => {
+      const result: any = await service.login('111111', 'device-1', '10.0.0.1', 'buvette-d');
+      expect(result.state).toBe('inactive');
+      expect(redis.incr).not.toHaveBeenCalled();
+      expect(prisma.guestPinAccess.create).not.toHaveBeenCalled();
+    });
+
+    it('PDV rouvert individuellement (ligne active) : connexion acceptée', async () => {
+      const row = { id: 'access-1', windowId: 'win-pre', elementId: 'shop-1', status: 'active' };
+      prisma.guestPinAccess.findMany.mockResolvedValue([{ windowId: 'win-pre', status: 'active' }]);
+      prisma.guestPinAccess.findUnique.mockResolvedValue(row);
+      const result: any = await service.login('111111', 'device-1', '10.0.0.1', 'buvette-d');
+      expect(result.state).toBe('ok');
+      expect(await service.getPublicContext('buvette-d')).toEqual({ elementName: 'Buvette D', active: true });
     });
   });
 });

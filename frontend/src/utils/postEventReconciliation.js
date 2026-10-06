@@ -226,6 +226,30 @@ export function buildPostEventReconciliationLines({
 }
 
 /**
+ * Contexte envoyé au serveur (lot 4b, document Bertrand 2026-10-06) : le serveur tient
+ * la réconciliation post-event et reprend, ligne à ligne, les colonnes que seul l'écran
+ * sait calculer. Les autres colonnes (compté, vendu, restant, manquant) sont recalculées
+ * côté serveur, elles ne sont pas envoyées.
+ *
+ * @param {Array<object>} lines lignes de `buildPostEventReconciliationLines`
+ * @returns {Array<{elementId:string, itemKey:string, predictedUnits:number|null,
+ *   unitCost:number|null, unit:string|null, unitsPerPack:number|null, packaging:string|null}>}
+ */
+export function postEventContextLines(lines = []) {
+  return (lines || [])
+    .filter((l) => l?.elementId && l?.itemKey)
+    .map((l) => ({
+      elementId: String(l.elementId),
+      itemKey: String(l.itemKey),
+      predictedUnits: l.predictedUnits ?? null,
+      unitCost: l.unitCost ?? null,
+      unit: l.unit ?? null,
+      unitsPerPack: l.unitsPerPack ?? null,
+      packaging: l.packaging ?? null,
+    }))
+}
+
+/**
  * Chips résumé d'un document (recalculées à l'affichage — le document ne
  * persiste pas de summary, il reste self-contained par ses lignes).
  *

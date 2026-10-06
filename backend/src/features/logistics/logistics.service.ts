@@ -2249,7 +2249,19 @@ export class LogisticsService {
    * Jamais d'écarté silencieux (BUG-238) : PdV non mappé / hors espace et produit
    * sans mapping menu item sortent dans `unjoined` (noms + unités), pas du calcul.
    */
-  async deriveEventConsumption(spaceId: string, eventId: string, tenantId: string) {
+  async deriveEventConsumption(
+    spaceId: string,
+    eventId: string,
+    tenantId: string,
+    /** D19 (document Bertrand 2026-10-06) : ventes d'un PDV arrêtées à cet instant (son
+     *  dernier « Marquer compté » en post-event). PDV absent : toute la fenêtre. */
+    options: {
+      untilByElement?: Map<string, Date>;
+      /** Ventes POSTÉRIEURES à cet instant, et seulement pour ces PDV (les autres sont
+       *  exclus) : ventes faites depuis un comptage, retirées avant l'envoi vers Logistic. */
+      sinceByElement?: Map<string, Date>;
+    } = {},
+  ) {
     await this.assertSpace(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
       where: { id: eventId, spaceId, tenantId },
@@ -2287,6 +2299,27 @@ export class LogisticsService {
     const shopScopeClause = integrationIds.length
       ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" IN (${Prisma.join(elementIds)}))`
       : Prisma.sql`mem."spaceElementId" IN (${Prisma.join(elementIds)})`;
+    const bounds = [...(options.untilByElement ?? new Map<string, Date>()).entries()];
+    const untilClause = bounds.length
+      ? Prisma.sql`AND (
+          mem."spaceElementId" IS NULL
+          OR mem."spaceElementId" NOT IN (${Prisma.join(bounds.map(([id]) => id))})
+          OR ${Prisma.join(
+            bounds.map(([id, until]) => Prisma.sql`(mem."spaceElementId" = ${id} AND t."transactionDate" <= ${until})`),
+            ' OR ',
+          )}
+        )`
+      : Prisma.empty;
+    const sinceBounds = [...(options.sinceByElement ?? new Map<string, Date>()).entries()];
+    if (options.sinceByElement && !sinceBounds.length) {
+      return { eventId: event.id, eventName: event.name ?? null, lines: [], unjoined: null, elementNames: {} };
+    }
+    const sinceClause = sinceBounds.length
+      ? Prisma.sql`AND (${Prisma.join(
+          sinceBounds.map(([id, since]) => Prisma.sql`(mem."spaceElementId" = ${id} AND t."transactionDate" > ${since})`),
+          ' OR ',
+        )})`
+      : Prisma.empty;
 
     // Jointure mapping PdV en superset des deux conventions existantes
     // (timeline : mem sur t.locationId ; deriveSalesRaw : via WeezeventLocation
@@ -2320,6 +2353,8 @@ export class LogisticsService {
         AND t."deletedAt" IS NULL
         ${integrationClause}
         AND ${shopScopeClause}
+        ${untilClause}
+        ${sinceClause}
       GROUP BY 1, 2, ti."productId"
     `);
 
@@ -2659,22 +2694,67 @@ export class LogisticsService {
       // introduit puis annulé le 2026-08-13 : Réconciliation ≠ Pertes).
       where: { tenantId, spaceId, kind: null },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, eventId: true, eventName: true, createdAt: true, createdBy: true, lines: true },
+      select: { id: true, eventId: true, eventName: true, createdAt: true, createdBy: true, lines: true, meta: true },
     });
-    return rows.map((r) => ({
-      id: r.id,
-      eventId: r.eventId,
-      eventName: r.eventName,
-      createdAt: r.createdAt,
-      createdBy: r.createdBy,
-      lineCount: Array.isArray(r.lines) ? (r.lines as any[]).length : 0,
-    }));
+    // Recalages issus des comptages d'inventaire (envoyés à la minute pendant le comptage,
+    // document Bertrand 2026-10-06) : UNE ligne par match et par phase, la plus récente,
+    // au lieu d'une par envoi. Lecture seule : aucun document n'est supprimé (le plus
+    // récent reste l'ancre des ventes).
+    const out: Array<Record<string, unknown>> = [];
+    const groups = new Map<string, { row: Record<string, unknown>; keys: Set<string>; count: number }>();
+    for (const r of rows) {
+      const lines = (Array.isArray(r.lines) ? r.lines : []) as any[];
+      const groupKey = inventoryCountGroupKey(r.meta, r.eventId);
+      if (!groupKey) {
+        out.push({ id: r.id, eventId: r.eventId, eventName: r.eventName, createdAt: r.createdAt, createdBy: r.createdBy, lineCount: lines.length });
+        continue;
+      }
+      let group = groups.get(groupKey);
+      if (!group) {
+        const row = { id: r.id, eventId: r.eventId, eventName: r.eventName, createdAt: r.createdAt, createdBy: r.createdBy, lineCount: 0, groupedCount: 0 };
+        group = { row, keys: new Set(), count: 0 };
+        groups.set(groupKey, group);
+        out.push(row);
+      }
+      group.count += 1;
+      for (const l of lines) group.keys.add(`${l?.elementId}::${l?.itemKey}`);
+      group.row.lineCount = group.keys.size;
+      group.row.groupedCount = group.count;
+    }
+    return out;
   }
 
   async getReconciliation(id: string, tenantId: string, user?: SpaceScopedUser) {
     const reco = await this.prisma.stockReconciliation.findFirst({ where: { id, tenantId } });
     if (!reco) throw new NotFoundException(`Reconciliation ${id} not found`);
     await this.assertSpaceAccess(reco.spaceId, user);
+    // Recalage issu d'un comptage : lignes de tous les envois du même match et de la même
+    // phase, la plus récente l'emporte par article (cf. listReconciliations).
+    const meta = (reco.meta ?? null) as Record<string, unknown> | null;
+    if (reco.kind === null && inventoryCountGroupKey(meta, reco.eventId)) {
+      const siblings = await this.prisma.stockReconciliation.findMany({
+        where: {
+          tenantId,
+          spaceId: reco.spaceId,
+          eventId: reco.eventId,
+          kind: null,
+          AND: [
+            { meta: { path: ['source'], equals: 'inventory-count' } },
+            { meta: { path: ['phase'], equals: meta!.phase as string } },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { id: true, lines: true },
+      });
+      const merged = new Map<string, unknown>();
+      for (const sibling of siblings) {
+        for (const l of (Array.isArray(sibling.lines) ? sibling.lines : []) as any[]) {
+          const key = `${l?.elementId}::${l?.itemKey}`;
+          if (!merged.has(key)) merged.set(key, l);
+        }
+      }
+      return { ...reco, lines: [...merged.values()] as any, groupedIds: siblings.map((x) => x.id) };
+    }
     return reco;
   }
 
@@ -3265,4 +3345,12 @@ export class LogisticsService {
       take: limit,
     });
   }
+}
+
+/** Clé de regroupement d'un recalage issu d'un comptage d'inventaire (event + phase),
+ *  null pour tout autre document (reset manuel de l'écran Logistique). */
+function inventoryCountGroupKey(meta: unknown, eventId: string | null): string | null {
+  const m = (meta ?? null) as Record<string, unknown> | null;
+  if (!m || m.source !== 'inventory-count' || typeof m.phase !== 'string' || !eventId) return null;
+  return `${eventId}|${m.phase}`;
 }
