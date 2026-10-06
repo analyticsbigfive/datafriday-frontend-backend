@@ -7,6 +7,7 @@ import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
 import { closeInventoryWindows } from './inventory-window-closure';
+import { subtractSalesSinceCount } from './sales-since-count';
 
 /** État de push Logistic des lignes d'un match, clé `elementId::itemId` (cf. pushCountToLogistic). */
 type LogisticPushState = Map<string, { id: string; updatedAt: Date; logisticPushedAt: Date | null }>;
@@ -1368,13 +1369,36 @@ export class InventoryService {
     }
     if (!lines.length) return { ok: false, reason: 'no-addressable-lines' };
 
+    // Ventes faites depuis le comptage retirées (envoi regroupé à la minute, D22) : sans
+    // cela, le recalage effaçait du registre les ventes entre comptage et envoi.
+    let pushLines = lines;
+    let salesSinceCount: { adjusted: number; soldUnits: number } | null = null;
+    try {
+      const upp = await this.resolveInventoryUnitsPerPack([...itemIds], tenantId);
+      const corrected = await subtractSalesSinceCount(
+        lines,
+        (l) => state.get(`${l.elementId}::${l.itemRefId}`)?.updatedAt ?? null,
+        {
+          consumption: async (sinceByElement) =>
+            (await this.logistics.deriveEventConsumption(spaceId, event.id, tenantId, { sinceByElement })).lines,
+          unitsPerPack: upp,
+          normalize: (v) => this.normalizeName(v),
+        },
+      );
+      pushLines = corrected.lines;
+      salesSinceCount = { adjusted: corrected.adjusted, soldUnits: corrected.soldUnits };
+    } catch (error: any) {
+      // Jamais bloquant : sans correction, le recalage part comme avant.
+      this.logger.warn(`Ventes depuis le comptage non retirées (envoi non corrigé) : ${error?.message}`);
+    }
+
     try {
       await this.logistics.reset(
         spaceId,
-        { eventId: event.id, eventName: event.name ?? undefined, lines },
+        { eventId: event.id, eventName: event.name ?? undefined, lines: pushLines },
         tenantId,
         userId ?? `system-${phase}-reconciliation`,
-        { source: 'inventory-count', phase, eventId: event.id },
+        { source: 'inventory-count', phase, eventId: event.id, ...(salesSinceCount ? { salesSinceCount } : {}) },
       );
       this.logger.log(
         `Stock Logistic recalé depuis le comptage ${phase} — space ${spaceId} / event ${event.id} (${lines.length} ligne(s))`,

@@ -53,7 +53,10 @@ describe('InventoryCycleCronService', () => {
       startPhase: jest.fn().mockResolvedValue({}),
       stopPhaseWindow: jest.fn().mockResolvedValue(undefined),
     };
-    spaces = { getLiveStatus: jest.fn().mockResolvedValue({ isLive: false, eventId: null, since: null }) };
+    spaces = {
+      getLiveStatus: jest.fn().mockResolvedValue({ isLive: false, eventId: null, since: null }),
+      countValidSalesSince: jest.fn().mockResolvedValue(3),
+    };
     service = new InventoryCycleCronService(prisma, guestPin, spaces);
   });
 
@@ -125,6 +128,16 @@ describe('InventoryCycleCronService', () => {
     expect(await service.stopPreOnSale(now)).toBe(1);
     expect(guestPin.stopPhaseWindow).toHaveBeenCalledWith(preWindow, ACTOR, 'sale');
     expect(await service.stopPreOnSale(now)).toBe(0);
+  });
+
+  it('une vente de test isolée ne coupe pas le pre-event (moins de 3 ventes en 15 min)', async () => {
+    prisma.inventoryWindow.findMany.mockResolvedValue([preWindow]);
+    const now = new Date('2026-10-10T13:00:00Z');
+    spaces.getLiveStatus.mockResolvedValue({ isLive: true, eventId: 'event-n', since: now.toISOString() });
+    spaces.countValidSalesSince.mockResolvedValue(1);
+    expect(await service.stopPreOnSale(now)).toBe(0);
+    expect(spaces.countValidSalesSince).toHaveBeenCalledWith('space-1', 'tenant-1', new Date('2026-10-10T12:45:00Z'));
+    expect(guestPin.stopPhaseWindow).not.toHaveBeenCalled();
   });
 
   it("avant le jour du match, aucune requête de ventes", async () => {

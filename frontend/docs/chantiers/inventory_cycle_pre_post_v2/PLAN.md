@@ -1,7 +1,9 @@
 # Plan : cycle Pre / Post event Inventory v2 (document Bertrand du 2026-10-06)
 
-Statut : **lot 1 codé (non commité, à tester), lots 2 à 4 à faire.** Branche
-`feat/inventory-cycle-pre-post-v2`, créée depuis `develop` le 2026-10-06.
+Statut (2026-10-06) : **les 4 lots sont codés et commités** sur `feat/inventory-cycle-pre-post-v2`
+(créée depuis `develop`, ni poussée ni mergée) : `dd855311` (lot 1), `29ea4a00` (lot 2), `bc250418`
+(lot 3), `f6dbc08a` (lots 4a et 4b). Lot 1 et affichage du lot 2 validés par Ulrich ; lots 3 et 4 à tester
+en local. Ce qui reste : §9.
 
 Source : PDF « Pre et Post event Inventory cycle » (8 pages), reçu le 2026-10-06. **Ce document est la
 dernière version et prime sur toute règle antérieure** (décision Ulrich 2026-10-06), en particulier la
@@ -217,14 +219,15 @@ PDV rouvert avec ▶ est de nouveau accessible par son QR code.
 - Sous-titre « match · date » sans préfixe ni nom d'espace, pre et post.
 - Routes serveur devenues inutilisées par l'écran, conservées pour l'instant : `POST inventory-windows`,
   `:windowId/pin`, `pins/:id/revoke|reactivate`, `:windowId/close`.
-- Reste : D18 (bouton « Ouverture des portes »), en attente de décision.
+- D18 tranché le 2026-10-06 : bouton « Ouverture des portes » retiré au lot 4a.
 
 ### Lot 3 : cycle des phases
 
 - PIN préparés à l'avance pour les events à venir (état « préparé », connexion refusée tant que la phase
   n'est pas active, D9).
-- ~~Une seule phase ouverte par espace : démarrer le pre ferme le post, et inversement ; même règle par PDV.~~
-  Fait au lot 2 pour les démarrages manuels ; reste à l'appliquer aux démarrages automatiques.
+- Une seule phase ouverte par espace : démarrer le pre ferme le post, et inversement ; même règle par PDV.
+  Fait au lot 2 (démarrages manuels) ; les démarrages automatiques du lot 3 passent par le même
+  `startPhase`, donc la même règle.
 - Arrêt automatique du post à la première livraison (`StockMovementReason.DELIVERY`) sur l'espace, après
   la fin réelle du match, puis ouverture du pre de l'event suivant (D3, D16).
 - Arrêt automatique du pre à la première vente rattachée au match ou à l'ouverture des portes (D4, D17).
@@ -253,7 +256,7 @@ phase existe dès son arrêt.
   n'est jamais annulée par le cron.
 - **Limite connue** : une vente de test passée en caisse le jour du match, avant les portes, arrête le
   pre-event comme une vraie vente (rien ne les distingue dans les transactions). On peut le relancer avec ▶.
-- **Reste** : D15 (snapshot figé à l'arrêt de chaque phase), à faire avec le lot 4, qui en a besoin.
+- D15 (snapshot figé à l'arrêt de chaque phase) : fait au lot 4a.
 
 ### Lot 4 : Logistique et réconciliation à chaque article
 
@@ -324,9 +327,13 @@ Deux options :
 
 Recommandation : **A** pour ce chantier, B seulement si le retard gêne sur le terrain.
 
+**Résolu (lot 4a)** : option A, envoi regroupé à la minute (D22).
+
 ⚠️ Le post s'ouvre dès les portes : un PDV compté pendant le match continue de vendre. Avec A, le recalage
 doit être horodaté à l'heure du comptage de la ligne (et non à l'heure de l'envoi groupé), sinon les ventes
 intervenues entre les deux sont perdues. Si cela s'avère trop fragile, B devient nécessaire (D19).
+Le recalage part à l'heure de l'envoi, jusqu'à une minute après le comptage : corrigé en retirant les
+ventes faites depuis le comptage (§9, point 4c).
 
 ### 5.2 Réconciliation post calculée côté serveur
 
@@ -339,11 +346,18 @@ Contrainte connue (chantier 381) : **le serveur ne connaît pas la liste complè
 par PDV**, c'est le navigateur qui la calcule. Le statut *Terminé* et la réconciliation serveur doivent
 en tenir compte : soit le serveur apprend à calculer cette liste, soit le navigateur la lui transmet.
 
+**Résolu (lot 4b)** : lignes pour les seuls articles marqués comptés (choix Ulrich), le serveur n'a donc pas
+besoin de la liste complète ; prédit, coût et unité envoyés par l'écran comme contexte. Le statut *Terminé*
+du bandeau reste calculé par l'écran, qui connaît la liste.
+
 ### 5.3 PIN préparés à l'avance
 
 Une fenêtre (`InventoryWindow`) n'existe aujourd'hui qu'ouverte, et une seule par phase et par espace. Le
 PIN est effacé à la clôture. Il faut un état intermédiaire (fenêtre préparée, PIN réservé, connexion
 refusée) et décider quand le préparer : à la création de l'event, ou par une tâche planifiée.
+
+**Résolu (lots 2 et 3)** : une fenêtre arrêtée avec PIN est l'état « préparé » (le PIN est conservé à la
+clôture), créée par une tâche planifiée toutes les 10 minutes.
 
 ---
 
@@ -373,8 +387,8 @@ refusée) et décider quand le préparer : à la création de l'event, ou par un
 | 7, 8 | Suppression de « Mettre à jour la Logistique » et « Générer la réconciliation » | 4 | D15 |
 | 7, 8 | « Marquer compté » : Logistique + réconciliation brouillon | 4 | D1, D2 |
 
-Chaque ligne des 8 pages a un lot. Restent ouverts : D18 (bouton « Ouverture des portes ») et la cause du
-bug des filtres, à établir en le reproduisant.
+Chaque ligne des 8 pages a un lot, et toutes sont faites. D18 est tranché (bouton retiré) et la cause du
+bug des filtres a été trouvée au lot 1.
 
 ## 7. Module 10 à réécrire au moment du code
 
@@ -386,17 +400,43 @@ bug des filtres, à établir en le reproduisant.
 
 ## 8. Fichiers concernés (repères)
 
-Front :
-- `src/components/space-workspace/inventory/views/SpaceInventoryView.vue` (statuts, tris, onglets, filtres,
-  bandeau, choix d'event, `markCounted`, brouillon post)
-- `src/components/space-workspace/inventory/InventoryShopCard.vue`, `InventoryStorageCard.vue`
-- `src/components/space-workspace/inventory/GuestPinAccessPanel.vue`, `GuestPinBadge.vue`,
-  `PdvLogisticUpdateButton.vue`
-- `src/composables/usePostEventDraftScheduler.js`
+Front, créés : `InventoryCountingStatusMenu.vue`, `InventoryStatusDot.vue`, `InventoryPinBand.vue`,
+`PdvAccessToggle.vue` (dans `components/space-workspace/inventory/`), `composables/useInventoryPinAccess.js`,
+`utils/inventoryCountingStatus.js`, `utils/guestPinAccessState.js`.
+Front, modifiés : `views/SpaceInventoryView.vue`, `InventoryShopCard.vue`, `InventoryStorageCard.vue`,
+`GuestPinBadge.vue`, `drawers/InventoryFilterDrawer.vue`, `store/modules/guestPinAdmin.js`,
+`api/endpoints/guestPinAdmin.api.js`, `api/endpoints/inventory.api.js`, `utils/inventoryCardSort.js`,
+`utils/inventoryEventContext.js`, `utils/postEventReconciliation.js`, `i18n/translations.js`.
+Front, supprimés : `GuestPinAccessPanel.vue`, `PdvLogisticUpdateButton.vue`,
+`guest-pin-manage/dialogs/SetWindowPinDialog.vue`.
 
-Back :
-- `src/features/guest-pin-access/` (fenêtres, PIN, période, cron de clôture)
-- `src/features/inventory/inventory.service.ts`, `pre-event-inventory-flow.service.ts`,
-  `inventory-live-init.cron.ts`
-- `src/features/logistics/logistics.service.ts` (`reset`, `createMovement` pour la détection de livraison)
-- `src/features/spaces/spaces.service.ts` (`getLiveStatus`, détection de vente ; déplacé dans `services/space-shops.service.ts` sur `chore/backend-remediation`)
+Back, créés : `inventory/inventory-window-closure.ts`, `inventory/inventory-logistic-sync.cron.ts`,
+`inventory/post-event-draft.service.ts`, `inventory/post-event-reconciliation.builder.ts`,
+`inventory/dto/post-event-context.dto.ts`, `guest-pin-access/inventory-cycle.cron.ts`, migration
+`20261006120000_guest_pin_closed_windows_revoked`.
+Back, modifiés : `guest-pin-access/guest-pin-access.service.ts` (+ contrôleur, DTO, module),
+`core/auth/strategies/jwt-guest-pin.strategy.ts`, `inventory/pre-event-inventory-flow.service.ts`,
+`inventory/inventory.service.ts` (+ contrôleur, module), `logistics/logistics.service.ts`.
+
+---
+
+## 9. Ce qui reste (2026-10-06)
+
+1. **Tests en local** des lots 3 et 4 (Ulrich).
+2. **Module 10 à réécrire** (§7 ci-dessus).
+3. **Nettoyage optionnel** des routes serveur plus appelées par l'écran : `POST inventory-windows`,
+   `:windowId/pin`, `pins/:id/revoke|reactivate`, `:windowId/close`, `push-to-logistic`,
+   `pre-event-doors-open`, `reconciliations`, `reconciliations/draft`, `pre-event-reconciliations`.
+4. **Limites connues, corrigées le 2026-10-06** (options choisies par Claude à la demande d'Ulrich) :
+   - a. bandeau non rafraîchi : `InventoryPinBand` relit l'état des accès toutes les 30 s, onglet visible ;
+   - b. vente de test qui arrêtait le pre-event : il faut désormais **au moins 3 ventes validées en
+     15 minutes** dans la fenêtre du match (`SpacesService.countValidSalesSince`, EXPLAIN vérifié :
+     index `basket_cover`, moins de 10 ms). Seuil proposé par Claude, à confirmer avec Bertrand ;
+   - c. ventes effacées entre comptage et envoi : l'envoi part avec « compté − vendu depuis le
+     comptage » (`inventory/sales-since-count.ts`, ventes bornées par PDV via
+     `deriveEventConsumption(…, { sinceByElement })`). Heures de comptage regroupées par tranches de
+     10 s (une requête par tranche, 6 au plus) : écart résiduel d'au plus 10 s de ventes. Le document de
+     recalage archive `salesSinceCount` dans son meta.
+5. **Déploiement** (feu vert explicite d'Ulrich) : migration de données, première préparation des PIN
+   pour tous les events à venir, tâches désactivables par `INVENTORY_CYCLE_CRON_ENABLED` et
+   `INVENTORY_LOGISTIC_SYNC_CRON_ENABLED`.

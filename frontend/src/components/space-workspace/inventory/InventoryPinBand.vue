@@ -38,7 +38,7 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import { useInventoryPinAccess } from '@/composables/useInventoryPinAccess'
@@ -89,6 +89,19 @@ function load() {
   store.dispatch('guestPinAdmin/fetchPeriods', ctx).catch(() => null)
 }
 watch(() => [props.spaceId, props.eventId], load, { immediate: true })
+
+// Démarrages et arrêts automatiques (portes, livraison, vente, cron du cycle) : l'état
+// est relu toutes les 30 s, onglet visible seulement, pour que ■ / ▶ et les lignes PDV
+// les reflètent sans rechargement de la page.
+const REFRESH_MS = 30 * 1000
+const refreshTimer = setInterval(() => {
+  if (working.value || !props.spaceId || !props.eventId) return
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+  store
+    .dispatch('guestPinAdmin/fetchStatusBoard', { spaceId: props.spaceId, eventId: props.eventId })
+    .catch(() => null)
+}, REFRESH_MS)
+onBeforeUnmount(() => clearInterval(refreshTimer))
 
 async function run(action) {
   working.value = true

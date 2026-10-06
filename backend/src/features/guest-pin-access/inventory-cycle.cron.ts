@@ -12,6 +12,11 @@ import {
 } from '../../shared/utils/event-window.util';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Vrai démarrage des ventes (D17) : au moins SALES_START_MIN ventes validées dans les
+ *  SALES_START_WINDOW_MS dernières minutes. Une vente de test isolée ne coupe plus le
+ *  pre-event (règle choisie le 2026-10-06). */
+const SALES_START_MIN = 3;
+const SALES_START_WINDOW_MS = 15 * 60 * 1000;
 /** Au-delà, un démarrage du post-event aux portes n'est plus rattrapé (serveur arrêté). */
 const POST_AUTOSTART_CATCHUP_MS = 6 * 60 * 60 * 1000;
 
@@ -37,7 +42,8 @@ const EVENT_SELECT = {
  * - ouverture des portes de N : le post-event de N démarre (et arrête le pre-event) ;
  * - livraison détectée en Logistique APRÈS la fin réelle de N : le post-event de N
  *   s'arrête et le pre-event du prochain event démarre (D3, D16) ;
- * - première vente rattachée à N : le pre-event de N s'arrête (D4, D17).
+ * - ventes rattachées à N vraiment démarrées (au moins 3 en 15 min) : le pre-event de N
+ *   s'arrête (D4, D17).
  *
  * Chaque déclenchement automatique ne joue qu'UNE fois (marqueur KvStore) : une reprise
  * manuelle faite après coup par le responsable n'est jamais annulée au tick suivant.
@@ -180,7 +186,7 @@ export class InventoryCycleCronService implements OnModuleInit {
     return stopped;
   }
 
-  /** Première vente rattachée à N : pre-event de N arrêté (les portes le ferment sinon). */
+  /** Ventes de N vraiment démarrées : pre-event de N arrêté (les portes le ferment sinon). */
   async stopPreOnSale(now: Date): Promise<number> {
     const windows = await this.reachableWindows('pre-event');
     let stopped = 0;
@@ -188,9 +194,14 @@ export class InventoryCycleCronService implements OnModuleInit {
       const event = await this.findEvent(window);
       if (!event) continue;
       // Avant le jour de N, aucune vente ne peut lui être rattachée : pas de requête.
-      if (now < resolveEventTransactionWindow(event, this.tz(event)).start) continue;
+      const eventStart = resolveEventTransactionWindow(event, this.tz(event)).start;
+      if (now < eventStart) continue;
       const live = await this.spaces.getLiveStatus(window.spaceId, window.tenantId);
       if (!live.isLive || live.eventId !== event.id) continue;
+      // Une vente de test isolée ne suffit pas : il faut un vrai démarrage des ventes.
+      const since = new Date(Math.max(now.getTime() - SALES_START_WINDOW_MS, eventStart.getTime()));
+      const recent = await this.spaces.countValidSalesSince(window.spaceId, window.tenantId, since);
+      if (recent < SALES_START_MIN) continue;
       if (!(await this.claim(window.tenantId, `inventory-cycle:pre-sale:${window.id}`, now))) continue;
       await this.guestPin.stopPhaseWindow(window, InventoryCycleCronService.ACTOR, 'sale');
       stopped++;

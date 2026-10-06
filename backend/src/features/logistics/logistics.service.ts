@@ -2255,7 +2255,12 @@ export class LogisticsService {
     tenantId: string,
     /** D19 (document Bertrand 2026-10-06) : ventes d'un PDV arrêtées à cet instant (son
      *  dernier « Marquer compté » en post-event). PDV absent : toute la fenêtre. */
-    options: { untilByElement?: Map<string, Date> } = {},
+    options: {
+      untilByElement?: Map<string, Date>;
+      /** Ventes POSTÉRIEURES à cet instant, et seulement pour ces PDV (les autres sont
+       *  exclus) : ventes faites depuis un comptage, retirées avant l'envoi vers Logistic. */
+      sinceByElement?: Map<string, Date>;
+    } = {},
   ) {
     await this.assertSpace(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
@@ -2305,6 +2310,16 @@ export class LogisticsService {
           )}
         )`
       : Prisma.empty;
+    const sinceBounds = [...(options.sinceByElement ?? new Map<string, Date>()).entries()];
+    if (options.sinceByElement && !sinceBounds.length) {
+      return { eventId: event.id, eventName: event.name ?? null, lines: [], unjoined: null, elementNames: {} };
+    }
+    const sinceClause = sinceBounds.length
+      ? Prisma.sql`AND (${Prisma.join(
+          sinceBounds.map(([id, since]) => Prisma.sql`(mem."spaceElementId" = ${id} AND t."transactionDate" > ${since})`),
+          ' OR ',
+        )})`
+      : Prisma.empty;
 
     // Jointure mapping PdV en superset des deux conventions existantes
     // (timeline : mem sur t.locationId ; deriveSalesRaw : via WeezeventLocation
@@ -2339,6 +2354,7 @@ export class LogisticsService {
         ${integrationClause}
         AND ${shopScopeClause}
         ${untilClause}
+        ${sinceClause}
       GROUP BY 1, 2, ti."productId"
     `);
 
