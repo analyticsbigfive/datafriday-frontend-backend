@@ -37,9 +37,9 @@
         :selected-storage-floors="selectedStorageFloors"
         :selected-event-id="selectedEventId"
         :search="search"
-        :counting-status-tab="countingStatusTab"
+        :counting-statuses="countingStatuses"
         :event-options="eventOptions"
-        :counting-tabs="COUNTING_TABS"
+        :counting-status-options="countingStatusOptions"
         :shop-options="shopOptions"
         :shop-type-options="shopTypeOptions"
         :shop-area-options="shopAreaOptions"
@@ -59,7 +59,7 @@
         @delete-reconciliation="onDeleteReconciliation"
         @update:selected-event-id="selectedEventId = $event"
         @update:search="search = $event"
-        @update:counting-status-tab="countingStatusTab = $event"
+        @update:counting-statuses="countingStatuses = $event"
         @update:selected-shops="selectedShops = $event"
         @update:selected-shop-types="selectedShopTypes = $event"
         @update:selected-shop-areas="selectedShopAreas = $event"
@@ -429,29 +429,15 @@
             </button>
           </div>
 
-          <!-- Tri + filtre Ouvert/Fermé (onglet Boutiques) — masqué sur mobile
-               (< 900px, retour utilisateur : prenait trop de place, cf. maquette
-               Post/Pre-Event Inventory mobile). -->
+          <!-- Statut de comptage (menu burger) + filtre Ouvert/Fermé (onglet
+               Boutiques) — masqué sur mobile (< 900px, le tiroir de filtres porte
+               le statut). Tris supprimés, liste toujours alphabétique (document
+               Bertrand 2026-10-06, pages 7 et 8). -->
           <div v-if="!isMobile" class="si-sort-bar">
-            <span class="si-sort-label">{{ t('invSort') }}</span>
-            <button
-              type="button"
-              class="si-sort-chip"
-              :class="{ 'si-sort-chip-active': sortMode === 'name' }"
-              @click="sortMode = 'name'"
-            >{{ t('invSortName') }}</button>
-            <button
-              type="button"
-              class="si-sort-chip"
-              :class="{ 'si-sort-chip-active': sortMode === 'to-count' }"
-              @click="sortMode = 'to-count'"
-            >{{ t('invSortToCount') }}</button>
-            <button
-              type="button"
-              class="si-sort-chip"
-              :class="{ 'si-sort-chip-active': sortMode === 'stock-asc' }"
-              @click="sortMode = 'stock-asc'"
-            >{{ t('invSortStockAsc') }}</button>
+            <InventoryCountingStatusMenu
+              v-model="countingStatuses"
+              :counts="countingStatusCounts"
+            />
 
             <!-- Ouvert/Fermé n'est proposé que si les deux camps existent : sur cet
                  écran `isOpen` vaut « a des articles assignés » (backend :
@@ -494,12 +480,12 @@
 
         <!-- Counting interface inline desktop -->
         <InventoryCountingInterface
-          v-if="countingShop && !isMobile"
-          :shop="countingShop"
+          v-if="countingShopView && !isMobile"
+          :shop="countingShopView"
           :shops="countingSiblings"
-          :counted="countedInElement(countingShop)"
-          :total="countingShop.consolidatedInventory.length"
-          :progress="progressForElement(countingShop)"
+          :counted="countedInElement(countingShopView)"
+          :total="countingShopView.consolidatedInventory.length"
+          :progress="progressForElement(countingShopView)"
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
@@ -625,8 +611,8 @@
                   :total-items="totalItemsForCard(entry)"
                   :counted-items="countedInShop(entry)"
                   :progress="progressForCard(entry)"
-                  :status-label="statusLabel(entry)"
-                  :status-color="statusColor(entry)"
+                  :counting-status="statusFor(entry)"
+                  :status-color="countingStatusColor(statusFor(entry))"
                   :show-guest-pin="canManageGuestPin"
                   :phase="guestPinPhase"
                   :logistic-update="pdvLogisticUpdate"
@@ -641,7 +627,7 @@
                   :entry="entry"
                   :counted-items="countedInElement(entry)"
                   :progress="progressForElement(entry)"
-                  :status-label="storageStatusLabel(entry)"
+                  :counting-status="storageStatusFor(entry)"
                   @start-count="startCount"
                 />
               </template>
@@ -659,32 +645,10 @@
     />
       </div>
 
-      <!-- Colonne DROITE : sous-statuts de comptage (segmented) AU-DESSUS du
-           résumé inventaire, puis la carte agrégat. -->
+      <!-- Colonne DROITE : accès PIN puis résumé inventaire. Les sous-statuts de
+           comptage sont passés dans le menu burger du corps de page (document
+           Bertrand 2026-10-06, pages 7 et 8). -->
       <div v-if="!guestSession.isGuestMode && (activeTab === 'shops' || activeTab === 'storage')" class="si-aggregate-col wsl-side">
-        <!-- À compter / Comptés — segmented, filtrent la liste. -->
-        <div class="si-substatus si-substatus--side">
-          <button
-            v-for="s in COUNTING_TABS"
-            :key="s.value"
-            type="button"
-            class="si-substatus-btn"
-            :class="{ 'si-substatus-btn-active': countingStatusTab === s.value }"
-            @click="countingStatusTab = s.value"
-          >
-            {{ countingTabLabel(s.value) }}
-            <span class="si-substatus-count">{{ subTabCount(s.value) }}</span>
-          </button>
-          <v-tooltip location="bottom" max-width="300">
-            <template #activator="{ props: tipProps }">
-              <v-icon v-bind="tipProps" size="16" class="si-substatus-help">
-                mdi-help-circle-outline
-              </v-icon>
-            </template>
-            <span>{{ t('invCountedTooltip') }}</span>
-          </v-tooltip>
-        </div>
-
         <!-- Accès PIN invité — remplace la page /spaces/:spaceId/guest-pin-access
              (orpheline). Composant autonome : se charge lui-même, GuestPinBadge (sur
              chaque carte) lit le même store réactivement. -->
@@ -814,13 +778,13 @@
         transition="dialog-bottom-transition"
       >
         <InventoryCountingInterface
-          v-if="countingShop"
-          :shop="countingShop"
+          v-if="countingShopView"
+          :shop="countingShopView"
           :shops="countingSiblings"
           mobile
-          :counted="countedInElement(countingShop)"
-          :total="countingShop.consolidatedInventory.length"
-          :progress="progressForElement(countingShop)"
+          :counted="countedInElement(countingShopView)"
+          :total="countingShopView.consolidatedInventory.length"
+          :progress="progressForElement(countingShopView)"
           :get-count="getCount"
           :total-for-item="totalForItem"
           :is-item-counted="isItemCounted"
@@ -925,7 +889,16 @@ import { useStore } from 'vuex'
 import { useRouter, useRoute } from 'vue-router'
 import { safePush } from '@/utils/chunkReload'
 import { useI18n } from '@/i18n/useI18n'
-import { COUNTING_STATUS, COUNTING_TABS as RAW_TABS, emptyInventoryCount } from '@/types/inventoryCount'
+import { COUNTING_STATUS, emptyInventoryCount } from '@/types/inventoryCount'
+import {
+  COUNTING_STATUS_LABEL_KEYS,
+  COUNTING_STATUS_VALUES,
+  DEFAULT_COUNTING_STATUSES,
+  countingStatusColor,
+  countingStatusOf,
+  isDefaultCountingStatuses,
+  matchesCountingStatuses,
+} from '@/utils/inventoryCountingStatus'
 import { useInventoryData } from '@/composables/useInventoryData'
 import { useInventoryScope } from '@/composables/useInventoryScope'
 import { useGuestInventorySession } from '@/composables/useGuestInventorySession'
@@ -945,6 +918,7 @@ import InventoryStorageCard from '@/components/space-workspace/inventory/Invento
 import InventoryStorageAggregateView from '@/components/space-workspace/inventory/InventoryStorageAggregateView.vue'
 import InventoryFilterDrawer from '@/components/space-workspace/inventory/drawers/InventoryFilterDrawer.vue'
 import InventoryFilterPanel from '@/components/InventoryFilterPanel.vue'
+import InventoryCountingStatusMenu from '@/components/space-workspace/inventory/InventoryCountingStatusMenu.vue'
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
 import InventoryMenuCoverageDrawer from '@/components/space-workspace/inventory/drawers/InventoryMenuCoverageDrawer.vue'
@@ -1003,11 +977,6 @@ const TOP_TABS = [
   { value: 'merch',   labelKey: 'invTabMerch',   labelKeyShort: 'invTabMerchShort',   icon: 'mdi-shopping' },
 ]
 
-const COUNTING_TABS = RAW_TABS
-const COUNTING_TAB_KEYS = {
-  'to-count': 'invStatusToCount',
-  counted: 'invStatusCounted',
-}
 
 const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'invToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
@@ -1032,6 +1001,7 @@ export default {
     InventoryStorageAggregateView,
     InventoryFilterDrawer,
     InventoryFilterPanel,
+    InventoryCountingStatusMenu,
     WorkspaceAppHeader,
     WorkspaceToolSelect,
     InventoryMenuCoverageDrawer,
@@ -1140,11 +1110,11 @@ export default {
       movementError: null,
       logisticsStockLoaded: false,
       demoSheet: false,
-      countingStatusTab: 'to-count',
+      // Filtre de statut (menu burger), sélection multiple : 'to-count' |
+      // 'in-progress' | 'counted'. Défaut = tout ce qui n'est pas terminé.
+      countingStatuses: [...DEFAULT_COUNTING_STATUSES],
       // Filtre ouvert/fermé du bandeau (onglet Boutiques) : 'all' | 'open' | 'closed'.
       shopStatusFilter: 'all',
-      // Tri des cartes (colonne centre) : 'name' | 'to-count' | 'stock-asc'.
-      sortMode: 'name',
       // Index courant du carousel boutiques (mobile).
       selectedEventId: null,
       // Event d'ANCRAGE de l'écran, résolu par resolveEventContext. DISTINCT de
@@ -1217,7 +1187,6 @@ export default {
       pushingToLogistic: false,
       doorsOpening: false,
       mock: { shopsWithInventory: [], storagesWithInventory: [], merchWithInventory: [] },
-      COUNTING_TABS,
       TOP_TABS,
       TOOLBOX_ITEMS,
     }
@@ -1247,16 +1216,16 @@ export default {
       return TOP_TABS.filter((tab) => tab.value !== 'merch' || this.showMerchModule)
     },
     // Compteurs ouvert/fermé du bandeau (calque Space Menus : ouvert = isOpen !== false).
-    // Croisés avec l'onglet À compter/Comptés courant → le badge reflète EXACTEMENT
-    // ce que la liste affichera (sinon « Fermé 10 » mais liste vide, cf. intersection).
+    // Croisés avec le filtre de statut courant → le badge reflète EXACTEMENT ce que
+    // la liste affichera (sinon « Fermé 10 » mais liste vide, cf. intersection).
     openShopsCount() {
       return (this.realShops || []).filter(
-        (c) => c?.element?.isOpen !== false && this.statusFor(c) === this.countingStatusTab,
+        (c) => c?.element?.isOpen !== false && this.matchesStatusFilter(this.statusFor(c)),
       ).length
     },
     closedShopsCount() {
       return (this.realShops || []).filter(
-        (c) => c?.element?.isOpen === false && this.statusFor(c) === this.countingStatusTab,
+        (c) => c?.element?.isOpen === false && this.matchesStatusFilter(this.statusFor(c)),
       ).length
     },
     /** Les deux camps existent-ils ? Sinon la paire de pills est masquée (l'un des
@@ -1598,16 +1567,14 @@ export default {
     menuCoverageIssueCount() {
       return totalCoverageIssues(this.menuCoverageReports)
     },
-    /** Liste de navigation prev/next dans l'interface de comptage : siblings du
-     *  même onglet, normalisés (consolidatedInventory) pour que shops ET storages
-     *  passent par la même interface sans la dénaturer. */
+    /** Liste de navigation prev/next dans l'interface de comptage, normalisée
+     *  (consolidatedInventory) pour que shops ET storages passent par la même
+     *  interface sans la dénaturer. */
     countingSiblings() {
       if (!this.countingShop) return []
-      const list =
-        this.activeTab === 'storage' ? this.realStorages
-          : this.activeTab === 'merch' ? this.realMerch
-            : this.realShops
-      return list.map((e) => this.normalizeCountingEntry(e))
+      // Mêmes PDV que la liste (recherche, facettes, Ouvert / Fermé), dans le même
+      // ordre alphabétique, articles réduits par les filtres de gauche.
+      return this.facetFilteredCards.map((e) => this.withItemFilters(this.normalizeCountingEntry(e)))
     },
     eventOptions() {
       const now = new Date()
@@ -1768,7 +1735,7 @@ export default {
     hasActiveFilters() {
       return !!(
         this.search ||
-        this.countingStatusTab !== 'to-count' ||
+        !isDefaultCountingStatuses(this.countingStatuses) ||
         this.selectedShops.length ||
         this.selectedShopTypes.length ||
         this.selectedShopAreas.length ||
@@ -1793,7 +1760,11 @@ export default {
         return nameOk && typeOk && catOk
       }
     },
-    filteredCards() {
+    /** Cartes de l'onglet actif après recherche, facettes de gauche et pills
+     *  Ouvert / Fermé, SANS le filtre de statut : sert aussi à la navigation de
+     *  l'interface de comptage, où un PDV qui vient d'être terminé doit rester
+     *  atteignable. Ordre alphabétique. */
+    facetFilteredCards() {
       let cards = this.activeCards
       const q = (this.search || '').trim().toLowerCase()
       if (q) {
@@ -1833,7 +1804,6 @@ export default {
         } else if (this.shopStatusFilter === 'closed') {
           cards = cards.filter((c) => c.element?.isOpen === false)
         }
-        cards = cards.filter((c) => this.statusFor(c) === this.countingStatusTab)
       } else if (this.activeTab === 'storage') {
         // Facettes storage (stockages / étages / articles) puis statut.
         if (this.selectedStorages.length) {
@@ -1846,25 +1816,43 @@ export default {
           const matchItem = this.itemMatchesMenuFilters
           cards = cards.filter((c) => this.elementItems(c).some(matchItem))
         }
-        cards = cards.filter((c) => this.storageStatusFor(c) === this.countingStatusTab)
+      }
+      // Toujours alphabétique, cartes vides en bas (utils/inventoryCardSort).
+      return [...cards].sort(compareInventoryCards)
+    },
+    /** Liste affichée : cartes filtrées puis filtre de statut (menu burger). */
+    filteredCards() {
+      const statusOf = this.activeTab === 'shops' ? this.statusFor : this.storageStatusFor
+      return this.facetFilteredCards.filter((c) => this.matchesStatusFilter(statusOf(c)))
+    },
+    /** Nombre d'éléments par statut, croisé avec la pill Ouvert / Fermé : le menu
+     *  burger annonce ce que la liste montrera. */
+    countingStatusCounts() {
+      const counts = Object.fromEntries(COUNTING_STATUS_VALUES.map((v) => [v, 0]))
+      if (this.activeTab === 'shops') {
+        this.realShops.forEach((c) => {
+          if (this.matchesShopStatusPill(c)) counts[this.statusFor(c)] += 1
+        })
       } else {
-        // Merch : filtrage par statut (parité React storagesToCount/storagesCounted)
-        cards = cards.filter((c) => this.storageStatusFor(c) === this.countingStatusTab)
+        const source = this.activeTab === 'storage' ? this.realStorages : this.realMerch
+        source.forEach((c) => { counts[this.storageStatusFor(c)] += 1 })
       }
-      // Tri : cartes vides (0 item) toujours en bas ; au-dessus, l'ordre suit le
-      // tri choisi (nom / à compter d'abord / stock croissant), départagé par nom.
-      // « Stock croissant » se base sur l'indice de référence de l'écran (besoin
-      // prédit avant match, stock restant après) et retombe sur le compté quand il
-      // n'y en a pas — l'ancienne clé lisait deux champs inexistants et laissait
-      // toutes les cartes à 0.
-      const accessors = {
-        expectedUnitsFor: (elementId, item) => this.expectedTotalFor(elementId, item),
-        countedUnitsFor: (elementId, item) => this.totalForItem(elementId, item),
-        isItemCounted: this.isItemCounted,
-      }
-      const mode = this.sortMode
-      cards = [...cards].sort((a, b) => compareInventoryCards(a, b, { mode, ...accessors }))
-      return cards
+      return counts
+    },
+    /** Options du filtre de statut du tiroir mobile (libellés traduits). */
+    countingStatusOptions() {
+      return COUNTING_STATUS_VALUES.map((value) => ({
+        value,
+        label: this.t(COUNTING_STATUS_LABEL_KEYS[value]),
+      }))
+    },
+    /** PDV en cours de comptage, réduit aux articles qui passent les filtres
+     *  « Articles du menu » / « Type & catégorie » du panneau de gauche. Avant, ces
+     *  filtres ne s'appliquaient qu'à la liste des PDV : une fois le comptage ouvert,
+     *  ils restaient sans effet (« les filtres ne fonctionnent pas », document
+     *  Bertrand 2026-10-06, pages 7 et 8). */
+    countingShopView() {
+      return this.countingShop ? this.withItemFilters(this.countingShop) : null
     },
     inventoryStats() {
       // La complétude intègre désormais le Storage (réserve centrale) et le Merch
@@ -1975,9 +1963,19 @@ export default {
     activateDemo() {
       if (!this.demo) enableDemoMode()
     },
-    /** Libellé i18n d'un sous-onglet de statut (to-count / counted). */
-    countingTabLabel(value) {
-      return this.t(COUNTING_TAB_KEYS[value] || '')
+    countingStatusColor,
+    /** Un statut passe-t-il le filtre du menu burger ? */
+    matchesStatusFilter(status) {
+      return matchesCountingStatuses(status, this.countingStatuses)
+    },
+    /** Copie d'une entrée de comptage réduite aux articles qui passent les filtres
+     *  articles du panneau de gauche ; l'entrée elle-même sans filtre actif. */
+    withItemFilters(entry) {
+      if (!entry || !Array.isArray(entry.consolidatedInventory)) return entry
+      if (!this.selectedMenuItems.length && !this.selectedItemTypes.length && !this.selectedItemCategories.length) {
+        return entry
+      }
+      return { ...entry, consolidatedInventory: entry.consolidatedInventory.filter(this.itemMatchesMenuFilters) }
     },
     // Pills ouvert/fermé : re-cliquer la pill active la désactive (retour 'all').
     toggleShopStatus(status) {
@@ -2267,10 +2265,10 @@ export default {
     resetInventoryFilters() {
       this.clearFacetSelections()
       this.search = ''
-      // Réinitialise aussi les axes bandeau (pill + À compter/Comptés) pour garantir
+      // Réinitialise aussi les axes bandeau (pill + statut de comptage) pour garantir
       // une liste non vide depuis l'état « Aucun élément » (sinon reset inefficace).
       this.shopStatusFilter = 'all'
-      this.countingStatusTab = 'to-count'
+      this.countingStatuses = [...DEFAULT_COUNTING_STATUSES]
     },
     /** Vide les facettes seules (le switch d'onglet garde recherche + statut). */
     clearFacetSelections() {
@@ -2322,24 +2320,10 @@ export default {
     totalItemsForCard(entry) {
       return entry.consolidatedInventory?.length || entry.storageInventory?.length || entry.merchInventory?.length || 0
     },
+    /** Statut à 3 états (document Bertrand 2026-10-06) : 'to-count' (rien
+     *  compté), 'in-progress' (en partie), 'counted' (tout compté). */
     statusFor(shop) {
-      // Parité React (SpaceInventory.tsx:635-652) : statut binaire. Tous les
-      // articles comptés => 'counted', sinon 'to-count'. Pas d'état "jeté" ni
-      // "en cours" : une boutique partiellement comptée reste dans 'to-count'.
-      const total = (shop.consolidatedInventory || []).length
-      const counted = this.countedInShop(shop)
-      return total > 0 && counted === total ? COUNTING_STATUS.COUNTED : 'to-count'
-    },
-    statusLabel(entry) {
-      return this.statusFor(entry) === COUNTING_STATUS.COUNTED
-        ? this.t('invStatusCounted')
-        : this.t('invStatusToCount')
-    },
-    statusClass(entry) {
-      return this.statusFor(entry) === COUNTING_STATUS.COUNTED ? 'si-status-ok' : 'si-status-pending'
-    },
-    statusColor(entry) {
-      return this.statusFor(entry) === COUNTING_STATUS.COUNTED ? 'success' : 'grey'
+      return countingStatusOf((shop.consolidatedInventory || []).length, this.countedInShop(shop))
     },
     progressForCard(entry) {
       const total = this.totalItemsForCard(entry)
@@ -2365,29 +2349,12 @@ export default {
       if (this.shopStatusFilter === 'closed') return c?.element?.isOpen === false
       return true
     },
-    subTabCount(value) {
-      // Tous les onglets ont des compteurs de statut (parité React). Croisé avec le
-      // pill Ouvert/Fermé courant → badge = ce que la liste montrera (pas de faux « Comptés 1 »).
-      if (this.activeTab === 'shops') {
-        return this.realShops.filter(
-          (c) => this.statusFor(c) === value && this.matchesShopStatusPill(c),
-        ).length
-      }
-      const source = this.activeTab === 'storage' ? this.realStorages : this.realMerch
-      return source.filter((c) => this.storageStatusFor(c) === value).length
-    },
-    /** Statut d'une entrée storage/merch : counted si tous les items ont isCounted (parité React). */
+    /** Statut d'une entrée storage/merch, mêmes 3 états que les boutiques. */
     storageStatusFor(entry) {
       const items = [...(entry.storageInventory || []), ...(entry.merchInventory || [])]
-      if (!items.length) return 'to-count'
       const shopCounts = this.inventoryCounts[entry.element.id] || {}
       const countedCount = items.filter((it) => shopCounts[it.id]?.isCounted).length
-      return countedCount === items.length ? COUNTING_STATUS.COUNTED : 'to-count'
-    },
-    storageStatusLabel(entry) {
-      return this.storageStatusFor(entry) === COUNTING_STATUS.COUNTED
-        ? this.t('invStatusCounted')
-        : this.t('invStatusToCount')
+      return countingStatusOf(items.length, countedCount)
     },
     /** Items d'une entrée, qu'elle soit shop (consolidatedInventory) ou storage/merch. */
     elementItems(entry) {
@@ -2416,7 +2383,10 @@ export default {
     },
     /** Ouvre l'interface de comptage pour un shop OU un storage (normalisé). */
     startCount(entry) {
-      this.countingShop = this.normalizeCountingEntry(entry)
+      // La navigation de l'interface émet une copie filtrée (countingSiblings) :
+      // on garde l'entrée complète, le filtrage reste dans countingShopView.
+      const full = (entry?.element?.id && this.findElementEntry(entry.element.id)) || entry
+      this.countingShop = this.normalizeCountingEntry(full)
     },
     /** Toast quand tous les articles d'un PDV / stockage viennent d'être comptés. */
     notifyIfElementComplete(elementId) {
@@ -3483,7 +3453,7 @@ export default {
     },
     resetFilters() {
       this.search = ''
-      this.countingStatusTab = 'to-count'
+      this.countingStatuses = [...DEFAULT_COUNTING_STATUSES]
     },
     /** Navigation vers un autre outil — miroir de handleToolboxChange React. */
     onToolboxSelect(value) {
@@ -3864,43 +3834,6 @@ export default {
 .si-tab-active { color: var(--si-primary); border-bottom-color: var(--si-primary); }
 .si-tab-count { color: var(--si-faint); font-weight: 500; margin-left: 4px; }
 
-.si-substatus {
-  display: inline-flex; gap: 6px;
-  background: var(--si-subtle); padding: 3px;
-  border: 1px solid var(--si-border);
-  border-radius: 8px; margin-bottom: 0;
-}
-.si-substatus-btn {
-  appearance: none; border: none; background: transparent;
-  padding: 4px 10px;
-  font-size: 12px; font-weight: 600;
-  color: var(--si-muted);
-  border-radius: 8px; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 6px;
-}
-.si-substatus-btn-active {
-  background: var(--si-surface); color: var(--si-primary);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
-}
-.si-substatus-count {
-  background: rgba(15, 23, 42, 0.08);
-  border-radius: 999px;
-  padding: 0 6px;
-  font-size: 0.7rem;
-}
-.si-substatus-help {
-  color: #94a3b8;
-  cursor: help;
-  margin-left: 2px;
-  align-self: center;
-}
-.si-substatus-help:hover { color: #475569; }
-/* Variante colonne gauche : segmented pleine largeur (déplacé du bandeau). */
-.si-substatus--side {
-  display: flex;
-  width: 100%;
-}
-.si-substatus--side .si-substatus-btn { flex: 1 1 0; justify-content: center; }
 
 /* ============ Bandeau rouge « Space Menus » (onglets + pills + recherche) ======
    Calque visuel de SpaceMenuView (.smv-*) : fond rouge charte, contrôles blancs
@@ -3935,10 +3868,6 @@ export default {
 .si-subnav .si-tab-active { color: var(--si-primary); border-bottom-color: var(--si-primary); }
 .si-subnav .si-tab-count { color: var(--si-faint); font-weight: 500; margin-left: 4px; }
 .si-sort-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.si-sort-label {
-  font-size: 0.72rem; font-weight: 700; color: var(--si-muted);
-  text-transform: uppercase; letter-spacing: 0.03em; margin-right: 2px;
-}
 .si-sort-chip {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 5px 12px; border: 1px solid var(--si-border); border-radius: 100px;
@@ -4018,8 +3947,7 @@ export default {
   min-width: 0;
   justify-content: space-between;
 }
-.si-band-right .si-status-pills,
-.si-band-right .si-substatus { flex: 0 0 auto; }
+.si-band-right .si-status-pills { flex: 0 0 auto; }
 
 /* Toggle du panneau de filtres (icône drawer, à gauche du bandeau rouge). */
 .si-band-toggle {
@@ -4164,18 +4092,6 @@ export default {
 .si-status-pill.active .si-status-pill-count { background: rgba(255, 49, 49, 0.15); color: #ff3131; }
 .si-status-pill--closed.active .si-status-pill-count { background: rgba(55, 65, 81, 0.15); color: #374151; }
 
-/* Sous-statuts comptage sur le bandeau */
-.si-segrow--band .si-substatus {
-  background: rgba(255, 255, 255, 0.15);
-  border-color: rgba(255, 255, 255, 0.25);
-}
-.si-segrow--band .si-substatus-btn { color: rgba(255, 255, 255, 0.85); }
-.si-segrow--band .si-substatus-btn:hover { color: #fff; }
-.si-segrow--band .si-substatus-btn-active { background: #fff; color: #ff3131; }
-.si-segrow--band .si-substatus-count { background: rgba(255, 255, 255, 0.25); color: #fff; }
-.si-segrow--band .si-substatus-btn-active .si-substatus-count { background: rgba(255, 49, 49, 0.15); color: #ff3131; }
-.si-segrow--band .si-substatus-help { color: rgba(255, 255, 255, 0.7); }
-.si-segrow--band .si-substatus-help:hover { color: #fff; }
 
 /* Recherche PdV/articles — géométrie alignée sur la ref Menu Items/Market Price
    (rounded-md 8px, 36px, pleine largeur, icône à gauche) ; reste translucide/charte. */
@@ -4506,7 +4422,6 @@ export default {
   .si-actions { width: 100%; margin-left: 0; }
   .si-event-select, .si-search-field { width: 100%; max-width: none; min-width: 0; }
   .si-tabs { overflow-x: auto; }
-  .si-substatus { max-width: 100%; overflow-x: auto; }
   /* Bandeau rouge : reste sur 1 seule ligne (hamburger + titre/event + icônes),
      PAS de retour à la ligne — retour utilisateur. Remplace le flex-wrap:wrap
      posé ci-dessus. Marge NÉGATIVE (pas juste 0) : .si-body (son ancêtre,
@@ -4561,8 +4476,7 @@ export default {
     gap: 8px;
     border-bottom: 0;
   }
-  .si-tabs,
-  .si-substatus {
+  .si-tabs {
     width: 100%;
     overflow-x: auto;
   }
@@ -4629,7 +4543,6 @@ export default {
 .si-back,
 .si-toolnav-btn,
 .si-tab,
-.si-substatus-btn,
 .si-btn {
   border-radius: var(--fb-radius-control, 8px) !important;
 }
@@ -4647,7 +4560,6 @@ export default {
 .si-back:focus-visible,
 .si-toolnav-btn:focus-visible,
 .si-tab:focus-visible,
-.si-substatus-btn:focus-visible,
 .si-btn:focus-visible {
   outline: 3px solid rgba(255, 49, 49, 0.18);
   outline-offset: 2px;
@@ -4661,8 +4573,7 @@ export default {
   background: var(--fb-primary-hover, #ff3131) !important;
 }
 .si-toolnav-btn,
-.si-tab,
-.si-substatus-btn {
+.si-tab {
   transition: background-color 0.18s ease, border-color 0.18s ease, color 0.18s ease;
 }
 .si-card,
@@ -4678,8 +4589,7 @@ export default {
 .si-card-name,
 .si-stat strong,
 .si-card-meta-row strong,
-.si-tab-count,
-.si-substatus-count {
+.si-tab-count {
   font-variant-numeric: tabular-nums;
 }
 .si-status-ok {
@@ -4795,19 +4705,12 @@ export default {
    translucides noirs, ascenseurs, shimmer du skeleton, état désactivé.
    Le bandeau rouge (#ff3131 + contrôles blancs) est volontairement identique
    dans les deux thèmes — parité Space Menus, cf. commentaire plus haut. */
-.v-theme--dataFridayDark .space-inventory-view .si-substatus-count,
 .v-theme--dataFridayDark .space-inventory-view .si-sort-chip-count {
   background: rgba(255, 255, 255, 0.12);
 }
 /* Le chip de tri actif reste rouge : son compteur garde son blanc translucide. */
 .v-theme--dataFridayDark .space-inventory-view .si-sort-chip-active .si-sort-chip-count {
   background: rgba(255, 255, 255, 0.25);
-}
-.v-theme--dataFridayDark .space-inventory-view .si-substatus-help:hover {
-  color: #e2e8f0;
-}
-.v-theme--dataFridayDark .space-inventory-view .si-substatus-btn-active {
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 /* Ascenseurs : le gris clair #D1D5DB tranchait sur le fond sombre. */
 .v-theme--dataFridayDark .space-inventory-view .si-main,

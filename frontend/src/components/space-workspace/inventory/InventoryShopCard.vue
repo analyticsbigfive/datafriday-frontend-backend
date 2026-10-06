@@ -22,14 +22,13 @@
     <!-- Progression + compteur -->
     <div class="si-row-progress">
       <v-progress-linear :model-value="progress" :color="statusColor" height="5" rounded class="si-row-bar" />
-      <span class="si-row-count">{{ countedItems }} / {{ totalItems }} {{ t('invCardItems') }}</span>
+      <!-- Libellé « À compter / Compté » retiré : la pastille porte le statut
+           (rouge / orange / verte, document Bertrand 2026-10-06 page 5). -->
+      <span class="si-row-count">
+        {{ countedItems }} / {{ totalItems }} {{ t('invCardItems') }}
+        <InventoryStatusDot :status="countingStatus" class="si-row-dot" />
+      </span>
     </div>
-
-    <!-- Statut (mis en évidence : pastille pleine, icône, texte gras) -->
-    <span class="si-row-status" :class="isCounted ? 'is-complete' : 'is-pending'">
-      <span class="si-row-status-dot" />
-      {{ statusLabel }}
-    </span>
 
     <!-- Accès PIN invité (directeur uniquement) — composant à part entière, ne
          porte aucune logique ici : cf. GuestPinBadge.vue. -->
@@ -86,6 +85,7 @@ import { useI18n } from '@/i18n/useI18n'
 import GuestPinBadge from './GuestPinBadge.vue'
 import PdvLogisticUpdateButton from './PdvLogisticUpdateButton.vue'
 import PdvRecountButton from './PdvRecountButton.vue'
+import InventoryStatusDot from './InventoryStatusDot.vue'
 
 const { t } = useI18n()
 
@@ -96,7 +96,8 @@ const props = defineProps({
   // Nombre d'articles déjà comptés dans ce PdV → pilote le libellé du bouton.
   countedItems: { type: Number, default: 0 },
   progress: { type: Number, default: 0 },
-  statusLabel: { type: String, default: '' },
+  // 'to-count' | 'in-progress' | 'counted' (utils/inventoryCountingStatus).
+  countingStatus: { type: String, default: 'to-count' },
   statusColor: { type: String, default: 'grey' },
   // Accès PIN invité (directeur uniquement, permission front.fb.guestPinManage) —
   // phase transite tel quel, aucune logique dans cette carte.
@@ -205,24 +206,7 @@ const actionIcon = computed(() =>
   font-size: 0.78rem;
   color: #6B7280;
 }
-.si-row-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  min-width: 82px;
-  color: #6b7280;
-  font-size: 0.72rem;
-  font-weight: 650;
-}
-.si-row-status-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #f59e0b;
-}
-.si-row-status.is-complete { color: #15803d; }
-.si-row-status.is-complete .si-row-status-dot { background: #22c55e; }
+.si-row-dot { margin-left: 4px; }
 .si-row-action :deep(.v-btn__content) {
   white-space: nowrap;
 }
@@ -263,8 +247,7 @@ const actionIcon = computed(() =>
   color: var(--fb-text, #212121);
 }
 .si-row-meta,
-.si-row-count,
-.si-row-status {
+.si-row-count {
   color: var(--fb-muted, #6B7280);
 }
 .si-row-action {
@@ -277,13 +260,10 @@ const actionIcon = computed(() =>
 }
 
 /* ===================== DARK MODE =====================
-   Fond/bordure/texte suivent les `--fb-*`. Restent les deux teintes sémantiques
-   « ambre 700 » et « vert 700 », prévues pour du texte sur fond clair et
-   illisibles sur fond sombre → versions claires de la même famille. */
+   Fond/bordure/texte suivent les `--fb-*`. Reste la teinte sémantique
+   « ambre 700 », prévue pour du texte sur fond clair et illisible sur fond
+   sombre → version claire de la même famille. */
 .v-theme--dataFridayDark .si-row-no-menu {
   color: #fcd34d;
-}
-.v-theme--dataFridayDark .si-row-status.is-complete {
-  color: #86efac;
 }
 </style>
