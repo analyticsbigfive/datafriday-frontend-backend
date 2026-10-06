@@ -235,6 +235,24 @@ pre-event suivant accessible avec son PIN ; une livraison saisie pendant le matc
 première vente du match ferme le pre-event, une vente d'un event de saison non ; le snapshot de chaque
 phase existe dès son arrêt.
 
+**Fait (2026-10-06)** : `guest-pin-access/inventory-cycle.cron.ts` (désactivable par
+`INVENTORY_CYCLE_CRON_ENABLED=false`).
+- Toutes les 10 min : fenêtres pre ET post **préparées** (arrêtées, avec PIN) pour chaque event non
+  terminé. Le bandeau affiche donc le PIN avant tout démarrage (D9 : connexion refusée tant que la phase
+  n'est pas démarrée).
+- Chaque minute :
+  - **portes de N ouvertes** : post-event de N démarré (ce qui arrête le pre-event). Sans heure
+    d'ouverture des portes, pas de démarrage automatique, comme le flux « portes ouvertes » existant ;
+  - **livraison (`DELIVERY`) créée après la fin réelle de N** : pre-event du prochain event démarré,
+    post-event de N arrêté (PDV rouverts un par un compris) ;
+  - **vente rattachée à N** (`SpacesService.getLiveStatus` : vente des 30 dernières minutes dans la
+    fenêtre de N) : pre-event de N arrêté. Requête lancée seulement le jour de N.
+- Chaque déclenchement ne joue qu'**une fois** (marqueur `KvStore`) : une reprise manuelle après coup
+  n'est jamais annulée par le cron.
+- **Limite connue** : une vente de test passée en caisse le jour du match, avant les portes, arrête le
+  pre-event comme une vraie vente (rien ne les distingue dans les transactions). On peut le relancer avec ▶.
+- **Reste** : D15 (snapshot figé à l'arrêt de chaque phase), à faire avec le lot 4, qui en a besoin.
+
 ### Lot 4 : Logistique et réconciliation à chaque article
 
 - « Marquer compté » met à jour la Logistique (staff et PIN), pre et post (D1).

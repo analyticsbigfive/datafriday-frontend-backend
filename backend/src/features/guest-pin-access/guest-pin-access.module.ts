@@ -12,6 +12,8 @@ import { GuestPinAccessService } from './guest-pin-access.service';
 import { GuestPinAuthController } from './guest-pin-auth.controller';
 import { GuestPinAdminController } from './guest-pin-admin.controller';
 import { InventoryWindowLifecycleCronService } from './inventory-window-lifecycle.cron';
+import { InventoryCycleCronService } from './inventory-cycle.cron';
+import { SpacesModule } from '../spaces/spaces.module';
 
 @Module({
   imports: [
@@ -23,6 +25,7 @@ import { InventoryWindowLifecycleCronService } from './inventory-window-lifecycl
     MarketPricesModule,
     MenuComponentsModule,
     AuditModule,
+    SpacesModule, // getLiveStatus : première vente du match (arrêt du pre-event)
     PassportModule,
     // JwtModule DÉDIÉ, secret distinct de celui d'AuthModule (JWT_SECRET, réservé
     // à la vérification des tokens Supabase) — ne jamais les faire cohabiter.
@@ -36,6 +39,11 @@ import { InventoryWindowLifecycleCronService } from './inventory-window-lifecycl
     }),
   ],
   controllers: [GuestPinAuthController, GuestPinAdminController],
-  providers: [GuestPinAccessService, JwtGuestPinStrategy, InventoryWindowLifecycleCronService],
+  providers: [
+    GuestPinAccessService,
+    JwtGuestPinStrategy,
+    InventoryWindowLifecycleCronService,
+    InventoryCycleCronService,
+  ],
 })
 export class GuestPinAccessModule {}
