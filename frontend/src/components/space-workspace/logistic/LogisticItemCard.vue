@@ -66,8 +66,9 @@
       </div>
       <!-- Dernier comptage physique (Pre/Post event Inventory) — repère l'écart avec le
            ledger Logistic ci-dessus sans changer d'écran. Seules les lignes réellement
-           comptées (isCounted) sont affichées, pas les valeurs reportées non confirmées. -->
-      <div v-if="lastCount?.isCounted" class="lg-field-row lg-field-row-lastcount">
+           comptées (isCounted) sont affichées, pas les valeurs reportées non confirmées.
+           Masquée quand elle est identique au stock (rien à signaler). -->
+      <div v-if="showLastCount" class="lg-field-row lg-field-row-lastcount">
         <div class="lg-field-label">{{ t('logiLastCount') }}</div>
         <div class="lg-field-value">
           {{ lastCount.packedUnits }}<span class="lg-field-unit">{{ t('logiPackedShort') }}</span>
@@ -130,6 +131,7 @@ import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
 import { compactQtyLabel } from '@/composables/useLogisticUnitLabels'
+import { lastCountMatchesStock } from '@/utils/logisticLastCount'
 
 const { t, locale } = useI18n()
 
@@ -169,6 +171,11 @@ const imgFailed = ref(false)
 
 /** Photo affichée : prop `picture` (résolue parent : item.picture || MarketPrice.image) sinon item.picture brut. */
 const resolvedPicture = computed(() => props.picture || props.item?.picture || null)
+
+/** Ligne « Dernier comptage physique » : seulement s'il diffère du stock affiché. */
+const showLastCount = computed(() =>
+  !!props.lastCount?.isCounted && !lastCountMatchesStock(props.lastCount, props.expected, props.unitsPerPack),
+)
 
 /** Besoin prédit en nombre de packs à afficher (retour utilisateur 2026-08-19 : même
  *  forme que EMBALLÉ, pas les unités brutes). Priorité au pack NATIF du réarmement
