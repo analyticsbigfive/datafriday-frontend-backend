@@ -118,3 +118,17 @@ describe('predictedQuantityIndex — BUG-290-01', () => {
     expect(index.size).toBe(0)
   })
 })
+
+describe('arrondi sur le TOTAL, pas par minute (retour Bertrand 2026-10-07)', () => {
+  it('3 minutes à 0,45 unité pondérée = 1 unité (et non 0)', () => {
+    const { buildTimelineQuantityIndex } = require('@/utils/predictedQuantityIndex')
+    const rows = [1, 2, 3].map((m) => ({ shopId: 'shop-1', menuItemId: 'mi-rb', minute: m, totalQuantity: 0.45 }))
+    expect(buildTimelineQuantityIndex(rows).get('shop-1|mi-rb')).toBe(1)
+  })
+
+  it('total < 0,5 : 0 unité (article « Sans ventes prévues »)', () => {
+    const { buildTimelineQuantityIndex } = require('@/utils/predictedQuantityIndex')
+    const rows = [{ shopId: 'shop-1', menuItemId: 'mi-rb', totalQuantity: 0.3 }]
+    expect(buildTimelineQuantityIndex(rows).get('shop-1|mi-rb')).toBe(0)
+  })
+})
