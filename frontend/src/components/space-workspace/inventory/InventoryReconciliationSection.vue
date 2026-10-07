@@ -90,11 +90,11 @@ function formatDate(v) {
   display: flex;
   flex-direction: column;
 }
-/* Quand la section est DÉPLIÉE, elle prend une part de la colonne gauche et
-   scrolle en interne (au lieu de pousser tout vers le bas / masquer ses données).
-   Fermée, elle reste réduite à sa tête (flex par défaut = pas de croissance). */
+/* DÉPLIÉE, la section prend la hauteur de ses documents, sans espace vide ; si la
+   colonne gauche déborde, elle rétrécit et scrolle en interne (min-height: 0).
+   Fermée, elle reste réduite à sa tête. */
 .irs-panel--open {
-  flex: 1 1 0;
+  flex: 0 1 auto;
   min-height: 0;
 }
 .irs-head {

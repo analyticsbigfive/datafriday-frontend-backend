@@ -229,7 +229,8 @@
       </v-expansion-panel>
 
       <!-- ===================== ZONES / SHOP AREAS ===================== -->
-      <v-expansion-panel v-if="mode === 'shops'" value="shop-areas">
+      <!-- Masquée sans option : aucun PdV n'a de zone renseignée (attribut `area` jamais saisi). -->
+      <v-expansion-panel v-if="mode === 'shops' && shopAreaOptions.length" value="shop-areas">
         <v-expansion-panel-title class="section-title">
           {{ t('invFilterZones') }}
           <template #actions>
@@ -373,10 +374,8 @@ export default {
   ],
   data() {
     return {
-      // Les 5 groupes sont ouverts par défaut pour matcher l'allure Analyse
-      // (tout est visible d'un coup), l'utilisateur peut replier au besoin.
-      // Seul « Articles du menu » est déplié par défaut (placé en premier).
-      openPanels: ['menu-items'],
+      // Tous les groupes sont repliés à l'ouverture de la page (demande Ulrich 2026-10-07).
+      openPanels: [],
       shopSearch: '',
       menuItemSearch: '',
       storageSearch: '',

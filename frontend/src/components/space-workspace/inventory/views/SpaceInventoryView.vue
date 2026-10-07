@@ -841,6 +841,7 @@ import {
   matchesCountingStatuses,
 } from '@/utils/inventoryCountingStatus'
 import { useInventoryData } from '@/composables/useInventoryData'
+import { resolveCatalogDims } from '@/utils/analyseReconciliation'
 import { useInventoryScope } from '@/composables/useInventoryScope'
 import { useGuestInventorySession } from '@/composables/useGuestInventorySession'
 import { usePreEventEditWindow } from '@/composables/usePreEventEditWindow'
@@ -1581,11 +1582,21 @@ export default {
      *  Sert de pont entre les items d'inventaire (consolidatedInventory[].usedIn)
      *  et leur type / catégorie (champs absents de l'item d'inventaire lui-même). */
     menuItemMeta() {
-      const list = this.store.state.analyse?.menuItems || []
+      const analyse = this.store.state.analyse || {}
+      const list = analyse.menuItems || []
+      // Le catalogue porte typeId / categoryId (+ objets productType / productCategory),
+      // pas de champs texte `type` / `category` : résolution par la taxonomie, comme Analyse.
+      const catById = new Map((analyse.productCategoriesList || []).map((c) => [String(c?.id), c]))
+      const typeById = new Map((analyse.productTypesList || []).map((t) => [String(t?.id), t]))
       const byId = new Map()
       const byName = new Map()
       list.forEach((mi) => {
-        const meta = { name: mi.name, type: mi.type || '', category: mi.category || '' }
+        const dims = resolveCatalogDims(mi, catById, typeById)
+        const meta = {
+          name: mi.name,
+          type: dims.type || mi.productType?.name || '',
+          category: dims.category || mi.productCategory?.name || '',
+        }
         if (mi.id != null) byId.set(String(mi.id), meta)
         if (mi.name) byName.set(String(mi.name).toLowerCase(), meta)
       })
@@ -3858,9 +3869,10 @@ export default {
   /* Le panneau de filtre devient un vrai conteneur scrollable borné : enfant flex de
      .si-left-filters (.wsl-side = flex column) qui peut RÉTRÉCIR (min-height:0, sinon
      min-height:auto par défaut l'empêche) → son overflow-y:auto s'active quand
-     « Articles du menu » est déplié, au lieu de pousser toute la colonne vers le bas. */
+     « Articles du menu » est déplié, au lieu de pousser toute la colonne vers le bas.
+     Base « auto » : hauteur du contenu (pas d'espace blanc quand tout est replié). */
   .si-left-filters :deep(.inventory-filter-panel) {
-    flex: 1 1 0;
+    flex: 0 1 auto;
     min-height: 0;
   }
   .si-main {
