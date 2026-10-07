@@ -261,9 +261,31 @@
                                 <div class="ep-shop-slider-wrap">
                                   <div class="ep-shop-slider-head">
                                     <Label class="ep-shop-slider-label">{{ estimationActive ? t('epmShopEstimationQty') : t('epmShopAdjustment') }}</Label>
-                                    <span class="ep-shop-slider-value">
-                                      <template v-if="estimationActive">{{ isShopEstimationMixed(element.id) ? t('epmMixed') : `${getShopEstimationQty(element.id)} u` }}</template>
-                                      <template v-else>{{ getShopAdjustmentValue(element.id) }}%</template>
+                                    <!-- Valeur libre au-delà du curseur (retour Bertrand 2026-10-07). -->
+                                    <span class="ep-shop-slider-value ep-value-input-wrap" @click.stop>
+                                      <template v-if="estimationActive">
+                                        <NumberField
+                                          :model-value="isShopEstimationMixed(element.id) ? null : getShopEstimationQty(element.id)"
+                                          :decimals="0"
+                                          :min="0"
+                                          :placeholder="t('epmMixed')"
+                                          :disabled="!isShopOpen(element.id)"
+                                          :aria-label="t('epmShopEstimationQty')"
+                                          class="ep-manual-qty-input"
+                                          @change="(v) => commitIfChanged(v, isShopEstimationMixed(element.id) ? null : getShopEstimationQty(element.id), (n) => handleShopEstimationQty(element.id, n))"
+                                        />{{ t('epmUnitAbbr') }}
+                                      </template>
+                                      <template v-else>
+                                        <NumberField
+                                          :model-value="Math.round(getShopAdjustmentValue(element.id))"
+                                          :decimals="0"
+                                          :min="0"
+                                          :disabled="!isShopOpen(element.id)"
+                                          :aria-label="t('epmShopAdjustment')"
+                                          class="ep-manual-qty-input"
+                                          @change="(v) => commitIfChanged(v, Math.round(getShopAdjustmentValue(element.id)), (n) => handleShopAdjustment(element.id, n))"
+                                        />%
+                                      </template>
                                     </span>
                                   </div>
                                   <Slider
@@ -280,7 +302,7 @@
                                     v-else
                                     :value="[getShopAdjustmentValue(element.id)]"
                                     :min="0"
-                                    :max="500"
+                                    :max="Math.max(500, getShopAdjustmentValue(element.id))"
                                     :step="5"
                                     :disabled="!isShopOpen(element.id)"
                                     class-name="ep-shop-slider"
@@ -558,14 +580,15 @@
                                             class="flex-1"
                                             @update:value="(values) => handleManualQuantity(element.id, item.id, values[0])"
                                           />
-                                          <input
-                                            type="number"
-                                            min="0"
-                                            class="ep-manual-qty-input"
+                                          <NumberField
+                                            :model-value="getManualQuantity(element.id, item.id)"
+                                            :decimals="0"
+                                            :min="0"
                                             :disabled="!isShopOpen(element.id)"
                                             :aria-label="t('epmManualQtyInputAria')"
-                                            :value="getManualQuantity(element.id, item.id)"
-                                            @change="(e) => handleManualQuantity(element.id, item.id, e.target.value)"
+                                            class="ep-manual-qty-input"
+                                            @click.stop
+                                            @change="(v) => commitIfChanged(v, getManualQuantity(element.id, item.id), (n) => handleManualQuantity(element.id, item.id, n))"
                                           />
                                           <span class="text-xs text-muted-foreground">{{ t('epmUnits') }}</span>
                                           <span
@@ -584,9 +607,19 @@
                                             class="flex-1"
                                             @update:value="(values) => setItemUnits(element.id, item.id, values[0])"
                                           />
-                                          <span class="text-xs text-muted-foreground w-16 text-right">
-                                            {{ getAdjustedQuantity(element.id, item.id) }} {{ t('epmUnitAbbr') }}
-                                          </span>
+                                          <!-- Valeur libre (retour Bertrand 2026-10-07) : au-delà
+                                               du maximum du curseur, qui s'élargit alors. -->
+                                          <NumberField
+                                            :model-value="getAdjustedQuantity(element.id, item.id)"
+                                            :decimals="0"
+                                            :min="0"
+                                            :disabled="!isShopOpen(element.id)"
+                                            :aria-label="t('epmAdjustedQtyInputAria')"
+                                            class="ep-manual-qty-input"
+                                            @click.stop
+                                            @change="(v) => commitIfChanged(v, getAdjustedQuantity(element.id, item.id), (n) => setItemUnits(element.id, item.id, n))"
+                                          />
+                                          <span class="text-xs text-muted-foreground">{{ t('epmUnits') }}</span>
                                           <Button
                                             variant="ghost"
                                             size="sm"
@@ -829,9 +862,31 @@
                           <div class="flex-1">
                             <div class="flex items-center justify-between mb-1">
                               <Label class="text-xs text-muted-foreground">{{ estimationActive ? t('epmItemEstimationQty') : t('epmItemAdjustment') }}</Label>
-                              <span class="text-xs font-medium">
-                                <template v-if="estimationActive">{{ isItemEstimationMixed(entry.menuItemId) ? t('epmMixed') : `${getItemEstimationQty(entry.menuItemId)} u` }}</template>
-                                <template v-else>{{ isItemAdjustmentMixed(entry.menuItemId) ? t('epmMixed') : `${getItemAdjustmentValue(entry.menuItemId)}%` }}</template>
+                              <span class="text-xs font-medium ep-value-input-wrap" @click.stop>
+                                <template v-if="estimationActive">
+                                  <NumberField
+                                    :model-value="isItemEstimationMixed(entry.menuItemId) ? null : getItemEstimationQty(entry.menuItemId)"
+                                    :decimals="0"
+                                    :min="0"
+                                    :placeholder="t('epmMixed')"
+                                    :disabled="!entry.hasSelection"
+                                    :aria-label="t('epmItemEstimationQty')"
+                                    class="ep-manual-qty-input"
+                                    @change="(v) => commitIfChanged(v, isItemEstimationMixed(entry.menuItemId) ? null : getItemEstimationQty(entry.menuItemId), (n) => handleItemEstimationQty(entry.menuItemId, n))"
+                                  />{{ t('epmUnitAbbr') }}
+                                </template>
+                                <template v-else>
+                                  <NumberField
+                                    :model-value="isItemAdjustmentMixed(entry.menuItemId) ? null : Math.round(getItemAdjustmentValue(entry.menuItemId))"
+                                    :decimals="0"
+                                    :min="0"
+                                    :placeholder="t('epmMixed')"
+                                    :disabled="!entry.hasSelection"
+                                    :aria-label="t('epmItemAdjustment')"
+                                    class="ep-manual-qty-input"
+                                    @change="(v) => commitIfChanged(v, isItemAdjustmentMixed(entry.menuItemId) ? null : Math.round(getItemAdjustmentValue(entry.menuItemId)), (n) => handleItemAdjustment(entry.menuItemId, n))"
+                                  />%
+                                </template>
                               </span>
                             </div>
                             <Slider
@@ -848,7 +903,7 @@
                               v-else
                               :value="[getItemAdjustmentValue(entry.menuItemId)]"
                               :min="0"
-                              :max="500"
+                              :max="Math.max(500, getItemAdjustmentValue(entry.menuItemId))"
                               :step="5"
                               :disabled="!entry.hasSelection"
                               class-name="w-full"
@@ -1009,13 +1064,14 @@
                                   class="flex-1"
                                   @update:value="(values) => handleManualQuantity(shop.element.id, entry.menuItemId, values[0])"
                                 />
-                                <input
-                                  type="number"
-                                  min="0"
-                                  class="ep-manual-qty-input"
+                                <NumberField
+                                  :model-value="getManualQuantity(shop.element.id, entry.menuItemId)"
+                                  :decimals="0"
+                                  :min="0"
                                   :aria-label="t('epmManualQtyInputAria')"
-                                  :value="getManualQuantity(shop.element.id, entry.menuItemId)"
-                                  @change="(e) => handleManualQuantity(shop.element.id, entry.menuItemId, e.target.value)"
+                                  class="ep-manual-qty-input"
+                                  @click.stop
+                                  @change="(v) => commitIfChanged(v, getManualQuantity(shop.element.id, entry.menuItemId), (n) => handleManualQuantity(shop.element.id, entry.menuItemId, n))"
                                 />
                                 <span class="text-xs text-muted-foreground">{{ t('epmUnits') }}</span>
                                 <Button
@@ -1039,9 +1095,17 @@
                                     class="flex-1"
                                     @update:value="(values) => setItemUnits(shop.element.id, entry.menuItemId, values[0])"
                                   />
-                                  <span class="text-xs text-muted-foreground w-16 text-right">
-                                    {{ getAdjustedQuantity(shop.element.id, entry.menuItemId) }} {{ t('epmUnitAbbr') }}
-                                  </span>
+                                  <NumberField
+                                    :model-value="getAdjustedQuantity(shop.element.id, entry.menuItemId)"
+                                    :decimals="0"
+                                    :min="0"
+                                    :disabled="!isShopOpen(shop.element.id)"
+                                    :aria-label="t('epmAdjustedQtyInputAria')"
+                                    class="ep-manual-qty-input"
+                                    @click.stop
+                                    @change="(v) => commitIfChanged(v, getAdjustedQuantity(shop.element.id, entry.menuItemId), (n) => setItemUnits(shop.element.id, entry.menuItemId, n))"
+                                  />
+                                  <span class="text-xs text-muted-foreground">{{ t('epmUnits') }}</span>
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -1100,6 +1164,7 @@ import {
   lookupPredictedQuantity,
 } from '@/utils/predictedQuantityIndex'
 import { menuItemPriceHt } from '@/utils/price'
+import NumberField from '@/components/common/NumberField.vue'
 import { uniformValue, applyFanoutQuantity, splitQuantityAcrossKeys, estimationSliderMax } from '@/utils/estimationMode'
 import { resolveCatalogDims } from '@/utils/analyseReconciliation'
 import Card from '@/ui/card.vue'
@@ -1167,6 +1232,7 @@ export default {
   components: {
     Card, CardHeader, CardTitle, CardContent,
     EventDrawerShell,
+    NumberField,
     Tabs, TabsList, TabsTrigger, TabsContent,
     Slider, Checkbox, Input, Badge, Button, Label,
     TooltipProvider, Tooltip, TooltipContent, TooltipTrigger,
@@ -2093,6 +2159,13 @@ export default {
      * une quantité manuelle saisie dessus ne montait pas le CA ajusté du PDV (retour
      * Bertrand 2026-10-07).
      */
+    /** Champ de valeur libre : n'écrit que si la valeur a changé (sortir du champ sans
+     *  rien taper ne doit pas réécrire un % décimal arrondi à l'affichage). */
+    commitIfChanged(value, current, apply) {
+      if (value == null || !Number.isFinite(Number(value))) return
+      if (current != null && Number(value) === Number(current)) return
+      apply(Math.max(0, Number(value)))
+    },
     revenueUnitPrice(it) {
       const price = this.htUnitPrice(it)
       if (price > 0 || !it?._synthetic) return price
@@ -2392,7 +2465,9 @@ export default {
       const u = Math.max(0, parseInt(units, 10) || 0)
       const predicted = this.getPredictedQuantity(elementId, menuItemId)
       if (predicted <= 0) return
-      const pct = Math.round((u / predicted) * 100)
+      // % DÉCIMAL (4 décimales) : un % entier ne restituait pas toujours la quantité
+      // tapée (prédit 300, saisie 301 → 100 % → 300). Arrondi à l'affichage seulement.
+      const pct = Math.round((u / predicted) * 100 * 10000) / 10000
       this.handleQuantityAdjustment(elementId, menuItemId, pct)
     },
     stepItemUnits(elementId, menuItemId, delta) {
@@ -2404,7 +2479,12 @@ export default {
      * 500 %). Min 1 pour garder un slider fonctionnel si le prédit est faible.
      */
     unitSliderMax(elementId, menuItemId) {
-      return Math.max(1, this.getPredictedQuantity(elementId, menuItemId) * 5)
+      // Une valeur tapée au-delà de prédit × 5 élargit la borne (curseur intact).
+      return Math.max(
+        1,
+        this.getPredictedQuantity(elementId, menuItemId) * 5,
+        this.getAdjustedQuantity(elementId, menuItemId),
+      )
     },
     // ----- Shop-level slider -----
     getShopAdjustmentValue(elementId) {
@@ -3149,6 +3229,12 @@ export default {
 /* Saisie directe de la quantité manuelle (Estimation 0, fiche 311_01) —
    remplace l'ancien span lecture seule à côté du slider. Taille de police
    héritée de la ligne (charte fermée : pas de nouveau font-size). */
+/* Champ de valeur libre accolé à son unité (%, u) à droite d'un curseur. */
+.ep-value-input-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
 .ep-manual-qty-input {
   width: 64px;
   text-align: right;

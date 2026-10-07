@@ -2667,6 +2667,7 @@ export const translations = {
     epStartEstimationHint: 'No comparable sales history for this event. Start a blank estimation: points of sale and items come from the Space Menu of the configuration, all quantities start at 0.',
     epEstimationModeBanner: 'Manual estimation — no historical data. Enter expected quantities per point of sale; "Reset" exits this mode.',
     epmManualQtyInputAria: 'Manual quantity (units)',
+    epmAdjustedQtyInputAria: 'Adjusted quantity in units',
     epmShopEstimationQty: 'Quantity per item (estimation)',
     // BUG-316-01 : le slider article porte le TOTAL, réparti sur les PDV cochés.
     epmItemEstimationQty: 'Total quantity, split across points of sale (estimation)',
@@ -7453,6 +7454,7 @@ export const translations = {
     epStartEstimationHint: 'Aucun historique de ventes comparable pour cet événement. Démarrez une estimation vierge : les points de vente et les articles proviennent du Space Menu de la configuration, toutes les quantités partent de 0.',
     epEstimationModeBanner: 'Estimation manuelle — aucune donnée historique. Saisissez les quantités attendues par point de vente ; « Réinitialiser » quitte ce mode.',
     epmManualQtyInputAria: 'Quantité manuelle (unités)',
+    epmAdjustedQtyInputAria: 'Quantité ajustée en unités',
     epmShopEstimationQty: 'Quantité par article (estimation)',
     // BUG-316-01 : le slider article porte le TOTAL, réparti sur les PDV cochés.
     epmItemEstimationQty: 'Quantité totale, répartie sur les PDV (estimation)',
