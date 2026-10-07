@@ -7,6 +7,7 @@ import {
   isEventOver,
   isPostEventStarted,
   pickInventoryAnchorEvent,
+  pickUpcomingEvent,
   windowPeriodState,
 } from '@/utils/eventLifecycle'
 
@@ -43,13 +44,19 @@ describe('eventDoorsOpenAt / eventEndAt', () => {
 })
 
 describe('pickInventoryAnchorEvent', () => {
-  it("pre : le match du jour reste l'ancrage jusqu'à l'ouverture des portes", () => {
+  it("pre : le match du jour reste l'ancrage après l'ouverture des portes, jusqu'à sa fin (D24)", () => {
     expect(pickInventoryAnchorEvent(EVENTS, 'pre', at('2026-09-26T10:00:00Z'), TZ).id).toBe('lyon')
-    expect(pickInventoryAnchorEvent(EVENTS, 'pre', at('2026-09-26T12:59:00Z'), TZ).id).toBe('lyon')
+    expect(pickInventoryAnchorEvent(EVENTS, 'pre', at('2026-09-26T13:00:00Z'), TZ).id).toBe('lyon')
+    expect(pickInventoryAnchorEvent(EVENTS, 'pre', at('2026-09-26T20:59:00Z'), TZ).id).toBe('lyon')
   })
 
-  it("pre : bascule au match suivant à l'ouverture des portes", () => {
-    expect(pickInventoryAnchorEvent(EVENTS, 'pre', at('2026-09-26T13:00:00Z'), TZ).id).toBe('montpellier')
+  it('pre : bascule au match suivant à la fin réelle du match', () => {
+    expect(pickInventoryAnchorEvent(EVENTS, 'pre', at('2026-09-26T21:00:00Z'), TZ).id).toBe('montpellier')
+  })
+
+  it("pickUpcomingEvent : prochain match dont les portes ne sont pas ouvertes", () => {
+    expect(pickUpcomingEvent(EVENTS, at('2026-09-26T12:59:00Z'), TZ).id).toBe('lyon')
+    expect(pickUpcomingEvent(EVENTS, at('2026-09-26T13:00:00Z'), TZ).id).toBe('montpellier')
   })
 
   it("post : le match du jour dès l'ouverture des portes, pas avant", () => {

@@ -89,8 +89,16 @@ export function eventEndAt(event, timeZone = DEFAULT_TZ) {
   return combineDayAndLocalTime(next, '00:00', timeZone)
 }
 
-/** Fin de la période pre-event : ouverture des portes, sinon fin de l'event. */
+/** Fin de la période pre-event : FIN RÉELLE de l'event (retour Bertrand 2026-10-07, D24 :
+ *  le pre-event reste possible après l'ouverture des portes, PDV par PDV, jusqu'à la fin ;
+ *  même borne que le serveur, inventory-window-period.ts). Avant, l'ouverture des portes :
+ *  l'écran pre-event se vidait dès les portes alors que le serveur acceptait encore. */
 export function preEventClosesAt(event, timeZone = DEFAULT_TZ) {
+  return eventEndAt(event, timeZone)
+}
+
+/** Ouverture des portes, sinon fin de l'event : borne de « à venir » (portes pas ouvertes). */
+function doorsOrEndAt(event, timeZone) {
   return eventDoorsOpenAt(event, timeZone) ?? eventEndAt(event, timeZone)
 }
 
@@ -101,8 +109,8 @@ export function postEventOpensAt(event, timeZone = DEFAULT_TZ) {
 
 /**
  * Match d'ancrage de l'écran Inventaire parmi `events` :
- *  - pre : le prochain match dont les portes ne sont PAS encore ouvertes (le match du
- *    jour reste affiché jusqu'à l'ouverture des portes) ;
+ *  - pre : le prochain match qui n'est pas TERMINÉ (le match du jour reste affiché jusqu'à
+ *    sa fin réelle, D24) ;
  *  - post : le dernier match dont les portes SONT ouvertes.
  * @returns {object|null}
  */
@@ -120,6 +128,20 @@ export function pickInventoryAnchorEvent(events, mode, now = new Date(), timeZon
     .filter((x) => x.at && x.at.getTime() <= t)
     .sort((a, b) => b.at - a.at)
   return started[0]?.e ?? null
+}
+
+/**
+ * Prochain match dont les portes ne sont PAS encore ouvertes : le « prochain évènement » de
+ * la liste déroulante du post-event (le match en cours y est déjà « dernier évènement »).
+ * @returns {object|null}
+ */
+export function pickUpcomingEvent(events, now = new Date(), timeZone = DEFAULT_TZ) {
+  const t = now.getTime()
+  const upcoming = (events || [])
+    .map((e) => ({ e, at: doorsOrEndAt(e, timeZone) }))
+    .filter((x) => x.at && t < x.at.getTime())
+    .sort((a, b) => a.at - b.at)
+  return upcoming[0]?.e ?? null
 }
 
 /** Post-event accessible pour cet event (portes ouvertes) ? */
