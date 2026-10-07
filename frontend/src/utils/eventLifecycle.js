@@ -72,6 +72,29 @@ export function eventDoorsOpenAt(event, timeZone = DEFAULT_TZ) {
   return earliest
 }
 
+/** Heure du show (la plus tôt des sessions), `null` sans heure renseignée. */
+export function eventShowAt(event, timeZone = DEFAULT_TZ) {
+  const day = startDayOf(event)
+  if (!day) return null
+  const hours = parseEventSessions(event?.sessions).map((s) => s.showTime)
+  if (event?.showTime) hours.push(event.showTime)
+  let earliest = null
+  for (const hhmm of hours) {
+    const at = combineDayAndLocalTime(day, hhmm, timeZone)
+    if (at && (!earliest || at < earliest)) earliest = at
+  }
+  return earliest
+}
+
+/**
+ * Démarrage AUTOMATIQUE du post-event : heure du show, sinon ouverture des portes
+ * (miroir de resolvePostEventAutoStartAt côté serveur, Bertrand 2026-10-07). Le
+ * démarrage manuel reste possible dès l'ouverture des portes.
+ */
+export function postEventAutoStartAt(event, timeZone = DEFAULT_TZ) {
+  return eventShowAt(event, timeZone) ?? eventDoorsOpenAt(event, timeZone)
+}
+
 /** Minuit local du jour de début. */
 export function eventDayStart(event, timeZone = DEFAULT_TZ) {
   const day = startDayOf(event)
