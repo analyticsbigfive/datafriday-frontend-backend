@@ -14,7 +14,9 @@ describe('normalizeStoragePercent', () => {
   it('clamp 0–200, arrondi entier', () => {
     expect(normalizeStoragePercent(0)).toBe(0)
     expect(normalizeStoragePercent(150)).toBe(150)
-    expect(normalizeStoragePercent(250)).toBe(200)
+    // Au-delà du curseur (200) : valeur libre conservée (Bertrand 2026-10-07).
+    expect(normalizeStoragePercent(250)).toBe(250)
+    expect(normalizeStoragePercent(50000)).toBe(10000)
     expect(normalizeStoragePercent(-10)).toBe(0)
     expect(normalizeStoragePercent(99.6)).toBe(100)
     expect(normalizeStoragePercent('85')).toBe(85)

@@ -485,13 +485,24 @@
                   <input
                     type="range"
                     min="0"
-                    max="200"
+                    :max="Math.max(200, stockAdjustment(item.itemKey))"
                     step="5"
                     :value="stockAdjustment(item.itemKey)"
                     class="sr-slider"
                     @input="setStockAdjustment(item.itemKey, $event.target.value)"
                   />
-                  <span class="sr-slider-value" :class="{ 'sr-slider-value-mixed': isStockAdjustmentMixed(item.itemKey) }">{{ isStockAdjustmentMixed(item.itemKey) ? t('srMixed') : `${stockAdjustment(item.itemKey)}%` }}</span>
+                  <!-- Valeur libre au-delà du curseur (retour Bertrand 2026-10-07). -->
+                  <span class="sr-slider-value sr-value-input-wrap" :class="{ 'sr-slider-value-mixed': isStockAdjustmentMixed(item.itemKey) }">
+                    <NumberField
+                      :model-value="isStockAdjustmentMixed(item.itemKey) ? null : stockAdjustment(item.itemKey)"
+                      :decimals="0"
+                      :min="0"
+                      :placeholder="t('srMixed')"
+                      :aria-label="t('srAdjustNeedLabel')"
+                      class="sr-value-input"
+                      @change="(v) => commitPercentIfChanged(v, isStockAdjustmentMixed(item.itemKey) ? null : stockAdjustment(item.itemKey), (n) => setStockAdjustment(item.itemKey, n))"
+                    />%
+                  </span>
                   <!-- Chantier 388 : répartition par PDV, drawer à gauche (même
                        bouton que la vue article d'Event Predict). -->
                   <button
@@ -592,7 +603,7 @@
                 <input
                   type="range"
                   min="0"
-                  max="200"
+                  :max="Math.max(200, storageGlobalPercent)"
                   step="1"
                   :value="storageGlobalPercent"
                   class="sr-slider"
@@ -601,7 +612,17 @@
                   :title="t('srStorageGlobalEnable')"
                   @input="setStorageGlobalPercent($event.target.value)"
                 />
-                <span class="sr-slider-value">{{ storageGlobalPercent }}%</span>
+                <span class="sr-slider-value sr-value-input-wrap">
+                  <NumberField
+                    :model-value="storageGlobalPercent"
+                    :decimals="0"
+                    :min="0"
+                    :disabled="!storageGlobalEnabled"
+                    :aria-label="t('srStorageGlobalEnable')"
+                    class="sr-value-input"
+                    @change="(v) => commitPercentIfChanged(v, storageGlobalPercent, (n) => setStorageGlobalPercent(n))"
+                  />%
+                </span>
                 <button
                   v-if="storageGlobalPercent !== 100"
                   type="button"
@@ -668,15 +689,22 @@
                     <input
                       type="range"
                       min="0"
-                      max="200"
+                      :max="Math.max(200, row.percent)"
                       step="5"
                       :value="row.percent"
                       class="sr-slider"
                       :aria-label="t('srStorageAdjustLabel')"
                       @input="setStoragePercent(row.key, $event.target.value)"
                     />
-                    <span class="sr-slider-value" :class="{ 'sr-value-ok': !(row.required > 0) }">
-                      {{ row.percent }}% · {{ formatLooseQuantity(row.required, row.unit) }}
+                    <span class="sr-slider-value sr-value-input-wrap" :class="{ 'sr-value-ok': !(row.required > 0) }">
+                      <NumberField
+                        :model-value="row.percent"
+                        :decimals="0"
+                        :min="0"
+                        :aria-label="t('srStorageAdjustLabel')"
+                        class="sr-value-input"
+                        @change="(v) => commitPercentIfChanged(v, row.percent, (n) => setStoragePercent(row.key, n))"
+                      />% · {{ formatLooseQuantity(row.required, row.unit) }}
                     </span>
                     <button
                       v-if="row.adjusted"
@@ -4812,6 +4840,13 @@ export default {
     stockAdjustment(itemKey) {
       return Number(this.stockAdjustments[itemKey] ?? 100)
     },
+    /** Champ de valeur libre : n'écrit que si la valeur a changé (même règle
+     *  qu'Event Predict, commitIfChanged). */
+    commitPercentIfChanged(value, current, apply) {
+      if (value == null || !Number.isFinite(Number(value))) return
+      if (current != null && Number(value) === Number(current)) return
+      apply(Math.max(0, Number(value)))
+    },
     async setStockAdjustment(itemKey, value) {
       if (!(await this.guardPlanEdit())) return
       this.stockAdjustments = {
@@ -7301,6 +7336,25 @@ export default {
   text-align: right;
   font-size: 0.8rem;
   font-weight: 750;
+}
+
+/* Valeur libre à côté d'un curseur (retour Bertrand 2026-10-07) : champ + unité. */
+.sr-value-input-wrap {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+.sr-value-input {
+  width: 52px;
+  text-align: right;
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--fb-border, #e5e7eb);
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: transparent;
 }
 
 /* Chantier 388 : « Mixte » ne tient pas dans les 44px d'un « 100% ». */

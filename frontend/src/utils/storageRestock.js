@@ -6,17 +6,20 @@
  * SFC monolithe.
  *
  * Convention % : 100 = nécessaire par défaut (tampon − restant, plancher 0),
- * plage utile 0–200 alignée sur le curseur PDV (SpaceRestockView, min 0 /
- * max 200 / pas 5).
+ * curseur 0–200 (SpaceRestockView, pas 5). Au-delà, valeur libre saisie dans le
+ * champ à côté du curseur (retour Bertrand 2026-10-07), bornée par un garde-fou.
  */
 
 export const STORAGE_PERCENT_MIN = 0
-export const STORAGE_PERCENT_MAX = 200
+/** Borne du CURSEUR (s'élargit si une valeur plus haute a été saisie). */
+export const STORAGE_PERCENT_SLIDER_MAX = 200
+/** Garde-fou de saisie libre (faute de frappe), pas une règle métier. */
+export const STORAGE_PERCENT_MAX = 10000
 export const STORAGE_PERCENT_DEFAULT = 100
 
 /**
  * Coerce une valeur arbitraire (slider, state persisté, plan rechargé) en
- * pourcentage entier borné 0–200. Tout ce qui n'est pas un nombre fini
+ * pourcentage entier borné 0–STORAGE_PERCENT_MAX. Tout ce qui n'est pas un nombre fini
  * retombe sur 100 (= aucun ajustement).
  */
 export function normalizeStoragePercent(raw) {
