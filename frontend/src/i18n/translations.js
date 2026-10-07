@@ -2563,6 +2563,7 @@ export const translations = {
     // inv — SpaceInventoryView / InventoryAggregateView / InventoryCountingInterface
     invOptions: 'Options',
     invOptionsTitle: 'Inventory options',
+    invSummaryBtn: 'Inventory summary',
     invToolsLabel: 'Tools',
     invVerifyCoverage: 'Check stock ↔ menus',
     invBack: 'Back',
@@ -7350,6 +7351,7 @@ export const translations = {
     // inv — SpaceInventoryView / InventoryAggregateView / InventoryCountingInterface
     invOptions: 'Options',
     invOptionsTitle: 'Options inventaire',
+    invSummaryBtn: 'Résumé inventaire',
     invToolsLabel: 'Outils',
     invVerifyCoverage: 'Vérifier stocks ↔ menus',
     invBack: 'Retour',
