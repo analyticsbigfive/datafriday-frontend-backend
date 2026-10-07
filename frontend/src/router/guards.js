@@ -2,6 +2,7 @@
 // Navigation guards pour la protection des routes
 
 import store from '@/store'
+import { guestPinLandingRoute } from '@/utils/guestPinLanding'
 
 /**
  * Guard pour les routes nécessitant une organisation
@@ -171,7 +172,7 @@ export async function guestPinLoginOnly(to, from, next) {
 export async function requireGuestPinSession(to, from, next) {
   await store.dispatch('guestPin/restore')
   if (!store.getters['guestPin/isActive']) {
-    return next('/login/pin')
+    return next(guestPinLandingRoute())
   }
   next()
 }

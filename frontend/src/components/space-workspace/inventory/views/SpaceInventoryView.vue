@@ -209,9 +209,8 @@
             <span v-if="postEventNotStarted" class="si-band-title__warn">
               · {{ t('invPostEventNotStarted') }}
             </span>
-            <!-- Fenêtre des 30 min après l'ouverture des portes (critère
-                 d'acceptation 2026-09-14) : modifications encore possibles, feuille
-                 et Logistique régénérées automatiquement ; puis verrou. -->
+            <!-- Après l'ouverture des portes et jusqu'à la fin de l'event (Bertrand
+                 2026-10-07) : pre-event encore possible PDV par PDV ; puis verrou. -->
             <span v-if="preEventWindow.isLocked" class="si-band-title__warn si-band-title__lock">
               · {{ t('preInvLockedAfterDoors') }}
             </span>
@@ -444,7 +443,6 @@
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
           :readonly="guestSession.isReadonly || preEventWindow.isLocked || postEventNotStarted"
-          :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="countingShop = null"
           @change-shop="startCount"
@@ -737,7 +735,6 @@
           :expected-detail-for="guestSession.isGuestMode ? null : (canSeeExpected ? expectedDetailFor : null)"
           :can-transfer="!demo && !guestSession.isGuestMode"
           :readonly="guestSession.isReadonly || preEventWindow.isLocked || postEventNotStarted"
-          :is-item-locked="preEventWindow.isAfterDoorsOpen ? isItemLockedAfterDoors : null"
           :hide-close="guestSession.isGuestMode"
           @close="closeMobileCounting"
           @change-shop="startCount"
@@ -842,6 +839,7 @@ import {
 } from '@/utils/inventoryCountingStatus'
 import { useInventoryData } from '@/composables/useInventoryData'
 import { resolveCatalogDims } from '@/utils/analyseReconciliation'
+import { guestPinLandingRoute } from '@/utils/guestPinLanding'
 import { useInventoryScope } from '@/composables/useInventoryScope'
 import { useGuestInventorySession } from '@/composables/useGuestInventorySession'
 import { usePreEventEditWindow } from '@/composables/usePreEventEditWindow'
@@ -1003,6 +1001,14 @@ export default {
         }
         await livePollExtra.value?.()
       },
+    )
+    // Responsable PDV : session relue toutes les 30 s. Inventaire arrêté (ou changement
+    // de phase) → 401 → page d'attente du PDV (intercepteur Axios), sans attendre sa
+    // prochaine saisie (retour Bertrand 2026-10-07).
+    useInventoryLivePolling(
+      () => guestSession.isGuestMode,
+      () => store.dispatch('guestPin/refreshSession'),
+      { intervalMs: 30 * 1000 },
     )
     return {
       t,
@@ -2106,7 +2112,7 @@ export default {
       if (!ok) return
       const slug = this.guestSession.guestSlug
       await this.guestSession.logout()
-      this.router.push(slug ? { name: 'login-pin', params: { slug } } : '/login')
+      this.router.push(guestPinLandingRoute(slug || undefined))
     },
     /** Charge toutes les données pour un space donné (mount + changement d'espace/event). */
     async loadForSpace(spaceId) {
@@ -2389,12 +2395,6 @@ export default {
           await this.regeneratePreEventSheet(shopId)
         }
       }
-    },
-    /** Après l'ouverture des portes, un article déjà compté est figé : seuls les
-     *  éléments non comptés restent modifiables pendant les 30 min (critère 9,
-     *  miroir du 403 serveur dans PreEventInventoryFlowService.saveCount). */
-    isItemLockedAfterDoors(shopId, itemId) {
-      return this.isItemCounted(shopId, itemId)
     },
     /** Tous les articles de cet élément sont-ils marqués comptés ? */
     isElementComplete(elementId) {

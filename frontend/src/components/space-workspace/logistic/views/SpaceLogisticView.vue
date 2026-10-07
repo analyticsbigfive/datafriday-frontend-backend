@@ -397,7 +397,6 @@
                   :predicted-need-packs="predictedNeedPacksFor(drillElement.element.id, item)"
                   :used-in-label="usedInLabel(item)"
                   :status="itemStatus(drillElement.element.id, item)"
-                  :last-count="countedFor(drillElement.element.id, item)"
                   :pending-transfers="pendingTransfersFor(drillElement.element.id, item.name)"
                   :outgoing-pending-transfers="outgoingPendingTransfersFor(drillElement.element.id, item.name)"
                   @add="openMovement(drillElement.element, item, 'add')"
@@ -539,10 +538,12 @@
 </template>
 
 <script>
+import { ref } from 'vue'
 import { useStore } from 'vuex'
 import { useRoute, useRouter } from 'vue-router'
 import { safePush } from '@/utils/chunkReload'
 import { useI18n } from '@/i18n/useI18n'
+import { useInventoryLivePolling } from '@/composables/useInventoryLivePolling'
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import AppSearchBar from '@/components/common/AppSearchBar.vue'
 import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
@@ -640,7 +641,16 @@ export default {
     const router = useRouter()
     const route = useRoute()
     const { t } = useI18n()
-    return { store, router, route, t }
+    // Temps réel (retour Bertrand 2026-10-07) : stock et derniers comptages relus toutes
+    // les 10 s, onglet visible. Les comptages partent vers Logistic quelques secondes
+    // après « Marquer compté » ; sans relecture, il fallait recharger la page.
+    const liveRefresh = ref(null)
+    useInventoryLivePolling(
+      () => true,
+      () => liveRefresh.value?.(),
+      { intervalMs: 10 * 1000 },
+    )
+    return { store, router, route, t, liveRefresh }
   },
   data() {
     return {
@@ -859,6 +869,9 @@ export default {
       },
     },
   },
+  created() {
+    this.liveRefresh = () => this.refreshLive()
+  },
   activated() {
     // Retour sur la vue keep-alive : le watcher a été court-circuité pendant
     // l'absence — recharge si le contexte a changé entre-temps.
@@ -1013,6 +1026,19 @@ export default {
     closeDrill() {
       this.drillElement = null
       this.search = ''
+    },
+    /** Relecture silencieuse (sans squelette de chargement) pour le temps réel. */
+    async refreshLive() {
+      // keep-alive : vue cachée (autre écran affiché), rien à relire.
+      if (this.route?.name !== 'space-logistic') return
+      const spaceId = this.currentSpaceId
+      if (!spaceId || this.loading) return
+      const eventId = this.route?.query?.event || null
+      const configId = this.route?.query?.configuration || this.route?.query?.config || (eventId ? null : 'all')
+      await Promise.all([
+        this.store.dispatch('logistics/loadStock', { spaceId, configId, eventId, silent: true }),
+        this.loadLatestInventory(spaceId),
+      ])
     },
     async loadForSpace(spaceId) {
       this._loadedContextKey = this.routeContextKey

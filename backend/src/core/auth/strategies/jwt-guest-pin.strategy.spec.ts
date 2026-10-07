@@ -36,9 +36,9 @@ describe('JwtGuestPinStrategy.validate', () => {
         });
     });
 
-    it('rejette dès que la fenêtre est clôturée (Doors Open), même avec un JWT valide', async () => {
+    it('fenêtre arrêtée mais PDV rouvert un par un (ligne active) : accès conservé (document Bertrand 2026-10-06)', async () => {
         prisma.guestPinAccess.findUnique.mockResolvedValue({ ...baseAccess, window: { ...baseAccess.window, status: 'closed' } });
-        await expect(strategy.validate({ sub: 'access-1' } as any)).rejects.toThrow(UnauthorizedException);
+        await expect(strategy.validate({ sub: 'access-1' } as any)).resolves.toMatchObject({ id: 'access-1' });
     });
 
     it('rejette un accès révoqué ou inconnu', async () => {

@@ -2106,6 +2106,50 @@ export class SpacesService {
    * Sert au cycle d'inventaire (document Bertrand 2026-10-06) : le pre-event s'arrête sur un
    * vrai démarrage des ventes, pas sur une vente de test isolée.
    */
+  /**
+   * Première vente validée de chaque PdV de l'espace depuis `since` (même périmètre que
+   * `countValidSalesSince`, mais seules les ventes rattachées à un PdV comptent). Sert à
+   * l'arrêt du pre-event PDV par PDV dès sa première vente, vente de test comprise
+   * (retour Bertrand 2026-10-07, choix Ulrich : « on part sur 1, test ou pas »).
+   */
+  async firstValidSaleByElementSince(spaceId: string, tenantId: string, since: Date): Promise<Map<string, Date>> {
+    const [locationMapping, shopIds] = await Promise.all([
+      this.prisma.locationSpaceMapping.findFirst({
+        where: { tenantId, spaceId },
+        select: { salesLocationId: true },
+      }),
+      this.resolveShopIdsForSpace(spaceId, tenantId),
+    ]);
+    if (shopIds.length === 0) return new Map();
+    const integrationId = locationMapping?.salesLocationId ?? null;
+    const integrationClause = integrationId
+      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
+      : Prisma.sql``;
+    // Première vente de chaque lieu de vente (LIMIT 1 sur l'index tenantId/locationId/
+    // transactionDate) : coût proportionnel au nombre de lieux, pas au volume du match.
+    // EXPLAIN prod 2026-10-07 (La Beaujoire, 37 lieux) : index scans, ~25 ms à froid.
+    const rows: { elementId: string; firstAt: Date }[] = await this.prisma.$queryRaw(Prisma.sql`
+      SELECT mem."spaceElementId" AS "elementId", MIN(first_sale."transactionDate") AS "firstAt"
+      FROM "WeezeventLocationShopMapping" mem
+      CROSS JOIN LATERAL (
+        SELECT t."transactionDate"
+        FROM "WeezeventTransaction" t
+        WHERE t."tenantId" = ${tenantId}
+          AND t."locationId" = mem."weezeventLocationId"
+          ${integrationClause}
+          AND t.status = 'V'
+          AND t."deletedAt" IS NULL
+          AND t."transactionDate" >= ${since}
+        ORDER BY t."transactionDate"
+        LIMIT 1
+      ) first_sale
+      WHERE mem."tenantId" = ${tenantId}
+        AND mem."spaceElementId" = ANY(${shopIds})
+      GROUP BY mem."spaceElementId"
+    `);
+    return new Map(rows.map((r) => [r.elementId, r.firstAt]));
+  }
+
   async countValidSalesSince(spaceId: string, tenantId: string, since: Date): Promise<number> {
     const [locationMapping, shopIds] = await Promise.all([
       this.prisma.locationSpaceMapping.findFirst({
