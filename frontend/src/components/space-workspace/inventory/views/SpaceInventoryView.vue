@@ -190,14 +190,20 @@
         <p v-else-if="contextEvent" class="si-band-title__sub">
           <!-- Mobile : "{match} - {date} @ {showTime}" compact (retour utilisateur),
                le détail desktop (préfixe/espace/avertissement) ne tenait plus sur
-               1 ligne. -->
-          <template v-if="isMobile">{{ contextEventCompactLabel }}</template>
+               1 ligne. Avec un choix d'event (post), même liste qu'au bureau, flèche
+               À GAUCHE pour rester visible quand le libellé est coupé (Bertrand
+               2026-10-07). -->
+          <template v-if="isMobile && eventOptions.length <= 1">{{ contextEventCompactLabel }}</template>
           <template v-else>
             <!-- « {match} · {date} » (document Bertrand 2026-10-06, pages 3 et 4).
                  Post : liste déroulante dernier / prochain event. -->
             <v-menu v-if="eventOptions.length > 1" location="bottom start">
               <template #activator="{ props: menuProps }">
-                <button v-bind="menuProps" type="button" class="si-band-event-btn">
+                <button v-if="isMobile" v-bind="menuProps" type="button" class="si-band-event-btn si-band-event-btn--mobile">
+                  <v-icon size="18">mdi-menu-down</v-icon>
+                  <span class="si-band-event-btn__label">{{ contextEventCompactLabel }}</span>
+                </button>
+                <button v-else v-bind="menuProps" type="button" class="si-band-event-btn">
                   <strong class="si-band-title__event">{{ contextEventLabel }}</strong>
                   <v-icon size="18">mdi-menu-down</v-icon>
                 </button>
@@ -215,6 +221,7 @@
               </v-list>
             </v-menu>
             <strong v-else class="si-band-title__event">{{ contextEventLabel }}</strong>
+            <template v-if="!isMobile">
             <span v-if="postEventNotStarted" class="si-band-title__warn">
               · {{ t('invPostEventNotStarted') }}
             </span>
@@ -235,6 +242,7 @@
             <span v-else-if="preEventWindow.doorsOpenDone && !preEventWindow.isAfterDoorsOpen" class="si-band-title__warn">
               · {{ t('preInvDoorsOpenDone') }}
             </span>
+            </template>
           </template>
         </p>
         <p v-else-if="spaceLabel" class="si-band-title__sub">
@@ -249,6 +257,8 @@
           :event-id="pinAccess.eventId"
           :phase="pinAccess.phase"
           :count-status="inventoryCountStatus"
+          :event="contextEvent"
+          :time-zone="spaceTimeZone"
         />
       </div>
 
@@ -3574,6 +3584,17 @@ export default {
 .si-band-btn--save:hover { background: rgba(255, 255, 255, 0.9) !important; color: #ff3131 !important; }
 /* Moins prégnant que "J'ai terminé" (action fréquente vs déconnexion, rare et
    sans conséquence sur les données — pas de raison de leur donner le même poids). */
+.si-band-event-btn--mobile {
+  max-width: 100%;
+  min-width: 0;
+  font-weight: 600;
+}
+.si-band-event-btn__label {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .si-band-btn--logout { background: transparent !important; border-color: rgba(255, 255, 255, 0.4) !important; margin-left: 8px; }
 
 /* Équivalent mobile (< 900px, cf. isMobile JS) du toggle filtres / des boutons
