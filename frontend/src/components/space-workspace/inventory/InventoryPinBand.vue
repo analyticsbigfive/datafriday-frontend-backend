@@ -11,28 +11,13 @@
       <span v-else class="inv-pin-band__none">{{ t('invPinNotGenerated') }}</span>
       {{ ' ' }}<span class="inv-pin-band__status">({{ t(statusLabelKey) }})</span>
     </span>
-    <div class="inv-pin-band__actions">
-      <button
-        type="button"
-        class="inv-pin-band__btn"
-        :disabled="working || !periodOpen || !anyOpen"
-        :title="t('invPinStopAll')"
-        :aria-label="t('invPinStopAll')"
-        @click="run('guestPinAdmin/stopWindow')"
-      >
-        <v-icon size="18">mdi-stop</v-icon>
-      </button>
-      <button
-        type="button"
-        class="inv-pin-band__btn"
-        :disabled="working || !periodOpen || fullyOpen"
-        :title="t('invPinStartAll')"
-        :aria-label="t('invPinStartAll')"
-        @click="run('guestPinAdmin/startWindow')"
-      >
-        <v-icon size="18">mdi-play</v-icon>
-      </button>
-    </div>
+    <InventoryPinActionButtons
+      class="inv-pin-band__actions"
+      :space-id="spaceId"
+      :event-id="eventId"
+      :phase="phase"
+      @error="error = $event"
+    />
     <span v-if="hint" class="inv-pin-band__hint">{{ hint }}</span>
   </div>
 </template>
@@ -42,7 +27,8 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import { useInventoryPinAccess } from '@/composables/useInventoryPinAccess'
-import { isAnyAccessOpen, isFullyOpen } from '@/utils/guestPinAccessState'
+import InventoryPinActionButtons from './InventoryPinActionButtons.vue'
+import { pinActionsPending } from '@/composables/useInventoryPinActions'
 import { COUNTING_STATUS_COUNTED, COUNTING_STATUS_IN_PROGRESS } from '@/utils/inventoryCountingStatus'
 
 const props = defineProps({
@@ -55,13 +41,10 @@ const props = defineProps({
 
 const { t } = useI18n()
 const store = useStore()
-const { window, periodOpen, periodState } = useInventoryPinAccess(computed(() => props.phase))
-const working = ref(false)
+const { window, periodState } = useInventoryPinAccess(computed(() => props.phase))
 const error = ref('')
 
 const pin = computed(() => window.value?.pin ?? null)
-const anyOpen = computed(() => isAnyAccessOpen(window.value))
-const fullyOpen = computed(() => isFullyOpen(window.value))
 
 // Pas commencé (rien compté) / En cours (au moins un article) / Terminé (tout compté).
 const statusLabelKey = computed(() => {
@@ -95,7 +78,9 @@ watch(() => [props.spaceId, props.eventId], load, { immediate: true })
 // les reflètent sans rechargement de la page.
 const REFRESH_MS = 30 * 1000
 const refreshTimer = setInterval(() => {
-  if (working.value || !props.spaceId || !props.eventId) return
+  // Action ■ / ▶ en cours (bandeau ou menu mobile) : on attend, sinon cette relecture
+  // pouvait remettre l'ancien état dans le store.
+  if (pinActionsPending.value > 0 || !props.spaceId || !props.eventId) return
   if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
   store
     .dispatch('guestPinAdmin/fetchStatusBoard', { spaceId: props.spaceId, eventId: props.eventId })
@@ -103,18 +88,6 @@ const refreshTimer = setInterval(() => {
 }, REFRESH_MS)
 onBeforeUnmount(() => clearInterval(refreshTimer))
 
-async function run(action) {
-  working.value = true
-  error.value = ''
-  try {
-    await store.dispatch(action, { spaceId: props.spaceId, eventId: props.eventId, phase: props.phase })
-  } catch (e) {
-    // Jamais silencieux : un refus serveur (hors période) doit se lire.
-    error.value = e?.response?.data?.message || t('invPinAccessError')
-  } finally {
-    working.value = false
-  }
-}
 </script>
 
 <style scoped>
@@ -144,29 +117,27 @@ async function run(action) {
   opacity: 0.85;
 }
 .inv-pin-band__actions {
-  display: inline-flex;
-  gap: 6px;
   margin-left: auto;
 }
-.inv-pin-band__btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1.5px solid #FFFFFF;
-  border-radius: var(--fb-radius-control, 8px);
-  background: transparent;
-  color: #FFFFFF;
-  cursor: pointer;
-}
-.inv-pin-band__btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-.inv-pin-band__btn:focus-visible {
-  outline: 3px solid rgba(255, 255, 255, 0.45);
-  outline-offset: 2px;
+/* Mobile (design Bertrand 2026-10-07) : ■ ▶ sur la ligne du PIN, à droite, jamais
+   renvoyés à la ligne ; le PIN s'ellipse plutôt. L'aide reste en dessous. */
+@media (max-width: 900px) {
+  .inv-pin-band {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: 8px;
+    margin-top: 4px;
+  }
+  .inv-pin-band__pin {
+    font-size: var(--fs-md);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .inv-pin-band__hint {
+    grid-column: 1 / -1;
+  }
 }
 .inv-pin-band__hint {
   flex-basis: 100%;
