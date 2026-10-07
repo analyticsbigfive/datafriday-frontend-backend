@@ -2,6 +2,9 @@
   <!-- Accès par QR code + PIN de CE PDV (document Bertrand 2026-10-06, pages 5 et 6) :
        ▶ quand l'accès est arrêté, ■ quand il est autorisé. Démarrer un PDV dans une
        phase arrête l'autre phase pour ce PDV (serveur). -->
+  <span v-if="stoppedBySaleLabel" class="pdv-access-sale" :title="t('invPdvStoppedBySaleHint')">
+    {{ stoppedBySaleLabel }}
+  </span>
   <button
     type="button"
     class="pdv-access-btn"
@@ -20,8 +23,9 @@
 import { computed, ref } from 'vue'
 import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
+import { useNumberFormat } from '@/composables/useNumberFormat'
 import { useInventoryPinAccess } from '@/composables/useInventoryPinAccess'
-import { isElementAccessOpen } from '@/utils/guestPinAccessState'
+import { isElementAccessOpen, elementStoppedBySaleAt } from '@/utils/guestPinAccessState'
 
 const props = defineProps({
   spaceId: { type: String, required: true },
@@ -32,11 +36,20 @@ const props = defineProps({
 const emit = defineEmits(['error'])
 
 const { t } = useI18n()
+const { intlLocale } = useNumberFormat()
 const store = useStore()
 const { window, periodOpen } = useInventoryPinAccess(computed(() => props.phase))
 const working = ref(false)
 
 const isOpen = computed(() => isElementAccessOpen(window.value, props.elementId))
+
+/** « 1re vente 19:12 » : PDV arrêté automatiquement à sa première vente (pre-event). */
+const stoppedBySaleLabel = computed(() => {
+  const at = elementStoppedBySaleAt(window.value, props.elementId)
+  if (!at) return ''
+  const time = at.toLocaleTimeString(intlLocale.value, { hour: '2-digit', minute: '2-digit' })
+  return t('invPdvStoppedBySale').replace('{time}', time)
+})
 
 async function onToggle() {
   working.value = true
@@ -56,6 +69,16 @@ async function onToggle() {
 </script>
 
 <style scoped>
+.pdv-access-sale {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--fb-warning-soft, #FFF1DC);
+  color: var(--fb-warning, #B45309);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
 .pdv-access-btn {
   display: inline-flex;
   align-items: center;

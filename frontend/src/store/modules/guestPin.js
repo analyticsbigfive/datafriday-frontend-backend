@@ -13,6 +13,7 @@
 
 import { loginWithPin, getGuestSession, getGuestContext } from '@/api/endpoints/guestPin.api'
 import { setAccessToken, clearAccessToken, setGuestSessionActive } from '@/api/client'
+import { rememberGuestSlug } from '@/utils/guestPinLanding'
 
 const SESSION_STORAGE_KEY = 'datafriday:guestpin:session'
 const DEVICE_ID_STORAGE_KEY = 'datafriday:guestpin:deviceId'
@@ -118,6 +119,7 @@ const actions = {
       if (result.state === 'ok') {
         const { token, state: _discriminant, ...session } = result
         session.slug = slug
+        rememberGuestSlug(slug)
         setAccessToken(token)
         setGuestSessionActive(true)
         commit('SET_SESSION', { token, session })

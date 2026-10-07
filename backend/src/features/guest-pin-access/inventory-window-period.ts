@@ -2,7 +2,7 @@ import {
   EventDayFields,
   combineDayAndLocalTime,
   resolveDoorsOpenAt,
-  resolvePreEventDeadline,
+  resolveEventTransactionWindow,
 } from '../../shared/utils/event-window.util';
 
 export type InventoryWindowPhase = 'pre-event' | 'post-event';
@@ -21,10 +21,11 @@ export interface InventoryWindowPeriod {
  * Période pendant laquelle une fenêtre invité (PIN) peut exister, règle Ulrich 2026-09-28
  * (incident Stade Jean Bouin, SFP-Lyon 26/09) :
  *
- *  - pre-event : ouvrable et PIN générable à tout moment jusqu'à l'ouverture des portes,
- *    fermée à cet instant (règle Bertrand 2026-09-29 ; plus d'attente de minuit le jour du
- *    match depuis Ulrich 2026-10-02). Sans heure d'ouverture des portes renseignée :
- *    jusqu'à la fin de l'event.
+ *  - pre-event : ouvrable et PIN générable à tout moment jusqu'à la FIN RÉELLE de l'event
+ *    (heure de fin saisie, sinon minuit local). Retour Bertrand 2026-10-07 : après
+ *    l'ouverture des portes, le pre-event reste disponible PDV par PDV (réouverture
+ *    manuelle), chaque PDV s'arrêtant seul à sa première vente (InventoryCycleCronService).
+ *    Remplace la fermeture aux portes (règle 2026-09-29).
  *  - post-event : ouvrable dès l'ouverture des portes (sans heure renseignée : dès minuit
  *    local le jour du match), SANS fermeture automatique : c'est l'utilisateur qui clôture
  *    (« Update Logistic », qui ferme la fenêtre et pousse le comptage). Décision Ulrich
@@ -40,7 +41,7 @@ export function inventoryWindowPeriod(
 ): InventoryWindowPeriod {
   const tz = timeZone || 'Europe/Paris';
   if (phase === 'pre-event') {
-    return { opensAt: null, closesAt: resolvePreEventDeadline(event, tz) };
+    return { opensAt: null, closesAt: resolveEventTransactionWindow(event, tz).end };
   }
   const doorsOpenAt = resolveDoorsOpenAt(event, tz);
   const startDay = new Date((event.eventStartDate ?? event.eventDate) as any);

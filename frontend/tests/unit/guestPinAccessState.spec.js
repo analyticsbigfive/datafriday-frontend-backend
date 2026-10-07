@@ -26,3 +26,20 @@ describe('guestPinAccessState', () => {
     expect(isFullyOpen(win('closed'))).toBe(false)
   })
 })
+
+describe('elementStoppedBySaleAt (pre-event arrêté à la première vente, Bertrand 2026-10-07)', () => {
+  const { elementStoppedBySaleAt } = require('@/utils/guestPinAccessState')
+  const win = (access) => ({ status: 'open', accesses: [{ elementId: 'pdv-a', ...access }] })
+
+  it('PDV arrêté par sa première vente : heure de l\'arrêt', () => {
+    const at = elementStoppedBySaleAt(win({ status: 'revoked', stopReason: 'sale', revokedAt: '2026-10-10T17:12:00Z' }), 'pdv-a')
+    expect(at.toISOString()).toBe('2026-10-10T17:12:00.000Z')
+  })
+
+  it('arrêté par le directeur, rouvert, ou sans ligne : rien', () => {
+    expect(elementStoppedBySaleAt(win({ status: 'revoked', stopReason: 'manual', revokedAt: '2026-10-10T17:12:00Z' }), 'pdv-a')).toBeNull()
+    expect(elementStoppedBySaleAt(win({ status: 'active', stopReason: null }), 'pdv-a')).toBeNull()
+    expect(elementStoppedBySaleAt(win({ status: 'revoked', stopReason: 'sale', revokedAt: '2026-10-10T17:12:00Z' }), 'pdv-b')).toBeNull()
+    expect(elementStoppedBySaleAt(null, 'pdv-a')).toBeNull()
+  })
+})

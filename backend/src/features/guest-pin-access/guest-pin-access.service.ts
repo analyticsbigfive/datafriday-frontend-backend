@@ -17,6 +17,7 @@ import { PreEventInventoryFlowService } from '../inventory/pre-event-inventory-f
 import { PostEventDraftService } from '../inventory/post-event-draft.service';
 import { decryptPin, encryptPin } from './guest-pin-crypto';
 import { closeInventoryWindows, revokeWindowAccesses } from '../inventory/inventory-window-closure';
+import { PRE_SALE_STOP_ACTOR, preSaleStopKey } from './pre-sale-stop';
 import { MenuItemsService } from '../menu-items/menu-items.service';
 import { MarketPricesService } from '../market-prices/market-prices.service';
 import { MenuComponentsService } from '../menu-components/menu-components.service';
@@ -682,6 +683,10 @@ export class GuestPinAccessService {
         submittedAt: a.submittedAt,
         validatedAt: a.validatedAt,
         reviewStatus: a.validatedAt ? 'validated' : a.submittedAt ? 'submitted' : 'in_progress',
+        // Pourquoi ce PDV est arrêté : première vente (arrêt automatique du pre-event,
+        // Bertrand 2026-10-07) ou action du directeur / fin de phase.
+        revokedAt: a.status === 'revoked' ? a.revokedAt : null,
+        stopReason: a.status !== 'revoked' ? null : a.revokedBy === PRE_SALE_STOP_ACTOR ? 'sale' : 'manual',
       })),
     }));
   }
@@ -820,10 +825,17 @@ export class GuestPinAccessService {
    * Démarre une phase pour tous les PDV : arrête l'autre phase de l'espace (sans push),
    * ouvre la fenêtre, rouvre les PDV arrêtés un par un, garantit le PIN. Partagé par le
    * bandeau et par les démarrages automatiques (InventoryCycleCronService), sans contrôle
-   * de droits ni de période : c'est à l'appelant de les faire.
+   * de droits ni de période : c'est à l'appelant de les faire. `keepOtherPhase` : le
+   * post-event démarré aux portes laisse le pre-event continuer pour les PDV qui n'ont pas
+   * encore vendu (Bertrand 2026-10-07).
    */
-  async startPhase(target: WindowTargetDto, tenantId: string, actorId: string): Promise<InventoryWindow> {
-    await this.stopOtherPhase(target.spaceId, tenantId, target.phase, actorId);
+  async startPhase(
+    target: WindowTargetDto,
+    tenantId: string,
+    actorId: string,
+    opts: { keepOtherPhase?: boolean } = {},
+  ): Promise<InventoryWindow> {
+    if (!opts.keepOtherPhase) await this.stopOtherPhase(target.spaceId, tenantId, target.phase, actorId);
     const window = await this.openWindowRecord(target, tenantId, actorId);
     // Reprise : les PDV arrêtés un par un sont rouverts avec les autres.
     await this.prisma.guestPinAccess.updateMany({
@@ -924,6 +936,7 @@ export class GuestPinAccessService {
       await this.setElementAccess(other.id, tenantId, dto.spaceId, dto.elementId, 'revoked', user.id);
     }
     await this.setElementAccess(window.id, tenantId, dto.spaceId, dto.elementId, 'active', user.id);
+    if (dto.phase === 'pre-event') await this.markPreReopenedByHand(window, dto.elementId);
     await this.audit.log({
       tenantId,
       userId: user.id,
@@ -941,7 +954,8 @@ export class GuestPinAccessService {
     const tenantId = user.tenantId!;
     const window = await this.findWindow(dto.spaceId, dto.eventId, tenantId, dto.phase);
     if (window) {
-      await this.setElementAccess(window.id, tenantId, dto.spaceId, dto.elementId, 'revoked', user.id);
+      if (dto.phase === 'pre-event') await this.stopPreElement(window, dto.elementId, user.id);
+      else await this.setElementAccess(window.id, tenantId, dto.spaceId, dto.elementId, 'revoked', user.id);
       await this.audit.log({
         tenantId,
         userId: user.id,
@@ -952,6 +966,30 @@ export class GuestPinAccessService {
       });
     }
     return this.getStatusBoard(dto.spaceId, dto.eventId, user);
+  }
+
+  /**
+   * Arrête le pre-event d'un seul PDV (■ du directeur, ou première vente). Si le post-event
+   * du même match est ouvert (portes passées), le PDV y retrouve son accès : la réouverture
+   * en pre-event le lui avait retiré (exclusivité par PDV, startElement).
+   */
+  async stopPreElement(window: InventoryWindow, elementId: string, actorId: string): Promise<void> {
+    await this.setElementAccess(window.id, window.tenantId, window.spaceId, elementId, 'revoked', actorId);
+    const post = await this.findWindow(window.spaceId, window.eventId, window.tenantId, 'post-event');
+    if (post?.status === 'open') {
+      await this.setElementAccess(post.id, window.tenantId, window.spaceId, elementId, 'active', actorId);
+    }
+  }
+
+  /** PDV rouvert à la main en pre-event : plus jamais coupé par ses ventes (pre-sale-stop.ts). */
+  private async markPreReopenedByHand(window: InventoryWindow, elementId: string): Promise<void> {
+    const key = preSaleStopKey(window.id, elementId);
+    const value = { reopenedByHand: true, at: new Date().toISOString() };
+    await this.prisma.kvStore.upsert({
+      where: { uniq_kv_store: { tenantId: window.tenantId, key } },
+      create: { tenantId: window.tenantId, key, value },
+      update: { value },
+    });
   }
 
   findWindow(spaceId: string, eventId: string, tenantId: string, phase: InventoryWindowPhase) {

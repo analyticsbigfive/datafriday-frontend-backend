@@ -136,12 +136,14 @@ describe('PreEventInventoryFlowService', () => {
         timezone: 'Europe/Paris',
       };
       expect(service.doorsOpenAt(event)).toEqual(new Date('2026-09-14T17:30:00.000Z'));
-      expect(service.editDeadline(event)).toEqual(new Date('2026-09-14T18:00:00.000Z'));
+      // Fin d'édition = fin réelle de l'event (sans heure de fin : minuit Paris), plus
+      // portes + 30 min (Bertrand 2026-10-07).
+      expect(service.editDeadline(event)).toEqual(new Date('2026-09-14T22:00:00.000Z'));
       expect(service.windowState(event, new Date('2026-09-14T17:00:00.000Z')).phase).toBe('before');
-      expect(service.windowState(event, new Date('2026-09-14T17:45:00.000Z')).phase).toBe(
+      expect(service.windowState(event, new Date('2026-09-14T20:30:00.000Z')).phase).toBe(
         'editing',
       );
-      expect(service.windowState(event, new Date('2026-09-14T18:00:01.000Z')).phase).toBe('locked');
+      expect(service.windowState(event, new Date('2026-09-14T22:00:01.000Z')).phase).toBe('locked');
     });
 
     it('sans doorsOpening : null, jamais minuit (eventDate est un jour, pas une heure)', () => {
@@ -207,7 +209,7 @@ describe('PreEventInventoryFlowService', () => {
       expect(upsertedKeys()).toEqual([LOGISTIC_PRE]);
     });
 
-    it('dans les 30 min après les portes : sauvegarde ET marque la feuille à régénérer', async () => {
+    it('après les portes : sauvegarde ET marque la feuille à régénérer', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(prismaEventOpenedAgo(10));
       await service.saveCount(baseDto, 'tenant-1', 'user-1');
       expect(mockInventory.saveInventoryCounts).toHaveBeenCalledTimes(1);
@@ -220,16 +222,10 @@ describe('PreEventInventoryFlowService', () => {
       );
     });
 
-    it('dans les 30 min : un article déjà compté est figé (403), un non compté passe', async () => {
-      mockPrisma.event.findFirst.mockResolvedValue(prismaEventOpenedAgo(10));
-      mockPrisma.inventoryCount.findFirst.mockResolvedValueOnce({ isCounted: true });
-      await expect(
-        service.saveCount({ ...baseDto, isCounted: false }, 'tenant-1', 'user-1'),
-      ).rejects.toBeInstanceOf(ForbiddenException);
-      expect(mockInventory.saveInventoryCounts).not.toHaveBeenCalled();
-
-      mockPrisma.inventoryCount.findFirst.mockResolvedValueOnce({ isCounted: false });
-      await service.saveCount(baseDto, 'tenant-1', 'user-1');
+    it('après les portes : un article déjà compté reste modifiable (PDV rouvert, Bertrand 2026-10-07)', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(prismaEventOpenedAgo(45));
+      mockPrisma.inventoryCount.findFirst.mockResolvedValue({ isCounted: true });
+      await service.saveCount({ ...baseDto, isCounted: false }, 'tenant-1', 'user-1');
       expect(mockInventory.saveInventoryCounts).toHaveBeenCalledTimes(1);
     });
 
@@ -239,8 +235,9 @@ describe('PreEventInventoryFlowService', () => {
       expect(mockInventory.saveInventoryCounts).toHaveBeenCalledTimes(1);
     });
 
-    it("plus de 30 min après les portes : 403, rien n'est écrit", async () => {
-      mockPrisma.event.findFirst.mockResolvedValue(prismaEventOpenedAgo(31));
+    it("après la fin de l'event : 403, rien n'est écrit", async () => {
+      // Portes il y a 26 h : la journée du match (fin à minuit) est terminée.
+      mockPrisma.event.findFirst.mockResolvedValue(prismaEventOpenedAgo(26 * 60));
       await expect(service.saveCount(baseDto, 'tenant-1', 'user-1')).rejects.toBeInstanceOf(
         ForbiddenException,
       );
@@ -386,7 +383,7 @@ describe('PreEventInventoryFlowService', () => {
   });
 
   describe('runDoorsOpen', () => {
-    it('réclame le marqueur, clôt la fenêtre invité pre-event, régénère, archive le résultat', async () => {
+    it("réclame le marqueur, régénère, archive le résultat, sans clore la fenêtre invité (Bertrand 2026-10-07)", async () => {
       const result = await service.runDoorsOpen(flowEvent(1));
 
       expect(result.ok).toBe(true);
@@ -396,25 +393,9 @@ describe('PreEventInventoryFlowService', () => {
           key: 'live-pre-event-init:space-1:event-1',
         }),
       });
-      expect(mockPrisma.inventoryWindow.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: {
-            tenantId: 'tenant-1',
-            spaceId: 'space-1',
-            eventId: 'event-1',
-            phase: 'pre-event',
-            status: 'open',
-          },
-        }),
-      );
-      // PIN conservé (lié à l'event), accès PDV révoqués (document Bertrand 2026-10-06).
-      expect(mockPrisma.inventoryWindow.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['win-pre'] }, status: 'open' },
-        data: expect.objectContaining({ status: 'closed', closedBy: 'system-doors-open' }),
-      });
-      expect(mockPrisma.guestPinAccess.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { windowId: { in: ['win-pre'] }, status: 'active' } }),
-      );
+      // Le pre-event continue PDV par PDV après les portes : fenêtre et accès intacts.
+      expect(mockPrisma.inventoryWindow.updateMany).not.toHaveBeenCalled();
+      expect(mockPrisma.guestPinAccess.updateMany).not.toHaveBeenCalled();
       expect(mockInventory.createPreEventReconciliation).toHaveBeenCalledWith(
         'space-1',
         'event-1',
@@ -455,10 +436,10 @@ describe('PreEventInventoryFlowService', () => {
       expect(mockPrisma.kvStore.delete).not.toHaveBeenCalled();
     });
 
-    it('rattrapage tardif (fenêtre des 30 min dépassée) : fenêtre clôturée, marqueur posé, rien de régénéré', async () => {
-      const result = await service.runDoorsOpen(flowEvent(60));
+    it("rattrapage tardif (event terminé) : marqueur posé, rien de régénéré", async () => {
+      const result = await service.runDoorsOpen(flowEvent(26 * 60));
       expect(result).toEqual({ ok: false, reason: 'late' });
-      expect(mockPrisma.inventoryWindow.updateMany).toHaveBeenCalledTimes(1);
+      expect(mockPrisma.inventoryWindow.updateMany).not.toHaveBeenCalled();
       expect(mockInventory.createPreEventReconciliation).not.toHaveBeenCalled();
       expect(mockPrisma.kvStore.update).toHaveBeenCalledTimes(1);
     });
@@ -477,9 +458,7 @@ describe('PreEventInventoryFlowService', () => {
       const event: FlowEvent = { ...flowEvent(0), sessions: null };
       const result = await service.runDoorsOpen(event, 'user:u1');
       expect(result.ok).toBe(true);
-      expect(mockPrisma.inventoryWindow.updateMany).toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ closedBy: 'user:u1' }) }),
-      );
+      expect(mockPrisma.inventoryWindow.updateMany).not.toHaveBeenCalled();
     });
   });
 
@@ -524,7 +503,8 @@ describe('PreEventInventoryFlowService', () => {
       const state = await service.getWindowState('space-1', 'event-1', 'tenant-1');
       expect(state.phase).toBe('editing');
       expect(state.doorsOpenAt).toBeInstanceOf(Date);
-      expect(state.editDeadline!.getTime() - state.doorsOpenAt!.getTime()).toBe(30 * MIN);
+      // Fin d'édition = fin de la journée du match, bien après les portes.
+      expect(state.editDeadline!.getTime()).toBeGreaterThan(state.doorsOpenAt!.getTime());
       expect(state.doorsOpenDone).toBe(true);
     });
   });

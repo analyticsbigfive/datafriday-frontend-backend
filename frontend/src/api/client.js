@@ -3,6 +3,7 @@
 
 import axios from 'axios'
 import router from '@/router'
+import { guestPinLandingRoute } from '@/utils/guestPinLanding'
 
 // Configuration de base
 // Trailing slash retiré : la valeur déployée peut finir par "/" et les fetch()
@@ -175,7 +176,8 @@ apiClient.interceptors.response.use(
       if (_isGuestSession) {
         clearAccessToken()
         setGuestSessionActive(false)
-        router.push('/login/pin')
+        // Page d'attente du PDV scanné (slug gardé), jamais la connexion staff.
+        router.push(guestPinLandingRoute())
         return Promise.reject(error)
       }
 
