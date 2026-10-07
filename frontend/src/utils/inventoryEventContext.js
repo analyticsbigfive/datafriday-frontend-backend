@@ -9,7 +9,7 @@
 //
 // `resolveEventContext()` (SpaceInventoryView.vue) et `pickAnchorEvent` partagent
 // la règle d'ancrage via utils/eventLifecycle.js (bascule à l'ouverture des portes).
-import { pickInventoryAnchorEvent } from '@/utils/eventLifecycle'
+import { pickInventoryAnchorEvent, pickUpcomingEvent } from '@/utils/eventLifecycle'
 
 /**
  * Normalise un évènement, quelle que soit son origine : le store `analyse`
@@ -81,6 +81,6 @@ export function postEventChoices(events, { now = Date.now(), timeZone } = {}) {
   const at = new Date(now)
   return {
     last: pickInventoryAnchorEvent(events, 'post', at, timeZone),
-    next: pickInventoryAnchorEvent(events, 'pre', at, timeZone),
+    next: pickUpcomingEvent(events, at, timeZone),
   }
 }
