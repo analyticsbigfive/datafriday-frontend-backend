@@ -76,10 +76,10 @@ describe('InventoryCycleCronService', () => {
     ]);
   });
 
-  it('démarre le post-event aux portes, une seule fois, sans arrêter le pre-event', async () => {
+  it("sans heure de show : démarre le post-event aux portes, une seule fois, sans arrêter le pre-event", async () => {
     const atDoors = new Date('2026-10-10T15:01:00Z');
-    expect(await service.startPostAtDoors(new Date('2026-10-10T14:59:00Z'))).toBe(0);
-    expect(await service.startPostAtDoors(atDoors)).toBe(1);
+    expect(await service.startPostAtShowTime(new Date('2026-10-10T14:59:00Z'))).toBe(0);
+    expect(await service.startPostAtShowTime(atDoors)).toBe(1);
     expect(guestPin.startPhase).toHaveBeenCalledWith(
       { spaceId: 'space-1', eventId: 'event-n', phase: 'post-event' },
       'tenant-1',
@@ -87,8 +87,33 @@ describe('InventoryCycleCronService', () => {
       { keepOtherPhase: true },
     );
     // Arrêté ensuite à la main : le tick suivant ne le relance pas.
-    expect(await service.startPostAtDoors(new Date('2026-10-10T15:02:00Z'))).toBe(0);
+    expect(await service.startPostAtShowTime(new Date('2026-10-10T15:02:00Z'))).toBe(0);
     expect(guestPin.startPhase).toHaveBeenCalledTimes(1);
+  });
+
+  it("heure du show renseignée : démarre le post-event au show, pas aux portes (Bertrand 2026-10-07)", async () => {
+    // Portes 17:00 Paris (15:00Z), show 19:00 Paris (17:00Z).
+    prisma.event.findMany.mockResolvedValue([{ ...matchN, sessions: [{ doorsOpening: '17:00', showTime: '19:00' }] }]);
+    expect(await service.startPostAtShowTime(new Date('2026-10-10T15:01:00Z'))).toBe(0);
+    expect(await service.startPostAtShowTime(new Date('2026-10-10T16:59:00Z'))).toBe(0);
+    expect(guestPin.startPhase).not.toHaveBeenCalled();
+    expect(await service.startPostAtShowTime(new Date('2026-10-10T17:00:30Z'))).toBe(1);
+    expect(guestPin.startPhase).toHaveBeenCalledTimes(1);
+  });
+
+  it("sessions stockées en JSON texte (cas PAUC/SARAN) : heure du show lue aussi", async () => {
+    prisma.event.findMany.mockResolvedValue([
+      { ...matchN, sessions: ['{"showTime":"20:00","doorsOpening":"18:45"}'] },
+    ]);
+    // Portes 18:45 Paris (16:45Z) : rien ; show 20:00 Paris (18:00Z) : démarrage.
+    expect(await service.startPostAtShowTime(new Date('2026-10-10T16:50:00Z'))).toBe(0);
+    expect(await service.startPostAtShowTime(new Date('2026-10-10T18:00:30Z'))).toBe(1);
+  });
+
+  it("ni show ni portes : aucun démarrage automatique", async () => {
+    prisma.event.findMany.mockResolvedValue([{ ...matchN, sessions: null }]);
+    expect(await service.startPostAtShowTime(new Date('2026-10-10T18:00:00Z'))).toBe(0);
+    expect(guestPin.startPhase).not.toHaveBeenCalled();
   });
 
   it('une livraison pendant le match ne coupe rien (D16)', async () => {
