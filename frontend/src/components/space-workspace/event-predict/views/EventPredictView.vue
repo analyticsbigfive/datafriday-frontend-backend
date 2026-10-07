@@ -610,10 +610,10 @@
                 <div>
                   <CardTitle class="text-base">
                     {{ t('epPredictionBasedOn') }}
-                    <span class="ep-base-count">{{ activeScoredEvents.length }}</span>
+                    <span class="ep-base-count">{{ selectedPastEventIds.size }}</span>
                     /
-                    <span class="ep-base-count-total">{{ scoredPastEvents.length }}</span>
-                    {{ scoredPastEvents.length > 1 ? t('epPastEventPlural') : t('epPastEventSingular') }}
+                    <span class="ep-base-count-total">{{ candidatePastEventCount }}</span>
+                    {{ candidatePastEventCount > 1 ? t('epPastEventPlural') : t('epPastEventSingular') }}
                     <v-icon
                       size="16"
                       class="ep-algo-info-icon ml-1"
@@ -1428,6 +1428,7 @@ import TabsTrigger from "@/ui/tabsTrigger.vue";
 import TabsContent from "@/ui/tabsContent.vue";
 import { parseEventDate as parseDDMMYYYY } from "@/utils/dateFr";
 import { isDemoMode } from "@/utils/demoMode";
+import { manualTransactions } from '@/utils/manualTransactions';
 import { mergeEffectiveMenuConfig, applyAssignToExplicit } from "@/utils/menuConfigSelection";
 import { restrictRecordsToMenuConfig } from "@/utils/predictionPerimeter";
 import { resolveItemsContext, isEstimationEligible } from "@/utils/estimationMode";
@@ -2903,8 +2904,24 @@ export default {
     totalActiveScore() {
       return this.activeScoredEvents.reduce((s, m) => s + m.score, 0);
     },
+    /**
+     * Évènements passés réellement utilisés : top 10 cochés + ajouts manuels du
+     * drawer (hors top 10). Ces derniers partent bien au recalcul
+     * (`selectedPastEventIds`) mais manquaient au surlignage du calendrier.
+     */
     usedPastEvents() {
-      return this.activeScoredEvents.map((s) => s.event);
+      const out = this.activeScoredEvents.map((s) => s.event);
+      if (!this.manualIncludedPastEventIds.size) return out;
+      const seen = new Set(out.map((e) => e.id));
+      for (const e of this.pastEvents || []) {
+        if (this.manualIncludedPastEventIds.has(e.id) && !seen.has(e.id)) out.push(e);
+      }
+      return out;
+    },
+    /** Total du bandeau « Prédiction basée sur X / Y » : tous les candidats
+     *  proposés dans le drawer (retenus par l'algo + non sélectionnés). */
+    candidatePastEventCount() {
+      return this.scoredPastEvents.length + this.drawerUnselectedEvents.length;
     },
     predictedRecords() {
       if (!this.selectedEvent) return [];
@@ -3014,6 +3031,9 @@ export default {
       // scoring, muets aux ajustements dès que les ids ne correspondaient pas.
       let predictedTx = 0;
       let adjustedTx = 0;
+      // Ratio transactions / unités par PDV, pour les quantités manuelles (cf.
+      // utils/manualTransactions.js).
+      const shopTxQty = new Map();
       for (const a of agg.values()) {
         // Shop FERMÉ (connu) → exclu du CA (brut ET ajusté) : on ne vend pas sur
         // un PDV fermé (ex. Auxerre 1B/3ABC). On n'exclut QUE les shops
@@ -3060,8 +3080,16 @@ export default {
         const tx = a.tx > 0 ? a.tx : a.qty;
         predictedTx += tx;
         adjustedTx += tx * (pct / 100);
+        const st = shopTxQty.get(String(a.shopId)) || { tx: 0, qty: 0 };
+        st.tx += tx;
+        st.qty += a.qty;
+        shopTxQty.set(String(a.shopId), st);
       }
-      return { predicted, adjusted, predictedCost, adjustedCost, predictedTx, adjustedTx };
+      const txPerUnitByShop = new Map();
+      for (const [shopId, st] of shopTxQty) {
+        if (st.qty > 0) txPerUnitByShop.set(shopId, st.tx / st.qty);
+      }
+      return { predicted, adjusted, predictedCost, adjustedCost, predictedTx, adjustedTx, txPerUnitByShop };
     },
     totalPredictedRevenue() {
       const t = this.timelineRevenueTotals;
@@ -3430,11 +3458,15 @@ export default {
     },
     totalAdjustedTransactions() {
       const t = this.timelineRevenueTotals;
-      if (t.predicted > 0) return t.adjustedTx;
+      // Quantités manuelles (« Sans ventes prévues ») : elles comptent aussi en
+      // transactions, sinon Transformation et Panier ajustés restaient figés
+      // alors que le CA ajusté montait (retour Bertrand 2026-10-07).
+      const manual = manualTransactions(this.manualQuantityRecords, t.txPerUnitByShop);
+      if (t.predicted > 0) return t.adjustedTx + manual;
       return (this.windowedAdjustedRecords || []).reduce(
         (s, r) => s + (r.transactionCount || r.adjustedQuantity || 0),
         0,
-      );
+      ) + manual;
     },
     /** CA / transactions (brut). */
     avgPerTransaction() {

@@ -361,13 +361,24 @@
                               <!-- 3 catégories mutuellement exclusives, en onglets
                                    (remplace la liste plate + accordéon « non
                                    rattachés ») : ventes prévues / non attachés au
-                                   menu / sans ventes prévues. -->
+                                   menu / sans ventes prévues. « Menu » en tête (retour
+                                   Bertrand 2026-10-07) : vue transverse de ce qui sera
+                                   servi, articles cochés à quantité ajustée > 0. -->
                               <Tabs
                                 :value="getShopTab(element.id)"
                                 @update:value="(v) => setShopTab(element.id, v)"
                               >
                                 <TooltipProvider>
                                 <TabsList class="ep-toolbar-tabs ep-shop-tabs" @click.stop>
+                                  <TabsTrigger value="menu" class="ep-shop-tab-trigger">
+                                    {{ t('epmShopTabMenu') }} ({{ getShopTabCounts(element).menu }})
+                                    <Tooltip>
+                                      <TooltipTrigger as-child>
+                                        <v-icon size="14" class="ep-shop-tab-help" role="button" tabindex="0">mdi-help-circle-outline</v-icon>
+                                      </TooltipTrigger>
+                                      <TooltipContent>{{ t('epmShopTabMenuHint') }}</TooltipContent>
+                                    </Tooltip>
+                                  </TabsTrigger>
                                   <TabsTrigger value="sales" class="ep-shop-tab-trigger">
                                     {{ t('epmShopTabSales') }} ({{ getShopTabCounts(element).sales }})
                                     <Tooltip>
@@ -1276,7 +1287,7 @@ export default {
       // Recherche texte PAR SHOP (remplace les chips catégorie dans l'en-tête
       // de chaque shop). elementId -> string.
       shopSearchQuery: {},
-      // Onglet actif des 3 catégories PAR SHOP. elementId -> 'sales' | 'unmapped' | 'noSales'.
+      // Onglet actif PAR SHOP. elementId -> 'menu' | 'sales' | 'unmapped' | 'noSales'.
       shopTab: {},
       // Chip-filtre global de la toolbar (maquettes 08/2026) :
       // null | 'noSales' (article sans prévision) | 'unmapped' (hors Space
@@ -1609,6 +1620,18 @@ export default {
             const aq = this.getAdjustedQuantity(element.id, it.id)
             adjusted += aq * price
           }
+        }
+        // Articles du Space Menu SANS prévision (onglet « Sans ventes prévues ») : ils
+        // ne sont pas dans `menuItemsPerElement` (articles de la timeline pour un PDV
+        // réel), donc leur quantité manuelle ne montait pas le CA ajusté du PDV, alors
+        // que le CA global la comptait (retour Bertrand 2026-10-07). Prédit > 0 exclu :
+        // l'article est déjà compté ci-dessus, éventuellement sous un autre id.
+        const counted = new Set(items.map((it) => it.id))
+        for (const it of this.assignedItemsForElement(element) || []) {
+          if (counted.has(it.id) || !selectedSet.has(it.id)) continue
+          if (this.getPredictedQuantity(element.id, it.id) > 0) continue
+          const aq = this.getAdjustedQuantity(element.id, it.id)
+          if (aq > 0) adjusted += aq * this.htUnitPrice(it)
         }
         map.set(element.id, { predicted, adjusted })
       }
@@ -2678,16 +2701,24 @@ export default {
     },
     /** Comptes des 3 onglets pour ce shop (badges). */
     getShopTabCounts(element) {
-      const counts = { sales: 0, noSales: 0, unmapped: 0 }
+      const counts = { menu: 0, sales: 0, noSales: 0, unmapped: 0 }
       for (const it of this.getGroupedMenuItems(element)) {
         counts[it._bucket] = (counts[it._bucket] || 0) + 1
+        if (this.isServedMenuItem(element, it)) counts.menu += 1
       }
       return counts
+    },
+    /** Onglet « Menu » : article coché à quantité ajustée > 0, tous onglets confondus
+     *  (ce qui compte dans le CA ajusté du PDV). */
+    isServedMenuItem(element, it) {
+      return this.isMenuItemSelected(element.id, it.id) && this.getAdjustedQuantity(element.id, it.id) > 0
     },
     /** Items du seul onglet actif (celui affiché dans la liste). */
     getActiveBucketItems(element) {
       const tab = this.getShopTab(element.id)
-      return this.getGroupedMenuItems(element).filter((it) => it._bucket === tab)
+      const grouped = this.getGroupedMenuItems(element)
+      if (tab === 'menu') return grouped.filter((it) => this.isServedMenuItem(element, it))
+      return grouped.filter((it) => it._bucket === tab)
     },
     // ----- Selection -----
     isMenuItemSelected(elementId, menuItemId) {
