@@ -17,12 +17,12 @@ const timeline = [
   { shopId: 'shop-perrier', shopName: 'Buvette 2 Perrier', menuItemId: 'mi-biere', itemName: 'Bière 25/27 (Aix)', totalQuantity: 100, totalRevenue: 600 },
 ]
 
-function mount(manualQuantities, selected = ['mi-biere', 'mi-hotdog', 'mi-mojito']) {
+function mount(manualQuantities, selected = ['mi-biere', 'mi-hotdog', 'mi-mojito'], extraTimeline = []) {
   return shallowMount(EventPredictMenusSection, {
     props: {
       menuItems,
       configShops: [SHOP],
-      predictedTimelineData: timeline,
+      predictedTimelineData: [...timeline, ...extraTimeline],
       selectedMenuItems: { 'shop-perrier': selected },
       manualQuantities,
       shopMenuAssignmentItems: {
@@ -61,5 +61,20 @@ describe('Event Predict : quantité manuelle et CA ajusté du PDV', () => {
     vm.setShopTab(el.id, 'menu')
     expect(vm.getActiveBucketItems(el).map((it) => it.id)).toEqual(['mi-biere', 'mi-hotdog'])
     expect(vm.getShopTabCounts(el)).toMatchObject({ menu: 2, sales: 1, noSales: 2 })
+  })
+
+  it("article présent dans la timeline à moins d'une unité (cas Redbull 25cl, PAUC/SARAN) : la quantité manuelle compte", () => {
+    // Vendu dans les matchs passés, 0,3 unité prévue après pondération : onglet
+    // « Sans ventes prévues », mais présent dans la timeline (ancien bug : prix 0 €).
+    const lowRow = { shopId: 'shop-perrier', shopName: 'Buvette 2 Perrier', menuItemId: 'mi-hotdog', itemName: 'Hot Dog Veggie 25/27 (Aix)', totalQuantity: 0.3, totalRevenue: 1.91 }
+    const vm = mount({ 'shop-perrier-mi-hotdog': 10 }, undefined, [lowRow]).vm
+    expect(vm.getGroupedMenuItems(vm.fbElements[0]).find((i) => i.id === 'mi-hotdog')._bucket).toBe('noSales')
+    expect(vm.getAdjustedRevenue('shop-perrier')).toBeCloseTo(663.6, 0)
+  })
+
+  it('article présent dans la timeline à 0 unité et 0 € : prix catalogue en repli', () => {
+    const zeroRow = { shopId: 'shop-perrier', shopName: 'Buvette 2 Perrier', menuItemId: 'mi-hotdog', itemName: 'Hot Dog Veggie 25/27 (Aix)', totalQuantity: 0, totalRevenue: 0 }
+    const vm = mount({ 'shop-perrier-mi-hotdog': 10 }, undefined, [zeroRow]).vm
+    expect(vm.getAdjustedRevenue('shop-perrier')).toBeCloseTo(663.6)
   })
 })
