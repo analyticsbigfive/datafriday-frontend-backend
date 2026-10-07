@@ -128,6 +128,7 @@ Pre(N) ── ouverture des portes de N ──▶ Post(N) ── démarrage de P
 | D24 | Retours Bertrand 2026-10-07 : pre-event après les portes | Le pre-event n'est plus fermé aux portes : période jusqu'à la **fin réelle** de l'event, fenêtre invité laissée ouverte, édition (articles comptés compris) jusqu'à la fin. Chaque PDV s'arrête **à sa première vente**, vente de test comprise (choix Ulrich : « on part sur 1, test ou pas »), remplace D17 et le seuil 3 ventes / 15 min. Un PDV rouvert à la main (▶) n'est jamais recoupé. ■ d'un PDV après les portes : il retrouve son accès post-event. | Retour Bertrand 2026-10-07 |
 | D25 | Logistique en temps réel | Envoi 2 s après « Marquer compté », au plus toutes les 10 s par match (cron à la minute en filet). Écran Logistique relu toutes les 10 s. Ligne « Dernier comptage physique » supprimée. Remplace D22. | Retour Bertrand 2026-10-07 |
 | D26 | Accès invité coupé | Page d'attente du PDV scanné (plus la connexion staff), vérification de reprise toutes les 30 s, bouton « Scanner le QR code » (caméra dans la page, `qr-scanner`). Session invité relue toutes les 30 s. | Retour Bertrand 2026-10-07 |
+| D27 | Démarrage automatique du post-event | À l'**heure du show** (`sessions[].showTime`), sinon à l'ouverture des portes, sinon aucun démarrage automatique. Démarrage manuel (▶) toujours possible dès l'ouverture des portes. | Bertrand 2026-10-07 |
 
 ---
 

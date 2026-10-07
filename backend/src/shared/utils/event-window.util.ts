@@ -104,6 +104,31 @@ export function resolveDoorsOpenAt(e: EventDayFields, timeZone: string): Date | 
   }
   return earliest;
 }
+/**
+ * Instant réel du show : `sessions[].showTime` (la plus tôt des sessions valides, heure locale
+ * du space) posée sur le jour de début. `null` si aucune heure de show n'est renseignée (même
+ * règle que `resolveDoorsOpenAt` : jamais de repli sur minuit).
+ */
+export function resolveShowTimeAt(e: EventDayFields, timeZone: string): Date | null {
+  const day = startDayOf(e);
+  if (Number.isNaN(day.getTime())) return null;
+  let earliest: Date | null = null;
+  for (const session of parseEventSessions(e.sessions)) {
+    const at = combineDayAndLocalTime(day, session.showTime ?? null, timeZone);
+    if (at && (!earliest || at < earliest)) earliest = at;
+  }
+  return earliest;
+}
+
+/**
+ * Démarrage AUTOMATIQUE du post-event (retour Bertrand 2026-10-07) : à l'heure du show, sinon à
+ * l'ouverture des portes, sinon `null` (aucun démarrage automatique). Le démarrage MANUEL reste
+ * possible dès l'ouverture des portes (période post-event inchangée).
+ */
+export function resolvePostEventAutoStartAt(e: EventDayFields, timeZone: string): Date | null {
+  return resolveShowTimeAt(e, timeZone) ?? resolveDoorsOpenAt(e, timeZone);
+}
+
 const endDayOf = (e: EventDayFields): Date =>
   new Date((e.eventEndDate ?? e.eventStartDate ?? e.eventDate) as any);
 

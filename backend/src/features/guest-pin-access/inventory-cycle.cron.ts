@@ -8,12 +8,12 @@ import { PRE_SALE_STOP_ACTOR, preSaleStopKey } from './pre-sale-stop';
 import {
   isEventOver,
   pickNextEventBeforeDoorsOpen,
-  resolveDoorsOpenAt,
   resolveEventTransactionWindow,
+  resolvePostEventAutoStartAt,
 } from '../../shared/utils/event-window.util';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** Au-delà, un démarrage du post-event aux portes n'est plus rattrapé (serveur arrêté). */
+/** Au-delà, un démarrage automatique du post-event n'est plus rattrapé (serveur arrêté). */
 const POST_AUTOSTART_CATCHUP_MS = 6 * 60 * 60 * 1000;
 
 const ATTACHED = { tenantId: { not: null }, spaceId: { not: null } } as const;
@@ -35,8 +35,8 @@ const EVENT_SELECT = {
  * Cycle automatique des inventaires pre / post-event (document Bertrand « Pre et Post
  * event Inventory cycle », 2026-10-06, pages 1 à 4) :
  * - PIN préparés à l'avance pour chaque event à venir (fenêtres arrêtées, avec PIN) ;
- * - ouverture des portes de N : le post-event de N démarre ; le pre-event de N continue
- *   (Bertrand 2026-10-07) pour les PDV qui n'ont pas encore vendu ;
+ * - heure du show de N (sinon ouverture des portes) : le post-event de N démarre ; le
+ *   pre-event de N continue (Bertrand 2026-10-07) pour les PDV qui n'ont pas encore vendu ;
  * - livraison détectée en Logistique APRÈS la fin réelle de N : le post-event de N
  *   s'arrête et le pre-event du prochain event démarre (D3, D16) ;
  * - première vente d'un PDV le jour de N : le pre-event de N s'arrête pour CE PDV
@@ -73,7 +73,7 @@ export class InventoryCycleCronService implements OnModuleInit {
     this.running = true;
     const now = new Date();
     try {
-      await this.run('démarrage du post-event aux portes', () => this.startPostAtDoors(now));
+      await this.run('démarrage du post-event aux portes', () => this.startPostAtShowTime(now));
       await this.run('arrêt du post-event sur livraison', () => this.stopPostOnDelivery(now));
       await this.run('arrêt du pre-event PDV par PDV sur vente', () => this.stopPreElementsOnSale(now));
     } finally {
@@ -123,8 +123,9 @@ export class InventoryCycleCronService implements OnModuleInit {
     return created;
   }
 
-  /** Portes de N ouvertes : le post-event de N démarre, une fois, sans arrêter le pre-event. */
-  async startPostAtDoors(now: Date): Promise<number> {
+  /** Show de N commencé (sinon portes ouvertes) : le post-event de N démarre, une fois, sans
+   *  arrêter le pre-event. */
+  async startPostAtShowTime(now: Date): Promise<number> {
     const events = await this.prisma.event.findMany({
       where: {
         eventDate: { gte: new Date(now.getTime() - 2 * DAY_MS), lte: new Date(now.getTime() + DAY_MS) },
@@ -135,10 +136,10 @@ export class InventoryCycleCronService implements OnModuleInit {
     });
     let started = 0;
     for (const event of events) {
-      // Sans heure d'ouverture des portes : aucun démarrage automatique (même règle que
-      // le passage « portes ouvertes » du pre-event, déclenché à la main).
-      const doorsAt = resolveDoorsOpenAt(event, this.tz(event));
-      if (!doorsAt || doorsAt > now || now.getTime() - doorsAt.getTime() > POST_AUTOSTART_CATCHUP_MS) continue;
+      // Heure du show (Bertrand 2026-10-07), sinon ouverture des portes ; sans aucune des
+      // deux : pas de démarrage automatique, le directeur démarre à la main.
+      const startAt = resolvePostEventAutoStartAt(event, this.tz(event));
+      if (!startAt || startAt > now || now.getTime() - startAt.getTime() > POST_AUTOSTART_CATCHUP_MS) continue;
       const claimed = await this.claim(event.tenantId, `inventory-cycle:post-start:${event.spaceId}:${event.id}`, now);
       if (!claimed) continue;
       await this.guestPin.startPhase(
