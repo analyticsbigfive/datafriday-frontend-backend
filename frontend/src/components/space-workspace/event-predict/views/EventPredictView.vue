@@ -3214,14 +3214,23 @@ export default {
       return set;
     },
     predictedItemKeySet() {
-      const set = new Set();
+      // Total par couple shop|item, arrondi une fois (la timeline porte des décimales
+      // par minute) : un article à 0,3 unité prévue n'est PAS prédit, sa quantité
+      // manuelle doit compter (même règle que l'index de MenusSection).
+      const totals = new Map();
       for (const r of (this.activeTimelineData || [])) {
-        if ((Number(r.totalQuantity || r.quantity || 0)) <= 0) continue;
+        const qty = Number(r.totalQuantity || r.quantity || 0);
+        if (!qty) continue;
         const shops = [r.shopId, r.shop].filter(Boolean);
         const nameLower = (r.itemName || r.menuItemName || '').toString().toLowerCase();
         const items = [r.menuItemId, r.mappedMenuItemId, nameLower].filter(Boolean);
-        for (const s of shops) for (const i of items) set.add(`${s}|${i}`);
+        for (const s of shops) for (const i of items) {
+          const k = `${s}|${i}`;
+          totals.set(k, (totals.get(k) || 0) + qty);
+        }
       }
+      const set = new Set();
+      for (const [k, q] of totals) if (Math.round(q) > 0) set.add(k);
       return set;
     },
     /**
@@ -5342,7 +5351,11 @@ export default {
       const shopNameById = new Map(this.configShopElements.map((el) => [String(el.id), el.name]));
       for (const m of (this.manualQuantityRecords || [])) {
         const k = `${m.shopId}|${m.menuItemId}`;
-        if (agg.has(k)) continue;
+        // Couple présent dans la timeline mais à moins d'une unité prévue (onglet
+        // « Sans ventes prévues ») : la quantité manuelle le REMPLACE. Avant, il était
+        // gardé à 0 et Réarmement ne voyait jamais l'article (Redbull 25cl, Buvette 2
+        // Perrier, PAUC/SARAN, retour Bertrand 2026-10-07).
+        if (agg.has(k) && Math.round(agg.get(k).totalQuantity) > 0) continue;
         agg.set(k, {
           shopId: m.shopId,
           shop: shopNameById.get(String(m.shopId)) || null,
