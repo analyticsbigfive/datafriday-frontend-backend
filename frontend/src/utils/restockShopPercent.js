@@ -10,11 +10,15 @@
  *     posés à la main dans le drawer, uniquement les PDV modifiés.
  *
  * Précédence (même règle qu'Event Predict) : réglage PDV, sinon % de
- * l'article, sinon 100. Plage 0 à 200, comme le curseur de la carte.
+ * l'article, sinon 100. Curseur 0 à 200 ; au-delà, valeur libre saisie dans le
+ * champ du curseur (retour Bertrand 2026-10-07), bornée par un garde-fou.
  */
 
 export const SHOP_PERCENT_MIN = 0
-export const SHOP_PERCENT_MAX = 200
+/** Borne du CURSEUR (s'élargit si une valeur plus haute a été saisie). */
+export const SHOP_PERCENT_SLIDER_MAX = 200
+/** Garde-fou de saisie libre (faute de frappe), pas une règle métier. */
+export const SHOP_PERCENT_MAX = 10000
 export const SHOP_PERCENT_DEFAULT = 100
 const SEPARATOR = '|||'
 
@@ -24,8 +28,8 @@ export function shopPercentKey(shopId, itemKey) {
 }
 
 /**
- * Coerce une valeur (curseur, état persisté, plan rechargé) en % entier borné
- * 0 à 200. Null, vide ou non numérique : null (= pas de valeur), pour laisser
+ * Coerce une valeur (curseur, champ, état persisté, plan rechargé) en % entier
+ * borné 0 à SHOP_PERCENT_MAX. Null, vide ou non numérique : null (= pas de valeur), pour laisser
  * la précédence retomber au niveau suivant. 0 est une valeur légitime.
  */
 export function normalizeShopPercent(raw) {
