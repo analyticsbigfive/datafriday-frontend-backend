@@ -25,3 +25,16 @@ export function isFullyOpen(window) {
   if (!window || window.status !== 'open') return false
   return (window.accesses || []).every((a) => a.status === 'active')
 }
+
+/**
+ * Heure d'arrêt automatique d'un PDV à sa première vente (pre-event, Bertrand 2026-10-07),
+ * ou null s'il est ouvert ou a été arrêté autrement (directeur, fin de phase).
+ * @returns {Date|null}
+ */
+export function elementStoppedBySaleAt(window, elementId) {
+  if (!window) return null
+  const access = (window.accesses || []).find((a) => a.elementId === elementId)
+  if (!access || access.status === 'active' || access.stopReason !== 'sale' || !access.revokedAt) return null
+  const at = new Date(access.revokedAt)
+  return Number.isNaN(at.getTime()) ? null : at
+}

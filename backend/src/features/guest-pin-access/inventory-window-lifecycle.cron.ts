@@ -3,10 +3,12 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../core/database/prisma.service';
 import { GuestPinAccessService } from './guest-pin-access.service';
 import { inventoryWindowPeriod, inventoryWindowPeriodState } from './inventory-window-period';
+import { revokeWindowAccesses } from '../inventory/inventory-window-closure';
 
 /**
- * Clôture automatique des fenêtres invité (PIN) PRE-EVENT à l'ouverture des portes
- * (cf. inventory-window-period.ts). Le post-event n'est jamais fermé ici : c'est
+ * Clôture automatique des fenêtres invité (PIN) PRE-EVENT à la fin réelle de l'event
+ * (cf. inventory-window-period.ts ; aux portes jusqu'au 2026-10-07). Les PDV rouverts un
+ * par un sur une fenêtre arrêtée sont coupés eux aussi. Le post-event n'est jamais fermé ici : c'est
  * l'utilisateur qui le clôture (« Update Logistic »), décision Ulrich 2026-09-28.
  *
  * Piloté par les FENÊTRES OUVERTES, pas par les events récents : l'ancien seul
@@ -51,7 +53,10 @@ export class InventoryWindowLifecycleCronService implements OnModuleInit {
 
   async closeExpiredWindows(now: Date = new Date()): Promise<number> {
     const windows = await this.prisma.inventoryWindow.findMany({
-      where: { status: 'open', phase: 'pre-event' },
+      where: {
+        phase: 'pre-event',
+        OR: [{ status: 'open' }, { guestAccesses: { some: { status: 'active' } } }],
+      },
     });
     if (!windows.length) return 0;
 
@@ -78,6 +83,12 @@ export class InventoryWindowLifecycleCronService implements OnModuleInit {
         if (inventoryWindowPeriodState(period, now) !== 'over') continue;
       }
       try {
+        if (window.status !== 'open') {
+          // Fenêtre déjà arrêtée : seuls des PDV rouverts un par un restaient joignables.
+          await revokeWindowAccesses(this.prisma, [window.id], InventoryWindowLifecycleCronService.ACTOR);
+          closedCount++;
+          continue;
+        }
         const push = await this.guestPin.closeWindowRecord(window, InventoryWindowLifecycleCronService.ACTOR, {
           pushToLogistic: false,
           reason: 'period-end',
@@ -85,7 +96,7 @@ export class InventoryWindowLifecycleCronService implements OnModuleInit {
         if (push.reason === 'already-closed') continue;
         closedCount++;
         this.logger.log(
-          `Fenêtre pre-event clôturée à l'ouverture des portes : space ${window.spaceId} / event ${window.eventId}`,
+          `Fenêtre pre-event clôturée à la fin de l'event : space ${window.spaceId} / event ${window.eventId}`,
         );
       } catch (error: any) {
         this.logger.warn(`Clôture de la fenêtre ${window.id} en échec : ${error?.message}`);

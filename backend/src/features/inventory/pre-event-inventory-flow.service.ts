@@ -1,8 +1,8 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, Optional } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { InventoryService } from './inventory.service';
-import { closeInventoryWindows } from './inventory-window-closure';
 import { PostEventDraftService } from './post-event-draft.service';
+import { LogisticFlushThrottle } from './logistic-flush-throttle';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import {
   resolveDoorsOpenAt,
@@ -62,16 +62,15 @@ export interface PreEventWindowState {
  *     staff ou invité PIN : lui seul connaît la liste explosée des articles), la
  *     réconciliation pre-event est (re)générée et la Logistique recalée avec les
  *     comptages nouveaux ou modifiés, même si les autres PDV ne sont pas finis.
- *  2. À l'ouverture des portes, même chose, une seule fois (marqueur KvStore), et
- *     la fenêtre invité pre-event est clôturée : les managers sans login
- *     n'écrivent plus.
- *  3. Pendant les 30 minutes qui suivent, les utilisateurs avec login peuvent
- *     encore modifier ; chaque écriture marque la feuille "à régénérer"
- *     (KvStore), et le cron la régénère à la minute suivante, SANS toucher à la
- *     Logistique : après l'ouverture des portes, la mise à jour de Logistic est
- *     manuelle, point de vente par point de vente, par le responsable logistique
- *     ou l'administrateur (règle Bertrand 2026-09-29). Au-delà des 30 minutes,
- *     l'écriture pre-event est refusée (403).
+ *  2. À l'ouverture des portes, même chose, une seule fois (marqueur KvStore). La
+ *     fenêtre invité pre-event n'est plus clôturée à cet instant (Bertrand
+ *     2026-10-07) : chaque PDV s'arrête à sa première vente, et le directeur peut
+ *     rouvrir un PDV jusqu'à la fin de l'event.
+ *  3. Après les portes et jusqu'à la fin réelle de l'event, l'inventaire pre-event
+ *     reste modifiable, articles déjà comptés compris ; chaque écriture marque la
+ *     feuille "à régénérer" (KvStore), régénérée par le cron à la minute suivante,
+ *     et l'article part vers Logistic comme avant les portes. Après la fin de
+ *     l'event, l'écriture pre-event est refusée (403).
  *  4. Avant l'ouverture des portes, l'inventaire pre-event est modifiable à tout
  *     moment, sans attendre le jour du match (Ulrich 2026-10-02, revenu sur
  *     l'ouverture à minuit du 2026-09-29).
@@ -92,11 +91,9 @@ export interface PreEventWindowState {
  * service en dépend, jamais l'inverse.
  */
 @Injectable()
-export class PreEventInventoryFlowService {
+export class PreEventInventoryFlowService implements OnModuleDestroy {
   private readonly logger = new Logger(PreEventInventoryFlowService.name);
 
-  /** Fenêtre d'édition staff après l'ouverture des portes. */
-  static readonly EDIT_WINDOW_MINUTES = 30;
   /** Au-delà de la fin de la fenêtre + cette marge, le passage "portes ouvertes"
    *  rattrapé (cron arrêté, redéploiement) ne pousse plus rien vers Logistic. */
   static readonly LATE_GRACE_MINUTES = 5;
@@ -104,11 +101,21 @@ export class PreEventInventoryFlowService {
   static readonly DOORS_OPEN_MARKER_PREFIX = 'live-pre-event-init';
   static readonly DIRTY_MARKER_PREFIX = 'pre-event-reco-dirty';
   /** « À envoyer vers Logistic » : posé à chaque article marqué compté, pre ET post,
-   *  staff ET invité PIN, vidé chaque minute (InventoryLogisticSyncCronService). */
+   *  staff ET invité PIN. Envoyé quelques secondes après le clic (LogisticFlushThrottle),
+   *  le cron à la minute (InventoryLogisticSyncCronService) rattrape le reste. */
   static readonly LOGISTIC_DIRTY_PREFIX = 'inventory-logistic-dirty';
 
   /** File d'attente par match : une régénération à la fois. */
   private readonly regenerateQueues = new Map<string, Promise<unknown>>();
+
+  /** Envoi Logistic quasi immédiat après « Marquer compté » (temps réel, 2026-10-07). */
+  private readonly logisticFlush = new LogisticFlushThrottle(async (key) => {
+    try {
+      await this.flushLogisticDirty(key);
+    } catch (error: any) {
+      this.logger.warn(`Envoi Logistic immédiat en échec (le cron rattrapera) : ${key} : ${error?.message}`);
+    }
+  });
 
   constructor(
     private readonly prisma: PrismaService,
@@ -117,6 +124,10 @@ export class PreEventInventoryFlowService {
     @Optional() private readonly postEventDraft?: PostEventDraftService,
   ) {}
 
+  onModuleDestroy(): void {
+    this.logisticFlush.clear();
+  }
+
   // ── Dates ────────────────────────────────────────────────────────────────────
 
   /** Instant réel d'ouverture des portes, `null` si aucune heure n'est renseignée. */
@@ -124,12 +135,12 @@ export class PreEventInventoryFlowService {
     return resolveDoorsOpenAt(event, event.timezone || 'Europe/Paris');
   }
 
+  /** Fin de l'édition pre-event : fin réelle de l'event (retour Bertrand 2026-10-07 : le
+   *  pre-event reste disponible PDV par PDV après les portes ; avant, portes + 30 min).
+   *  `null` sans heure d'ouverture des portes (aucun verrou, comme avant). */
   editDeadline(event: FlowEvent): Date | null {
-    const doorsOpen = this.doorsOpenAt(event);
-    if (!doorsOpen) return null;
-    return new Date(
-      doorsOpen.getTime() + PreEventInventoryFlowService.EDIT_WINDOW_MINUTES * 60 * 1000,
-    );
+    if (!this.doorsOpenAt(event)) return null;
+    return this.eventWindowEnd(event);
   }
 
   /** Fin de la fenêtre de l'event (même règle que le Live : fin déclarée, sinon
@@ -180,7 +191,7 @@ export class PreEventInventoryFlowService {
 
   /**
    * Point d'entrée UNIQUE des écritures de comptage (staff et invité) : applique
-   * le verrou des 30 minutes en phase pre-event, délègue l'upsert, puis marque la
+   * le verrou de fin d'event en phase pre-event, délègue l'upsert, puis marque la
    * feuille à régénérer si les portes sont déjà ouvertes. Hors phase pre-event
    * (post-event, ou client ancien sans `phase`), ou sans heure d'ouverture des
    * portes connue, simple délégation.
@@ -192,6 +203,7 @@ export class PreEventInventoryFlowService {
     // chaque envoi recalcule le stock de tout l'espace (LogisticsService.reset).
     if (dto.isCounted === true && dto.eventId && (dto.phase === 'pre-event' || dto.phase === 'post-event')) {
       await this.markLogisticDirty(dto.spaceId, dto.eventId, tenantId, dto.phase);
+      this.logisticFlush.schedule(this.logisticDirtyKey(dto.phase, dto.spaceId, dto.eventId));
     }
     return saved;
   }
@@ -209,38 +221,15 @@ export class PreEventInventoryFlowService {
     }
     if (now > deadline) {
       throw new ForbiddenException(
-        `Inventaire pré-événement verrouillé : plus de ${PreEventInventoryFlowService.EDIT_WINDOW_MINUTES} minutes après l'ouverture des portes.`,
+        "Inventaire pré-événement verrouillé : l'événement est terminé.",
       );
     }
     const afterDoorsOpen = now >= doorsOpen;
-    // Pendant les 30 minutes, SEULS les éléments non comptés restent modifiables
-    // (critère 9) : une ligne déjà marquée comptée à l'ouverture des portes est
-    // figée, y compris contre un "reset" qui la repasserait en non compté.
-    if (afterDoorsOpen && (await this.isCountedRow(dto, tenantId))) {
-      throw new ForbiddenException(
-        "Cet article est déjà compté : après l'ouverture des portes, seuls les éléments non comptés peuvent être modifiés.",
-      );
-    }
     const saved = await this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
     if (afterDoorsOpen) {
       await this.markDirty(dto.spaceId, dto.eventId, tenantId);
     }
     return saved;
-  }
-
-  /** La ligne visée par ce comptage est-elle déjà marquée comptée en base ? */
-  private async isCountedRow(dto: CreateInventoryCountDto, tenantId: string): Promise<boolean> {
-    const row = await this.prisma.inventoryCount.findFirst({
-      where: {
-        tenantId,
-        spaceId: dto.spaceId,
-        eventId: dto.eventId ?? null,
-        shopId: dto.shopId ?? null,
-        itemId: dto.itemId,
-      },
-      select: { isCounted: true },
-    });
-    return !!row?.isCounted;
   }
 
   // ── Régénération de la feuille ──────────────────────────────────────────────
@@ -441,9 +430,9 @@ export class PreEventInventoryFlowService {
    * clé que l'ancien cron live-init, pour ne pas rejouer les events déjà traités)
    * est RÉCLAMÉ avant le travail (contrainte unique : deux appels concurrents,
    * cron et bouton, ne passent pas tous les deux) et retiré si le travail échoue.
-   * Clôt la fenêtre invité pre-event puis régénère la feuille. Trop tard (fenêtre
-   * des 30 min largement dépassée, cron rattrapé après coup) : la fenêtre est
-   * clôturée et le marqueur posé, mais rien n'est régénéré ni poussé, le comptage
+   * Régénère la feuille, sans clore la fenêtre invité (Bertrand 2026-10-07). Trop tard
+   * (event terminé, cron rattrapé après coup) : le marqueur est posé, mais rien n'est
+   * régénéré ni poussé, le comptage
    * d'avant-match ne doit pas écraser un registre qui a déjà vécu le match.
    */
   async runDoorsOpen(
@@ -461,17 +450,9 @@ export class PreEventInventoryFlowService {
     if (!claimed) return { ok: false, reason: 'already-initialized' };
 
     try {
-      const closed = await closeInventoryWindows(
-        this.prisma,
-        { tenantId: event.tenantId, spaceId: event.spaceId, eventId: event.id, phase: 'pre-event' },
-        { closedAt: now, closedBy: actor },
-      );
-      if (closed.count) {
-        this.logger.log(
-          `Fenêtre invité pre-event clôturée à l'ouverture des portes : space ${event.spaceId} / event ${event.id}`,
-        );
-      }
-
+      // La fenêtre invité pre-event n'est plus clôturée aux portes (Bertrand 2026-10-07) :
+      // chaque PDV s'arrête à sa première vente (InventoryCycleCronService), la fenêtre à
+      // la fin de l'event (InventoryWindowLifecycleCronService).
       const deadline = this.editDeadline(event);
       const lateAfter = deadline
         ? deadline.getTime() + PreEventInventoryFlowService.LATE_GRACE_MINUTES * 60 * 1000
@@ -531,7 +512,7 @@ export class PreEventInventoryFlowService {
     }
   }
 
-  // ── Fenêtre des 30 minutes (cron) ───────────────────────────────────────────
+  // ── Après les portes (cron) ─────────────────────────────────────────────────
 
   private dirtyKey(spaceId: string, eventId: string): string {
     return `${PreEventInventoryFlowService.DIRTY_MARKER_PREFIX}:${spaceId}:${eventId}`;
@@ -601,9 +582,11 @@ export class PreEventInventoryFlowService {
    * depuis leur dernier envoi partent). Le marqueur est retiré AVANT l'envoi : un
    * comptage concurrent le repose et part au tick suivant ; reposé en cas d'échec.
    */
-  async flushLogisticDirty(): Promise<number> {
+  async flushLogisticDirty(onlyKey?: string): Promise<number> {
     const markers = await this.prisma.kvStore.findMany({
-      where: { key: { startsWith: `${PreEventInventoryFlowService.LOGISTIC_DIRTY_PREFIX}:` } },
+      where: onlyKey
+        ? { key: onlyKey }
+        : { key: { startsWith: `${PreEventInventoryFlowService.LOGISTIC_DIRTY_PREFIX}:` } },
     });
     let pushed = 0;
     for (const marker of markers) {
@@ -613,7 +596,10 @@ export class PreEventInventoryFlowService {
         await this.prisma.kvStore.delete({ where: { id: marker.id } }).catch(() => undefined);
         continue;
       }
-      await this.prisma.kvStore.delete({ where: { id: marker.id } }).catch(() => undefined);
+      // Le retrait du marqueur vaut prise en charge : l'envoi immédiat et le cron (ou une
+      // autre instance) peuvent lire le même marqueur, un seul l'envoie.
+      const claimed = await this.prisma.kvStore.deleteMany({ where: { id: marker.id } });
+      if (!claimed.count) continue;
       try {
         if (v.phase === 'pre-event') {
           // Feuille pre-event à jour + Logistic (push incrémental inclus), sans snapshot.

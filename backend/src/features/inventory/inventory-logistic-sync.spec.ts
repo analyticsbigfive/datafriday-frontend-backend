@@ -22,8 +22,11 @@ describe('Logistique depuis les comptages (D1)', () => {
             store.set(k, row);
             return row;
           }),
-          findMany: jest.fn().mockImplementation(async () => [...store.values()]),
+          findMany: jest.fn().mockImplementation(async ({ where }: any = {}) =>
+            [...store.values()].filter((r) => (typeof where?.key === 'string' ? r.key === where.key : true)),
+          ),
           delete: jest.fn().mockImplementation(async ({ where }: any) => store.delete(where.id)),
+          deleteMany: jest.fn().mockImplementation(async ({ where }: any) => ({ count: store.delete(where.id) ? 1 : 0 })),
         },
       };
       inventory = {
@@ -32,6 +35,8 @@ describe('Logistique depuis les comptages (D1)', () => {
       };
       flow = new PreEventInventoryFlowService(prisma, inventory);
     });
+
+    afterEach(() => flow.onModuleDestroy());
 
     const dto = (over: Record<string, unknown> = {}) =>
       ({
@@ -50,6 +55,28 @@ describe('Logistique depuis les comptages (D1)', () => {
       await flow.saveCount(dto(), 'tenant-1', 'user-1');
       expect(inventory.saveInventoryCounts).toHaveBeenCalled();
       expect([...store.values()].map((r) => r.key)).toEqual(['inventory-logistic-dirty:post-event:space-1:event-1']);
+    });
+
+    it('« Marquer compté » : envoi quelques secondes après le clic, sans attendre le cron', async () => {
+      jest.useFakeTimers();
+      try {
+        await flow.saveCount(dto(), 'tenant-1', 'user-1');
+        await flow.saveCount(dto({ itemId: 'mi-2' }), 'tenant-1', 'user-1');
+        expect(inventory.pushPendingCountToLogistic).not.toHaveBeenCalled();
+        await jest.advanceTimersByTimeAsync(2_000);
+        // Les deux clics rapprochés partent en un seul envoi.
+        expect(inventory.pushPendingCountToLogistic).toHaveBeenCalledTimes(1);
+        expect(store.size).toBe(0);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('un marqueur déjà pris par un autre envoi n\'est pas renvoyé', async () => {
+      await flow.saveCount(dto(), 'tenant-1', 'user-1');
+      prisma.kvStore.deleteMany.mockResolvedValueOnce({ count: 0 });
+      expect(await flow.flushLogisticDirty()).toBe(0);
+      expect(inventory.pushPendingCountToLogistic).not.toHaveBeenCalled();
     });
 
     it('une saisie non marquée comptée ne déclenche aucun envoi', async () => {

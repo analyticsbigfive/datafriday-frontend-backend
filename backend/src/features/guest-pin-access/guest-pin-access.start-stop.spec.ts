@@ -38,6 +38,7 @@ describe('GuestPinAccessService : Démarrage / Reprise et Arrêt', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
         upsert: jest.fn().mockResolvedValue({}),
       },
+      kvStore: { upsert: jest.fn().mockResolvedValue({}) },
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
     service = new GuestPinAccessService(
@@ -121,6 +122,29 @@ describe('GuestPinAccessService : Démarrage / Reprise et Arrêt', () => {
     expect(calls).toEqual([
       ['win-post', 'revoked'],
       ['win-new', 'active'],
+    ]);
+    // Rouvert à la main en pre-event : plus jamais coupé par ses ventes.
+    expect(prisma.kvStore.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { uniq_kv_store: { tenantId: 'tenant-1', key: 'inventory-cycle:pre-sale:win-new:shop-1' } },
+      }),
+    );
+  });
+
+  it("■ pre-event d'un PDV après les portes : il retrouve son accès post-event", async () => {
+    prisma.inventoryWindow.findUnique.mockImplementation(async ({ where }: any) =>
+      where.uniq_inventory_window.phase === 'post-event'
+        ? { ...window(), id: 'win-post', phase: 'post-event', status: 'open' }
+        : window(),
+    );
+    await service.stopElement({ ...target, elementId: 'shop-1' }, user);
+    const calls = prisma.guestPinAccess.upsert.mock.calls.map(([arg]: any) => [
+      arg.where.uniq_guest_pin_access_per_element.windowId,
+      arg.update.status,
+    ]);
+    expect(calls).toEqual([
+      ['win-pre', 'revoked'],
+      ['win-post', 'active'],
     ]);
   });
 

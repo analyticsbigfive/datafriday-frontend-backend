@@ -11,7 +11,7 @@ import { FlowEvent, PreEventInventoryFlowService } from './pre-event-inventory-f
  *  1. `runDoorsOpen` (idempotent, marqueur KvStore réclamé avant le travail) :
  *     clôt la fenêtre invité pre-event, régénère la feuille de réconciliation et
  *     pousse vers Logistic l'incrément de comptage ;
- *  2. `flushDirty` pendant les 30 minutes d'édition staff qui suivent : toute
+ *  2. `flushDirty` après les portes, jusqu'à la fin de l'event : toute
  *     écriture depuis la dernière feuille la régénère (Logistique comprise).
  *
  * Un event SANS heure d'ouverture des portes est ignoré ici : `eventDate` est un
@@ -34,7 +34,7 @@ export class InventoryLiveInitCronService implements OnModuleInit {
   // rattrapage tardif clôt la fenêtre et pose le marqueur sans rien pousser
   // (garde `late` du flux).
   private readonly GRACE_HOURS = 3;
-  // Marge après la fin des 30 minutes pour vider un dernier marqueur "dirty".
+  // Marge après la fin d'édition (fin de l'event) pour vider un dernier marqueur "dirty".
   private readonly DIRTY_FLUSH_GRACE_MS = 2 * 60 * 1000;
 
   constructor(

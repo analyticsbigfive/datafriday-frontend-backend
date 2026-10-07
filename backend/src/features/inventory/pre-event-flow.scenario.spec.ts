@@ -396,10 +396,10 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
     );
     expect(marker).toBeTruthy();
     expect(marker!.value.result).toMatchObject({ ok: true });
-    // PIN conservé : il est lié à l'event (document Bertrand 2026-10-06).
+    // Fenêtre invité laissée ouverte (Bertrand 2026-10-07) : chaque PDV s'arrête à sa
+    // première vente. PIN conservé (document Bertrand 2026-10-06).
     expect(prisma.inventoryWindow.rows[0]).toMatchObject({
-      status: 'closed',
-      closedBy: 'system-doors-open',
+      status: 'open',
       pinLookupHash: 'hash',
       pinCiphertext: 'cipher',
     });
@@ -419,14 +419,13 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
     const state = await flow.getWindowState(SPACE, EVENT_A, TENANT);
     expect(state).toMatchObject({ phase: 'editing', doorsOpenDone: true });
     expect(state.doorsOpenAt).toEqual(T('2026-09-19T17:00:00.000Z'));
-    expect(state.editDeadline).toEqual(T('2026-09-19T17:30:00.000Z'));
+    // Fin d'édition = fin réelle de l'event (23:00 Paris), plus portes + 30 min.
+    expect(state.editDeadline).toEqual(T('2026-09-19T21:00:00.000Z'));
 
-    // ── B3. Pendant les 30 min (17:05Z) ────────────────────────────────────
+    // ── B3. Après les portes (17:05Z) ──────────────────────────────────────
     at('2026-09-19T17:05:00.000Z');
-    // Article déjà compté : figé (y compris un "reset" en non compté).
-    await expect(count('pdv1', ITEM.cookie, 9)).rejects.toBeInstanceOf(ForbiddenException);
-    await expect(count('pdv1', ITEM.cookie, 7, false)).rejects.toBeInstanceOf(ForbiddenException);
-    // Article jamais compté (eau du PDV 1) : modifiable → marqueur dirty.
+    // Article jamais compté (eau du PDV 1) : modifiable → marqueur dirty. Un article déjà
+    // compté resterait modifiable lui aussi (PDV rouvert, cf. service spec).
     logistics.setLevel('pdv1', NAME.water, 12);
     await count('pdv1', ITEM.water, 11);
     expect(
@@ -459,8 +458,8 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
     expect(manual.logisticPush).toMatchObject({ ok: false, reason: 'nothing-new' });
     expect(logistics.resets).toHaveLength(4);
 
-    // ── B4. Après 30 min (17:31Z) : verrou complet, cron silencieux ────────
-    at('2026-09-19T17:31:00.000Z');
+    // ── B4. Après la fin de l'event (21:01Z) : verrou complet, cron silencieux ──
+    at('2026-09-19T21:01:00.000Z');
     await expect(count('pdv2', ITEM.water, 1, false)).rejects.toThrow(/verrouillé/);
     const before = {
       sheets: sheets().length,
@@ -472,18 +471,18 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
     expect(logistics.resets).toHaveLength(before.resets);
     expect((await flow.getWindowState(SPACE, EVENT_A, TENANT)).phase).toBe('locked');
 
-    // ── C. Rattrapage tardif (cron arrêté, relancé à 19:00Z = 2 h après les portes)
+    // ── C. Rattrapage tardif (cron arrêté, relancé à 21:10Z, après la fin de l'event)
     prisma.kvStore.rows = prisma.kvStore.rows.filter(
       (r) => !r.key.startsWith('live-pre-event-init'),
     );
-    prisma.inventoryWindow.rows[0].status = 'open';
-    at('2026-09-19T19:00:00.000Z');
+    at('2026-09-19T21:10:00.000Z');
     await cron.autoInitLiveStockForOpenEvents();
     const late = prisma.kvStore.rows.find(
       (r) => r.key === `live-pre-event-init:${SPACE}:${EVENT_A}`,
     );
     expect(late!.value.result).toMatchObject({ ok: false, reason: 'late' });
-    expect(prisma.inventoryWindow.rows[0].status).toBe('closed');
+    // La fenêtre n'est plus close ici : InventoryWindowLifecycleCronService le fait à la fin.
+    expect(prisma.inventoryWindow.rows[0].status).toBe('open');
     expect(logistics.resets).toHaveLength(before.resets);
     expect(sheets()[0].id).toBe(before.sheetId);
   });
@@ -511,10 +510,8 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
     const event = await flow.findEvent(SPACE, EVENT_A, TENANT);
     const res = await flow.runDoorsOpen(event!, 'user:staff-1');
     expect(res.ok).toBe(true);
-    expect(prisma.inventoryWindow.rows[0]).toMatchObject({
-      status: 'closed',
-      closedBy: 'user:staff-1',
-    });
+    // Fenêtre invité laissée ouverte (Bertrand 2026-10-07).
+    expect(prisma.inventoryWindow.rows[0]).toMatchObject({ status: 'open' });
     expect(sheets()).toHaveLength(1);
     expect(sheets()[0].meta.trigger).toBe('doors-open');
     expect(logistics.resets).toHaveLength(1);
