@@ -1613,7 +1613,7 @@ export default {
           // case est l'unique gate — attaché coché par défaut, non-attaché
           // cochable. Un non-attaché coché compte ; un attaché décoché ne compte
           // pas. (Avant : filtre d'assignation « activé seul » ignorait la case.)
-          const price = this.htUnitPrice(it) // HT (levier détaxe amont)
+          const price = this.revenueUnitPrice(it) // HT (levier détaxe amont)
           const pq = this.getPredictedQuantity(element.id, it.id)
           predicted += pq * price
           if (selectedSet.has(it.id)) {
@@ -2086,6 +2086,20 @@ export default {
         if (full) src = full
       }
       return Number(menuItemPriceHt(src, this.spaceId)) || 0
+    },
+    /**
+     * Prix HT pour le CA du PDV. Article SYNTHÉTIQUE (timeline) dont le prix déduit vaut
+     * 0 (CA ÷ quantité nulle, sans prix Weezevent) : repli sur le prix catalogue, sinon
+     * une quantité manuelle saisie dessus ne montait pas le CA ajusté du PDV (retour
+     * Bertrand 2026-10-07).
+     */
+    revenueUnitPrice(it) {
+      const price = this.htUnitPrice(it)
+      if (price > 0 || !it?._synthetic) return price
+      const full =
+        this.menuItemsById.get(it.id) ||
+        (this.menuItems || []).find((m) => normalizeStr(m?.name) === normalizeStr(it?.name))
+      return full ? this.htUnitPrice(full) : 0
     },
     // Coût aberrant : coût unitaire > prix HT (ex. BARRE CHOCOLATEE €2.08 avec
     // coût €36.84 → marge -1671%). Données de coût suspectes → badge d'alerte.

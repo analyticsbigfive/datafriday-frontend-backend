@@ -1162,8 +1162,13 @@ export function usePredictiveTimeline(options) {
         mappedMenuItemId: agg.mappedMenuItemId,
         mappedMenuItemName: agg.mappedMenuItemName,
         totalRevenue: agg.totalRevenue,
-        totalQuantity: Math.round(agg.totalQuantity),
-        transactionCount: Math.round(agg.transactionCount),
+        // PAS d'arrondi par minute (retour Bertrand 2026-10-07) : une vente passée de
+        // 1 unité pondérée à 0,45 tombait à 0 à chaque minute, d'où ~35 % d'unités
+        // perdues (PAUC/SARAN : 1 273 prévues, 829 affichées) et des articles à CA
+        // prévu classés « Sans ventes prévues ». Les consommateurs arrondissent leurs
+        // TOTAUX (predictedQuantityIndex, predictedItemKeySet).
+        totalQuantity: agg.totalQuantity,
+        transactionCount: agg.transactionCount,
         isPredictive: true,
       }))
 

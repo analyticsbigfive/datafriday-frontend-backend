@@ -67,6 +67,10 @@ export function buildTimelineQuantityIndex(records) {
       }
     }
   }
+  // Quantités entières sur le TOTAL du couple shop|item : la timeline porte des
+  // décimales par minute (pondération des events passés), arrondies une seule fois
+  // ici et non plus minute par minute (perte d'unités, retour Bertrand 2026-10-07).
+  for (const [k, v] of idx) idx.set(k, Math.round(v))
   return idx
 }
 

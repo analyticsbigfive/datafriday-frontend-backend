@@ -1679,6 +1679,7 @@
 </template>
 
 <script>
+import { predictedShopItemKeys } from '@/utils/predictedShopItemKeys'
 import { useRoute, useRouter } from 'vue-router'
 import { safePush } from '@/utils/chunkReload'
 import { useStore } from 'vuex'
@@ -4295,9 +4296,9 @@ export default {
       const cfg = version?.menuConfig || {}
       if (!Object.keys(mq).length || !Object.keys(cfg).length) return records
       const adjMap = version?.quantityAdjustments || {}
-      const present = new Set(
-        records.map((r) => `${r.shopId || r.shop}|${r.menuItemId || r.mappedMenuItemId}`),
-      )
+      // Couple « présent » = réellement prévu (au moins une unité sur le total) : un
+      // couple à 0,3 unité ne masque plus la quantité manuelle (retour Bertrand 2026-10-07).
+      const present = predictedShopItemKeys(records)
       const out = records.slice()
       for (const shopId of Object.keys(cfg)) {
         for (const menuItemId of (cfg[shopId] || [])) {

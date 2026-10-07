@@ -566,7 +566,9 @@ const chartOptions = computed(() => ({
                   currency: 'EUR',
                   maximumFractionDigits: 0,
                 }).format(v)
-              : new Intl.NumberFormat(currentIntlLocale()).format(v)
+              // Prédictif : quantités pondérées décimales par minute (non arrondies
+              // depuis 2026-10-07), une décimale suffit à la lecture.
+              : new Intl.NumberFormat(currentIntlLocale(), { maximumFractionDigits: 1 }).format(v)
           return `${ctx.dataset.label}: ${formatted}`
         },
       },
