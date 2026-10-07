@@ -60,7 +60,7 @@
           <input
             type="range"
             min="0"
-            max="200"
+            :max="Math.max(200, row.percent)"
             step="5"
             :value="row.percent"
             class="risd-slider"
@@ -68,7 +68,18 @@
             data-test="shop-slider"
             @input="$emit('update-percent', { shopId: row.shopId, value: Number($event.target.value) })"
           />
-          <span class="risd-percent">{{ row.percent }}%</span>
+          <!-- Valeur libre au-delà du curseur (retour Bertrand 2026-10-07). -->
+          <span class="risd-percent risd-percent-input-wrap">
+            <NumberField
+              :model-value="row.percent"
+              :decimals="0"
+              :min="0"
+              :aria-label="`${t('srShopsDrawerSliderAria')} ${row.shopName}`"
+              class="risd-percent-input"
+              data-test="shop-percent-input"
+              @change="(v) => v != null && Number(v) !== Number(row.percent) && $emit('update-percent', { shopId: row.shopId, value: Number(v) })"
+            />%
+          </span>
           <button
             type="button"
             class="risd-reset"
@@ -91,10 +102,11 @@
 // remonte en émission ; la garde de plan et le recalcul restent au parent.
 import { useI18n } from '@/i18n/useI18n'
 import EventDrawerShell from '@/components/events/drawers/EventDrawerShell.vue'
+import NumberField from '@/components/common/NumberField.vue'
 
 export default {
   name: 'RestockItemShopsDrawer',
-  components: { EventDrawerShell },
+  components: { EventDrawerShell, NumberField },
   props: {
     modelValue: { type: Boolean, default: false },
     /**
@@ -202,6 +214,24 @@ export default {
   accent-color: var(--sr-primary, #ff3131);
 }
 
+/* Valeur libre à côté du curseur : champ + « % ». */
+.risd-percent-input-wrap {
+  width: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+.risd-percent-input {
+  width: 52px;
+  text-align: right;
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--fb-border, #e5e7eb);
+  border-radius: 4px;
+  padding: 1px 4px;
+  background: transparent;
+}
 .risd-percent {
   width: 44px;
   text-align: right;

@@ -61,8 +61,34 @@ describe('RestockItemShopsDrawer', () => {
     expect(b).toContain('10 pcs')
     expect(b).toContain('12 pcs')
     expect(b).toContain('3 Packs')
-    expect(b).toContain('120%')
+    // % du PDV : champ de saisie (valeur libre, retour Bertrand 2026-10-07).
+    expect(rows[1].find('[data-test="shop-percent-input"]').element.value).toBe('120')
     expect(rows[2].find('[data-test="shop-slider"]').element.value).toBe('0')
+  })
+
+  it('valeur tapée au-delà du curseur (350 %) : émise telle quelle, curseur élargi', async () => {
+    const wrapper = mountDrawer()
+    const input = wrapper.findAll('[data-test="shop-percent-input"]')[0]
+    await input.trigger('focus')
+    input.element.value = '350'
+    await input.trigger('input')
+    await input.trigger('blur')
+    expect(wrapper.emitted('update-percent')).toEqual([[{ shopId: 'shop-a', value: 350 }]])
+  })
+
+  it('sortir du champ sans rien changer : aucune émission', async () => {
+    const wrapper = mountDrawer()
+    const input = wrapper.findAll('[data-test="shop-percent-input"]')[0]
+    await input.trigger('focus')
+    await input.trigger('blur')
+    expect(wrapper.emitted('update-percent')).toBeUndefined()
+  })
+
+  it('curseur élargi quand le % dépasse 200', () => {
+    const d = data()
+    d.rows[0].percent = 350
+    const wrapper = mountDrawer({ data: d })
+    expect(wrapper.findAll('[data-test="shop-slider"]')[0].attributes('max')).toBe('350')
   })
 
   it('émet update-percent au mouvement du curseur d\'un PDV', async () => {

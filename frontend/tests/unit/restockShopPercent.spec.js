@@ -22,8 +22,9 @@ describe('shopPercentKey', () => {
 })
 
 describe('normalizeShopPercent', () => {
-  it('borne à 0..200 et arrondit', () => {
-    expect(normalizeShopPercent(250)).toBe(200)
+  it('borne à 0..10000 (valeur libre au-delà du curseur 200) et arrondit', () => {
+    expect(normalizeShopPercent(250)).toBe(250)
+    expect(normalizeShopPercent(50000)).toBe(10000)
     expect(normalizeShopPercent(-10)).toBe(0)
     expect(normalizeShopPercent('112.6')).toBe(113)
   })
