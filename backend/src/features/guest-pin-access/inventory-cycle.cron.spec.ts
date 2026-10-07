@@ -1,9 +1,11 @@
 import { InventoryCycleCronService } from './inventory-cycle.cron';
+import { PRE_SALE_STOP_ACTOR } from './pre-sale-stop';
 
 /**
  * Cycle automatique pre / post-event (document Bertrand 2026-10-06) : PIN préparés à
  * l'avance, post-event démarré aux portes, arrêté par une livraison APRÈS le match (pre
- * suivant démarré), pre-event arrêté par la première vente du match. Une fois chacun.
+ * suivant démarré), pre-event arrêté PDV par PDV à sa première vente (Bertrand 2026-10-07).
+ * Une fois chacun.
  */
 describe('InventoryCycleCronService', () => {
   const ACTOR = InventoryCycleCronService.ACTOR;
@@ -40,6 +42,7 @@ describe('InventoryCycleCronService', () => {
         findUnique: jest.fn().mockImplementation(async ({ where }: any) => ({ id: where.id, status: 'open' })),
       },
       stockMovement: { findFirst: jest.fn().mockResolvedValue(null) },
+      guestPinAccess: { findMany: jest.fn().mockResolvedValue([]) },
       kvStore: {
         create: jest.fn().mockImplementation(async ({ data }: any) => {
           if (markers.has(data.key)) throw Object.assign(new Error('dup'), { code: 'P2002' });
@@ -52,10 +55,10 @@ describe('InventoryCycleCronService', () => {
       prepareWindow: jest.fn().mockResolvedValue('created'),
       startPhase: jest.fn().mockResolvedValue({}),
       stopPhaseWindow: jest.fn().mockResolvedValue(undefined),
+      stopPreElement: jest.fn().mockResolvedValue(undefined),
     };
     spaces = {
-      getLiveStatus: jest.fn().mockResolvedValue({ isLive: false, eventId: null, since: null }),
-      countValidSalesSince: jest.fn().mockResolvedValue(3),
+      firstValidSaleByElementSince: jest.fn().mockResolvedValue(new Map()),
     };
     service = new InventoryCycleCronService(prisma, guestPin, spaces);
   });
@@ -73,7 +76,7 @@ describe('InventoryCycleCronService', () => {
     ]);
   });
 
-  it('démarre le post-event aux portes, une seule fois', async () => {
+  it('démarre le post-event aux portes, une seule fois, sans arrêter le pre-event', async () => {
     const atDoors = new Date('2026-10-10T15:01:00Z');
     expect(await service.startPostAtDoors(new Date('2026-10-10T14:59:00Z'))).toBe(0);
     expect(await service.startPostAtDoors(atDoors)).toBe(1);
@@ -81,6 +84,7 @@ describe('InventoryCycleCronService', () => {
       { spaceId: 'space-1', eventId: 'event-n', phase: 'post-event' },
       'tenant-1',
       ACTOR,
+      { keepOtherPhase: true },
     );
     // Arrêté ensuite à la main : le tick suivant ne le relance pas.
     expect(await service.startPostAtDoors(new Date('2026-10-10T15:02:00Z'))).toBe(0);
@@ -117,32 +121,51 @@ describe('InventoryCycleCronService', () => {
     expect(guestPin.startPhase).toHaveBeenCalledTimes(1);
   });
 
-  it('première vente du match : pre-event arrêté, une fois ; une vente hors match ne compte pas', async () => {
-    prisma.inventoryWindow.findMany.mockResolvedValue([preWindow]);
-    const now = new Date('2026-10-10T13:00:00Z');
+  describe('pre-event arrêté PDV par PDV à sa première vente', () => {
+    const now = new Date('2026-10-10T16:00:00Z'); // après les portes (15:00Z)
+    const sale = new Date('2026-10-10T15:40:00Z');
 
-    spaces.getLiveStatus.mockResolvedValue({ isLive: true, eventId: null, since: now.toISOString() });
-    expect(await service.stopPreOnSale(now)).toBe(0);
+    it('seuls les PDV qui ont vendu sont arrêtés, une fois, vente de test comprise', async () => {
+      prisma.inventoryWindow.findMany.mockResolvedValue([preWindow]);
+      spaces.firstValidSaleByElementSince.mockResolvedValue(new Map([['pdv-a', sale]]));
 
-    spaces.getLiveStatus.mockResolvedValue({ isLive: true, eventId: 'event-n', since: now.toISOString() });
-    expect(await service.stopPreOnSale(now)).toBe(1);
-    expect(guestPin.stopPhaseWindow).toHaveBeenCalledWith(preWindow, ACTOR, 'sale');
-    expect(await service.stopPreOnSale(now)).toBe(0);
-  });
+      expect(await service.stopPreElementsOnSale(now)).toBe(1);
+      expect(guestPin.stopPreElement).toHaveBeenCalledWith(preWindow, 'pdv-a', PRE_SALE_STOP_ACTOR);
+      // Ventes cherchées depuis le début de la journée du match (minuit Paris).
+      expect(spaces.firstValidSaleByElementSince).toHaveBeenCalledWith('space-1', 'tenant-1', new Date('2026-10-09T22:00:00Z'));
 
-  it('une vente de test isolée ne coupe pas le pre-event (moins de 3 ventes en 15 min)', async () => {
-    prisma.inventoryWindow.findMany.mockResolvedValue([preWindow]);
-    const now = new Date('2026-10-10T13:00:00Z');
-    spaces.getLiveStatus.mockResolvedValue({ isLive: true, eventId: 'event-n', since: now.toISOString() });
-    spaces.countValidSalesSince.mockResolvedValue(1);
-    expect(await service.stopPreOnSale(now)).toBe(0);
-    expect(spaces.countValidSalesSince).toHaveBeenCalledWith('space-1', 'tenant-1', new Date('2026-10-10T12:45:00Z'));
-    expect(guestPin.stopPhaseWindow).not.toHaveBeenCalled();
-  });
+      expect(await service.stopPreElementsOnSale(now)).toBe(0);
+      expect(guestPin.stopPreElement).toHaveBeenCalledTimes(1);
+    });
 
-  it("avant le jour du match, aucune requête de ventes", async () => {
-    prisma.inventoryWindow.findMany.mockResolvedValue([preWindow]);
-    expect(await service.stopPreOnSale(new Date('2026-10-08T12:00:00Z'))).toBe(0);
-    expect(spaces.getLiveStatus).not.toHaveBeenCalled();
+    it('PDV déjà arrêté : rien à faire', async () => {
+      prisma.inventoryWindow.findMany.mockResolvedValue([preWindow]);
+      spaces.firstValidSaleByElementSince.mockResolvedValue(new Map([['pdv-a', sale]]));
+      prisma.guestPinAccess.findMany.mockResolvedValue([{ elementId: 'pdv-a', status: 'revoked' }]);
+      expect(await service.stopPreElementsOnSale(now)).toBe(0);
+      expect(guestPin.stopPreElement).not.toHaveBeenCalled();
+    });
+
+    it('fenêtre arrêtée : seul un PDV rouvert un par un (ligne active) peut être coupé', async () => {
+      prisma.inventoryWindow.findMany.mockResolvedValue([{ ...preWindow, status: 'closed' }]);
+      spaces.firstValidSaleByElementSince.mockResolvedValue(new Map([['pdv-a', sale], ['pdv-b', sale]]));
+      prisma.guestPinAccess.findMany.mockResolvedValue([{ elementId: 'pdv-b', status: 'active' }]);
+      expect(await service.stopPreElementsOnSale(now)).toBe(1);
+      expect(guestPin.stopPreElement).toHaveBeenCalledWith(expect.objectContaining({ id: 'win-pre' }), 'pdv-b', PRE_SALE_STOP_ACTOR);
+    });
+
+    it('PDV rouvert à la main (marqueur déjà posé) : jamais recoupé', async () => {
+      prisma.inventoryWindow.findMany.mockResolvedValue([preWindow]);
+      spaces.firstValidSaleByElementSince.mockResolvedValue(new Map([['pdv-a', sale]]));
+      markers.add('inventory-cycle:pre-sale:win-pre:pdv-a');
+      expect(await service.stopPreElementsOnSale(now)).toBe(0);
+      expect(guestPin.stopPreElement).not.toHaveBeenCalled();
+    });
+
+    it('avant le jour du match, aucune requête de ventes', async () => {
+      prisma.inventoryWindow.findMany.mockResolvedValue([preWindow]);
+      expect(await service.stopPreElementsOnSale(new Date('2026-10-08T12:00:00Z'))).toBe(0);
+      expect(spaces.firstValidSaleByElementSince).not.toHaveBeenCalled();
+    });
   });
 });

@@ -4,6 +4,7 @@ import type { InventoryWindow } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpacesService } from '../spaces/spaces.service';
 import { GuestPinAccessService } from './guest-pin-access.service';
+import { PRE_SALE_STOP_ACTOR, preSaleStopKey } from './pre-sale-stop';
 import {
   isEventOver,
   pickNextEventBeforeDoorsOpen,
@@ -12,11 +13,6 @@ import {
 } from '../../shared/utils/event-window.util';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/** Vrai démarrage des ventes (D17) : au moins SALES_START_MIN ventes validées dans les
- *  SALES_START_WINDOW_MS dernières minutes. Une vente de test isolée ne coupe plus le
- *  pre-event (règle choisie le 2026-10-06). */
-const SALES_START_MIN = 3;
-const SALES_START_WINDOW_MS = 15 * 60 * 1000;
 /** Au-delà, un démarrage du post-event aux portes n'est plus rattrapé (serveur arrêté). */
 const POST_AUTOSTART_CATCHUP_MS = 6 * 60 * 60 * 1000;
 
@@ -39,11 +35,13 @@ const EVENT_SELECT = {
  * Cycle automatique des inventaires pre / post-event (document Bertrand « Pre et Post
  * event Inventory cycle », 2026-10-06, pages 1 à 4) :
  * - PIN préparés à l'avance pour chaque event à venir (fenêtres arrêtées, avec PIN) ;
- * - ouverture des portes de N : le post-event de N démarre (et arrête le pre-event) ;
+ * - ouverture des portes de N : le post-event de N démarre ; le pre-event de N continue
+ *   (Bertrand 2026-10-07) pour les PDV qui n'ont pas encore vendu ;
  * - livraison détectée en Logistique APRÈS la fin réelle de N : le post-event de N
  *   s'arrête et le pre-event du prochain event démarre (D3, D16) ;
- * - ventes rattachées à N vraiment démarrées (au moins 3 en 15 min) : le pre-event de N
- *   s'arrête (D4, D17).
+ * - première vente d'un PDV le jour de N : le pre-event de N s'arrête pour CE PDV
+ *   seulement, vente de test comprise (Bertrand 2026-10-07, remplace l'arrêt de tout
+ *   l'espace après 3 ventes en 15 min ; cf. pre-sale-stop.ts).
  *
  * Chaque déclenchement automatique ne joue qu'UNE fois (marqueur KvStore) : une reprise
  * manuelle faite après coup par le responsable n'est jamais annulée au tick suivant.
@@ -77,7 +75,7 @@ export class InventoryCycleCronService implements OnModuleInit {
     try {
       await this.run('démarrage du post-event aux portes', () => this.startPostAtDoors(now));
       await this.run('arrêt du post-event sur livraison', () => this.stopPostOnDelivery(now));
-      await this.run('arrêt du pre-event sur vente', () => this.stopPreOnSale(now));
+      await this.run('arrêt du pre-event PDV par PDV sur vente', () => this.stopPreElementsOnSale(now));
     } finally {
       this.running = false;
     }
@@ -125,7 +123,7 @@ export class InventoryCycleCronService implements OnModuleInit {
     return created;
   }
 
-  /** Portes de N ouvertes : le post-event de N démarre, une fois. */
+  /** Portes de N ouvertes : le post-event de N démarre, une fois, sans arrêter le pre-event. */
   async startPostAtDoors(now: Date): Promise<number> {
     const events = await this.prisma.event.findMany({
       where: {
@@ -147,6 +145,7 @@ export class InventoryCycleCronService implements OnModuleInit {
         { spaceId: event.spaceId, eventId: event.id, phase: 'post-event' },
         event.tenantId,
         InventoryCycleCronService.ACTOR,
+        { keepOtherPhase: true },
       );
       started++;
     }
@@ -186,8 +185,12 @@ export class InventoryCycleCronService implements OnModuleInit {
     return stopped;
   }
 
-  /** Ventes de N vraiment démarrées : pre-event de N arrêté (les portes le ferment sinon). */
-  async stopPreOnSale(now: Date): Promise<number> {
+  /**
+   * Première vente d'un PDV le jour de N : pre-event de N arrêté pour ce PDV seul, une fois
+   * (pre-sale-stop.ts). Seuls les PDV encore joignables en pre-event sont concernés ; un PDV
+   * rouvert à la main n'est jamais recoupé.
+   */
+  async stopPreElementsOnSale(now: Date): Promise<number> {
     const windows = await this.reachableWindows('pre-event');
     let stopped = 0;
     for (const window of windows) {
@@ -196,15 +199,22 @@ export class InventoryCycleCronService implements OnModuleInit {
       // Avant le jour de N, aucune vente ne peut lui être rattachée : pas de requête.
       const eventStart = resolveEventTransactionWindow(event, this.tz(event)).start;
       if (now < eventStart) continue;
-      const live = await this.spaces.getLiveStatus(window.spaceId, window.tenantId);
-      if (!live.isLive || live.eventId !== event.id) continue;
-      // Une vente de test isolée ne suffit pas : il faut un vrai démarrage des ventes.
-      const since = new Date(Math.max(now.getTime() - SALES_START_WINDOW_MS, eventStart.getTime()));
-      const recent = await this.spaces.countValidSalesSince(window.spaceId, window.tenantId, since);
-      if (recent < SALES_START_MIN) continue;
-      if (!(await this.claim(window.tenantId, `inventory-cycle:pre-sale:${window.id}`, now))) continue;
-      await this.guestPin.stopPhaseWindow(window, InventoryCycleCronService.ACTOR, 'sale');
-      stopped++;
+      const firstSales = await this.spaces.firstValidSaleByElementSince(window.spaceId, window.tenantId, eventStart);
+      if (!firstSales.size) continue;
+      const accesses = await this.prisma.guestPinAccess.findMany({
+        where: { windowId: window.id, elementId: { in: [...firstSales.keys()] } },
+        select: { elementId: true, status: true },
+      });
+      const statusByElement = new Map(accesses.map((a) => [a.elementId, a.status]));
+      for (const elementId of firstSales.keys()) {
+        const status = statusByElement.get(elementId);
+        // Sans ligne, le PDV suit la fenêtre (ouverte en masse ou non).
+        const reachable = status ? status === 'active' : window.status === 'open';
+        if (!reachable) continue;
+        if (!(await this.claim(window.tenantId, preSaleStopKey(window.id, elementId), now))) continue;
+        await this.guestPin.stopPreElement(window, elementId, PRE_SALE_STOP_ACTOR);
+        stopped++;
+      }
     }
     return stopped;
   }

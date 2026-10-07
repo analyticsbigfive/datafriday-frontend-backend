@@ -23,6 +23,7 @@ describe('InventoryWindowLifecycleCronService', () => {
   const setup = (windows: any[], events: any[]) => {
     const prisma = {
       inventoryWindow: { findMany: jest.fn().mockResolvedValue(windows) },
+      guestPinAccess: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       event: { findMany: jest.fn().mockResolvedValue(events) },
     };
     const guestPin = { closeWindowRecord: jest.fn().mockResolvedValue({ ok: true }) };
@@ -44,7 +45,9 @@ describe('InventoryWindowLifecycleCronService', () => {
     await expect(cron.closeExpiredWindows(now)).resolves.toBe(1);
     expect(guestPin.closeWindowRecord.mock.calls[0][2]).toEqual({ pushToLogistic: false, reason: 'period-end' });
     // Le post-event n'est jamais lu : il est clôturé par l'utilisateur.
-    expect(prisma.inventoryWindow.findMany).toHaveBeenCalledWith({ where: { status: 'open', phase: 'pre-event' } });
+    expect(prisma.inventoryWindow.findMany).toHaveBeenCalledWith({
+      where: { phase: 'pre-event', OR: [{ status: 'open' }, { guestAccesses: { some: { status: 'active' } } }] },
+    });
   });
 
   it('laisse ouvert le pre-event du match suivant', async () => {
@@ -53,12 +56,25 @@ describe('InventoryWindowLifecycleCronService', () => {
     expect(guestPin.closeWindowRecord).not.toHaveBeenCalled();
   });
 
-  it("ferme le pre-event du match du jour à l'ouverture des portes", async () => {
+  it("ferme le pre-event du match du jour à la fin de l'event, plus aux portes (Bertrand 2026-10-07)", async () => {
     const { cron, guestPin } = setup([window('w-pre-26', 'sfp-lyon', 'pre-event')], events);
-    await cron.closeExpiredWindows(new Date('2026-09-26T12:59:00Z'));
-    expect(guestPin.closeWindowRecord).not.toHaveBeenCalled();
+    // Portes 15:00 Paris (13:00Z) passées : toujours ouvert.
     await cron.closeExpiredWindows(new Date('2026-09-26T13:00:00Z'));
+    await cron.closeExpiredWindows(new Date('2026-09-26T20:59:00Z'));
+    expect(guestPin.closeWindowRecord).not.toHaveBeenCalled();
+    // Fin 23:00 Paris (21:00Z).
+    await cron.closeExpiredWindows(new Date('2026-09-26T21:00:00Z'));
     expect(guestPin.closeWindowRecord.mock.calls[0][2]).toEqual({ pushToLogistic: false, reason: 'period-end' });
+  });
+
+  it("fin de l'event : les PDV rouverts un par un sur une fenêtre arrêtée sont coupés", async () => {
+    const closed = { ...window('w-pre-26', 'sfp-lyon', 'pre-event'), status: 'closed' };
+    const { cron, guestPin, prisma } = setup([closed], events);
+    await expect(cron.closeExpiredWindows(new Date('2026-09-26T21:00:00Z'))).resolves.toBe(1);
+    expect(guestPin.closeWindowRecord).not.toHaveBeenCalled();
+    expect(prisma.guestPinAccess.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { windowId: { in: ['w-pre-26'] }, status: 'active' } }),
+    );
   });
 
   it("clôture une fenêtre pre-event dont l'event a disparu", async () => {

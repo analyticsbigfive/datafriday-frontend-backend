@@ -15,21 +15,23 @@ describe('inventoryWindowPeriod', () => {
   describe('pre-event', () => {
     const period = inventoryWindowPeriod(sfpLyon, 'pre-event', TZ);
 
-    it("se ferme à l'ouverture des portes (15:00 Paris = 13:00 UTC)", () => {
+    it("se ferme à la fin réelle de l'event (23:00 Paris = 21:00 UTC), plus aux portes", () => {
       expect(period.opensAt).toBeNull();
-      expect(period.closesAt.toISOString()).toBe('2026-09-26T13:00:00.000Z');
+      expect(period.closesAt.toISOString()).toBe('2026-09-26T21:00:00.000Z');
     });
 
-    it('ouvert à tout moment avant les portes, y compris les jours précédents', () => {
-      expect(inventoryWindowPeriodState(period, at('2026-09-26T09:00:00Z'))).toBe('open');
+    it('ouvert à tout moment avant la fin, y compris les jours précédents et après les portes', () => {
       expect(inventoryWindowPeriodState(period, at('2026-09-20T09:00:00Z'))).toBe('open');
+      expect(inventoryWindowPeriodState(period, at('2026-09-26T09:00:00Z'))).toBe('open');
+      // Portes 15:00 Paris passées : réouverture PDV par PDV encore possible (Bertrand 2026-10-07).
+      expect(inventoryWindowPeriodState(period, at('2026-09-26T14:00:00Z'))).toBe('open');
     });
 
-    it("est terminé dès l'ouverture des portes", () => {
-      expect(inventoryWindowPeriodState(period, at('2026-09-26T13:00:00Z'))).toBe('over');
+    it("est terminé à la fin de l'event", () => {
+      expect(inventoryWindowPeriodState(period, at('2026-09-26T21:00:00Z'))).toBe('over');
     });
 
-    it("sans heure d'ouverture des portes : ouvert jusqu'à la fin de l'event", () => {
+    it("sans heure d'ouverture des portes : même fin", () => {
       const p = inventoryWindowPeriod({ ...sfpLyon, sessions: null }, 'pre-event', TZ);
       expect(p.closesAt.toISOString()).toBe('2026-09-26T21:00:00.000Z');
     });

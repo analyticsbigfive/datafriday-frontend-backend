@@ -72,10 +72,10 @@ describe('PreEventInventoryFlowService, règles Bertrand 2026-09-29', () => {
       expect(pushArg()).toBeUndefined();
     });
 
-    it('PDV complet APRÈS les portes : feuille seule, rien vers Logistic', async () => {
+    it('PDV complet APRÈS les portes : Logistic recalé aussi (document Bertrand 2026-10-06, D1)', async () => {
       jest.setSystemTime(new Date('2026-09-26T13:10:00Z'));
       await service.regenerateOnPdvComplete('space-1', 'event-1', 'tenant-1', 'user-1', 'shop-1');
-      expect(pushArg()).toEqual([]);
+      expect(pushArg()).toBeUndefined();
     });
 
     it('mise à jour manuelle par PDV : seul ce PDV part vers Logistic', async () => {

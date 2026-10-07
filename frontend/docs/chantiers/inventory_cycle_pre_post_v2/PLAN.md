@@ -125,6 +125,9 @@ Pre(N) ── ouverture des portes de N ──▶ Post(N) ── démarrage de P
 | D22 | Délai de mise à jour de la Logistique | Envoi **regroupé à la minute** (Ulrich, 2026-10-06) : chaque envoi recalcule le stock de tout l'espace. Dans la liste de l'écran Logistique, les envois d'un même match et d'une même phase forment une seule ligne. | §5.1, option A |
 | D23 | Découpage du lot 4 | **4a** : Logistique automatique, boutons « Mettre à jour la Logistique » et « Ouverture des portes » retirés, snapshots figés (D15). **4b** : réconciliation post côté serveur, « Générer la réconciliation » retiré, D19. | Ulrich, 2026-10-06 |
 | D21 | Liste d'events | Le sélecteur « dernier / prochain » devient visible sur desktop (post) et remplace la liste du tiroir mobile, « Indépendant d'un évènement » compris. Le pre n'a pas de sélecteur. | Pages 3, 4 |
+| D24 | Retours Bertrand 2026-10-07 : pre-event après les portes | Le pre-event n'est plus fermé aux portes : période jusqu'à la **fin réelle** de l'event, fenêtre invité laissée ouverte, édition (articles comptés compris) jusqu'à la fin. Chaque PDV s'arrête **à sa première vente**, vente de test comprise (choix Ulrich : « on part sur 1, test ou pas »), remplace D17 et le seuil 3 ventes / 15 min. Un PDV rouvert à la main (▶) n'est jamais recoupé. ■ d'un PDV après les portes : il retrouve son accès post-event. | Retour Bertrand 2026-10-07 |
+| D25 | Logistique en temps réel | Envoi 2 s après « Marquer compté », au plus toutes les 10 s par match (cron à la minute en filet). Écran Logistique relu toutes les 10 s. Ligne « Dernier comptage physique » supprimée. Remplace D22. | Retour Bertrand 2026-10-07 |
+| D26 | Accès invité coupé | Page d'attente du PDV scanné (plus la connexion staff), vérification de reprise toutes les 30 s, bouton « Scanner le QR code » (caméra dans la page, `qr-scanner`). Session invité relue toutes les 30 s. | Retour Bertrand 2026-10-07 |
 
 ---
 

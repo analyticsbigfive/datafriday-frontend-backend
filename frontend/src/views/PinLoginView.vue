@@ -1,7 +1,14 @@
 <template>
   <PinRedirectingState v-if="uiState === 'redirecting'" />
   <PinLockedState v-else-if="uiState === 'locked'" />
-  <PinInactiveState v-else-if="uiState === 'inactive'" />
+  <PinInactiveState
+    v-else-if="uiState === 'inactive'"
+    :pdv-name="pdvName"
+    :can-check="!!slug"
+    :checking="checking"
+    @check="checkContext"
+    @scanned="onScanned"
+  />
 
   <PinLoginShell
     v-else
@@ -49,6 +56,10 @@ import PinInputPad from '@/components/guest-pin/PinInputPad.vue';
 import PinLockedState from '@/components/guest-pin/PinLockedState.vue';
 import PinInactiveState from '@/components/guest-pin/PinInactiveState.vue';
 import PinRedirectingState from '@/components/guest-pin/PinRedirectingState.vue';
+import { rememberGuestSlug } from '@/utils/guestPinLanding';
+
+/** Cadence de vérification de la reprise sur la page d'attente. */
+const AUTO_CHECK_MS = 30 * 1000;
 
 export default {
   name: 'PinLoginView',
@@ -77,6 +88,7 @@ export default {
       errorMessage: '',
       submitting: false,
       pdvName: null,
+      checking: false,
     };
   },
 
@@ -86,21 +98,88 @@ export default {
     },
   },
 
-  async created() {
-    // Résout le PDV depuis le lien scanné AVANT toute saisie : nom affiché tout de
-    // suite, et bascule immédiate sur "Accès inactif" si aucune fenêtre (pré ou
-    // post) n'est ouverte pour ce PDV — pas besoin d'attendre une tentative de PIN.
-    try {
-      const context = await this.$store.dispatch('guestPin/getContext', { slug: this.slug });
-      this.pdvName = context?.elementName ?? null;
-      if (!context?.active) this.uiState = 'inactive';
-    } catch {
-      // Contexte indisponible (réseau) : on laisse l'écran de saisie, le login
-      // révélera la même erreur si le PDV/la fenêtre n'existe vraiment pas.
-    }
+  // Résout le PDV depuis le lien scanné AVANT toute saisie : nom affiché tout de
+  // suite, et bascule immédiate sur la page d'attente si aucune fenêtre (pré ou post)
+  // n'est ouverte pour ce PDV. Rejoué quand un nouveau QR est scanné (même route).
+  watch: {
+    slug: {
+      immediate: true,
+      handler() {
+        this.resetForSlug();
+      },
+    },
+    uiState(state) {
+      if (state === 'inactive') this.startAutoCheck();
+      else this.stopAutoCheck();
+    },
+  },
+
+  beforeUnmount() {
+    this.stopAutoCheck();
+    document.removeEventListener('visibilitychange', this.onVisibility);
+  },
+
+  mounted() {
+    document.addEventListener('visibilitychange', this.onVisibility);
   },
 
   methods: {
+    async resetForSlug() {
+      this.pdvName = null;
+      this.hasError = false;
+      this.currentPin = '';
+      // Sans slug (lien perdu) : page d'attente générique, seul le scan est proposé.
+      if (!this.slug) {
+        this.uiState = 'inactive';
+        return;
+      }
+      rememberGuestSlug(this.slug);
+      this.uiState = 'form';
+      await this.checkContext();
+    },
+
+    /** Relit l'état du PDV : inventaire repris → retour à la saisie du PIN. */
+    async checkContext() {
+      if (!this.slug || this.checking) return;
+      this.checking = true;
+      try {
+        const context = await this.$store.dispatch('guestPin/getContext', { slug: this.slug });
+        this.pdvName = context?.elementName ?? null;
+        if (!context?.active) this.uiState = 'inactive';
+        else if (this.uiState === 'inactive') this.uiState = 'form';
+      } catch {
+        // Contexte indisponible (réseau) : état inchangé, le login ou le prochain
+        // tick révéleront la même chose.
+      } finally {
+        this.checking = false;
+      }
+    },
+
+    startAutoCheck() {
+      if (this.autoCheckTimer || !this.slug) return;
+      this.autoCheckTimer = setInterval(() => {
+        if (!document.hidden) this.checkContext();
+      }, AUTO_CHECK_MS);
+    },
+
+    stopAutoCheck() {
+      if (this.autoCheckTimer) clearInterval(this.autoCheckTimer);
+      this.autoCheckTimer = null;
+    },
+
+    onVisibility() {
+      // Téléphone rallumé ou onglet revenu au premier plan : vérification immédiate.
+      if (!document.hidden && this.uiState === 'inactive') this.checkContext();
+    },
+
+    onScanned(slug) {
+      if (slug === this.slug) {
+        this.checkContext();
+        return;
+      }
+      this.$router.replace({ name: 'login-pin', params: { slug } });
+    },
+
     onPinChange(value) {
       this.currentPin = value;
       if (this.hasError) this.hasError = false;
