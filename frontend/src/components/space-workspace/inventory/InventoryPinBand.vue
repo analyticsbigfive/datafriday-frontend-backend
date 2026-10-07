@@ -28,6 +28,9 @@ import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import { useInventoryPinAccess } from '@/composables/useInventoryPinAccess'
 import InventoryPinActionButtons from './InventoryPinActionButtons.vue'
+import { isAnyAccessOpen } from '@/utils/guestPinAccessState'
+import { eventDoorsOpenAt, eventShowAt } from '@/utils/eventLifecycle'
+import { useNumberFormat } from '@/composables/useNumberFormat'
 import { pinActionsPending } from '@/composables/useInventoryPinActions'
 import { COUNTING_STATUS_COUNTED, COUNTING_STATUS_IN_PROGRESS } from '@/utils/inventoryCountingStatus'
 
@@ -37,6 +40,10 @@ const props = defineProps({
   phase: { type: String, required: true }, // 'pre-event' | 'post-event'
   // Avancement de l'inventaire de l'event : 'to-count' | 'in-progress' | 'counted'.
   countStatus: { type: String, default: 'to-count' },
+  // Event affiché et fuseau du space : heures du show et des portes dans l'aide
+  // post-event (démarrage automatique au show, manuel dès les portes).
+  event: { type: Object, default: null },
+  timeZone: { type: String, default: 'Europe/Paris' },
 })
 
 const { t } = useI18n()
@@ -53,10 +60,37 @@ const statusLabelKey = computed(() => {
   return 'invPinStatusNotStarted'
 })
 
-// Pourquoi les boutons sont grisés : event hors période de la phase.
+// Horloge : l'aide post-event bascule (portes, show) sans nouvelle requête.
+const now = ref(new Date())
+
+const { intlLocale } = useNumberFormat()
+const localTime = (d) =>
+  d ? d.toLocaleTimeString(intlLocale.value, { hour: '2-digit', minute: '2-digit', timeZone: props.timeZone }) : ''
+
+// Post-event : démarrage automatique au show, manuel dès les portes (Bertrand
+// 2026-10-07). Sans heure de show, l'ancien message (portes) reste juste.
+const postEventHint = computed(() => {
+  const showAt = eventShowAt(props.event, props.timeZone)
+  if (!showAt) return periodState.value === 'not-yet' ? t('invPinPostNotYet') : ''
+  const show = localTime(showAt)
+  if (periodState.value === 'not-yet') {
+    const doorsAt = eventDoorsOpenAt(props.event, props.timeZone)
+    return doorsAt && doorsAt < showAt
+      ? t('invPinPostAutoAtShowManualAtDoors').replace('{show}', show).replace('{doors}', localTime(doorsAt))
+      : t('invPinPostAutoAtShow').replace('{show}', show)
+  }
+  // Portes ouvertes, show pas commencé, accès pas encore démarré.
+  if (periodState.value === 'open' && now.value < showAt && !isAnyAccessOpen(window.value)) {
+    return t('invPinPostAutoAtShow').replace('{show}', show)
+  }
+  return ''
+})
+
+// Pourquoi les boutons sont grisés (ou quand l'accès démarrera).
 const hint = computed(() => {
   if (error.value) return error.value
-  if (periodState.value === 'not-yet') return t(props.phase === 'post-event' ? 'invPinPostNotYet' : 'invPinPreNotYet')
+  if (props.phase === 'post-event') return postEventHint.value
+  if (periodState.value === 'not-yet') return t('invPinPreNotYet')
   if (periodState.value === 'over') return t('invPinPreOver')
   return ''
 })
@@ -78,6 +112,7 @@ watch(() => [props.spaceId, props.eventId], load, { immediate: true })
 // les reflètent sans rechargement de la page.
 const REFRESH_MS = 30 * 1000
 const refreshTimer = setInterval(() => {
+  now.value = new Date()
   // Action ■ / ▶ en cours (bandeau ou menu mobile) : on attend, sinon cette relecture
   // pouvait remettre l'ancien état dans le store.
   if (pinActionsPending.value > 0 || !props.spaceId || !props.eventId) return
