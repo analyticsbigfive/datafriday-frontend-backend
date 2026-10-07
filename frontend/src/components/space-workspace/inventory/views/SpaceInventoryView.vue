@@ -18,14 +18,23 @@
         :reports="menuCoverageReports"
       />
 
-      <!-- Mobile uniquement : drawer de nav entre outils F&B, même pattern que
-           Logistique (.si-mobile-tools-trigger dans le bandeau rouge). -->
-      <WorkspaceMobileToolDrawer
-        v-model="showMobileToolDrawer"
-        :items="toolboxSelectItems"
-        :current-value="isPreMode ? 'space-pre-inventory' : 'space-inventory'"
-        :title="t('invToolsLabel')"
-        @select="onToolboxSelect"
+      <!-- Mobile uniquement : menu « Options inventaire » ouvert par le ☰ du bandeau
+           (design mobile Bertrand 2026-10-07), changement d'outil compris. -->
+      <InventoryMobileOptionsSheet
+        v-model="mobileActionsSheet"
+        :pin-access="pinAccess && !activeReconciliation ? pinAccess : null"
+        :tool-items="toolboxSelectItems"
+        :current-tool="isPreMode ? 'space-pre-inventory' : 'space-inventory'"
+        :can-toggle-full-inventory="canToggleFullInventory"
+        :is-full-inventory="isFullInventory"
+        :full-inventory-loading="contextLoading"
+        :can-show-summary="activeTab === 'shops' || activeTab === 'storage'"
+        @select-tool="onToolboxSelect"
+        @filters="filterDrawerOpen = true"
+        @summary="mobileSummaryOpen = true"
+        @print="printInventory()"
+        @export="exportInventoryCsv()"
+        @toggle-full-inventory="toggleFullInventory()"
       />
 
       <InventoryFilterDrawer
@@ -134,8 +143,8 @@
          + sous-statuts comptage + recherche PdV (droite). -->
     <div class="si-segrow si-segrow--band">
       <!-- Toggle STANDARD du panneau de filtres gauche (composant partagé), desktop
-           uniquement — cf. .si-mobile-tools-trigger ci-dessous pour le mobile
-           (ouvre le drawer de nav outils au lieu du panneau de filtres). -->
+           uniquement. Sur mobile, .si-mobile-tools-trigger ci-dessous ouvre
+           « Options inventaire » au lieu du panneau de filtres. -->
       <WorkspacePanelToggle
         v-if="canToggleFilters && !guestSession.isGuestMode"
         class="si-toggle--desktop"
@@ -143,15 +152,15 @@
         :label="t('invToggleFilters')"
         @toggle="filtersCollapsed = !filtersCollapsed"
       />
-      <!-- Mobile uniquement (< 900px) : drawer de nav entre outils F&B, même
-           pattern que Logistique (WorkspaceMobileToolDrawer + toolboxSelectItems).
-           Masqué en mode invité : rien à naviguer, un seul PDV. -->
+      <!-- Mobile uniquement (< 900px) : ouvre « Options inventaire » (design mobile
+           Bertrand 2026-10-07 ; le ⋮ de droite a disparu). Masqué en mode invité :
+           rien à naviguer, un seul PDV. -->
       <button
         v-if="!guestSession.isGuestMode"
         type="button"
         class="si-mobile-tools-trigger"
-        @click="showMobileToolDrawer = true"
-        :aria-label="t('invToolsLabel')"
+        @click="mobileActionsSheet = true"
+        :aria-label="t('invOptionsTitle')"
       >
         <v-icon size="20">mdi-menu</v-icon>
       </button>
@@ -267,10 +276,9 @@
         <!-- Onglets Boutiques/Stockages déplacés sous la recherche (parité
              Logistique). Sous-statuts À compter/Comptés → colonne droite. -->
 
-        <!-- Print + Save (retirés de l'ancien header). Menu Print masqué sur
-             mobile : Imprimer/Exporter CSV/Vérifier couverture existent déjà
-             dans mobileActionsSheet (bouton ⋮) — évite le doublon qui forçait
-             les actions du bandeau sur une 2e ligne. -->
+        <!-- Menu Imprimer : ordinateur seulement. Sur mobile, Imprimer / Exporter
+             passent par « Options inventaire » (☰) ; « Vérifier Stock Menu » reste
+             ici, sur ordinateur (design mobile Bertrand 2026-10-07). -->
         <div class="si-band-actions">
           <v-menu v-if="!isMobile" offset="6">
             <template #activator="{ props: menuProps }">
@@ -298,18 +306,6 @@
               </v-list-item>
             </v-list>
           </v-menu>
-          <!-- Options mobiles (outils/recherche/print/drawers) : le bouton qui
-               ouvrait cette sheet a disparu avec l'ancien header gris (BUG-022). -->
-          <v-btn
-            v-if="isMobile"
-            icon
-            variant="text"
-            class="si-band-btn"
-            :aria-label="t('invOptionsTitle')"
-            @click="mobileActionsSheet = true"
-          >
-            <v-icon size="20">mdi-dots-vertical</v-icon>
-          </v-btn>
         </div>
       </div>
     </div>
@@ -598,7 +594,7 @@
       <!-- Colonne DROITE : résumé inventaire. La section « Accès PIN PDV » est passée
            dans le bandeau rouge (InventoryPinBand), les sous-statuts de comptage dans
            le menu burger du corps de page (document Bertrand 2026-10-06). -->
-      <div v-if="!guestSession.isGuestMode && (activeTab === 'shops' || activeTab === 'storage')" class="si-aggregate-col wsl-side">
+      <div v-if="!guestSession.isGuestMode && !isMobile && (activeTab === 'shops' || activeTab === 'storage')" class="si-aggregate-col wsl-side">
         <aside class="si-aggregate">
         <InventoryAggregateView
           v-if="activeTab === 'shops'"
@@ -644,71 +640,25 @@
         </v-card>
       </v-bottom-sheet>
 
-      <v-bottom-sheet v-model="mobileActionsSheet" inset>
-        <v-card class="si-mobile-actions-sheet">
-          <v-card-title class="d-flex align-center ga-2">
-            <v-icon color="primary">mdi-cog-outline</v-icon>
-            {{ t('invOptionsTitle') }}
-          </v-card-title>
-          <v-card-text class="si-mobile-actions-content">
-            <div class="si-mobile-sheet-block">
-              <span class="si-mobile-sheet-label">{{ t('invToolsLabel') }}</span>
-              <WorkspaceToolSelect
-                :model-value="isPreMode ? 'space-pre-inventory' : 'space-inventory'"
-                :items="toolboxSelectItems"
-                :aria-label="t('invToolboxNav')"
-                @update:model-value="mobileActionsSheet = false; onToolboxSelect($event)"
-              />
-            </div>
-
-            <v-text-field
-              v-model="search"
-              density="compact"
-              variant="outlined"
-              hide-details
-              clearable
-              prepend-inner-icon="mdi-magnify"
-              :placeholder="t('invSearchShopsItems')"
-              class="si-search-field"
-            />
-
-            <div class="si-mobile-sheet-actions">
-              <!-- Déclencheurs des drawers (BUG-022) : perdus à la suppression de
-                   l'ancien header gris — réintroduits ici, seul point d'entrée mobile. -->
-              <v-btn variant="outlined" @click="mobileActionsSheet = false; filterDrawerOpen = true">
-                <v-icon size="16" class="mr-1">mdi-filter-variant</v-icon>
-                {{ t('invFiltersBtn') }}
-              </v-btn>
-              <v-btn variant="outlined" @click="mobileActionsSheet = false; coverageDrawerOpen = true">
-                <v-icon size="16" class="mr-1">mdi-clipboard-check-outline</v-icon>
-                {{ t('invVerifyCoverage') }}
-              </v-btn>
-              <v-btn variant="outlined" @click="mobileActionsSheet = false; printInventory()">
-                <v-icon size="16" class="mr-1">mdi-clipboard-list-outline</v-icon>
-                {{ t('invPrintInventory') }}
-              </v-btn>
-              <v-btn variant="outlined" @click="mobileActionsSheet = false; exportInventoryCsv()">
-                <v-icon size="16" class="mr-1">mdi-file-delimited-outline</v-icon>
-                {{ t('invExportInventory') }}
-              </v-btn>
-              <v-btn
-                v-if="canToggleFullInventory"
-                :variant="isFullInventory ? 'flat' : 'outlined'"
-                :color="isFullInventory ? 'primary' : undefined"
-                :disabled="contextLoading"
-                @click="mobileActionsSheet = false; toggleFullInventory()"
-              >
-                <v-icon size="16" class="mr-1">mdi-view-grid-plus-outline</v-icon>
-                {{ t('invShowFullInventory') }}
-              </v-btn>
-            </div>
-          </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn variant="text" @click="mobileActionsSheet = false">{{ t('invClose') }}</v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-bottom-sheet>
+      <!-- « Résumé Inventaire » mobile : la colonne de droite du bureau, en plein
+           écran (masquée en bas de page sur mobile). -->
+      <InventoryMobileSummaryDialog v-if="isMobile && !guestSession.isGuestMode" v-model="mobileSummaryOpen">
+        <InventoryAggregateView
+          v-if="activeTab === 'shops'"
+          :inventory-counts="inventoryCounts"
+          :shops-with-inventory="realShops"
+          :past-events="pastEvents"
+          :focus-shop-id="countingShop ? countingShop.element.id : null"
+          @start-count-shop="mobileSummaryOpen = false; countingShop = $event"
+        />
+        <InventoryStorageAggregateView
+          v-else-if="activeTab === 'storage'"
+          :inventory-counts="inventoryCounts"
+          :storages-with-inventory="realStorages"
+          :focus-storage-id="countingShop ? countingShop.element.id : null"
+          @start-count-storage="mobileSummaryOpen = false; startCount($event)"
+        />
+      </InventoryMobileSummaryDialog>
 
       <v-dialog
         v-model="mobileCountingOpen"
@@ -864,7 +814,8 @@ import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
 import InventoryMenuCoverageDrawer from '@/components/space-workspace/inventory/drawers/InventoryMenuCoverageDrawer.vue'
 import AppSearchBar from '@/components/common/AppSearchBar.vue'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
-import WorkspaceMobileToolDrawer from '@/components/WorkspaceMobileToolDrawer.vue'
+import InventoryMobileOptionsSheet from '@/components/space-workspace/inventory/InventoryMobileOptionsSheet.vue'
+import InventoryMobileSummaryDialog from '@/components/space-workspace/inventory/InventoryMobileSummaryDialog.vue'
 import { buildCoverageReports, totalCoverageIssues } from '@/utils/inventoryCoverage'
 import { getAllSpaces, getSpaceEventTimelineBatch } from '@/api/endpoints/space.api'
 // Réconciliation post-événement (docs/modules/10_POST_EVENT_INVENTORY.md §7)
@@ -944,7 +895,8 @@ export default {
     InventoryMenuCoverageDrawer,
     AppSearchBar,
     WorkspacePanelToggle,
-    WorkspaceMobileToolDrawer,
+    InventoryMobileOptionsSheet,
+    InventoryMobileSummaryDialog,
     InventoryReconciliationSection,
     InventoryReconciliationView,
   },
@@ -1072,6 +1024,8 @@ export default {
       countingShop: null,
       mobileCountingOpen: false,
       mobileActionsSheet: false,
+      // « Résumé Inventaire » mobile (InventoryMobileSummaryDialog).
+      mobileSummaryOpen: false,
       filterDrawerOpen: false,
       coverageDrawerOpen: false,
       selectedShops: [],
@@ -1085,8 +1039,6 @@ export default {
       selectedStorages: [],
       selectedStorageFloors: [],
       isMobile: false,
-      // Drawer nav outils F&B, mobile uniquement (cf. .si-mobile-tools-trigger).
-      showMobileToolDrawer: false,
       // Repli du panneau de filtres gauche via l'icône du bandeau rouge.
       filtersCollapsed: false,
       // Réconciliation post-événement : documents du space (kind='post-event'),
@@ -3358,61 +3310,6 @@ export default {
 }
 .si-save-btn { text-transform: none; font-weight: 700; }
 
-.si-mobile-actions-sheet {
-  border-radius: 16px 16px 0 0;
-}
-.si-mobile-actions-content {
-  display: grid;
-  gap: 12px;
-}
-.si-mobile-sheet-block {
-  display: grid;
-  gap: 8px;
-}
-.si-mobile-sheet-label {
-  font-size: 0.74rem;
-  font-weight: 800;
-  color: var(--si-muted);
-  text-transform: uppercase;
-  letter-spacing: 0;
-}
-.si-mobile-toolbox {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-.si-mobile-tool {
-  appearance: none;
-  min-height: 38px;
-  border: 1px solid var(--si-border);
-  border-radius: 8px;
-  background: var(--si-surface);
-  color: var(--si-muted);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 6px 8px;
-  font-size: 12px;
-  font-weight: 750;
-}
-.si-mobile-tool-active {
-  background: var(--si-primary-soft);
-  color: var(--si-primary);
-  border-color: rgba(255, 49, 49, 0.28);
-}
-.si-mobile-sheet-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
-}
-.si-mobile-sheet-actions :deep(.v-btn) {
-  min-width: 0;
-  border-radius: 8px;
-  text-transform: none;
-  font-weight: 700;
-}
-
 /* Stat strip inline (remplace les 4 cartes métriques — gain vertical) */
 .si-statstrip {
   display: flex;
@@ -4176,9 +4073,6 @@ export default {
   }
   .si-tab {
     white-space: nowrap;
-  }
-  .si-mobile-sheet-actions {
-    grid-template-columns: 1fr;
   }
 }
 
