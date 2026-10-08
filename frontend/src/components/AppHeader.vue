@@ -21,6 +21,7 @@ const SECTION_KEY_BY_ROUTE = {
   "event-categories": "hdrSecEventCategories",
   "event-subcategories": "hdrSecEventSubcategories",
   suppliers: "hdrSecSuppliers",
+  kitchens: "hdrSecKitchens",
 };
 
 export default {

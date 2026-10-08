@@ -10,6 +10,7 @@ import {
   IsIn,
   Min,
   Max,
+  ValidateIf,
   ValidateNested,
   registerDecorator,
   ValidationOptions,
@@ -290,10 +291,15 @@ export class CreateMenuItemDto {
   @IsString()
   readyForSale?: string;
 
-  @ApiPropertyOptional({ description: 'Cuisine de préparation (saisi quand readyForSale = "Yes")', enum: KitchenType })
+  @ApiPropertyOptional({ description: 'Cuisine (readyForSale = "Yes") : Local = « Cuisine Locale », Central = une cuisine de Settings (kitchenId)', enum: KitchenType })
   @IsOptional()
   @IsEnum(KitchenType)
   kitchenType?: KitchenType;
+
+  @ApiPropertyOptional({ description: 'Cuisine de Settings (null = aucune ou Cuisine Locale)', nullable: true })
+  @ValidateIf((o) => o.kitchenId !== undefined && o.kitchenId !== null)
+  @IsString()
+  kitchenId?: string | null;
 
   @ApiPropertyOptional({ description: 'Article combo: Yes, No' })
   @IsOptional()

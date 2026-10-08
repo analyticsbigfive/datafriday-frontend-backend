@@ -70,3 +70,30 @@ Puisque l'invité construit désormais son `consolidatedInventory` avec la MÊME
 staff, à partir des MÊMES catalogues (`marketPrices`/`components`), les champs
 `inventoryPackaging`/`inventoryQuantityPackaged`/`picture` sont résolus normalement — plus de
 valeurs codées en dur à `null`. Rien à faire en plus ici.
+
+## 4. QR codes des espaces de stockage, EN PRODUCTION le 2026-10-08
+
+Demande Bertrand du 2026-10-08 : QR codes sur les stockages de l'inventaire, comme pour les PdV.
+Commit `adfbd53f`, merge production `297f1ddf`.
+
+- **Carte stockage** (`InventoryStorageCard.vue`) : bouton QR (`GuestPinBadge`), même droit que les
+  PdV (`front.fb.guestPinManage`). Le plan de configuration ne porte pas le slug des stockages :
+  `GET /inventory-windows/spaces/:spaceId/storage-slugs` (`{ elementId: slug }`, tous les
+  stockages de l'espace, v1 et Builder v2), lu une fois par espace par
+  `composables/useStorageQrSlug.js` (requête partagée par toutes les cartes, relue si un
+  stockage manque).
+- **Catalogue invité d'un stockage** : avant, un stockage scanné avait une liste vide
+  (`getCatalog` ne lisait que les menus du PdV). `GuestPinAccessService.getCatalog` détecte
+  `type = 'storage'` et renvoie les données brutes (`elementType: 'storage'`, `fbElements` = PdV de
+  la config de l'event et leurs articles via le même batch que le staff
+  `getConfigShopMenuItemsLight(itemsScope 'space')`, types du stockage, PdV servis
+  `storageShopIds`/`selectedShops`, référentiel `StorageType`). Le front
+  (`useGuestInventorySession.js`) calcule la liste avec **la même fonction que l'onglet Stockages**
+  (`buildStorageInventory`) : une seule règle, côté front.
+- **Suivi** : rien de spécifique. Les comptages sont enregistrés sous l'id du stockage, donc
+  avancement, statut et régénération de la feuille pre-event fonctionnent comme pour un PdV.
+- **Côté invité**, le stockage s'affiche dans la carte unique de la page (format PdV), pas dans le
+  format de l'onglet Stockages.
+- Tests : `guest-pin-access.catalog.spec.ts` (cas stockage), `guest-pin-access.storage-slugs.spec.ts`,
+  `frontend/tests/unit/storageGuestQr.spec.js`.
+

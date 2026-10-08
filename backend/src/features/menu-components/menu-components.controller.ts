@@ -42,7 +42,7 @@ export class MenuComponentsController {
     if (dto.children && dto.children.length > 0) {
       this.logger.debug('Children transformés:', JSON.stringify(dto.children, null, 2));
     }
-    return this.menuComponentsService.create(dto, tenantId);
+    return this.menuComponentsService.create(dto, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.components')
@@ -79,6 +79,7 @@ export class MenuComponentsController {
       tenantId,
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 100,
+      user,
     );
   }
 
@@ -88,7 +89,7 @@ export class MenuComponentsController {
   @ApiResponse({ status: 200, description: 'Détails du composant' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-components/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuComponentsService.findOne(id, tenantId);
+    return this.menuComponentsService.findOne(id, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.components')
@@ -96,13 +97,14 @@ export class MenuComponentsController {
   @ApiOperation({ summary: "Remplacer les lignes d'ingrédients d'un composant" })
   @ApiParam({ name: 'id', description: 'ID du composant de menu' })
   @ApiResponse({ status: 200, description: 'Lignes ingrédients mises à jour' })
-  replaceIngredients(
+  async replaceIngredients(
     @Param('id') id: string,
     @Body() dto: ReplaceMenuComponentIngredientsDto,
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PUT /menu-components/${id}/ingredients - User: ${user?.id}, Tenant: ${tenantId}`);
+    await this.menuComponentsService.findOne(id, tenantId, user); // espace accessible
     return this.menuComponentsService.replaceIngredients(id, dto.ingredients, tenantId);
   }
 
@@ -111,13 +113,14 @@ export class MenuComponentsController {
   @ApiOperation({ summary: "Remplacer les sous-composants (children) d'un composant" })
   @ApiParam({ name: 'id', description: 'ID du composant de menu' })
   @ApiResponse({ status: 200, description: 'Sous-composants mis à jour' })
-  replaceChildren(
+  async replaceChildren(
     @Param('id') id: string,
     @Body() dto: ReplaceMenuComponentChildrenDto,
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PUT /menu-components/${id}/children - User: ${user?.id}, Tenant: ${tenantId}`);
+    await this.menuComponentsService.findOne(id, tenantId, user); // espace accessible
     return this.menuComponentsService.replaceChildren(id, dto.children, tenantId);
   }
 
@@ -128,7 +131,7 @@ export class MenuComponentsController {
   @ApiResponse({ status: 200, description: 'Composant mis à jour' })
   update(@Param('id') id: string, @Body() dto: UpdateMenuComponentDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`PATCH /menu-components/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuComponentsService.update(id, dto, tenantId);
+    return this.menuComponentsService.update(id, dto, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.components')
@@ -138,6 +141,6 @@ export class MenuComponentsController {
   @ApiResponse({ status: 200, description: 'Composant supprimé' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`DELETE /menu-components/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuComponentsService.remove(id, tenantId);
+    return this.menuComponentsService.remove(id, tenantId, user);
   }
 }

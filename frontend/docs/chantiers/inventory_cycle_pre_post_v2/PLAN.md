@@ -444,3 +444,18 @@ Back, modifiés : `guest-pin-access/guest-pin-access.service.ts` (+ contrôleur,
 5. **Déploiement** (feu vert explicite d'Ulrich) : migration de données, première préparation des PIN
    pour tous les events à venir, tâches désactivables par `INVENTORY_CYCLE_CRON_ENABLED` et
    `INVENTORY_LOGISTIC_SYNC_CRON_ENABLED`.
+
+## 10. Retours Bertrand du 2026-10-07 sur le design mobile (EN PRODUCTION)
+
+Commits `ec538fea` (design mobile pre / post-event : bandeau, menu Options, Résumé) et `51762033`.
+
+- **Choix de l'event en post-event mobile** : la liste dernier / prochain event (D21) est disponible
+  sur mobile dans le bandeau ; la **flèche du menu est à gauche du libellé**, pour rester visible
+  quand le libellé est coupé (`SpaceInventoryView.vue`, `si-band-event-btn--mobile`).
+- **Aide sous le PIN en post-event** (`InventoryPinBand.vue`) : « démarrera automatiquement au début
+  du show ({show}). Démarrage manuel possible dès l'ouverture des portes ({doors}) », heures de
+  l'event dans le fuseau du space (`eventShowAt`, `postEventAutoStartAt` dans
+  `utils/eventLifecycle.js`, miroir de `resolvePostEventAutoStartAt` côté serveur). Sans heure de
+  show, l'ancien message (portes) reste affiché. Test : `tests/unit/inventoryPinBandHint.spec.js`.
+- Desktop : la mention « portes pas encore ouvertes, lecture seule » (`invPostEventNotStarted`) reste
+  à côté du nom de l'event ; masquée sur mobile.

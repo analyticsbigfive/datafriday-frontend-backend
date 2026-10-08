@@ -518,6 +518,7 @@
 
 <script>
 import { computed } from "vue";
+import { kitchenCsvLabel } from '@/composables/useKitchenOptions';
 import { useTheme } from "vuetify";
 // Import EXPLICITE des deux tables (sous-chemin public `vuetify/components/*`) :
 // l'auto-import de webpack-plugin-vuetify résout les composants depuis les balises
@@ -627,6 +628,8 @@ export default {
   },
   mounted() {
     this.$store.dispatch('spaces/fetchSpaces');
+    // Cuisines : nom exporté / relu dans la colonne Kitchen Type des CSV.
+    this.$store.dispatch('kitchens/fetchKitchens').catch(() => {});
     this.$store.dispatch('seasons/fetchAll');
     this.$store.dispatch('productTypes/fetchProductTypes', { forceRefresh: true });
     this.$store.dispatch('productCategories/fetchProductCategories', { forceRefresh: true });
@@ -1039,6 +1042,8 @@ export default {
     async onExportCsv() {
       this.exportLoading = true
       try {
+        // Cuisines chargées AVANT l'export : sinon la colonne Kitchen Type sortait vide.
+        await this.$store.dispatch('kitchens/fetchKitchens')
         // L'export porte sur le catalogue COMPLET filtré, pas juste la page visible à l'écran
         // (mode tableau paginé) — s'assure que le store est peuplé avant de lire filteredItems.
         // Note perf : PAS de getMenuItemById() par article ici — findAll() (donc fetchMenuItems)
@@ -1086,7 +1091,7 @@ export default {
             String(raw.brand?.name || ''),
             String(raw.displayName?.name || ''),
             String(raw.readyForSale ?? ''),
-            String(raw.kitchenType || ''),
+            kitchenCsvLabel(raw, this.$store.getters['kitchens/kitchens']),
             String(raw.comboItem ?? ''),
             String(raw.numberOfPiecesRecipe ?? ''),
             String(item.price ?? ''),

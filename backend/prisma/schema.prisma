@@ -175,6 +175,7 @@ model Tenant {
   userTenants UserTenant[] // New many-to-many relation
   spaces      Space[]
   suppliers   Supplier[]
+  kitchens    Kitchen[]
 
   // RBAC (rôles/permissions dynamiques)
   roles       Role[]
@@ -1162,6 +1163,32 @@ model Supplier {
   @@index([name])
 }
 
+// Cuisines de préparation (Settings > Menu F&B > Cuisines, demande Bertrand
+// 2026-10-08) : même fiche que Supplier. Un composant / menu item préparé hors du
+// site y est rattaché (kitchenId) ; « Cuisine Locale » reste kitchenType = Local.
+model Kitchen {
+  id          String   @id @default(cuid())
+  name        String
+  picture     String?
+  contactName String?
+  email       String?
+  tel         String?
+  address     String? // Adresse de livraison
+  city        String?
+  postcode    String?
+  sites       String[] @default([]) // spaceIds rattachés (même contrat que Supplier.sites)
+  notes       String?
+  tenantId    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  menuComponents MenuComponent[]
+  menuItems      MenuItem[]
+
+  @@index([tenantId])
+}
+
 model MarketPrice {
   id                     String    @id @default(cuid())
   unit                   String
@@ -2041,8 +2068,13 @@ model MenuComponent {
   numberOfUnitsRecipe Float? // Nombre d'unités par recette (rendement de batch — peut être fractionnaire, ex. 0.75 kg)
   packedUnits         Float?
   inventoryPackaging  String? // Emballage de stockage ("Item is stored in", ex: Box)
-  readyForSale        String? // "Yes", "No" ou null — même contrat que MenuItem.readyForSale
-  kitchenType         KitchenType? // Cuisine Centrale/Locale, saisi quand readyForSale = "Yes"
+  readyForSale        String? // "Yes", "No" ou null, même contrat que MenuItem.readyForSale (plus saisi depuis 2026-10-08)
+  // Cuisine : Local = « Cuisine Locale » ; Central + kitchenId = une cuisine de Settings.
+  kitchenType         KitchenType?
+  kitchenId           String?
+  picture             String?
+  // Espaces du composant (vide = commun à tous les espaces), même contrat que Supplier.sites.
+  spaceIds            String[]     @default([])
   // Taxonomie dynamique dédiée Component (indépendante de ProductType/ProductCategory
   // et de MarketPriceType/MarketPriceCategory). `category`/`componentCategory`
   // (texte libre ci-dessus) restent le contrat fonctionnel existant, inchangés.
@@ -2062,6 +2094,7 @@ model MenuComponent {
   // la collision avec le champ texte libre `componentCategory` ci-dessus.
   componentType        ComponentType?        @relation(fields: [componentTypeId], references: [id], onDelete: SetNull)
   componentCategoryRef ComponentCategory?    @relation(fields: [componentCategoryId], references: [id], onDelete: SetNull)
+  kitchen              Kitchen?              @relation(fields: [kitchenId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
   @@index([name])
@@ -2359,7 +2392,10 @@ model MenuItem {
   description            String?
   storageType            String[]
   readyForSale           String? // "Yes", "No" ou null
-  kitchenType            KitchenType? // Cuisine Centrale/Locale, saisi quand readyForSale = "Yes"
+  // Cuisine, saisie quand readyForSale = "Yes" : Local = « Cuisine Locale » ; Central +
+  // kitchenId = une cuisine de Settings (même contrat que MenuComponent).
+  kitchenType            KitchenType?
+  kitchenId              String?
   comboItem              String? // "Yes", "No" ou null — flag « réutilisable dans un combo »
   isCombo                Boolean      @default(false) // « cet item EST un combo » (posé quand il a des comboChildren) — distinct de comboItem
   numberOfPiecesRecipe   Int?
@@ -2382,6 +2418,7 @@ model MenuItem {
   brand           Brand?                      @relation(fields: [brandId], references: [id])
   displayName     DisplayName?                @relation(fields: [displayNameId], references: [id])
   season          Season?                     @relation(fields: [seasonId], references: [id], onDelete: SetNull)
+  kitchen         Kitchen?                    @relation(fields: [kitchenId], references: [id], onDelete: SetNull)
   components      MenuItemComponent[]
   ingredients     MenuItemIngredient[]
   packagings      MenuItemPackaging[]

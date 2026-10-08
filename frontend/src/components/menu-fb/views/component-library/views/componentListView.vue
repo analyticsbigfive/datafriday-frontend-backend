@@ -39,6 +39,17 @@
         <Search :size="17" class="cl-searchbar__icon" />
         <input v-model="searchQuery" class="cl-searchbar__input" type="search" :placeholder="t('compListSearchPlaceholder')" />
         <div class="cl-filter-pills">
+          <!-- Filtre Espace (demande Bertrand 2026-10-08) : composants de l'espace + communs. -->
+          <v-select
+            v-model="selectedSpace"
+            :items="spaceOptions"
+            item-title="title"
+            item-value="value"
+            variant="outlined"
+            density="compact"
+            hide-details
+            class="cl-filter-sel"
+          />
           <v-select
             v-model="selectedCategory"
             :items="categoryOptions"
@@ -93,10 +104,10 @@
         <v-icon icon="mdi-package-variant-closed" size="72" color="#d1d5db" class="mb-4" />
         <h3 class="text-h6 font-weight-bold mb-2 text-medium-emphasis">{{ t('compListNoComponentsFound') }}</h3>
         <p class="text-body-2 text-medium-emphasis mb-4">
-          {{ searchQuery || selectedCategory !== null || selectedType !== null ? t('compListTryAdjusting') : t('compListNoComponentsMessage') }}
+          {{ searchQuery || selectedSpace !== null || selectedCategory !== null || selectedType !== null ? t('compListTryAdjusting') : t('compListNoComponentsMessage') }}
         </p>
         <v-btn
-          v-if="!searchQuery && selectedCategory === null && selectedType === null"
+          v-if="!searchQuery && selectedSpace === null && selectedCategory === null && selectedType === null"
           color="#ff3131"
           rounded="lg"
           variant="flat"
@@ -291,6 +302,7 @@
 
 <script>
 import { computed } from "vue";
+import { componentMatchesSpace } from '@/utils/componentSpaces';
 import { useTheme } from "vuetify";
 import { Boxes, Copy, Download, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-vue-next";
 import { useI18n } from '@/i18n/useI18n';
@@ -329,6 +341,7 @@ export default {
       selectedCategory: null,
       duplicatingId: null,
       selectedType: null,
+      selectedSpace: null,
 
       loading: false,
       error: "",
@@ -375,6 +388,12 @@ export default {
         ...this.rawCategoryOptions.map(c => ({ value: c, title: c })),
       ];
     },
+    spaceOptions() {
+      return [
+        { value: null, title: this.t('compListAllSpaces') },
+        ...(this.$store.getters['spaces/spaces'] || []).map((sp) => ({ value: String(sp.id), title: sp.name })),
+      ];
+    },
     typeOptions() {
       return [
         { value: null, title: this.t('compListAllTypes') },
@@ -407,6 +426,10 @@ export default {
     filteredComponents() {
       const q = (this.searchQuery || "").trim().toLowerCase();
       let list = this.componentsList;
+
+      if (this.selectedSpace !== null) {
+        list = list.filter((c) => componentMatchesSpace(c, this.selectedSpace));
+      }
 
       if (this.selectedCategory !== null) {
         list = list.filter((c) => c.category === this.selectedCategory);
@@ -448,6 +471,7 @@ export default {
       return {
         id: String(id),
         name: String(name || ""),
+        spaceIds: Array.isArray(raw?.spaceIds) ? raw.spaceIds.map(String) : [],
         category: String(category || ""),
         type: String(type || ""),
         unit: String(unit || ""),
@@ -753,7 +777,10 @@ export default {
       if (!id || this.duplicatingId) return;
       this.duplicatingId = id;
       try {
-        const created = await duplicateComponentById(id, { suffix: this.t('compCopySuffix') });
+        const created = await duplicateComponentById(id, {
+          suffix: this.t('compCopySuffix'),
+          allowedSpaceIds: (this.$store.getters['spaces/spaces'] || []).map((sp) => sp.id),
+        });
         this.$store.commit('menuComponents/UPSERT_ROW', created);
       } catch (e) {
         alert(e?.response?.data?.message || e?.userMessage || e?.message || this.t('compDuplicateFailed'));
@@ -823,6 +850,7 @@ export default {
   mounted() {
     this.$store.dispatch('componentCategories/fetchComponentCategories');
     this.$store.dispatch('componentTypes/fetchComponentTypes');
+    this.$store.dispatch('spaces/fetchSpaces').catch(() => {});
     // Préremplissage du filtre depuis l'URL (?type=&category=) — permet aux écrans de taxonomie
     // (suppression bloquée par des MenuComponent dépendants) de lier directement vers la liste déjà
     // filtrée, plutôt que de chercher la bonne ligne à la main.
