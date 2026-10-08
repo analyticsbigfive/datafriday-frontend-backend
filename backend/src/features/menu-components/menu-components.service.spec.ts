@@ -15,7 +15,7 @@ describe('MenuComponentsService computeComponentUnitCost', () => {
   let service: MenuComponentsService;
 
   beforeEach(() => {
-    service = new MenuComponentsService(mockPrisma, mockRedis);
+    service = new MenuComponentsService(mockPrisma, mockRedis, {} as any, { resolveImage: async (v: any) => v } as any);
     jest.clearAllMocks();
   });
 
@@ -73,7 +73,7 @@ describe('MenuComponentsService.create : purge du cache liste', () => {
       },
     };
     redis = { deletePattern: jest.fn().mockResolvedValue(1) };
-    service = new MenuComponentsService(prisma, redis);
+    service = new MenuComponentsService(prisma, redis, {} as any, { resolveImage: async (v: any) => v } as any);
     // Validations de références et recalcul des coûts hors sujet ici.
     jest.spyOn(service as any, 'assertIngredientsExist').mockResolvedValue(undefined);
     jest.spyOn(service as any, 'assertChildrenExist').mockResolvedValue(undefined);

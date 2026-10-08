@@ -7,6 +7,7 @@ import {
   IsEnum,
   IsPositive,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
@@ -311,8 +312,24 @@ export class CreateMenuComponentDto {
   @IsString()
   readyForSale?: string;
 
-  @ApiPropertyOptional({ description: 'Cuisine de préparation (saisi quand readyForSale = "Yes")', enum: KitchenType })
+  @ApiPropertyOptional({ description: 'Cuisine : Local = « Cuisine Locale », Central = une cuisine de Settings (kitchenId)', enum: KitchenType })
   @IsOptional()
   @IsEnum(KitchenType)
   kitchenType?: KitchenType;
+
+  @ApiPropertyOptional({ description: 'Cuisine de Settings (null = aucune ou Cuisine Locale)', nullable: true })
+  @ValidateIf((o) => o.kitchenId !== undefined && o.kitchenId !== null)
+  @IsString()
+  kitchenId?: string | null;
+
+  @ApiPropertyOptional({ description: 'Image (data URI ou URL)', nullable: true })
+  @ValidateIf((o) => o.picture !== undefined && o.picture !== null)
+  @IsString()
+  picture?: string | null;
+
+  @ApiPropertyOptional({ description: 'Espaces du composant (vide = commun à tous les espaces)', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  spaceIds?: string[];
 }

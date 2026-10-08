@@ -8,6 +8,7 @@ import { CreateMenuItemDto } from './dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { resolveKitchenFields } from '../../shared/utils/resolve-kitchen';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
@@ -87,6 +88,8 @@ export class MenuItemsService {
   };
 
   private readonly includeRelations = {
+    // Nom de la cuisine : affiché même si elle est hors des espaces de l'utilisateur.
+    kitchen: { select: { id: true, name: true } },
     productType: true,
     productCategory: true,
     brand: true,
@@ -398,7 +401,8 @@ export class MenuItemsService {
           diet: mapDiet(dto.diet || []) as any[],
           storageType: dto.storageType || [],
           readyForSale: dto.readyForSale,
-          kitchenType: dto.kitchenType ?? null,
+          kitchenType: null,
+          ...(await resolveKitchenFields(this.prisma, dto, tenantId)),
           comboItem: dto.comboItem,
           numberOfPiecesRecipe: dto.numberOfPiecesRecipe,
           componentsData: dto.componentsData,
@@ -585,7 +589,8 @@ export class MenuItemsService {
         diet: mapDiet(dto.diet || []) as any[],
         storageType: dto.storageType || [],
         readyForSale: dto.readyForSale,
-        kitchenType: dto.kitchenType ?? null,
+        kitchenType: null,
+        ...(await resolveKitchenFields(this.prisma, dto, tenantId)),
         comboItem: dto.comboItem,
         numberOfPiecesRecipe: dto.numberOfPiecesRecipe,
         componentsData: dto.componentsData,
@@ -959,7 +964,7 @@ export class MenuItemsService {
     if (dto.diet !== undefined) updateData.diet = mapDiet(dto.diet) as any[];
     if (dto.storageType !== undefined) updateData.storageType = dto.storageType;
     if (dto.readyForSale !== undefined) updateData.readyForSale = dto.readyForSale;
-    if (dto.kitchenType !== undefined) updateData.kitchenType = dto.kitchenType ?? null;
+    Object.assign(updateData, await resolveKitchenFields(this.prisma, dto, tenantId));
     if (dto.comboItem !== undefined) updateData.comboItem = dto.comboItem;
     if (dto.numberOfPiecesRecipe !== undefined) updateData.numberOfPiecesRecipe = dto.numberOfPiecesRecipe;
     if (dto.componentsData !== undefined) updateData.componentsData = dto.componentsData;

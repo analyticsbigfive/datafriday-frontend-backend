@@ -403,9 +403,10 @@
                   </div>
                   <div class="mic-inventory-card__field">
                     <label class="field-label">{{ t('menuItemCreate.kitchenType') }}</label>
-                    <select v-model="form.kitchenType" class="mic-inline-select" style="min-width: 130px;">
+                    <!-- Mêmes options que la fiche Composant (demande Bertrand 2026-10-08). -->
+                    <select v-model="form.kitchen" class="mic-inline-select" style="min-width: 130px;">
                       <option :value="null">—</option>
-                      <option v-for="opt in kitchenTypeOptions" :key="opt.value" :value="opt.value">{{ opt.title }}</option>
+                      <option v-for="opt in kitchenOptions" :key="opt.value" :value="opt.value">{{ opt.title }}</option>
                     </select>
                   </div>
                 </div>
@@ -883,6 +884,7 @@ import DisplayNameFormDrawer from '@/components/display-name/drawers/DisplayName
 import CreatePackingTypeDialog from '../dialogs/CreatePackingTypeDialog.vue';
 import CreatePromotionTypeDialog from '../dialogs/CreatePromotionTypeDialog.vue';
 import AllergenCheckboxes from '@/components/menu-fb/common/AllergenCheckboxes.vue';
+import { buildKitchenOptions, kitchenChoiceFrom, kitchenPayloadFrom } from '@/composables/useKitchenOptions';
 
 export default {
   name: "MenuItemCreateView",
@@ -897,6 +899,8 @@ export default {
     return {
       isEditMode: false,
       menuItemId: null,
+      // Relation `kitchen { id, name }` chargée avec la fiche (nom de la cuisine actuelle).
+      loadedKitchen: null,
       loading: false,
       saving: false,
       duplicating: false,
@@ -921,7 +925,8 @@ export default {
         categoryName: "",
         categoryId: null,
         readyForSale: "No",
-        kitchenType: null,
+        // Cuisine : 'local', id d'une cuisine de Settings, ou null (useKitchenOptions).
+        kitchen: null,
         inventoryPackagingType: null,
         inventoryNumberOfUnits: 1,
         inventoryUnit: "Pc",
@@ -994,6 +999,8 @@ export default {
     };
   },
   async mounted() {
+    // Cuisines de Settings pour le champ Cuisine (même liste que la fiche Composant).
+    this.$store.dispatch('kitchens/fetchKitchens').catch(() => {});
     const menuItemId = this.$route.params.id;
     if (menuItemId) {
       this.isEditMode = true;
@@ -1075,11 +1082,8 @@ export default {
     storageTypeOptions() {
       return this.$store.getters['storageTypes/storageTypes'] || []
     },
-    kitchenTypeOptions() {
-      return [
-        { title: this.t('menuItemCreate.kitchenCentral'), value: 'Central' },
-        { title: this.t('menuItemCreate.kitchenLocal'), value: 'Local' },
-      ];
+    kitchenOptions() {
+      return buildKitchenOptions(this.$store.getters['kitchens/kitchens'], this.form.spaces, this.form.kitchen, this.t, this.loadedKitchen);
     },
     hasUnsavedChanges() {
       if (this.savedSnapshot === null) return false;
@@ -1535,7 +1539,7 @@ export default {
           diet: Array.isArray(this.form.dietTypes) ? this.form.dietTypes : [],
           storageType: Array.isArray(this.form.storageTypes) ? this.form.storageTypes : [],
           readyForSale: String(this.form.readyForSale || "No").trim(),
-          kitchenType: this.form.readyForSale === "Yes" ? (this.form.kitchenType || null) : null,
+          ...kitchenPayloadFrom(this.form.readyForSale === "Yes" ? this.form.kitchen : null),
           comboItem: String(this.form.comboItem || "No").trim(),
           isCombo: this.isCombo,
           numberOfPiecesRecipe: Number(this.form.numberOfPiecesRecipe) || 1,
@@ -1791,7 +1795,8 @@ export default {
         this.form.discountValue = Number(menuItem.discountValue) || 0;
         this.form.description = menuItem.description || "";
         this.form.readyForSale = menuItem.readyForSale || "No";
-        this.form.kitchenType = menuItem.kitchenType || null;
+        this.form.kitchen = kitchenChoiceFrom(menuItem);
+        this.loadedKitchen = menuItem.kitchen || null;
         this.form.inventoryPackagingType = menuItem.inventoryPackagingType || null;
         this.form.inventoryNumberOfUnits = Number(menuItem.inventoryNumberOfUnits) || 1;
         this.form.inventoryUnit = menuItem.inventoryUnit || "Pc";
