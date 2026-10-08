@@ -54,6 +54,13 @@ export class GuestPinAdminController {
     return this.service.stopElement(dto, user);
   }
 
+  // Déclarée avant ':spaceId/:eventId' (préfixe 'spaces/' distinct de toute façon).
+  @Get('spaces/:spaceId/storage-slugs')
+  @ApiOperation({ summary: "Slug du lien QR code de chaque stockage de l'espace ({ elementId: slug })" })
+  async storageSlugs(@Param('spaceId') spaceId: string, @CurrentUser() user: CurrentUserData) {
+    return this.service.getStorageSlugs(spaceId, user);
+  }
+
   @Get(':spaceId/:eventId')
   @ApiOperation({ summary: "Tableau de statut des fenêtres et accès PIN d'un event" })
   async statusBoard(

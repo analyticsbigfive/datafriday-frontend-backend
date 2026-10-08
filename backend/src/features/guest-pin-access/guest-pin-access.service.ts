@@ -21,6 +21,8 @@ import { PRE_SALE_STOP_ACTOR, preSaleStopKey } from './pre-sale-stop';
 import { MenuItemsService } from '../menu-items/menu-items.service';
 import { MarketPricesService } from '../market-prices/market-prices.service';
 import { MenuComponentsService } from '../menu-components/menu-components.service';
+import { SpaceMenusService } from '../space-menus/space-menus.service';
+import { StorageTypesService } from '../storage-types/storage-types.service';
 import { CreateWindowDto, WindowElementDto, WindowTargetDto } from './dto/create-window.dto';
 import { SaveGuestCountDto } from './dto/save-guest-count.dto';
 import {
@@ -79,6 +81,8 @@ export class GuestPinAccessService {
     private readonly configService: ConfigService,
     private readonly jwt: JwtService,
     private readonly postEventDraft: PostEventDraftService,
+    private readonly spaceMenus: SpaceMenusService,
+    private readonly storageTypes: StorageTypesService,
   ) {}
 
   /** STAFF/VIEWER limités à leurs espaces accordés (SpaceAccessGuard ne s'applique
@@ -416,6 +420,11 @@ export class GuestPinAccessService {
       where: { id: user.eventId },
       select: { configurationId: true },
     });
+    const element = await this.prisma.spaceElement.findUnique({
+      where: { id: user.elementId },
+      select: { name: true, type: true, storageTypes: true, attributes: true },
+    });
+    if (element?.type === 'storage') return this.getStorageCatalog(user, element, event?.configurationId ?? null);
     const { elementName, enabledIds } = await this.getEnabledMenuItemIds(
       user.elementId,
       event?.configurationId,
@@ -439,6 +448,65 @@ export class GuestPinAccessService {
       allMenuItemsData: allRecipes.items,
       marketPrices: marketPricesPage.data,
       components: componentsPage.data,
+    };
+  }
+
+  /**
+   * Catalogue d'un STOCKAGE (QR code des espaces de stockage, demande Bertrand
+   * 2026-10-08). Un stockage n'a pas de menu : ses articles sont ceux des PdV qu'il
+   * sert, filtrés par type de stockage. Comme pour un PdV, le serveur ne renvoie
+   * que les données brutes et le front appelle la MÊME fonction que l'onglet
+   * Stockages du staff (`buildStorageInventory`) :
+   *  - `fbElements` : PdV de la configuration de l'event et leurs articles activés
+   *    (union des configurations de l'espace, même batch que le staff) ;
+   *  - `storage` : types du stockage et PdV qu'il sert (vide = tous) ;
+   *  - `storageTypes` : référentiel tenant (nom → code), comme le store staff.
+   */
+  private async getStorageCatalog(
+    user: GuestPinUser,
+    element: { name: string; storageTypes: string[]; attributes: unknown },
+    configId: string | null,
+  ) {
+    const byShop = configId
+      ? await this.spaceMenus.getConfigShopMenuItemsLight(user.spaceId, configId, user.tenantId, { itemsScope: 'space' })
+      : {};
+    // Mêmes éléments que la liste des PdV du staff : ni stockage ni boutique merch.
+    const candidates = Object.keys(byShop).filter((id) => id !== user.elementId);
+    const kept = candidates.length
+      ? await this.prisma.spaceElement.findMany({
+          where: { id: { in: candidates }, type: { notIn: ['storage', 'merchshop'] } },
+          select: { id: true },
+        })
+      : [];
+    const fbElements = kept.map(({ id }) => ({
+      id,
+      name: byShop[id].shopName,
+      menuItemIds: byShop[id].items.map((it) => it.id),
+    }));
+
+    // storageShopIds (builder v2) prime sur selectedShops (v1), même lecture que le staff.
+    const attrs = (element.attributes ?? {}) as any;
+    const selectedShopIds: string[] = (
+      Array.isArray(attrs.storageShopIds) ? attrs.storageShopIds : Array.isArray(attrs.selectedShops) ? attrs.selectedShops : []
+    ).map(String);
+
+    const [allRecipes, marketPricesPage, componentsPage, storageTypesPage] = await Promise.all([
+      this.menuItems.getRecipes([], user.tenantId),
+      this.marketPrices.findAll(user.tenantId, 1, 5000),
+      this.menuComponents.findAll(user.tenantId, 1, 5000),
+      this.storageTypes.findAll(user.tenantId, 1, 500),
+    ]);
+
+    return {
+      elementName: element.name,
+      elementType: 'storage' as const,
+      storage: { storageTypes: element.storageTypes ?? [], selectedShopIds },
+      fbElements,
+      availableMenuItems: [],
+      allMenuItemsData: allRecipes.items,
+      marketPrices: marketPricesPage.data,
+      components: componentsPage.data,
+      storageTypes: storageTypesPage.data,
     };
   }
 
@@ -637,6 +705,29 @@ export class GuestPinAccessService {
     }
 
     return window;
+  }
+
+  /**
+   * Slug du lien QR code (/login/pin/:slug) de chaque stockage de l'espace : le plan
+   * de configuration lu par l'inventaire ne le porte pas (seule la liste des PdV
+   * l'expose). Toutes configurations confondues, comme « Voir tout l'inventaire ».
+   */
+  async getStorageSlugs(spaceId: string, user: CurrentUserData): Promise<Record<string, string>> {
+    await this.assertSpaceAccess(user, spaceId);
+    const inSpace = { spaceId, space: { tenantId: user.tenantId! } };
+    const storages = await this.prisma.spaceElement.findMany({
+      where: {
+        type: 'storage',
+        OR: [
+          { floor: { config: inSpace } },
+          { forecourt: { config: inSpace } },
+          { externalMerch: { config: inSpace } },
+          { zone: inSpace }, // Builder v2
+        ],
+      },
+      select: { id: true, slug: true },
+    });
+    return Object.fromEntries(storages.map((s) => [s.id, s.slug]));
   }
 
   async getStatusBoard(spaceId: string, eventId: string, user: CurrentUserData) {

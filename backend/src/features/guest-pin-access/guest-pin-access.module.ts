@@ -14,6 +14,8 @@ import { GuestPinAdminController } from './guest-pin-admin.controller';
 import { InventoryWindowLifecycleCronService } from './inventory-window-lifecycle.cron';
 import { InventoryCycleCronService } from './inventory-cycle.cron';
 import { SpacesModule } from '../spaces/spaces.module';
+import { SpaceMenusModule } from '../space-menus/space-menus.module';
+import { StorageTypesModule } from '../storage-types/storage-types.module';
 
 @Module({
   imports: [
@@ -24,6 +26,10 @@ import { SpacesModule } from '../spaces/spaces.module';
     MenuItemsModule,
     MarketPricesModule,
     MenuComponentsModule,
+    // Catalogue invité d'un stockage : PdV de la config et leurs articles (même
+    // batch que l'écran staff) + référentiel des types de stockage.
+    SpaceMenusModule,
+    StorageTypesModule,
     AuditModule,
     SpacesModule, // getLiveStatus : première vente du match (arrêt du pre-event)
     PassportModule,
