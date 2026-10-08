@@ -14,9 +14,9 @@
 import { loginWithPin, getGuestSession, getGuestContext } from '@/api/endpoints/guestPin.api'
 import { setAccessToken, clearAccessToken, setGuestSessionActive } from '@/api/client'
 import { rememberGuestSlug } from '@/utils/guestPinLanding'
+import { getOrCreateDeviceId } from '@/utils/guestDeviceId'
 
 const SESSION_STORAGE_KEY = 'datafriday:guestpin:session'
-const DEVICE_ID_STORAGE_KEY = 'datafriday:guestpin:deviceId'
 
 function readPersistedSession() {
   try {
@@ -36,18 +36,6 @@ function writePersistedSession(payload) {
   }
 }
 
-function getOrCreateDeviceId() {
-  try {
-    let id = localStorage.getItem(DEVICE_ID_STORAGE_KEY)
-    if (!id) {
-      id = (crypto.randomUUID && crypto.randomUUID()) || `${Date.now()}-${Math.random().toString(36).slice(2)}`
-      localStorage.setItem(DEVICE_ID_STORAGE_KEY, id)
-    }
-    return id
-  } catch {
-    return null
-  }
-}
 
 const state = {
   token: null,

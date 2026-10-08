@@ -1,5 +1,6 @@
 // API invité PIN — managers de PDV sans compte (cf. store/modules/guestPin.js)
 import api from '../client'
+import { guestDeviceHeaders } from '@/utils/guestDeviceId'
 
 /**
  * Résout le PDV depuis le lien scanné (UN SEUL lien par PDV, pas de phase dans
@@ -68,5 +69,27 @@ export async function notifyGuestElementComplete() {
 
 export async function saveGuestCount(payload) {
   const response = await api.post('/guest-pin/inventory/counts', payload)
+  return response.data
+}
+
+// ── Ventilation (logisticiens, chantier logistic_ventilation partie 3) ─────────
+
+/** Feuille de ventilation du match : `{ eventId, eventName, plan: { name,
+ *  restockLines, lineOverrides, restockedRows } | null, deposits, movements }`.
+ *  Le reste à déposer se calcule côté client (utils/restockDepositSheet.js). */
+export async function getGuestVentilationSheet() {
+  const response = await api.get('/guest-pin/ventilation', { headers: guestDeviceHeaders() })
+  return response.data
+}
+
+/** Confirme un dépôt sur une ligne de la feuille (raison « Ventilation »). */
+export async function createGuestVentilationDeposit({ rowKey, packed, loose, depositorName }) {
+  const response = await api.post('/guest-pin/ventilation/deposits', { rowKey, packed, loose, depositorName }, { headers: guestDeviceHeaders() })
+  return response.data
+}
+
+/** Annule un dépôt saisi avec cet accès (mouvement inverse). */
+export async function cancelGuestVentilationDeposit(movementId) {
+  const response = await api.post(`/guest-pin/ventilation/deposits/${movementId}/cancel`, {}, { headers: guestDeviceHeaders() })
   return response.data
 }

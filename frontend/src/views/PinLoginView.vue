@@ -57,6 +57,7 @@ import PinLockedState from '@/components/guest-pin/PinLockedState.vue';
 import PinInactiveState from '@/components/guest-pin/PinInactiveState.vue';
 import PinRedirectingState from '@/components/guest-pin/PinRedirectingState.vue';
 import { rememberGuestSlug } from '@/utils/guestPinLanding';
+import { guestRouteForPhase } from '@/router/guards';
 
 /** Cadence de vérification de la reprise sur la page d'attente. */
 const AUTO_CHECK_MS = 30 * 1000;
@@ -144,7 +145,8 @@ export default {
       this.checking = true;
       try {
         const context = await this.$store.dispatch('guestPin/getContext', { slug: this.slug });
-        this.pdvName = context?.elementName ?? null;
+        // QR Ventilation : pas d'élément, le nom de l'espace confirme le bon lien.
+        this.pdvName = context?.elementName ?? context?.spaceName ?? null;
         if (!context?.active) this.uiState = 'inactive';
         else if (this.uiState === 'inactive') this.uiState = 'form';
       } catch {
@@ -202,7 +204,7 @@ export default {
       switch (result.state) {
         case 'ok': {
           this.uiState = 'redirecting';
-          const targetName = result.phase === 'post-event' ? 'guest-inventory' : 'guest-pre-inventory';
+          const targetName = guestRouteForPhase(result.phase);
           setTimeout(() => this.$router.replace({ name: targetName }), 700);
           break;
         }

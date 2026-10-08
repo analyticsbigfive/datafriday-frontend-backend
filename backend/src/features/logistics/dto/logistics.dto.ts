@@ -24,6 +24,9 @@ export const MANUAL_MOVEMENT_REASONS = [
   'TRANSFER_STORAGE',
   'EXPIRY',
   'OTHER',
+  // Dépôt d'un logisticien depuis la feuille de ventilation (réponse Bertrand
+  // 2026-10-08) : ajout seulement, rattaché au match (eventId requis).
+  'VENTILATION',
 ] as const;
 export type ManualMovementReason = (typeof MANUAL_MOVEMENT_REASONS)[number];
 
@@ -111,6 +114,11 @@ export class CreateMovementDto {
   @IsOptional()
   @IsString()
   itemRefId?: string;
+
+  @ApiPropertyOptional({ description: 'Match visé par le dépôt, requis pour VENTILATION' })
+  @IsOptional()
+  @IsString()
+  eventId?: string;
 }
 
 /** BUG-259-02 : confirmation d'un transfert PENDING. Omis = quantités déclarées à l'émission. */

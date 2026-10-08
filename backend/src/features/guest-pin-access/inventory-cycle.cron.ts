@@ -162,8 +162,15 @@ export class InventoryCycleCronService implements OnModuleInit {
       // Event supprimé, ou pas encore terminé : un réassort pendant le match ne coupe rien (D16).
       if (!event || !isEventOver(event, this.tz(event), now)) continue;
       const endedAt = resolveEventTransactionWindow(event, this.tz(event)).end;
+      // Un dépôt « Ventilation » (réarmement du match suivant) remplit les PDV comme
+      // une livraison : un comptage post-event fait après lui serait faussé.
       const delivery = await this.prisma.stockMovement.findFirst({
-        where: { tenantId: window.tenantId, spaceId: window.spaceId, reason: 'DELIVERY', createdAt: { gt: endedAt } },
+        where: {
+          tenantId: window.tenantId,
+          spaceId: window.spaceId,
+          reason: { in: ['DELIVERY', 'VENTILATION'] },
+          createdAt: { gt: endedAt },
+        },
         select: { id: true },
       });
       if (!delivery) continue;

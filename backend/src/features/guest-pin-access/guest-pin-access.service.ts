@@ -26,7 +26,9 @@ import { StorageTypesService } from '../storage-types/storage-types.service';
 import { CreateWindowDto, WindowElementDto, WindowTargetDto } from './dto/create-window.dto';
 import { SaveGuestCountDto } from './dto/save-guest-count.dto';
 import {
+  INVENTORY_PHASES,
   InventoryWindowPhase,
+  isInventoryPhase,
   inventoryWindowPeriod,
   inventoryWindowPeriodState,
   periodRefusalMessage,
@@ -88,7 +90,7 @@ export class GuestPinAccessService {
   /** STAFF/VIEWER limités à leurs espaces accordés (SpaceAccessGuard ne s'applique
    *  pas ici : les routes directeur n'exposent spaceId que sur certaines d'entre
    *  elles). Même règle que SpaceAccessGuard, appliquée manuellement. */
-  private async assertSpaceAccess(user: CurrentUserData, spaceId: string): Promise<void> {
+  async assertSpaceAccess(user: CurrentUserData, spaceId: string): Promise<void> {
     const allowed = await this.spaceAccess.canAccessSpace(user, spaceId);
     if (!allowed) {
       throw new ForbiddenException("Vous n'avez pas accès à cet espace.");
@@ -172,7 +174,7 @@ export class GuestPinAccessService {
    */
   private async isElementReachable(spaceId: string, elementId: string): Promise<boolean> {
     const windows = await this.prisma.inventoryWindow.findMany({
-      where: { spaceId, pinLookupHash: { not: null } },
+      where: { spaceId, pinLookupHash: { not: null }, phase: { in: INVENTORY_PHASES } },
       select: { id: true, status: true },
     });
     if (!windows.length) return false;
@@ -227,8 +229,10 @@ export class GuestPinAccessService {
     // post-event ont chacune leur PIN. La fenêtre peut être arrêtée (le PIN est
     // conservé, document Bertrand 2026-10-06) : c'est alors la ligne du PDV qui dit
     // s'il a été rouvert individuellement.
+    // QR d'un PDV/stockage : seules les fenêtres d'inventaire comptent (le PIN d'une
+    // fenêtre de ventilation ne doit pas ouvrir de session de comptage).
     const window = await this.prisma.inventoryWindow.findFirst({
-      where: { spaceId, pinLookupHash: this.hashPin(pin) },
+      where: { spaceId, pinLookupHash: this.hashPin(pin), phase: { in: INVENTORY_PHASES } },
     });
     if (!window) {
       const count = await this.registerLoginFailure(rlKey);
@@ -297,6 +301,58 @@ export class GuestPinAccessService {
     };
   }
 
+  // ── Briques partagées avec l'accès Ventilation (ventilation-access.service.ts) ──
+  // Même PIN, même anti brute force, même jeton : rien n'est dupliqué.
+
+  /** Secondes avant nouvel essai si cette IP a épuisé ses tentatives, sinon null. */
+  async pinLoginRetryAfter(ip: string): Promise<number | null> {
+    const rlKey = this.rateLimitKey(ip);
+    const attempts = await this.redis.get<number>(rlKey);
+    if ((attempts ?? 0) < PIN_LOGIN_MAX_ATTEMPTS) return null;
+    return Math.max(await this.redis.ttl(rlKey), 1);
+  }
+
+  /** Compte un échec de PIN pour cette IP ; renvoie les essais restants. */
+  async recordPinLoginFailure(ip: string): Promise<number> {
+    const count = await this.registerLoginFailure(this.rateLimitKey(ip));
+    return Math.max(PIN_LOGIN_MAX_ATTEMPTS - count, 0);
+  }
+
+  findWindowByPin(spaceId: string, pin: string, phase: string) {
+    return this.prisma.inventoryWindow.findFirst({ where: { spaceId, phase, pinLookupHash: this.hashPin(pin) } });
+  }
+
+  ensureWindowPin(window: InventoryWindow, actorUserId: string): Promise<void> {
+    return this.ensurePin(window, actorUserId);
+  }
+
+  regenerateWindowPin(windowId: string, tenantId: string, actorUserId: string): Promise<string> {
+    return this.assignPin(windowId, tenantId, actorUserId);
+  }
+
+  readWindowPin(window: Pick<InventoryWindow, 'pinLookupHash' | 'pinCiphertext'>): string | null {
+    return window.pinLookupHash ? decryptPin(window.pinCiphertext, this.pinSecret()) : null;
+  }
+
+  /** Dernière connexion vue (diagnostic, jamais un verrou) puis jeton invité signé. */
+  async issueGuestToken(accessId: string, deviceId: string | undefined): Promise<string> {
+    await this.prisma.guestPinAccess.update({
+      where: { id: accessId },
+      data: {
+        boundDeviceHash: deviceId ? this.hashDeviceId(deviceId) : null,
+        boundAt: new Date(),
+        lastLoginAt: new Date(),
+      },
+    });
+    return this.jwt.signAsync(
+      { sub: accessId },
+      {
+        secret: this.configService.getOrThrow<string>('GUEST_PIN_JWT_SECRET'),
+        expiresIn: this.configService.get<string>('GUEST_PIN_JWT_TTL') || '1d',
+      },
+    );
+  }
+
   private async registerLoginFailure(rlKey: string): Promise<number> {
     const count = await this.redis.incr(rlKey);
     if (count === 1) {
@@ -325,10 +381,18 @@ export class GuestPinAccessService {
     };
   }
 
+  /** Routes de comptage : refusées à un jeton qui n'est pas d'inventaire (ventilation). */
+  private assertInventorySession(user: GuestPinUser): void {
+    if (!isInventoryPhase(user.phase)) {
+      throw new ForbiddenException("Cet accès ne permet pas de compter l'inventaire");
+    }
+  }
+
   /** Comptages déjà sauvegardés pour le PDV de l'invité, keyés par itemId — le
    *  catalogue (quels items existent) vient désormais de `getCatalog` (même
    *  algorithme que le staff), plus de ce endpoint. */
   async getInventory(user: GuestPinUser) {
+    this.assertInventorySession(user);
     const merged = await this.inventoryService.getBySpaceAndEvent(
       user.spaceId,
       user.eventId,
@@ -416,6 +480,7 @@ export class GuestPinAccessService {
    *    ceux que le staff charge (aucune transformation supplémentaire).
    */
   async getCatalog(user: GuestPinUser) {
+    this.assertInventorySession(user);
     const event = await this.prisma.event.findUnique({
       where: { id: user.eventId },
       select: { configurationId: true },
@@ -516,6 +581,7 @@ export class GuestPinAccessService {
   // Aucun endpoint n'expose donc la baseline à un JWT invité.
 
   async saveCount(user: GuestPinUser, dto: SaveGuestCountDto) {
+    this.assertInventorySession(user);
     // Seul le DIRECTEUR verrouille (validateAccess) — `submittedAt` n'est qu'un
     // signal ("prêt à vérifier"), pas un verrou (décision produit 2026-09-08,
     // revenue sur le gel immédiat initial).
@@ -561,6 +627,7 @@ export class GuestPinAccessService {
    * (critère d'acceptation 2026-09-14). Sans effet hors phase pre-event.
    */
   async notifyElementComplete(user: GuestPinUser) {
+    this.assertInventorySession(user);
     if (user.phase !== 'pre-event') return { ok: false, reason: 'not-pre-event' };
     return this.preEventFlow.regenerateOnPdvComplete(
       user.spaceId,
@@ -579,6 +646,7 @@ export class GuestPinAccessService {
    * validé (rien à re-signaler, `saveCount` refuse déjà l'écriture dans ce cas).
    */
   async submitCount(user: GuestPinUser) {
+    this.assertInventorySession(user);
     if (user.validatedAt) return { submittedAt: user.submittedAt, validatedAt: user.validatedAt };
     if (user.submittedAt) return { submittedAt: user.submittedAt, validatedAt: null };
     const access = await this.prisma.guestPinAccess.update({
@@ -733,7 +801,7 @@ export class GuestPinAccessService {
   async getStatusBoard(spaceId: string, eventId: string, user: CurrentUserData) {
     await this.assertSpaceAccess(user, spaceId);
     const windows = await this.prisma.inventoryWindow.findMany({
-      where: { tenantId: user.tenantId!, spaceId, eventId },
+      where: { tenantId: user.tenantId!, spaceId, eventId, phase: { in: INVENTORY_PHASES } },
       include: { guestAccesses: true },
       orderBy: { phase: 'asc' },
     });
