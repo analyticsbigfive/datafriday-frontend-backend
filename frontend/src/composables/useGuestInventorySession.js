@@ -24,7 +24,7 @@
 import { ref, computed } from 'vue'
 import { useStore } from 'vuex'
 import { useRoute } from 'vue-router'
-import { buildConsolidatedInventory } from '@/utils/inventoryUtils'
+import { buildConsolidatedInventory, buildStorageInventory } from '@/utils/inventoryUtils'
 import {
   getGuestCatalog,
   getGuestInventory,
@@ -80,13 +80,15 @@ export function useGuestInventorySession() {
     ])
     const elementId = guestElementId.value
 
-    const consolidatedInventory = buildConsolidatedInventory(
-      catalog?.availableMenuItems ?? [],
-      catalog?.allMenuItemsData ?? [],
-      catalog?.marketPrices ?? [],
-      false,
-      catalog?.components ?? [],
-    )
+    const consolidatedInventory = catalog?.elementType === 'storage'
+      ? storageItems(catalog)
+      : buildConsolidatedInventory(
+        catalog?.availableMenuItems ?? [],
+        catalog?.allMenuItemsData ?? [],
+        catalog?.marketPrices ?? [],
+        false,
+        catalog?.components ?? [],
+      )
 
     const savedCounts = inventory?.savedCounts ?? {}
     const counts = {}
@@ -111,6 +113,28 @@ export function useGuestInventorySession() {
       },
       consolidatedInventory,
     }]
+  }
+
+  /** Stockage (QR code des espaces de stockage, demande Bertrand 2026-10-08) : MÊME
+   *  fonction que l'onglet Stockages du staff (`buildStorageInventory`), nourrie par
+   *  les PdV de la configuration de l'event et leurs articles (/guest-pin/catalog). */
+  function storageItems(catalog) {
+    const allMenuItemsData = catalog?.allMenuItemsData ?? []
+    const byId = new Map(allMenuItemsData.map((mi) => [String(mi.id), mi]))
+    const fbElements = (catalog?.fbElements ?? []).map((fb) => ({
+      id: fb.id,
+      name: fb.name,
+      availableMenuItems: (fb.menuItemIds ?? []).map((id) => byId.get(String(id))).filter(Boolean),
+    }))
+    return buildStorageInventory(
+      catalog?.storage?.storageTypes ?? [],
+      fbElements,
+      allMenuItemsData,
+      catalog?.storage?.selectedShopIds ?? [],
+      catalog?.components ?? [],
+      catalog?.marketPrices ?? [],
+      catalog?.storageTypes ?? [],
+    )
   }
 
   /** Tous les articles du PDV sont comptés (vérifié par la vue, seule à connaître
