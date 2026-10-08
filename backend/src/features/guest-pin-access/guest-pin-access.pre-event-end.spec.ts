@@ -43,6 +43,8 @@ describe('GuestPinAccessService : fin de l\'inventaire pre-event (invité)', () 
         service = new GuestPinAccessService(
             prisma, redis, {} as any, {} as any, preEventFlow, {} as any, {} as any, {} as any, {} as any, {} as any, {} as any,
             {} as any, // postEventDraft
+            {} as any, // spaceMenus
+            {} as any, // storageTypes
         );
     });
 

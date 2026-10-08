@@ -14,6 +14,12 @@ export async function getPeriods(spaceId, eventId) {
   return response.data
 }
 
+/** Slug du lien QR code de chaque stockage de l'espace : `{ [elementId]: slug }`. */
+export async function getStorageSlugs(spaceId) {
+  const response = await api.get(`/inventory-windows/spaces/${spaceId}/storage-slugs`)
+  return response.data
+}
+
 /** Verrouille l'écriture invité pour ce PDV — seule action qui le fait. */
 export async function validateAccess(accessId) {
   const response = await api.post(`/inventory-windows/pins/${accessId}/validate`)

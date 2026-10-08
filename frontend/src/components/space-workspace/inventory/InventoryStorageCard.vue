@@ -26,6 +26,14 @@
       <!-- Libellé de statut retiré, mêmes règles que les boutiques (pastille,
            accès PIN ▶ / ■, document Bertrand 2026-10-06). -->
       <div class="si-storage-count-row">
+        <!-- QR code du stockage, comme pour un PdV (demande Bertrand 2026-10-08). -->
+        <GuestPinBadge
+          v-if="showGuestPin && slug"
+          :phase="phase"
+          :element-id="entry.element.id"
+          :slug="slug"
+          :element-name="entry.element.name"
+        />
         <PdvAccessToggle
           v-if="pinAccess"
           :space-id="pinAccess.spaceId"
@@ -94,11 +102,13 @@
 import { useI18n } from '@/i18n/useI18n'
 import InventoryStatusDot from './InventoryStatusDot.vue'
 import PdvAccessToggle from './PdvAccessToggle.vue'
+import GuestPinBadge from './GuestPinBadge.vue'
 import { countingStatusColor } from '@/utils/inventoryCountingStatus'
+import { useStorageQrSlug } from '@/composables/useStorageQrSlug'
 
 export default {
   name: 'InventoryStorageCard',
-  components: { InventoryStatusDot, PdvAccessToggle },
+  components: { InventoryStatusDot, PdvAccessToggle, GuestPinBadge },
   props: {
     entry: { type: Object, required: true },
     // Nombre d'articles comptés (isCounted) sur ce stockage → pilote progression + libellé.
@@ -108,10 +118,19 @@ export default {
     countingStatus: { type: String, default: 'to-count' },
     // { spaceId, eventId, phase } quand l'utilisateur gère l'accès PIN ; null sinon.
     pinAccess: { type: Object, default: null },
+    // QR code invité (directeur, permission front.fb.guestPinManage) : espace dont
+    // on lit les slugs des stockages, et phase transmise au badge.
+    showGuestPin: { type: Boolean, default: false },
+    guestPinSpaceId: { type: String, default: null },
+    phase: { type: String, default: null },
   },
   emits: ['start-count', 'error'],
-  setup() {
-    return { t: useI18n().t, countingStatusColor }
+  setup(props) {
+    const { slug } = useStorageQrSlug(
+      () => (props.showGuestPin ? props.guestPinSpaceId : null),
+      () => props.entry?.element?.id,
+    )
+    return { t: useI18n().t, countingStatusColor, slug }
   },
   data() {
     return { expanded: false }
