@@ -19,6 +19,7 @@ import { NotInProductionGuard } from '../../core/auth/guards/not-in-production.g
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { LogisticsService } from './logistics.service';
+import { VentilationDepositsService } from './ventilation-deposits.service';
 import { ConfirmTransferDto, CreateMovementDto, InventoryResetDto, SimulateSaleDto } from './dto/logistics.dto';
 import { PurgeSimulatedSalesDto, StartSimulationRunDto } from './dto/simulation-run.dto';
 
@@ -30,7 +31,10 @@ import { PurgeSimulatedSalesDto, StartSimulationRunDto } from './dto/simulation-
 export class LogisticsController {
   private readonly logger = new Logger(LogisticsController.name);
 
-  constructor(private readonly service: LogisticsService) {}
+  constructor(
+    private readonly service: LogisticsService,
+    private readonly ventilation: VentilationDepositsService,
+  ) {}
 
   @Get(':spaceId/stock')
   // Lecture seule ouverte au Réarmement (retour client 2026-09-02) : son moteur de
@@ -56,6 +60,43 @@ export class LogisticsController {
   ) {
     this.logger.log(`GET /logistics/${spaceId}/stock configId=${configId ?? '(auto)'}`);
     return this.service.getStock(spaceId, user.tenantId, configId || undefined, eventId || undefined);
+  }
+
+  @Get(':spaceId/ventilation-deposits')
+  @ApiOperation({
+    summary:
+      "Dépôts « Ventilation » déjà faits pour un match, cumulés par élément × article : la feuille de ventilation " +
+      "en retranche ces quantités pour n'afficher que ce qui reste à déposer.",
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiQuery({ name: 'eventId', required: true, description: 'Match de la feuille de ventilation' })
+  async getVentilationDeposits(
+    @Param('spaceId') spaceId: string,
+    @Query('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.ventilation.sumByEvent(spaceId, eventId, user.tenantId);
+  }
+
+  @Get(':spaceId/ventilation-movements')
+  @ApiOperation({ summary: "Dépôts « Ventilation » d'un match un par un (plus récents d'abord), avec leur annulation" })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiQuery({ name: 'eventId', required: true, description: 'Match de la feuille de ventilation' })
+  async listVentilationDeposits(
+    @Param('spaceId') spaceId: string,
+    @Query('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.ventilation.listByEvent(spaceId, eventId, user.tenantId);
+  }
+
+  @Post('movements/:id/cancel-ventilation')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Annule un dépôt « Ventilation » par un mouvement inverse (registre conservé)' })
+  @ApiParam({ name: 'id', description: 'ID du mouvement de dépôt' })
+  async cancelVentilationDeposit(@Param('id') id: string, @CurrentUser() user: any) {
+    this.logger.log(`POST /logistics/movements/${id}/cancel-ventilation`);
+    return this.ventilation.cancel(id, user.tenantId, user.id, { user });
   }
 
   @Get(':spaceId/market-prices')

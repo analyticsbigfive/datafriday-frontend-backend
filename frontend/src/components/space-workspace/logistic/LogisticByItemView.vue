@@ -70,7 +70,7 @@
             <span class="lgbi-shop-stats">
               {{ compactQtyLabel(row.packed, row.loose, row.item, group.unitsPerPack, t, locale, formatUnits) }}
               <template v-if="row.predictedNeedPacks != null"> · <span class="lgbi-predicted-inline">{{ row.predictedNeedPacks }} <small>{{ predictedPacksLabel(group) }}</small></span></template>
-              <template v-else-if="row.predictedNeed != null"> · <span class="lgbi-predicted-inline">{{ formatUnits(row.predictedNeed) }}{{ group.unit ? ` ${group.unit}` : '' }} <small>{{ t('logiPredictedShort') }}</small></span></template>
+              <template v-else-if="row.predictedNeed != null"> · <span class="lgbi-predicted-inline">{{ formatUnits(row.predictedNeed) }}{{ group.unit ? ` ${group.unit}` : '' }} <small>{{ needWord }}</small></span></template>
             </span>
             <span class="lgbi-shop-actions">
               <button
@@ -121,8 +121,11 @@ function packagingTypeLabel(group) {
 function predictedPacksLabel(group) {
   const type = translatePackagingType(group.packagingType, locale.value)
   const word = type ? pluralize(type) : t('logiPacksShort')
-  return `${word} ${t('logiPredictedShort')}`
+  return `${word} ${needWord.value}`
 }
+
+/** « à déposer » quand le chiffre vient de la feuille de réarmement, sinon « prédit ». */
+const needWord = computed(() => t(props.needSource === 'restock' ? 'logiToDepositShort' : 'logiPredictedShort'))
 
 /** Stock disponible total du groupe (somme des lignes dépliées), même formule
  *  compacte que chaque ligne (compactQtyLabel) : `group` sert de stand-in pour
@@ -154,6 +157,8 @@ const props = defineProps({
   /** (elementId, item) => number|null — pack de référence, repli uniquement quand
    *  predictedNeedPacksFor ne renvoie rien (même forme qu'EMBALLÉ). */
   unitsPerPackFor: { type: Function, default: () => null },
+  /** 'restock' (feuille de réarmement, « à déposer ») | 'forecast' | null. */
+  needSource: { type: String, default: null },
 })
 defineEmits(['go', 'add', 'remove'])
 

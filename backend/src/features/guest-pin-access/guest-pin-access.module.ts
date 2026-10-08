@@ -16,6 +16,9 @@ import { InventoryCycleCronService } from './inventory-cycle.cron';
 import { SpacesModule } from '../spaces/spaces.module';
 import { SpaceMenusModule } from '../space-menus/space-menus.module';
 import { StorageTypesModule } from '../storage-types/storage-types.module';
+import { LogisticsModule } from '../logistics/logistics.module';
+import { VentilationAccessService } from './ventilation-access.service';
+import { VentilationAdminController } from './ventilation-admin.controller';
 
 @Module({
   imports: [
@@ -32,6 +35,7 @@ import { StorageTypesModule } from '../storage-types/storage-types.module';
     StorageTypesModule,
     AuditModule,
     SpacesModule, // getLiveStatus : première vente du match (arrêt du pre-event)
+    LogisticsModule, // accès Ventilation : dépôts (mouvements VENTILATION) et leur annulation
     PassportModule,
     // JwtModule DÉDIÉ, secret distinct de celui d'AuthModule (JWT_SECRET, réservé
     // à la vérification des tokens Supabase) — ne jamais les faire cohabiter.
@@ -44,9 +48,10 @@ import { StorageTypesModule } from '../storage-types/storage-types.module';
       }),
     }),
   ],
-  controllers: [GuestPinAuthController, GuestPinAdminController],
+  controllers: [GuestPinAuthController, GuestPinAdminController, VentilationAdminController],
   providers: [
     GuestPinAccessService,
+    VentilationAccessService,
     JwtGuestPinStrategy,
     InventoryWindowLifecycleCronService,
     InventoryCycleCronService,

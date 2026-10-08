@@ -14,7 +14,7 @@ jest.mock('@/store', () => ({
   },
 }))
 
-import { requireOrganization } from '@/router/guards'
+import { requireOrganization, requireGuestPinSession, guestRouteForPhase } from '@/router/guards'
 
 const route = (fullPath = '/dashboard', query = {}) => ({ fullPath, query })
 
@@ -77,6 +77,33 @@ describe('requireOrganization — bypass démo retiré (BUG-027)', () => {
     await requireOrganization(route(), null, next)
 
     expect(mockDispatch).toHaveBeenCalledWith('auth/initialize')
+    expect(next).toHaveBeenCalledWith()
+  })
+})
+
+describe('requireGuestPinSession : un écran par phase de session PIN', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockGetters['guestPin/isActive'] = true
+  })
+
+  it('associe chaque phase à son écran', () => {
+    expect(guestRouteForPhase('ventilation')).toBe('guest-ventilation')
+    expect(guestRouteForPhase('post-event')).toBe('guest-inventory')
+    expect(guestRouteForPhase('pre-event')).toBe('guest-pre-inventory')
+  })
+
+  it("renvoie un accès ventilation vers sa feuille au lieu de l'inventaire", async () => {
+    mockGetters['guestPin/phase'] = 'ventilation'
+    const next = jest.fn()
+    await requireGuestPinSession({ name: 'guest-pre-inventory' }, {}, next)
+    expect(next).toHaveBeenCalledWith({ name: 'guest-ventilation' })
+  })
+
+  it("laisse passer la session sur l'écran de sa phase", async () => {
+    mockGetters['guestPin/phase'] = 'post-event'
+    const next = jest.fn()
+    await requireGuestPinSession({ name: 'guest-inventory' }, {}, next)
     expect(next).toHaveBeenCalledWith()
   })
 })

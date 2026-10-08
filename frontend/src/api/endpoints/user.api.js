@@ -1,7 +1,22 @@
 import { api } from '../client'
 
+// GET /users est paginé côté serveur (20 par défaut, 100 au plus) : sans
+// parcourir les pages, la liste s'arrêtait aux 20 utilisateurs les plus récents.
+const USERS_PAGE_SIZE = 100
+
 export async function getUsers() {
-  return api.get('/users')
+  const all = []
+  let page = 1
+  let totalPages = 1
+  do {
+    const res = await api.get('/users', { params: { page, limit: USERS_PAGE_SIZE } })
+    const rows = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : []
+    all.push(...rows)
+    // Réponse non paginée (tableau brut) : une seule page.
+    totalPages = Array.isArray(res) ? 1 : Number(res?.meta?.totalPages) || 1
+    page += 1
+  } while (page <= totalPages)
+  return all
 }
 
 // Détail d'un utilisateur (inclut ses accès espaces `spaceAccess`).

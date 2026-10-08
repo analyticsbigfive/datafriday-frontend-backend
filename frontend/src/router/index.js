@@ -107,6 +107,15 @@ const routes = [
     meta: { title: 'Post-event Inventory', inventoryMode: 'post', guestMode: true, noindex: true }
   },
   {
+    // Feuille de ventilation des logisticiens (QR code Logistique + PIN, chantier
+    // logistic_ventilation partie 3) : session invité de phase `ventilation`.
+    path: '/pdv/ventilation',
+    name: 'guest-ventilation',
+    component: () => import('@/views/GuestVentilationView.vue'),
+    beforeEnter: requireGuestPinSession,
+    meta: { title: 'Ventilation', guestMode: true, noindex: true }
+  },
+  {
     path: '/signup',
     name: 'signup',
     component: SignUpView,

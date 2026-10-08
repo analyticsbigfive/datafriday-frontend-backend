@@ -2,7 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../core/database/prisma.service';
 import { GuestPinAccessService } from './guest-pin-access.service';
-import { inventoryWindowPeriod, inventoryWindowPeriodState } from './inventory-window-period';
+import { VENTILATION_PHASE, inventoryWindowPeriod, inventoryWindowPeriodState } from './inventory-window-period';
 import { revokeWindowAccesses } from '../inventory/inventory-window-closure';
 
 /**
@@ -54,7 +54,8 @@ export class InventoryWindowLifecycleCronService implements OnModuleInit {
   async closeExpiredWindows(now: Date = new Date()): Promise<number> {
     const windows = await this.prisma.inventoryWindow.findMany({
       where: {
-        phase: 'pre-event',
+        // Ventilation (décision #75) : fermée à la fin réelle du match, comme le pre-event.
+        phase: { in: ['pre-event', VENTILATION_PHASE] },
         OR: [{ status: 'open' }, { guestAccesses: { some: { status: 'active' } } }],
       },
     });
@@ -96,7 +97,7 @@ export class InventoryWindowLifecycleCronService implements OnModuleInit {
         if (push.reason === 'already-closed') continue;
         closedCount++;
         this.logger.log(
-          `Fenêtre pre-event clôturée à la fin de l'event : space ${window.spaceId} / event ${window.eventId}`,
+          `Fenêtre ${window.phase} clôturée à la fin de l'event : space ${window.spaceId} / event ${window.eventId}`,
         );
       } catch (error: any) {
         this.logger.warn(`Clôture de la fenêtre ${window.id} en échec : ${error?.message}`);
