@@ -476,6 +476,10 @@ model Space {
   name      String
   image     String?  @db.Text
   tenantId  String
+  // Slug du QR code « Ventilation » des logisticiens (/login/pin/:slug), un par espace,
+  // généré à la première ouverture de l'accès et jamais recalculé : le QR affiché en zone
+  // logistique reste valable de match en match, seul le PIN change (décision #77).
+  ventilationSlug String? @unique
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -3397,6 +3401,7 @@ enum StockMovementReason {
   SALE // réservé : matérialisation future des ventes par job
   INVENTORY_RESET // ajustement posé par le reset post-inventaire
   OTHER // raison libre (note)
+  VENTILATION // dépôt d'un logisticien depuis la feuille de ventilation (eventId = match)
 }
 
 // BUG-259-02 (2026-08-13) : statut d'un transfert (TRANSFER_SHOP/TRANSFER_STORAGE
@@ -3438,7 +3443,10 @@ model StockMovement {
   confirmedBy           String? // userId ayant confirmé (transferts)
   expiryDate            DateTime? // EXPIRY
   note                  String? // OTHER (ou commentaire libre)
-  eventId               String? // SALE / INVENTORY_RESET
+  eventId               String? // SALE / INVENTORY_RESET / VENTILATION
+  // Annulation d'un dépôt VENTILATION (décision #76) : le mouvement inverse pointe vers
+  // le dépôt annulé ; le registre n'est jamais effacé.
+  reversesMovementId    String?              @unique
   createdBy             String?
   createdAt             DateTime             @default(now())
 

@@ -454,6 +454,44 @@ describe('LogisticsService — readyForSale display logic', () => {
     });
   });
 
+  describe('dépôts « Ventilation » (réponse Bertrand 2026-10-08)', () => {
+    const dto = {
+      spaceId: 'space-1',
+      elementId: 'el-1',
+      itemKey: 'Heineken 33cl',
+      direction: 'add' as const,
+      packed: 1,
+      loose: 0,
+      reason: 'VENTILATION' as const,
+      eventId: 'ev-1',
+    };
+
+    it('refuse un dépôt VENTILATION sans eventId', async () => {
+      await expect(service.createMovement({ ...dto, eventId: undefined }, 'tenant-1')).rejects.toThrow('eventId requis');
+    });
+
+    it('refuse un retrait VENTILATION', async () => {
+      await expect(service.createMovement({ ...dto, direction: 'remove' }, 'tenant-1')).rejects.toThrow('réservé aux ajouts');
+    });
+
+    it("refuse une seconde annulation d'un même mouvement (index unique)", async () => {
+      mockPrisma.spaceElement.findFirst.mockResolvedValueOnce({
+        id: 'el-1', name: 'Bar', floor: { config: { spaceId: 'space-1' } }, forecourt: null, externalMerch: null, zone: null,
+      });
+      const { Prisma } = require('@prisma/client');
+      mockPrisma.$transaction = jest.fn().mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }),
+      );
+      await expect(
+        service.writeReversal(
+          { id: 'mv-1', tenantId: 'tenant-1', spaceId: 'space-1', elementId: 'el-1', itemKey: 'Coca', itemKind: null, itemRefId: null,
+            menuItemId: null, marketPriceId: null, packedDelta: 2, looseDelta: 0, reason: 'VENTILATION', eventId: 'ev-1', note: null },
+          'user-1',
+        ),
+      ).rejects.toThrow('déjà annulé');
+    });
+  });
+
   describe('deriveEventConsumption — ventes d’un event explosées (Q35 Option 1)', () => {
     // Le mock partagé du haut de fichier ne porte que menuItem/menuComponent/
     // marketPrice — on greffe ici les tables de la méthode (cast any : objet

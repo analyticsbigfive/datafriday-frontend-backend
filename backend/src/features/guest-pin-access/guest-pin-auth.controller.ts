@@ -18,6 +18,8 @@ import type { GuestPinUser } from '../../core/auth/strategies/jwt-guest-pin.stra
 import { GuestPinAccessService } from './guest-pin-access.service';
 import { LoginPinDto } from './dto/login-pin.dto';
 import { SaveGuestCountDto } from './dto/save-guest-count.dto';
+import { GuestVentilationDepositDto } from './dto/ventilation.dto';
+import { VentilationAccessService } from './ventilation-access.service';
 
 /**
  * Surface invité (managers de PDV sans compte). @Public() neutralise les guards
@@ -32,11 +34,17 @@ import { SaveGuestCountDto } from './dto/save-guest-count.dto';
 @Controller('guest-pin')
 @Public()
 export class GuestPinAuthController {
-  constructor(private readonly service: GuestPinAccessService) {}
+  constructor(
+    private readonly service: GuestPinAccessService,
+    private readonly ventilation: VentilationAccessService,
+  ) {}
 
   @Get('context/:slug')
-  @ApiOperation({ summary: "Nom du PDV + fenêtre active ou non (pré ou post, peu importe), résolus depuis l'URL scannée (avant tout PIN)" })
+  @ApiOperation({ summary: "Nom du PDV (ou de l'espace pour le QR Ventilation) + accès actif ou non, résolus depuis l'URL scannée (avant tout PIN)" })
   async context(@Param('slug') slug: string) {
+    // QR « Ventilation » d'un espace (slug préfixé, jamais celui d'un élément).
+    const space = await this.ventilation.findSpaceBySlug(slug);
+    if (space) return this.ventilation.getPublicContext(space);
     return this.service.getPublicContext(slug);
   }
 
@@ -49,7 +57,43 @@ export class GuestPinAuthController {
     @Headers('x-guest-device-id') deviceId: string | undefined,
     @Ip() ip: string,
   ) {
+    const space = await this.ventilation.findSpaceBySlug(slug);
+    if (space) return this.ventilation.login(space, dto.pin, deviceId, ip);
     return this.service.login(dto.pin, deviceId, ip, slug);
+  }
+
+  @Get('ventilation')
+  @UseGuards(JwtGuestPinGuard)
+  @ApiBearerAuth('guest-pin-jwt')
+  @ApiOperation({ summary: 'Feuille de ventilation du match (logisticien) : lignes de réarmement, corrections, dépôts déjà faits' })
+  async ventilationSheet(@CurrentUser() user: GuestPinUser, @Headers('x-guest-device-id') deviceId: string | undefined) {
+    return this.ventilation.getSheet(user, deviceId);
+  }
+
+  @Post('ventilation/deposits')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(JwtGuestPinGuard)
+  @ApiBearerAuth('guest-pin-jwt')
+  @ApiOperation({ summary: 'Confirme un dépôt (raison « Ventilation ») sur une ligne de la feuille du match' })
+  async ventilationDeposit(
+    @CurrentUser() user: GuestPinUser,
+    @Body() dto: GuestVentilationDepositDto,
+    @Headers('x-guest-device-id') deviceId: string | undefined,
+  ) {
+    return this.ventilation.deposit(user, dto, deviceId);
+  }
+
+  @Post('ventilation/deposits/:movementId/cancel')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtGuestPinGuard)
+  @ApiBearerAuth('guest-pin-jwt')
+  @ApiOperation({ summary: 'Annule un dépôt saisi avec cet accès (mouvement inverse)' })
+  async ventilationCancel(
+    @CurrentUser() user: GuestPinUser,
+    @Param('movementId') movementId: string,
+    @Headers('x-guest-device-id') deviceId: string | undefined,
+  ) {
+    return this.ventilation.cancel(user, movementId, deviceId);
   }
 
   @Get('session')

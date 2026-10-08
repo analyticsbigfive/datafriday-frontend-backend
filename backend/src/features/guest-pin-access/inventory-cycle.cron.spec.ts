@@ -132,7 +132,7 @@ describe('InventoryCycleCronService', () => {
     expect(await service.stopPostOnDelivery(now)).toBe(1);
     expect(prisma.stockMovement.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ reason: 'DELIVERY', createdAt: { gt: new Date('2026-10-10T20:00:00Z') } }),
+        where: expect.objectContaining({ reason: { in: ['DELIVERY', 'VENTILATION'] }, createdAt: { gt: new Date('2026-10-10T20:00:00Z') } }),
       }),
     );
     expect(guestPin.startPhase).toHaveBeenCalledWith(

@@ -50,6 +50,14 @@ describe('GuestPinAccessService.getCatalog (BUG-383-02 : articles = union des co
         expect(spaceMenus.getConfigShopMenuItemsLight).not.toHaveBeenCalled();
     });
 
+    it('refuse les routes de comptage à un jeton de ventilation (logisticien)', async () => {
+        const ventilationUser = { ...user, phase: 'ventilation' };
+        await expect(service.getCatalog(ventilationUser)).rejects.toThrow("ne permet pas de compter");
+        await expect(service.saveCount(ventilationUser, { itemId: 'i' } as any)).rejects.toThrow("ne permet pas de compter");
+        await expect(service.submitCount(ventilationUser)).rejects.toThrow("ne permet pas de compter");
+        expect(prisma.event.findUnique).not.toHaveBeenCalled();
+    });
+
     describe('stockage (QR code des espaces de stockage)', () => {
         const storageUser = { ...user, elementId: 'storage-1' };
 

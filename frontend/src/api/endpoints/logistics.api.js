@@ -39,12 +39,34 @@ export async function getMarketPricesForItem(spaceId, itemKey, currentMarketPric
  * Mouvement de stock manuel (popup + / −).
  * POST /logistics/movements
  * @param {object} movement { spaceId, elementId, itemKey, direction:'add'|'remove',
- *   packed, loose, reason:'DELIVERY'|'TRANSFER_SHOP'|'TRANSFER_STORAGE'|'EXPIRY'|'OTHER',
- *   counterpartyElementId?, expiryDate?, note?, marketPriceId?, menuItemId? }
+ *   packed, loose, reason:'DELIVERY'|'TRANSFER_SHOP'|'TRANSFER_STORAGE'|'EXPIRY'|'OTHER'|'VENTILATION',
+ *   counterpartyElementId?, expiryDate?, note?, marketPriceId?, menuItemId?, eventId? (VENTILATION) }
  * @returns {Promise<{movement, level, counterpartyLevel}>}
  */
 export async function createStockMovement(movement) {
   return api.post('/logistics/movements', movement)
+}
+
+/**
+ * Dépôts « Ventilation » déjà faits pour un match, cumulés par élément × article.
+ * GET /logistics/:spaceId/ventilation-deposits?eventId=
+ * @returns {Promise<Array<{elementId:string, itemKey:string, packed:number, loose:number}>>}
+ */
+export async function getVentilationDeposits(spaceId, eventId) {
+  return api.get(`/logistics/${spaceId}/ventilation-deposits`, { params: { eventId } })
+}
+
+/**
+ * Dépôts « Ventilation » d'un match un par un (plus récents d'abord), avec leur
+ * annulation éventuelle. GET /logistics/:spaceId/ventilation-movements?eventId=
+ */
+export async function listVentilationMovements(spaceId, eventId) {
+  return api.get(`/logistics/${spaceId}/ventilation-movements`, { params: { eventId } })
+}
+
+/** Annule un dépôt « Ventilation » (mouvement inverse, registre conservé). */
+export async function cancelVentilationDeposit(movementId) {
+  return api.post(`/logistics/movements/${movementId}/cancel-ventilation`)
 }
 
 /**

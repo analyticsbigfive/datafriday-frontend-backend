@@ -7,6 +7,17 @@ import {
 
 export type InventoryWindowPhase = 'pre-event' | 'post-event';
 
+/** Phases d'inventaire (comptage par PDV). Une fenêtre `InventoryWindow` peut aussi
+ *  porter la phase `ventilation` (accès PIN des logisticiens, chantier
+ *  logistic_ventilation) : tout chemin propre à l'inventaire doit filtrer sur cette
+ *  liste, sinon une fenêtre de ventilation serait prise pour un inventaire. */
+export const INVENTORY_PHASES: InventoryWindowPhase[] = ['pre-event', 'post-event'];
+export const VENTILATION_PHASE = 'ventilation';
+
+export function isInventoryPhase(phase: string | null | undefined): phase is InventoryWindowPhase {
+  return phase === 'pre-event' || phase === 'post-event';
+}
+
 /** Où en est la période d'une fenêtre à un instant donné. */
 export type InventoryWindowPeriodState = 'not-yet' | 'open' | 'over';
 

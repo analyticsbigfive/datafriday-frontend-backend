@@ -46,7 +46,7 @@ describe('InventoryWindowLifecycleCronService', () => {
     expect(guestPin.closeWindowRecord.mock.calls[0][2]).toEqual({ pushToLogistic: false, reason: 'period-end' });
     // Le post-event n'est jamais lu : il est clôturé par l'utilisateur.
     expect(prisma.inventoryWindow.findMany).toHaveBeenCalledWith({
-      where: { phase: 'pre-event', OR: [{ status: 'open' }, { guestAccesses: { some: { status: 'active' } } }] },
+      where: { phase: { in: ['pre-event', 'ventilation'] }, OR: [{ status: 'open' }, { guestAccesses: { some: { status: 'active' } } }] },
     });
   });
 
