@@ -114,7 +114,7 @@ un pack de chips). C'est la fiche produit du menu d'un espace.
 | Champ | Sens |
 |---|---|
 | `readyForSale` (`"Yes"`/`"No"`/null) | **Yes** = l'article arrive déjà prêt/emballé de la cuisine centrale (chips, bouteille d'eau) → on le réarme *tel quel*. **No** = assemblé au point de vente (sandwich + serviette ajoutée sur place) → on **éclate** `components[]` pour le réarmement. C'est la fiche technique qui fait foi. |
-| `kitchenType` | Cuisine Centrale/Locale — saisi seulement quand `readyForSale = "Yes"` (existe aussi sur `MenuComponent`, même contrat). |
+| `kitchenType` / `kitchenId` | Cuisine, saisie seulement quand `readyForSale = "Yes"`. Depuis le 2026-10-08 : `Local` = « Cuisine Locale », `Central` + `kitchenId` = une cuisine de Settings > Cuisines (modèle `Kitchen`, voir plus bas). L'ancienne option « Cuisine Centrale » a été reprise en cuisine par client. Même contrat sur `MenuComponent`. Détail : [`../chantiers/kitchens_component_spaces/PLAN.md`](../chantiers/kitchens_component_spaces/PLAN.md). |
 | `comboItem` (`"Yes"`/`"No"`/null) | **Distinct de `readyForSale`.** Marque un article réutilisable *tel quel* comme ligne d'un item catégorie "Menu" composé. **Distinct aussi de `comboChildren`/`comboParents`** (relation `MenuItemCombo`, ajoutée BUG-257-02, voir plus bas) : `comboItem` est un simple flag scalaire sur l'article réutilisable, `MenuItemCombo` est la relation qui stocke réellement QUELS articles composent un combo donné. |
 | `numberOfPiecesRecipe` | Combien de pièces produit la recette. `totalCost` est le coût de **toute la fournée**, pas d'une pièce. |
 | `typeId`/`categoryId` | FK vers `ProductType`/`ProductCategory` (Food/Beverage/Combo puis sous-catégories) — 1 des 3 taxonomies parallèles du domaine (voir plus bas), ne pas confondre avec celle de MarketPrice ni de MenuComponent. |
@@ -341,7 +341,10 @@ voir bug), `POST /menu-components/refresh-costs`, `GET /menu-components` (+`:id`
 |---|---|
 | `numberOfUnitsRecipe` | Combien d'unités produit CETTE sous-recette (ex. une bassine de sauce fait 20 portions). **`Float?`** depuis BUG-256-02 (était `Int?` — la reprise du CSV historique Components a révélé que 40% des rendements réels sont fractionnaires, ex. 0.750 kg ; le typage `Int` était une erreur de modélisation, le front affichait déjà ce champ en flottant). |
 | `unitCost` | **Censé être** le coût d'UNE unité produite. Voir le bug ci-dessous : ce n'est actuellement PAS le cas. |
-| `readyForSale`/`kitchenType` | Même contrat que sur `MenuItem`. |
+| `readyForSale` | Plus saisi depuis le 2026-10-08 (champ retiré de la fiche, valeur conservée en base). Aucun calcul ne le lit pour un composant (décision Q13, « on ne décompose plus un composant »). |
+| `kitchenType`/`kitchenId` | Cuisine (Locale ou cuisine de Settings), **indépendante de `readyForSale`** depuis le 2026-10-08, saisie dans « Informations d'inventaire ». Même codage que `MenuItem`. |
+| `picture` | Image du composant (2026-10-08), posée sur Supabase Storage par le serveur. |
+| `spaceIds` | Espaces du composant (2026-10-08). **Vide = commun à tous les espaces.** Un compte à accès restreint ne voit (et ne modifie) que les composants communs et ceux de ses espaces : filtre serveur dans `menu-components.service.ts` (`findAll`, `findOne`), périmètre inclus dans la clé de cache Redis. Filtre « Espace » de la bibliothèque : composants de l'espace + communs. |
 | `componentTypeId`/`componentCategoryId` | Taxonomie propre (voir section taxonomies). |
 | `subComponents` (Json) | **Champ legacy mort** — reliquat du portage Figma. Encore lu par `repair()` (endpoint quasi mort), ne plus l'alimenter. |
 
@@ -570,6 +573,19 @@ en détail dans cette passe), `sectors` (String[], défaut `[]`).
 
 **Route backend** (`suppliers.controller.ts`, `@Controller('suppliers')`) : CRUD complet
 standard. **Écran** : `SuppliersListView.vue`. **Store** : `suppliers.js` → `menu.api.js`.
+
+### Kitchen : les cuisines de préparation (2026-10-08)
+
+**Kitchen** : une cuisine qui prépare des composants ou des menu items (Settings > Menu F&B >
+Cuisines, au-dessus de Composants). Fiche calquée sur Supplier : image, nom, responsable (nom,
+email, tél.), adresse de livraison, ville, code postal, `sites` (espaces rattachés, **même contrat
+que `Supplier.sites`** : vide = réservé aux accès complets), note. Obligatoires : nom et espaces.
+
+**Route backend** : `kitchens.controller.ts` (`@Controller('kitchens')`), CRUD, écriture sous le
+droit `menu.fb.components`, filtrage par espaces accessibles comme les fournisseurs. Supprimer une
+cuisine vide la cuisine des fiches rattachées. **Écrans** : `components/menu-fb/views/kitchens/`.
+**Store** : `kitchens.js` → `kitchens.api.js`. Détail et décisions :
+[`../chantiers/kitchens_component_spaces/PLAN.md`](../chantiers/kitchens_component_spaces/PLAN.md).
 
 ### 🟠 Contradiction active — un composant front interprète `sites` vide à l'envers
 

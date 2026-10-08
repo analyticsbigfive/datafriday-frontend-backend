@@ -14,7 +14,11 @@ const num = (v, d = 0) => {
 }
 
 /** Reconstruit un payload createMenuComponent à partir d'un composant renvoyé par l'API. */
-export function buildComponentDuplicatePayload(mc, { suffix = ' (copie)' } = {}) {
+// `allowedSpaceIds` (espaces de l'utilisateur) : un compte restreint ne peut créer la
+// copie que sur ses propres espaces, ceux qu'il ne voit pas ne sont pas recopiés.
+export function buildComponentDuplicatePayload(mc, { suffix = ' (copie)', allowedSpaceIds = null } = {}) {
+  const sourceSpaces = Array.isArray(mc?.spaceIds) ? mc.spaceIds.map(String) : []
+  const allowed = allowedSpaceIds ? new Set(allowedSpaceIds.map(String)) : null
   return {
     name: `${String(mc?.name || '').trim()}${suffix}`,
     unit: String(mc?.unit || '').trim(),
@@ -24,7 +28,11 @@ export function buildComponentDuplicatePayload(mc, { suffix = ' (copie)' } = {})
     description: String(mc?.description || '').trim(),
     storageType: String(mc?.storageType || '').trim(),
     readyForSale: String(mc?.readyForSale || 'No').trim(),
-    kitchenType: mc?.readyForSale === 'Yes' ? (mc?.kitchenType || null) : null,
+    // Cuisine (plus liée à « Prêt à la vente » depuis 2026-10-08), image et espaces copiés.
+    kitchenType: mc?.kitchenType || null,
+    kitchenId: mc?.kitchenId || null,
+    picture: mc?.picture || null,
+    spaceIds: allowed ? sourceSpaces.filter((id) => allowed.has(id)) : sourceSpaces,
     componentCategory: String(mc?.componentCategory || mc?.type || '').trim(),
     numberOfUnitsRecipe: num(mc?.numberOfUnitsRecipe, 1) || 1,
     componentTypeId: mc?.componentTypeId || undefined,
