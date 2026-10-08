@@ -1,8 +1,15 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
+import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { resolveKitchenFields } from '../../shared/utils/resolve-kitchen';
+import { mergeScopedSpaces } from '../../shared/utils/scoped-spaces';
 import { CreateMenuComponentDto } from './dto/create-menu-component.dto';
 import { UpdateMenuComponentDto } from './dto/update-menu-component.dto';
+
+/** Profil minimal nécessaire pour scoper une requête par espace accessible. */
+type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
 @Injectable()
 export class MenuComponentsService {
@@ -11,7 +18,40 @@ export class MenuComponentsService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private spaceAccess: SpaceAccessService,
+    private storage: SupabaseStorageService,
   ) {}
+
+  /**
+   * Espaces visibles par `user` : 'ALL' (accès complet, ou appel interne sans user) ou
+   * la liste de ses espaces. Un composant SANS espace est commun et visible de tous
+   * (décision Ulrich/Bertrand 2026-10-08 : aucun composant n'en avait au déploiement).
+   */
+  private async visibleSpaces(user?: SpaceScopedUser): Promise<'ALL' | string[]> {
+    if (!user || this.spaceAccess.hasFullAccess(user)) return 'ALL';
+    return this.spaceAccess.getAccessibleSpaceIds(user);
+  }
+
+  private async assertComponentSpaces(spaceIds: string[] | undefined, user?: SpaceScopedUser) {
+    if (!spaceIds?.length) return;
+    const visible = await this.visibleSpaces(user);
+    if (visible === 'ALL') return;
+    if (!spaceIds.some((sid) => visible.includes(sid))) {
+      throw new ForbiddenException("Vous n'avez pas accès à l'espace de ce composant.");
+    }
+  }
+
+  /**
+   * Espaces à enregistrer pour un composant : un compte restreint n'ajoute que ses
+   * propres espaces, ceux qu'il ne voit pas sont conservés (mergeScopedSpaces).
+   */
+  private async scopedSpaces(requested: string[], existing: string[], user?: SpaceScopedUser) {
+    const { spaces, foreign } = mergeScopedSpaces(requested, existing, await this.visibleSpaces(user));
+    if (foreign.length) {
+      throw new ForbiddenException("Vous ne pouvez rattacher un composant qu'à vos propres espaces.");
+    }
+    return spaces;
+  }
 
   private cacheKey(tenantId: string, suffix = 'list') {
     return `menu-components:${tenantId}:${suffix}`;
@@ -282,6 +322,8 @@ export class MenuComponentsService {
   }
 
   private readonly includeRelations = {
+    // Nom de la cuisine : affiché même si elle est hors des espaces de l'utilisateur.
+    kitchen: { select: { id: true, name: true } },
     ingredients: {
       // marketPrice scopé (supplier/supplierId/supplierRel.name seulement, PAS image qui peut
       // être un base64 volumineux) : nécessaire pour résoudre le fournisseur affiché colonne
@@ -308,7 +350,7 @@ export class MenuComponentsService {
     },
   };
 
-  async create(dto: CreateMenuComponentDto, tenantId: string) {
+  async create(dto: CreateMenuComponentDto, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Creating menu component "${dto.name}" for tenant ${tenantId}`);
     try {
       const ingredientsLines = Array.isArray((dto as any).ingredients)
@@ -330,6 +372,9 @@ export class MenuComponentsService {
         this.assertComponentTypeAccessible(dto.componentTypeId, tenantId),
         this.assertComponentCategoryAccessible(dto.componentCategoryId, tenantId),
       ]);
+      const spaceIds = await this.scopedSpaces(dto.spaceIds ?? [], [], user);
+      const kitchen = await resolveKitchenFields(this.prisma, dto, tenantId);
+      const picture = await this.storage.resolveImage(dto.picture ?? undefined, 'components');
 
       const component = await this.prisma.menuComponent.create({
         data: {
@@ -347,7 +392,9 @@ export class MenuComponentsService {
           packedUnits: dto.packedUnits,
           inventoryPackaging: dto.inventoryPackaging,
           readyForSale: dto.readyForSale,
-          kitchenType: dto.kitchenType ?? null,
+          ...kitchen,
+          picture,
+          spaceIds,
           componentTypeId: dto.componentTypeId,
           componentCategoryId: dto.componentCategoryId,
 
@@ -412,25 +459,33 @@ export class MenuComponentsService {
     }
   }
 
-  async findAll(tenantId: string, page = 1, limit = 100) {
+  async findAll(tenantId: string, page = 1, limit = 100, user?: SpaceScopedUser) {
     this.logger.log(
       `Fetching menu components for tenant ${tenantId} (page=${page}, limit=${limit})`,
     );
     try {
-      const cacheKey = this.cacheKey(tenantId, `list:${page}:${limit}`);
+      // Compte restreint : composants communs (sans espace) + ceux de ses espaces. Le
+      // périmètre fait partie de la clé de cache (même réflexe que menu-items.service.ts).
+      const visible = await this.visibleSpaces(user);
+      const scope = visible === 'ALL' ? 'all' : `s:${[...visible].sort().join(',')}`;
+      const where: any = { tenantId, deletedAt: null };
+      if (visible !== 'ALL') {
+        where.OR = [{ spaceIds: { isEmpty: true } }, { spaceIds: { hasSome: visible } }];
+      }
+      const cacheKey = this.cacheKey(tenantId, `list:${scope}:${page}:${limit}`);
       return this.redis.getOrSet(
         cacheKey,
         async () => {
           const skip = (page - 1) * limit;
           const [components, total] = await Promise.all([
             this.prisma.menuComponent.findMany({
-              where: { tenantId, deletedAt: null },
+              where,
               orderBy: { name: 'asc' },
               include: this.includeRelations,
               skip,
               take: limit,
             }),
-            this.prisma.menuComponent.count({ where: { tenantId, deletedAt: null } }),
+            this.prisma.menuComponent.count({ where }),
           ]);
           this.logger.log(`Found ${components.length}/${total} menu components`);
           return {
@@ -449,7 +504,7 @@ export class MenuComponentsService {
     }
   }
 
-  async findOne(id: string, tenantId: string) {
+  async findOne(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Fetching menu component ${id} for tenant ${tenantId}`);
     const component = await this.prisma.menuComponent.findFirst({
       where: { id, tenantId, deletedAt: null },
@@ -461,12 +516,13 @@ export class MenuComponentsService {
       throw new NotFoundException(`Menu component with ID ${id} not found`);
     }
 
+    await this.assertComponentSpaces(component.spaceIds, user);
     return component;
   }
 
-  async update(id: string, dto: UpdateMenuComponentDto, tenantId: string) {
+  async update(id: string, dto: UpdateMenuComponentDto, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Updating menu component ${id} for tenant ${tenantId}`);
-    await this.findOne(id, tenantId);
+    const existing = await this.findOne(id, tenantId, user);
 
     const updateData: any = {};
     if (dto.name !== undefined) updateData.name = dto.name;
@@ -484,7 +540,9 @@ export class MenuComponentsService {
     if (dto.inventoryPackaging !== undefined)
       updateData.inventoryPackaging = dto.inventoryPackaging;
     if (dto.readyForSale !== undefined) updateData.readyForSale = dto.readyForSale;
-    if (dto.kitchenType !== undefined) updateData.kitchenType = dto.kitchenType ?? null;
+    Object.assign(updateData, await resolveKitchenFields(this.prisma, dto, tenantId));
+    if (dto.picture !== undefined) updateData.picture = await this.storage.resolveImage(dto.picture, 'components');
+    if (dto.spaceIds !== undefined) updateData.spaceIds = await this.scopedSpaces(dto.spaceIds, existing.spaceIds, user);
     if (dto.componentTypeId !== undefined) updateData.componentTypeId = dto.componentTypeId;
     if (dto.componentCategoryId !== undefined)
       updateData.componentCategoryId = dto.componentCategoryId;
@@ -631,9 +689,9 @@ export class MenuComponentsService {
     return { updatedComponents, updatedLines };
   }
 
-  async remove(id: string, tenantId: string) {
+  async remove(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Deleting menu component ${id} for tenant ${tenantId}`);
-    await this.findOne(id, tenantId);
+    await this.findOne(id, tenantId, user);
 
     try {
       const result = await this.prisma.menuComponent.update({

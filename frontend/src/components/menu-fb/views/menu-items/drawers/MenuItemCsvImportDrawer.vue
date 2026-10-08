@@ -415,6 +415,7 @@
 
 <script>
 import { computed } from 'vue'
+import { kitchenChoiceFromCsv, kitchenPayloadFrom } from '@/composables/useKitchenOptions';
 import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { bulkCreateMenuItems, createMenuItem, replaceMenuItemComboItems } from '@/api/endpoints/menu-item.api'
@@ -1162,8 +1163,8 @@ export default {
         'Line Type', 'Line Item Name', 'Line Quantity',
       ]
       const rows = [
-        ['Classic Burger', 'Food', 'Burgers', '12.50', '10', 'Yes', 'No', '', 'Central', '1', 'Cold', '', 'Beef burger with cheese', 'Ingredient', 'Beef Patty', '1'],
-        ['Classic Burger', 'Food', 'Burgers', '12.50', '10', 'Yes', 'No', '', 'Central', '1', 'Cold', '', 'Beef burger with cheese', 'Ingredient', 'Burger Bun', '1'],
+        ['Classic Burger', 'Food', 'Burgers', '12.50', '10', 'Yes', 'No', '', 'Local', '1', 'Cold', '', 'Beef burger with cheese', 'Ingredient', 'Beef Patty', '1'],
+        ['Classic Burger', 'Food', 'Burgers', '12.50', '10', 'Yes', 'No', '', 'Local', '1', 'Cold', '', 'Beef burger with cheese', 'Ingredient', 'Burger Bun', '1'],
       ]
       const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
       const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
@@ -1298,7 +1299,10 @@ export default {
       if (row.readyForSale) payload.readyForSale = toBool(row.readyForSale) ? 'Yes' : 'No'
       if (row.comboItem)    payload.comboItem    = toBool(row.comboItem) ? 'Yes' : 'No'
       if (row.description)  payload.description  = row.description
-      if (row.kitchenType)  payload.kitchenType  = row.kitchenType
+      if (row.kitchenType) {
+        // « Local » ou le nom d'une cuisine de Settings (inconnu : champ laissé vide).
+        Object.assign(payload, kitchenPayloadFrom(kitchenChoiceFromCsv(row.kitchenType, this.$store.getters['kitchens/kitchens'])))
+      }
       if (row.numberOfPiecesRecipe) {
         payload.numberOfPiecesRecipe = Math.max(1, Math.round(Number(row.numberOfPiecesRecipe) || 1))
       }
@@ -1454,6 +1458,8 @@ export default {
         // buildPayload() (juste après) puisse résoudre typeId/categoryId/brandId/displayNameId
         // fraîchement créés en plus de ceux déjà existants.
         await this.scanAndCreateMissingReferentials()
+        // Cuisines chargées avant la résolution des noms de la colonne Kitchen Type.
+        await this.$store.dispatch('kitchens/fetchKitchens')
         // validRows exclut déjà les doublons déjà en base (BUG-86) — ce qui suit n'envoie que
         // des lignes importables (type/catégorie non résolus ne bloquent plus, BUG-112).
         const allItems = this.validRows.map(r => this.buildPayload(r))

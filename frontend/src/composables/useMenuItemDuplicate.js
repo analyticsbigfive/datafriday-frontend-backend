@@ -38,6 +38,7 @@ export function buildDuplicatePayload(mi, { suffix = ' (copie)' } = {}) {
     storageType: Array.isArray(mi?.storageType) ? mi.storageType : [],
     readyForSale: String(mi?.readyForSale || 'No').trim(),
     kitchenType: mi?.readyForSale === 'Yes' ? (mi?.kitchenType || null) : null,
+    kitchenId: mi?.readyForSale === 'Yes' ? (mi?.kitchenId || null) : null,
     comboItem: String(mi?.comboItem || 'No').trim(),
     numberOfPiecesRecipe: num(mi?.numberOfPiecesRecipe, 1) || 1,
     inventoryPackagingType: mi?.inventoryPackagingType || null,

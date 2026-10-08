@@ -5,6 +5,7 @@ import inventory from './modules/inventory'
 import logistics from './modules/logistics'
 import spaces from './modules/spaces'
 import suppliers from './modules/suppliers'
+import kitchens from './modules/kitchens'
 import events from './modules/events'
 import eventSubcategories from './modules/eventSubcategories'
 import eventCategories from './modules/eventCategories'
@@ -62,6 +63,7 @@ export default createStore({
     logistics,
     spaces,
     suppliers,
+    kitchens,
     events,
     eventSubcategories,
     eventCategories,

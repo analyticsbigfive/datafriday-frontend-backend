@@ -32,6 +32,7 @@ const HrSettingsView = () => import('../components/hr/views/HrSettingsView.vue')
 // Routes Menu FB Views — lazy comme le reste (en statique, ces 18 vues admin
 // étaient inlinées dans app.js et payées au premier paint de toutes les routes).
 const SuppliersListView = () => import('../components/menu-fb/views/suppliers/views/SuppliersListView.vue')
+const KitchensListView = () => import('../components/menu-fb/views/kitchens/views/KitchensListView.vue')
 const MarketPriceListView = () => import('@/components/menu-fb/views/market-prices/views/MarketPriceListView.vue')
 const componentListView = () => import('@/components/menu-fb/views/component-library/views/componentListView.vue')
 const ComponentCreateView = () => import('@/components/menu-fb/views/component-library/views/ComponentCreateView.vue')
@@ -314,6 +315,12 @@ const routes = [
         meta: { title: 'Liste des fournisseurs', keepAlive: true, permission: 'menu.fb.suppliers' }
       },
       { path: '/suppliers', redirect: '/menu-fb/suppliers' },
+      {
+        path: '/menu-fb/kitchens',
+        name: 'kitchens',
+        component: KitchensListView,
+        meta: { title: 'Liste des cuisines', keepAlive: true, permission: 'menu.fb.components' }
+      },
       {
         path: '/menu-fb/market-prices',
         name: 'market-prices',

@@ -29,6 +29,7 @@ import { RolesModule } from './features/roles/roles.module';
 import { PermissionsModule } from './features/permissions/permissions.module';
 import { OrchestratorModule } from './features/orchestrator/orchestrator.module';
 import { SuppliersModule } from './features/suppliers/suppliers.module';
+import { KitchensModule } from './features/kitchens/kitchens.module';
 import { MarketPricesModule } from './features/market-prices/market-prices.module';
 import { MenuComponentsModule } from './features/menu-components/menu-components.module';
 import { MenuItemsModule } from './features/menu-items/menu-items.module';
@@ -172,6 +173,7 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     PermissionsModule,
     OrchestratorModule,
     SuppliersModule,
+    KitchensModule,
     MarketPricesModule,
     MenuComponentsModule,
     MenuItemsModule,

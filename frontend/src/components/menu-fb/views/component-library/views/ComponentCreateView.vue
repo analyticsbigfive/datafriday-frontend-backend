@@ -187,6 +187,12 @@
                   <v-progress-circular indeterminate color="#ff3131" size="32" />
                 </div>
 
+                <!-- Image : tout en haut de la colonne (demande Bertrand 2026-10-08). -->
+                <div class="ccf-field-wrap mb-3">
+                  <label class="ccf-field-label">{{ t('compCreateFieldPicture') }}</label>
+                  <PictureField v-model="form.picture" />
+                </div>
+
                 <!-- Section: Général -->
                 <div class="ccf-section-label">{{ t('compCreateSectionGeneral') }}</div>
 
@@ -200,6 +206,12 @@
                     :rules="[rules.required]"
                     class="ccf-field"
                   />
+                </div>
+
+                <!-- Espaces du composant, sous le nom (vide = commun à tous). -->
+                <div class="ccf-field-wrap mb-3">
+                  <label class="ccf-field-label">{{ t('compCreateFieldSpaces') }}</label>
+                  <SpaceMultiSelect v-model="form.spaceIds" :hint="t('compCreateSpacesHint')" class="ccf-field" />
                 </div>
 
                 <div class="ccf-field-wrap mb-3">
@@ -297,33 +309,13 @@
                       :menu-props="{ zIndex: 10000 }"
                     />
                   </div>
-                </div>
 
-                <div class="ccf-field-wrap mb-3">
-                  <label class="ccf-field-label">{{ t('compCreateFieldReadyForSale') }}</label>
-                  <v-select
-                    v-model="form.readyForSale"
-                    :items="readyForSaleOptions"
-                    variant="outlined"
-                    density="compact"
-                    hide-details="auto"
-                    class="ccf-field"
-                    :menu-props="{ zIndex: 10000 }"
-                  />
-                </div>
-
-                <div v-if="form.readyForSale === 'Yes'" class="ccf-field-wrap mb-3">
-                  <label class="ccf-field-label">{{ t('compCreateFieldKitchenType') }}</label>
-                  <v-select
-                    v-model="form.kitchenType"
-                    :items="kitchenTypeOptions"
-                    variant="outlined"
-                    density="compact"
-                    hide-details="auto"
-                    clearable
-                    class="ccf-field"
-                    :menu-props="{ zIndex: 10000 }"
-                  />
+                  <!-- Cuisine : sortie de « Prêt à la vente » (champ retiré, la valeur
+                       reste en base), Cuisine Locale ou cuisine de Settings. -->
+                  <div class="cc-info-card__field">
+                    <label class="cc-info-card__field-label">{{ t('compCreateFieldKitchenType') }}</label>
+                    <KitchenSelect v-model="form.kitchen" :space-ids="form.spaceIds" :current-kitchen="loadedKitchen" class="ccf-field" />
+                  </div>
                 </div>
 
                 <!-- Calc card -->
@@ -434,6 +426,10 @@ import { useUnsavedChanges } from '@/composables/useUnsavedChanges';
 import { confirmDialog } from '@/composables/useConfirmDialog';
 import AllergenCheckboxes from '@/components/menu-fb/common/AllergenCheckboxes.vue';
 import NumberField from '@/components/common/NumberField.vue';
+import PictureField from '@/components/menu-fb/common/PictureField.vue';
+import SpaceMultiSelect from '@/components/menu-fb/common/SpaceMultiSelect.vue';
+import KitchenSelect from '@/components/menu-fb/common/KitchenSelect.vue';
+import { kitchenChoiceFrom, kitchenPayloadFrom } from '@/composables/useKitchenOptions';
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
 import ComponentPickerDrawer from '../drawers/ComponentPickerDrawer.vue';
 import NewCategoryDialog from '../dialogs/NewCategoryDialog.vue';
@@ -455,6 +451,9 @@ export default {
     NewCategoryDialog,
     NewTypeDialog,
     AllergenCheckboxes,
+    PictureField,
+    SpaceMultiSelect,
+    KitchenSelect,
   },
   setup() {
     const { t, locale } = useI18n();
@@ -468,6 +467,8 @@ export default {
     return {
       componentId: null,
       isEditMode: false,
+      // Relation `kitchen { id, name }` chargée avec la fiche (nom de la cuisine actuelle).
+      loadedKitchen: null,
       duplicating: false,
       loadingComponent: false,
       loadingError: "",
@@ -492,8 +493,10 @@ export default {
         unit: "",
         numberOfUnitsRecipe: 1,
         storageType: "",
-        readyForSale: "No",
-        kitchenType: null,
+        // Cuisine : 'local', id d'une cuisine de Settings, ou null (useKitchenOptions).
+        kitchen: null,
+        picture: "",
+        spaceIds: [],
         description: "",
         allergens: [],
         ingredients: [],
@@ -503,7 +506,6 @@ export default {
       },
 
       unitOptions: ["Kg", "L", "Pc"],
-      readyForSaleOptions: ["Yes", "No"],
       rules: {
         required: (v) => !!String(v ?? "").trim() || "Required",
         positive: (v) => Number(v) > 0 || "Must be > 0",
@@ -522,12 +524,6 @@ export default {
     /** Fiche modifiée depuis le chargement ou le dernier enregistrement. */
     hasUnsavedChanges() {
       return this.isDirty(this.form);
-    },
-    kitchenTypeOptions() {
-      return [
-        { title: this.t('compKitchenCentral'), value: 'Central' },
-        { title: this.t('compKitchenLocal'), value: 'Local' },
-      ];
     },
     // Données depuis le store (avec cache TTL) — taxonomie Component dédiée,
     // indépendante de Product Type/Category (Menu Item).
@@ -819,7 +815,10 @@ export default {
       this.duplicating = true;
       this.error = "";
       try {
-        const created = await duplicateComponentById(this.componentId, { suffix: this.t('compCopySuffix') });
+        const created = await duplicateComponentById(this.componentId, {
+          suffix: this.t('compCopySuffix'),
+          allowedSpaceIds: (this.$store.getters['spaces/spaces'] || []).map((sp) => sp.id),
+        });
         const newId = created?.id || created?._id || created?.data?.id;
         this.$store.dispatch('menuComponents/invalidate');
         if (newId) {
@@ -855,8 +854,10 @@ export default {
         this.form.unit = component.unit || "";
         this.form.numberOfUnitsRecipe = component.numberOfUnitsRecipe || 1;
         this.form.storageType = component.storageType || "";
-        this.form.readyForSale = component.readyForSale || "No";
-        this.form.kitchenType = component.kitchenType || null;
+        this.form.kitchen = kitchenChoiceFrom(component);
+        this.loadedKitchen = component.kitchen || null;
+        this.form.picture = component.picture || "";
+        this.form.spaceIds = Array.isArray(component.spaceIds) ? component.spaceIds.map(String) : [];
         this.form.description = component.description || "";
         this.form.allergens = Array.isArray(component.allergens) ? component.allergens : [];
         // BUG-053 : ces deux champs n'étaient jamais restaurés ici, donc une sauvegarde après
@@ -1035,8 +1036,9 @@ export default {
           allergens: Array.isArray(this.form.allergens) ? this.form.allergens.map((a) => String(a || "").trim()).filter(Boolean) : [],
           description: String(this.form.description || "").trim(),
           storageType: String(this.form.storageType || "").trim(),
-          readyForSale: String(this.form.readyForSale || "No").trim(),
-          kitchenType: this.form.readyForSale === "Yes" ? (this.form.kitchenType || null) : null,
+          ...kitchenPayloadFrom(this.form.kitchen),
+          picture: this.form.picture || null,
+          spaceIds: this.form.spaceIds,
           ingredients: ingredientsPayload,
           children: childrenPayload,
           componentCategory: String(this.form.type || "").trim(),
@@ -1096,8 +1098,9 @@ export default {
           allergens: Array.isArray(this.form.allergens) ? this.form.allergens.map((a) => String(a || "").trim()).filter(Boolean) : [],
           description: String(this.form.description || "").trim(),
           storageType: String(this.form.storageType || "").trim(),
-          readyForSale: String(this.form.readyForSale || "No").trim(),
-          kitchenType: this.form.readyForSale === "Yes" ? (this.form.kitchenType || null) : null,
+          ...kitchenPayloadFrom(this.form.kitchen),
+          picture: this.form.picture || null,
+          spaceIds: this.form.spaceIds,
           ingredients: ingredientsPayload,
           children: childrenPayload,
           componentCategory: String(this.form.type || "").trim(),
