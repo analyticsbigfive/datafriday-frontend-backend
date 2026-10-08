@@ -288,6 +288,29 @@
                 <span class="lg-tab-label-short">{{ t(tab.labelKeyShort) }}</span>
                 <span class="lg-tab-count">({{ tabCount(tab.value) }})</span>
               </button>
+              <!-- Mode Ventilation : ce qu'il reste à déposer d'après la feuille de
+                   réarmement du match (demande Bertrand 2026-10-08). -->
+              <button
+                type="button"
+                class="lg-tab lg-tab--mode"
+                :class="{ 'lg-tab-active': activeTab === 'ventilation' }"
+                :aria-pressed="activeTab === 'ventilation'"
+                @click="activeTab = 'ventilation'"
+              >
+                <v-icon size="16" class="mr-1">mdi-truck-delivery-outline</v-icon>
+                <span>{{ t('logiVentilationBtn') }}</span>
+                <span class="lg-tab-count">({{ ventilation.groups.length }})</span>
+              </button>
+              <!-- QR code des logisticiens (accès PIN à la feuille de ventilation). -->
+              <button
+                type="button"
+                class="lg-tab lg-tab--qr"
+                :title="t('logiVentilationAccessTitle')"
+                :aria-label="t('logiVentilationAccessTitle')"
+                @click="ventilation.accessDialog = true"
+              >
+                <v-icon size="18">mdi-qrcode</v-icon>
+              </button>
             </div>
             <!-- Squelettes : reprennent la forme réelle (ligne PDV ou carte item)
                  pour éviter un flash de valeurs à 0 pendant le chargement. -->
@@ -319,6 +342,25 @@
             </template>
 
             <!-- ── NIVEAU 1 : liste des PDV / Storage ─────────────────────────── -->
+            <!-- ── NIVEAU 1 ter : mode Ventilation (à déposer, par article) ────── -->
+            <template v-else-if="!drillElement && activeTab === 'ventilation'">
+              <LogisticVentilationView
+                :groups="ventilation.groups"
+                :plan-name="ventilation.planName"
+                :source="needSource"
+                :loading="ventilation.loading"
+                :event-predict-route="eventPredictRoute"
+                :can-confirm="!!ventilation.eventId"
+                @confirm="openDepositConfirm"
+              />
+              <LogisticVentilationDeposits
+                class="mt-3"
+                :movements="ventilation.movements"
+                :cancelling-id="ventilation.cancellingId"
+                @cancel="cancelDeposit"
+              />
+            </template>
+
             <template v-else-if="!drillElement && activeTab !== 'byItem'">
               <div v-if="currentEntries.length" class="lg-sort-bar">
                 <span class="lg-sort-label">{{ t('logiSort') }}</span>
@@ -373,6 +415,7 @@
                 :config-names-for="configNamesFor"
                 :predicted-need-for="predictedNeedFor"
                 :predicted-need-packs-for="predictedNeedPacksFor"
+                :need-source="needSource"
                 :units-per-pack-for="unitsPerPackFor"
                 @go="goToItem"
                 @add="openMovement($event.element, $event.item, 'add')"
@@ -395,6 +438,7 @@
                   :units-per-pack="unitsPerPackFor(drillElement.element.id, item)"
                   :predicted-need="predictedNeedFor(drillElement.element.id, item)"
                   :predicted-need-packs="predictedNeedPacksFor(drillElement.element.id, item)"
+                  :need-source="needSource"
                   :used-in-label="usedInLabel(item)"
                   :status="itemStatus(drillElement.element.id, item)"
                   :pending-transfers="pendingTransfersFor(drillElement.element.id, item.name)"
@@ -473,6 +517,19 @@
         />
 
         <!-- BUG-259-02 : confirmation d'un transfert en attente -->
+        <LogisticVentilationAccessDialog
+          v-model="ventilation.accessDialog"
+          :space-id="currentSpaceId"
+          :event-id="ventilation.eventId"
+          :space-name="currentSpace?.name || ''"
+        />
+        <LogisticDepositConfirmDrawer
+          v-model="ventilation.dialog"
+          :deposit="ventilation.target"
+          :saving="ventilation.saving"
+          :error="ventilation.error"
+          @submit="submitDeposit"
+        />
         <LogisticTransferConfirmDrawer
           v-model="transferConfirmDialog"
           :transfer="transferConfirmTransfer"
@@ -538,7 +595,7 @@
 </template>
 
 <script>
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import { useStore } from 'vuex'
 import { useRoute, useRouter } from 'vue-router'
 import { safePush } from '@/utils/chunkReload'
@@ -551,6 +608,7 @@ import LogisticElementRow from '@/components/space-workspace/logistic/LogisticEl
 import LogisticItemCard from '@/components/space-workspace/logistic/LogisticItemCard.vue'
 import LogisticMovementDialog from '@/components/space-workspace/shared/LogisticMovementDialog.vue'
 import LogisticTransferConfirmDrawer from '@/components/space-workspace/logistic/drawers/LogisticTransferConfirmDrawer.vue'
+import LogisticDepositConfirmDrawer from '@/components/space-workspace/logistic/drawers/LogisticDepositConfirmDrawer.vue'
 import LogisticLossesDrawer from '@/components/space-workspace/logistic/drawers/LogisticLossesDrawer.vue'
 import LogisticHistoryDrawer from '@/components/space-workspace/logistic/drawers/LogisticHistoryDrawer.vue'
 import LogisticAggregateView from '@/components/space-workspace/logistic/LogisticAggregateView.vue'
@@ -558,14 +616,18 @@ import LogisticTasksPanel from '@/components/space-workspace/logistic/LogisticTa
 import SidebarPanel from '@/components/SidebarPanel.vue'
 import LogisticConfigSelect from '@/components/space-workspace/logistic/LogisticConfigSelect.vue'
 import LogisticByItemView from '@/components/space-workspace/logistic/LogisticByItemView.vue'
+import LogisticVentilationView from '@/components/space-workspace/logistic/LogisticVentilationView.vue'
+import LogisticVentilationDeposits from '@/components/space-workspace/logistic/LogisticVentilationDeposits.vue'
+import LogisticVentilationAccessDialog from '@/components/space-workspace/logistic/dialogs/LogisticVentilationAccessDialog.vue'
 import { getLatestInventory } from '@/api/endpoints/inventory.api'
 import { downloadReconciliationCsv, downloadLossesCsv } from '@/api/endpoints/logistics.api'
 import { getMarketPrices } from '@/api/endpoints/market.price.api'
 import { ClipboardList, GitCompare, Download, TrendingDown } from 'lucide-vue-next'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 import WorkspaceMobileToolDrawer from '@/components/WorkspaceMobileToolDrawer.vue'
-import { loadPredictedNeed, lookupPredictedNeed, lookupPredictedNeedPacks, buildRestockNeedIndex } from '@/composables/usePredictedNeed'
-import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
+import { loadPredictedNeed, lookupPredictedNeed, lookupPredictedNeedPacks } from '@/composables/usePredictedNeed'
+import { normalizeStr } from '@/utils/predictiveAnalytics'
+import { useLogisticVentilation } from '@/composables/useLogisticVentilation'
 
 const TABS = [
   { value: 'shops', labelKey: 'logiTabShops', labelKeyShort: 'logiTabShopsShort', icon: 'mdi-store' },
@@ -622,6 +684,7 @@ export default {
     LogisticItemCard,
     LogisticMovementDialog,
     LogisticTransferConfirmDrawer,
+    LogisticDepositConfirmDrawer,
     LogisticLossesDrawer,
     LogisticHistoryDrawer,
     LogisticAggregateView,
@@ -635,6 +698,9 @@ export default {
     WorkspaceMobileToolDrawer,
     LogisticConfigSelect,
     LogisticByItemView,
+    LogisticVentilationView,
+    LogisticVentilationDeposits,
+    LogisticVentilationAccessDialog,
   },
   setup() {
     const store = useStore()
@@ -650,7 +716,10 @@ export default {
       () => liveRefresh.value?.(),
       { intervalMs: 10 * 1000 },
     )
-    return { store, router, route, t, liveRefresh }
+    // Mode Ventilation (feuille de réarmement, dépôts) : reactive() déballe les refs
+    // du composable pour le template et `this.ventilation.*`.
+    const ventilation = reactive(useLogisticVentilation({ store, t }))
+    return { store, router, route, t, liveRefresh, ventilation }
   },
   data() {
     return {
@@ -678,6 +747,9 @@ export default {
       // colonne SÉPARÉE, brute : ce qu'il faut amener, sans netting du stock déjà
       // là (le netting reste l'écran Réarmement). null hors contexte event.
       predictedNeed: null,
+      // 'restock' = feuille de réarmement du match (quantité « À déposer »),
+      // 'forecast' = repli prévision Event Predict (« Besoin prédit »), null = rien.
+      needSource: null,
       // Drill-in : entry { element, consolidatedInventory|storageInventory } ouvert, ou null (niveau liste)
       drillElement: null,
       // Popup mouvement
@@ -729,6 +801,23 @@ export default {
     isAggregateView() { return this.selectedConfigId === 'all' || !this.selectedConfigId },
     can() { return this.store.getters['auth/can'] },
     canReconcile() { return this.can('front.fb.logisticReconcile') },
+    /** « À déposer » (feuille de réarmement, composable Ventilation) ou prévision brute. */
+    needIndex() {
+      return this.needSource === 'restock' ? this.ventilation.needIndex : this.predictedNeed
+    },
+    /** Lien Event Predict du match, affiché quand la feuille de ventilation manque
+     *  (réponse Bertrand 2026-10-08) ; null sans match ou sans le droit. */
+    eventPredictRoute() {
+      const can = this.store.getters['auth/can']
+      const eventId = this.ventilation.eventId
+      if (!eventId || !this.currentSpaceId) return null
+      if (typeof can === 'function' && !can('front.fb.eventPredict')) return null
+      return {
+        name: 'space-analyse',
+        params: { spaceId: this.currentSpaceId },
+        query: { toolbox: 'event-predict', event: eventId },
+      }
+    },
     toolboxSelectItems() {
       const can = this.store.getters['auth/can']
       return TOOLBOX_ITEMS
@@ -1038,6 +1127,8 @@ export default {
       await Promise.all([
         this.store.dispatch('logistics/loadStock', { spaceId, configId, eventId, silent: true }),
         this.loadLatestInventory(spaceId),
+        // Mode Ventilation affiché : dépôts des logisticiens (QR) relus au même rythme.
+        this.activeTab === 'ventilation' ? this.ventilation.refresh(spaceId) : null,
       ])
     },
     async loadForSpace(spaceId) {
@@ -1075,19 +1166,17 @@ export default {
      *  event, la colonne reste absente : un besoin sans match n'a pas de sens. */
     async fetchPredictedNeed(eventId) {
       this.predictedNeed = null
+      this.needSource = null
       const effectiveEventId = eventId || this.store.state.logistics?.nextEventId || null
+      this.ventilation.reset(effectiveEventId)
       if (!effectiveEventId) return
 
       try {
-        const plans = await listRestockPlans(this.currentSpaceId)
-        const match = (plans || []).find((p) => (p.selectedEventIds || []).map(String).includes(String(effectiveEventId)))
-        if (match) {
-          const full = await getRestockPlan(match.id)
-          const restockIndex = buildRestockNeedIndex(full?.restockLines)
-          if (restockIndex) {
-            this.predictedNeed = restockIndex
-            return
-          }
+        // Feuille de réarmement du match : « À déposer » (composable Ventilation).
+        // Une feuille entièrement déposée ne retombe PAS sur la prévision brute.
+        if (await this.ventilation.loadForEvent(this.currentSpaceId, effectiveEventId)) {
+          this.needSource = 'restock'
+          return
         }
       } catch (e) {
         console.warn('[logistics] lookup feuille de réarmement échoué, repli Event Predict :', e?.message)
@@ -1104,17 +1193,45 @@ export default {
         components: this.store.state.analyse?.components || [],
       })
       this.predictedNeed = index
+      this.needSource = index ? 'forecast' : null
+    },
+    /** Article Logistic (identité par NOM) d'une destination correspondant à une
+     *  ligne de la feuille, ou null s'il n'est pas dans le référentiel de l'élément. */
+    logisticItemFor(elementId, itemName) {
+      const entry = [...this.shopEntries, ...this.storageEntries].find((e) => String(e.element.id) === String(elementId))
+      const nk = normalizeStr(itemName)
+      return (entry ? this.itemsOf(entry) : []).find((it) => normalizeStr(it.name) === nk) || null
+    },
+    openDepositConfirm(payload) {
+      const item = this.logisticItemFor(payload.row.shopId, payload.group.itemName)
+      const logisticUnitsPerPack = item ? Number(this.unitsPerPackFor(payload.row.shopId, item)) || null : null
+      this.ventilation.openConfirm(payload, { item, logisticUnitsPerPack })
+    },
+    async submitDeposit(quantities) {
+      if (await this.ventilation.submit(quantities, this.currentSpaceId)) {
+        this.toast(this.t('logiDepositSaved'), 'success')
+      }
+    },
+    async cancelDeposit(movement) {
+      try {
+        if (!(await this.ventilation.cancel(movement, this.currentSpaceId))) return
+        this.toast(this.t('logiVentilationCancelDone'), 'success')
+        // Stock de l'emplacement relu (le mouvement inverse l'a modifié).
+        await this.refreshLive()
+      } catch (e) {
+        this.toast(e?.response?.data?.message || e?.userMessage || this.t('logiMovementError'), 'error')
+      }
     },
     /** Besoin prédit d'une denrée sur un élément — les lignes Logistic sont keyées
      *  par NOM, la résolution par nom normalisé est donc le chemin nominal ici. */
     predictedNeedFor(elementId, item) {
-      return lookupPredictedNeed(this.predictedNeed, elementId, item)
+      return lookupPredictedNeed(this.needIndex, elementId, item)
     },
     /** Packs déjà décidés au réarmement pour cette denrée sur cet élément — natif
      *  (packaging.packedCount), null si l'index vient du repli Event Predict (pas
      *  de packs) ou si le conditionnement n'était pas connu sur cette ligne. */
     predictedNeedPacksFor(elementId, item) {
-      return lookupPredictedNeedPacks(this.predictedNeed, elementId, item)
+      return lookupPredictedNeedPacks(this.needIndex, elementId, item)
     },
     /** Dernier inventaire (tous events) → valeurs grisées + source du reset. */
     async loadLatestInventory(spaceId) {
@@ -1579,6 +1696,9 @@ export default {
   cursor: pointer;
 }
 .lg-tab-active { background: var(--lg-surface); color: var(--lg-primary); }
+/* Bouton de mode, séparé des onglets de liste. */
+.lg-tab--mode { margin-left: auto; border-radius: 10px; }
+.lg-tab--qr { border-radius: 10px; padding: 8px 10px; }
 .lg-tab-count { margin-left: 4px; font-weight: 500; }
 /* Libellé court, mobile uniquement (cf. @media plus bas) : masqué par défaut. */
 .lg-tab-label-short { display: none; }

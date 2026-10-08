@@ -174,7 +174,18 @@ export async function requireGuestPinSession(to, from, next) {
   if (!store.getters['guestPin/isActive']) {
     return next(guestPinLandingRoute())
   }
+  // Chaque session n'ouvre que l'écran de sa phase : un accès ventilation n'a rien
+  // à faire sur l'inventaire, et inversement (le serveur refuse de toute façon).
+  const expected = guestRouteForPhase(store.getters['guestPin/phase'])
+  if (to.name !== expected) return next({ name: expected })
   next()
+}
+
+/** Écran invité d'une phase de session PIN. */
+export function guestRouteForPhase(phase) {
+  if (phase === 'ventilation') return 'guest-ventilation'
+  if (phase === 'post-event') return 'guest-inventory'
+  return 'guest-pre-inventory'
 }
 
 /**

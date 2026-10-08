@@ -97,6 +97,9 @@ export function buildRecipeCoeffs({ restockRows = [], shoppingMode = 'finished',
   const coeffs = {}
   for (const row of restockRows) {
     if (!row || row.itemKey == null || coeffs[row.itemKey]) continue
+    // Lignes stockage : coefficients `refill` posés à part (storageRefillCoeffs),
+    // elles ne passent pas par l'explosion recette.
+    if (row.elementType === 'storage') continue
     if (shoppingMode !== 'ingredients') {
       coeffs[row.itemKey] = [{ itemKey: String(row.itemKey), perUnit: 1 }]
       continue
@@ -185,6 +188,9 @@ function freezeRestockLine(row) {
     packaging: freezePackaging(row.packaging),
     eventIds: Array.isArray(row.eventIds) ? [...row.eventIds] : [],
     eventNames: Array.isArray(row.eventNames) ? [...row.eventNames] : [],
+    // Ligne de réassort d'un espace de stockage (utils/storageRestockLines.js) ;
+    // absent sur les lignes PDV pour garder leur photo inchangée.
+    ...(row.elementType ? { elementType: row.elementType } : {}),
     sourceBreakdown: (row.sourceBreakdown || []).map((s) => ({
       key: s.key,
       name: s.name,
@@ -207,6 +213,11 @@ function freezeShoppingItem(item) {
     predicted: toNumber(item.predicted),
     shopOnHand: toNumber(item.shopOnHand),
     storageOnHand: toNumber(item.storageOnHand),
+    // Réassort des stockages ajouté après netting (fiche 314-01) : figé à part
+    // pour que le rejeu des corrections ne le perde pas. `fromStorageOnly` =
+    // article acheté uniquement pour un stockage (aucun besoin PDV).
+    storageRefill: toNumber(item.storageRefill),
+    fromStorageOnly: !!item.fromStorageOnly,
     packaging: freezePackaging(item.packaging),
     shopNames: Array.isArray(item.shopNames) ? [...item.shopNames] : [],
     usedIn: Array.isArray(item.usedIn) ? item.usedIn.slice(0, USED_IN_MAX) : [],
@@ -373,15 +384,18 @@ export function recomputeShoppingFromOverrides(snapshot, overrides = {}) {
   const shoppingGroups = snapshot?.shoppingGroups || []
   const coeffs = snapshot?.recipeCoeffs || {}
 
-  // Deltas agrégés par clé d'item de feuille de course.
+  // Deltas agrégés par clé d'item de feuille de course : besoin PDV d'un côté,
+  // réassort des stockages de l'autre (coefficient `refill`).
   const deltaByItemKey = {}
+  const refillDeltaByItemKey = {}
   for (const line of restockLines) {
     const value = normalizeOverride(overrides?.[line.rowKey])
     if (value === null) continue
     const delta = value - toNumber(line.restockQuantity)
     if (!delta) continue
     for (const c of coeffs[line.itemKey] || []) {
-      deltaByItemKey[c.itemKey] = (deltaByItemKey[c.itemKey] || 0) + delta * toNumber(c.perUnit)
+      const target = c.refill ? refillDeltaByItemKey : deltaByItemKey
+      target[c.itemKey] = (target[c.itemKey] || 0) + delta * toNumber(c.perUnit)
     }
   }
 
@@ -391,7 +405,8 @@ export function recomputeShoppingFromOverrides(snapshot, overrides = {}) {
       items: (group.items || [])
         .map((item) => {
           const delta = deltaByItemKey[item.itemKey] || 0
-          if (!delta) {
+          const refillDelta = refillDeltaByItemKey[item.itemKey] || 0
+          if (!delta && !refillDelta) {
             // Clone profond de l'item figé — aucune valeur recalculée.
             return {
               ...item,
@@ -400,11 +415,18 @@ export function recomputeShoppingFromOverrides(snapshot, overrides = {}) {
               usedIn: [...(item.usedIn || [])],
             }
           }
-          const restockNeed = Math.max(0, toNumber(item.restockNeed) + delta)
-          const buyQuantity = Math.max(0, restockNeed - toNumber(item.storageOnHand))
+          // Le réassort s'ajoute APRÈS netting (comme nettedShopping) : il n'est
+          // jamais réduit par le stock des stockages. Plans antérieurs : réassort
+          // non figé (0), comportement inchangé.
+          const storageRefill = Math.max(0, toNumber(item.storageRefill) + refillDelta)
+          const pdvNeed = item.fromStorageOnly ? 0 : toNumber(item.restockNeed)
+          const nextPdvNeed = Math.max(0, pdvNeed + delta)
+          const buyQuantity = Math.max(0, nextPdvNeed - toNumber(item.storageOnHand)) + storageRefill
+          const restockNeed = item.fromStorageOnly ? storageRefill : nextPdvNeed
           return {
             ...item,
             restockNeed,
+            storageRefill,
             buyQuantity,
             quantity: buyQuantity,
             packaging: recomputePackaging(item.packaging, buyQuantity),

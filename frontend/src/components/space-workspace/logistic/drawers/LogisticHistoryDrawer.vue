@@ -93,6 +93,7 @@ const REASON_META = {
   SALE: { icon: 'mdi-cart-outline', color: 'primary', key: 'logiReasonSale' },
   INVENTORY_RESET: { icon: 'mdi-restore', color: 'secondary', key: 'logiReasonReset' },
   OTHER: { icon: 'mdi-pencil-outline', color: 'grey', key: 'logiReasonOther' },
+  VENTILATION: { icon: 'mdi-truck-check-outline', color: 'success', key: 'logiReasonVentilation' },
 }
 
 /**

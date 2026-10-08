@@ -458,6 +458,12 @@ export class LogisticsService {
     if (dto.reason === 'DELIVERY' && dto.direction !== 'add') {
       throw new BadRequestException('DELIVERY est réservé aux ajouts');
     }
+    if (dto.reason === 'VENTILATION' && dto.direction !== 'add') {
+      throw new BadRequestException('VENTILATION est réservé aux ajouts');
+    }
+    if (dto.reason === 'VENTILATION' && !dto.eventId) {
+      throw new BadRequestException('eventId requis pour VENTILATION');
+    }
     if (dto.reason === 'EXPIRY' && dto.direction !== 'remove') {
       throw new BadRequestException('EXPIRY est réservé aux suppressions');
     }
@@ -563,6 +569,9 @@ export class LogisticsService {
       transferGroupId,
       expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
       note: dto.note?.trim() || null,
+      // Seul un dépôt de ventilation porte le match : c'est ce qui permet de
+      // retrancher ce qui a déjà été déposé de la feuille (VentilationDepositsService.sumByEvent).
+      eventId: dto.reason === 'VENTILATION' ? dto.eventId! : null,
       createdBy: userId ?? null,
     };
 
@@ -587,6 +596,82 @@ export class LogisticsService {
       );
       return { movement, level, counterpartyLevel: null as any };
     });
+  }
+
+  // ─── Briques du registre réutilisées par la ventilation (ventilation-deposits.service.ts) ──
+
+  /**
+   * Écrit le mouvement INVERSE d'un mouvement existant (même élément, article, raison
+   * et match ; `reversesMovementId` = mouvement annulé) et retire son effet du niveau.
+   * Le registre garde les deux lignes. `strict` : refusé si le stock ne contient plus
+   * la quantité (déjà vendue ou déplacée), sinon registre et niveau divergeraient.
+   * `reversesMovementId` est unique : une seconde annulation, même simultanée, échoue.
+   */
+  async writeReversal(
+    original: {
+      id: string;
+      tenantId: string;
+      spaceId: string;
+      elementId: string;
+      itemKey: string;
+      itemKind: string | null;
+      itemRefId: string | null;
+      menuItemId: string | null;
+      marketPriceId: string | null;
+      packedDelta: number;
+      looseDelta: number;
+      reason: StockMovementReason;
+      eventId: string | null;
+      note: string | null;
+    },
+    actorId: string,
+    user?: SpaceScopedUser,
+  ) {
+    const element = await this.getElementOrThrow(original.elementId, original.tenantId, user);
+    const itemIdentity =
+      original.itemKind && original.itemRefId ? { itemKind: original.itemKind, itemRefId: original.itemRefId } : null;
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const movement = await tx.stockMovement.create({
+          data: {
+            tenantId: original.tenantId,
+            spaceId: original.spaceId,
+            elementId: original.elementId,
+            itemKey: original.itemKey,
+            itemKind: original.itemKind,
+            itemRefId: original.itemRefId,
+            menuItemId: original.menuItemId,
+            marketPriceId: original.marketPriceId,
+            packedDelta: -original.packedDelta,
+            looseDelta: -original.looseDelta,
+            reason: original.reason,
+            eventId: original.eventId,
+            reversesMovementId: original.id,
+            note: original.note,
+            createdBy: actorId,
+          },
+        });
+        const level = await this.applyLevelDelta(
+          tx, original.tenantId, element, original.itemKey, -original.packedDelta, -original.looseDelta,
+          null, original.marketPriceId, true, itemIdentity,
+        );
+        return { movement, level };
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new BadRequestException('Ce mouvement est déjà annulé');
+      }
+      throw error;
+    }
+  }
+
+  /** Articles du référentiel Logistic d'un élément (toutes configs) : nom et taille de pack. */
+  async getElementItems(spaceId: string, tenantId: string, elementIds: string[]) {
+    const wanted = new Set(elementIds);
+    const elements = await this.getSpaceElementsWithItems(spaceId, tenantId, undefined, { aggregateAllConfigs: true });
+    return elements
+      .filter((e) => wanted.has(e.id))
+      .map((e) => ({ elementId: e.id, items: e.items.map((it: any) => ({ name: it.name, unitsPerPack: it.unitsPerPack ?? null })) }));
   }
 
   // ─── Annulation d'un mouvement encore PENDING (LogisticTasksService.undoPickup) ──

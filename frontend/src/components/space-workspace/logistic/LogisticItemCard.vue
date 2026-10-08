@@ -58,7 +58,7 @@
            au stock attendu au-dessus — l'un dit ce qu'il y a, l'autre ce qu'il
            faudrait pour le match. Le netting « à ramener » reste au Réarmement. -->
       <div v-if="predictedNeed != null" class="lg-field-row lg-field-row-predicted">
-        <div class="lg-field-label">{{ t('logiColPredictedNeed') }}</div>
+        <div class="lg-field-label">{{ t(needSource === 'restock' ? 'logiColToDeposit' : 'logiColPredictedNeed') }}</div>
         <div class="lg-field-value">
           <template v-if="predictedNeedPacksDisplay != null">{{ predictedNeedPacksDisplay }}<span class="lg-field-unit">{{ localizedPackagingType ? pluralize(localizedPackagingType) : t('logiPacksShort') }}</span></template>
           <template v-else>{{ formatUnits(predictedNeed) }}<span v-if="item?.unit" class="lg-field-unit">{{ item.unit }}</span></template>
@@ -135,6 +135,9 @@ const props = defineProps({
    *  sur la ligne — retour utilisateur 2026-08-19 : ne pas ré-éclater par division
    *  quand ce nombre existe déjà, la décision réelle peut arrondir autrement. */
   predictedNeedPacks: { type: Number, default: null },
+  /** 'restock' : le chiffre vient de la feuille de réarmement, déjà déposé retiré
+   *  (« À déposer », demande Bertrand 2026-10-08) ; sinon prévision (« Besoin prédit »). */
+  needSource: { type: String, default: null },
   usedInLabel: { type: String, default: '' },
   /** 'bad' (rupture) | 'warn' (stock bas) | 'ok'. */
   status: { type: String, default: 'ok' },

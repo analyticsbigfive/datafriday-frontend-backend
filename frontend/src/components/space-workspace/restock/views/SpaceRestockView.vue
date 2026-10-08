@@ -1813,6 +1813,7 @@ import {
   planStockShopPercents,
 } from '@/utils/restockPlanSnapshot'
 import { useRestockPlans } from '@/composables/useRestockPlans'
+import { buildStorageRestockLines, storageRefillCoeffs, isStorageRestockLine } from '@/utils/storageRestockLines'
 import { useStorageInventory } from '@/composables/useStorageInventory'
 // Taxonomie builder2 (module de constantes pur) : 'Storage'/'storage_x'/code
 // département → 'storage'. Le blob de config v1 porte des types déjà en
@@ -2493,43 +2494,59 @@ export default {
       return out
     },
     /**
-     * Lignes de RÉAPPRO STORAGE prêtes pour la feuille de course : une par
-     * ligne avec nécessaire > 0, fournisseur résolu par la même cascade que le
-     * mode ingrédients (resolveIngredientSupplier). Consommé par nettedShopping.
+     * Lignes d'étape 2 des espaces de stockage (réassort du tampon, arrondi au
+     * colis), cf. utils/storageRestockLines.js : affichées et figées avec les
+     * lignes PDV, lues par la Ventilation de Logistic.
      */
-    storageRefillLines() {
-      const lines = []
-      this.storageRestockGroups.forEach((group) => {
-        group.rows.forEach((row) => {
-          if (!(row.required > 0)) return
-          const ref = findStockReference(
-            { itemId: row.menuItemId || undefined, itemName: row.name },
+    liveStorageRestockRows() {
+      return buildStorageRestockLines(this.storageRestockGroups, {
+        eventIds: this.selectedEvents.map((event) => event.id),
+        eventNames: this.selectedEvents.map((event) => this.eventLabel(event)),
+        packagingFor: (row, quantity) =>
+          computePackagingForQuantity(
+            { itemId: row.menuItemId || undefined, itemName: row.name, unit: row.unit },
+            quantity,
             this.ingredients,
             this.components,
             this.menuItems,
-          )
-          const isMenuItem = !!ref && this.menuItems.some((m) => m.id === ref.id)
-          const supplier = this.resolveIngredientSupplier({
-            itemType: isMenuItem ? 'MenuItem' : 'Ingredient',
-            supplierId: ref?.supplierId || ref?.supplier?.id || null,
-            marketPriceId: ref?.marketPriceId || ref?.marketPrice?.id || null,
-            sourceId: ref?.sourceId != null ? ref.sourceId : ref?.id || null,
-            key: ref?.id || null,
-          })
-          lines.push({
-            itemKey: row.key,
-            itemName: row.name,
-            unit: row.unit || ref?.unit || '',
-            itemId: row.menuItemId || (ref?.id != null ? String(ref.id) : null),
-            sourceId: ref?.sourceId != null ? String(ref.sourceId) : null,
-            storageRefill: row.required,
-            fromStorage: true,
-            storageName: group.elementName,
-            supplier,
-          })
-        })
+            this.marketPrices,
+          ),
       })
-      return lines
+    },
+    /**
+     * Lignes de RÉAPPRO STORAGE prêtes pour la feuille de course : une par
+     * ligne stockage de l'étape 2 (quantité déposée = quantité achetée pour le
+     * stockage), fournisseur résolu par la même cascade que le mode ingrédients
+     * (resolveIngredientSupplier). Consommé par nettedShopping.
+     */
+    storageRefillLines() {
+      return this.liveStorageRestockRows.map((row) => {
+        const ref = findStockReference(
+          { itemId: row.itemId || undefined, itemName: row.itemName },
+          this.ingredients,
+          this.components,
+          this.menuItems,
+        )
+        const isMenuItem = !!ref && this.menuItems.some((m) => m.id === ref.id)
+        const supplier = this.resolveIngredientSupplier({
+          itemType: isMenuItem ? 'MenuItem' : 'Ingredient',
+          supplierId: ref?.supplierId || ref?.supplier?.id || null,
+          marketPriceId: ref?.marketPriceId || ref?.marketPrice?.id || null,
+          sourceId: ref?.sourceId != null ? ref.sourceId : ref?.id || null,
+          key: ref?.id || null,
+        })
+        return {
+          itemKey: row.itemKey,
+          itemName: row.itemName,
+          unit: row.unit || ref?.unit || '',
+          itemId: row.itemId || (ref?.id != null ? String(ref.id) : null),
+          sourceId: ref?.sourceId != null ? String(ref.sourceId) : null,
+          storageRefill: row.restockQuantity,
+          fromStorage: true,
+          storageName: row.shopName,
+          supplier,
+        }
+      })
     },
     // ── fiche 314-01 — Item Supplier Name (onglet PDV à stocker) ─────────────
     /** Options Good Type/Category du drawer (mêmes stores que Market Prices —
@@ -2848,9 +2865,10 @@ export default {
     },
     /** Étape 2 affichable : lignes à déposer, hors articles exclus. */
     liveRestockRows() {
-      return this.liveRestockRowsAll.filter(
-        (row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey],
-      )
+      return this.liveRestockRowsAll
+        .filter((row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey])
+        // Réassort des stockages (partie 4 Ventilation), après les PDV.
+        .concat(this.liveStorageRestockRows)
     },
     /** Chantier 388 : lignes PDV vivantes groupées par article (drawer + « Mixte »). */
     stockShopRowsByItem() {
@@ -3092,7 +3110,9 @@ export default {
     shoppingSupplierGroups() {
       const supplierMap = new Map()
 
-      this.restockRows.forEach((row) => {
+      // Lignes stockage exclues : leur achat passe par le réassort injecté après
+      // netting (storageRefillLines), un seul chemin vers l'achat.
+      this.restockRows.filter((row) => !isStorageRestockLine(row)).forEach((row) => {
         const reference = findStockReference(
           row,
           this.ingredients,
@@ -3321,6 +3341,9 @@ export default {
       // l'alternative (refill sur le restant post-consommation du pool) est la
       // question no 54 de QUESTIONS_A_BERTRAND.
       const refills = this.storageRefillLines
+      // itemKey de ligne stockage → itemKey de l'article qui porte son réassort
+      // (figé en coefficients `refill`, cf. storageRefillCoeffs).
+      const refillTargets = {}
       if (refills.length) {
         const bySupplier = new Map(groups.map((g) => [g.supplierId, g]))
         refills.forEach((line) => {
@@ -3352,6 +3375,7 @@ export default {
             existing.storageRefill = (existing.storageRefill || 0) + line.storageRefill
             existing.fromStorage = true
             existing.packaging = this.packagingForItem(existing, existing.quantity)
+            refillTargets[line.itemKey] = existing.itemKey
           } else {
             const item = {
               itemKey: line.itemKey,
@@ -3367,18 +3391,20 @@ export default {
               storageOnHand: 0,
               storageRefill: line.storageRefill,
               fromStorage: true,
+              fromStorageOnly: true,
               shopNames: line.storageName ? [line.storageName] : [],
               packaging: null,
             }
             item.packaging = this.packagingForItem(item, item.quantity)
             group.items.push(item)
+            refillTargets[line.itemKey] = item.itemKey
           }
         })
         // Groupes ajoutés en fin de liste : on re-trie comme les groupes amont.
         groups.sort((a, b) => String(a.supplierName).localeCompare(String(b.supplierName)))
       }
 
-      return { groups, unmatchedStorage }
+      return { groups, unmatchedStorage, refillTargets }
     },
     /** Étape 3 — feuille de course nette VIVANTE. */
     liveShoppingGroups() {
@@ -3467,7 +3493,7 @@ export default {
       }
     },
     overviewMetrics() {
-      const shops = new Set(this.restockRows.map((row) => row.shopId)).size
+      const shops = new Set(this.restockRows.filter((row) => !isStorageRestockLine(row)).map((row) => row.shopId)).size
       return [
         {
           label: this.t('srMetricEvents'),
@@ -3990,7 +4016,10 @@ export default {
         stockRows: this.liveStockSettingsRows,
         restockRows,
         shoppingGroups: this.liveShoppingGroups,
-        recipeCoeffs: buildRecipeCoeffs({ restockRows, shoppingMode: this.shoppingMode, components }),
+        recipeCoeffs: {
+          ...buildRecipeCoeffs({ restockRows, shoppingMode: this.shoppingMode, components }),
+          ...storageRefillCoeffs(restockRows, this.nettedShopping.refillTargets),
+        },
         unmatchedStorage: this.nettedShopping.unmatchedStorage,
         inputs: {
           objectiveSource: this.objectiveSource,
@@ -4354,6 +4383,8 @@ export default {
     },
     /** Une ligne réarmement est-elle rattachée au menu assigné de son shop ? */
     restockRowAssigned(row) {
+      // Un stockage n'a pas de menu : son réassort n'est jamais « non rattaché ».
+      if (isStorageRestockLine(row)) return true
       const set =
         this.restockAssignmentByName instanceof Map
           ? this.restockAssignmentByName.get(normalizeStr(row.shopName))
