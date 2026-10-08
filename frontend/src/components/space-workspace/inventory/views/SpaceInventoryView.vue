@@ -583,6 +583,9 @@
                   :progress="progressForElement(entry)"
                   :counting-status="storageStatusFor(entry)"
                   :pin-access="pinAccess"
+                  :show-guest-pin="canManageGuestPin && !guestSession.isGuestMode"
+                  :guest-pin-space-id="route.params.spaceId ? String(route.params.spaceId) : null"
+                  :phase="guestPinPhase"
                   @start-count="startCount"
                   @error="showError"
                 />

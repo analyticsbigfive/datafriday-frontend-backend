@@ -96,6 +96,8 @@ describe('GuestPinAccessService : deux fenêtres ouvertes, le PIN désigne la fe
       configService as any,
       jwt as any,
       {} as any, // postEventDraft
+      {} as any, // spaceMenus
+      {} as any, // storageTypes
     );
   });
 
