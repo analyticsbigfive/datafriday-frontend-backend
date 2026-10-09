@@ -83,4 +83,44 @@ describe('ventilationSuppliers', () => {
       expect(idx.get('coca-cola original - can 33cl').map((s) => s.name)).toEqual(['France boisson Loire', 'France boissons IDF', 'Socodis'])
     })
   })
+
+  describe('filtre ligne par ligne (retour Bertrand 2026-10-09 : Coca Cherry sous IDF partout)', () => {
+    const plan = {
+      shoppingGroups: [
+        { supplierId: 'loire', supplierName: 'France boisson Loire', items: [{ itemName: 'Coca-Cola Cherry - CAN 33CL', shopNames: ['Erdre 4', 'Erdre 6'] }] },
+        { supplierId: 'idf', supplierName: 'France boissons IDF', items: [{ itemName: 'Coca-Cola Cherry - CAN 33CL', shopNames: ['Conteneur stockage Océanne'] }] },
+      ],
+    }
+    const idx = buildSupplierIndex(plan, [])
+    const group = {
+      itemName: 'Coca-Cola Cherry - CAN 33CL',
+      rows: [
+        { shopName: 'Erdre 4', quantity: 96, packs: 4 },
+        { shopName: 'Erdre 6', quantity: 72, packs: 3 },
+        { shopName: 'Conteneur stockage Océanne', elementType: 'storage', quantity: 4488, packs: 187 },
+      ],
+      totalQuantity: 4656,
+      totalPacks: 194,
+    }
+
+    it('sous un fournisseur, seules ses destinations, totaux recalculés', () => {
+      const [idf] = filterGroupsBySupplier([group], idx, ['idf'])
+      expect(idf.rows.map((r) => r.shopName)).toEqual(['Conteneur stockage Océanne'])
+      expect(idf.totalPacks).toBe(187)
+      const [loire] = filterGroupsBySupplier([group], idx, ['loire'])
+      expect(loire.rows.map((r) => r.shopName)).toEqual(['Erdre 4', 'Erdre 6'])
+      expect(loire.totalQuantity).toBe(168)
+      expect(loire.totalPacks).toBe(7)
+    })
+
+    it('les deux fournisseurs choisis : le groupe entier, inchangé', () => {
+      expect(filterGroupsBySupplier([group], idx, ['idf', 'loire'])[0]).toBe(group)
+    })
+
+    it('destination absente des achats : tous les fournisseurs de l’article', () => {
+      const other = { ...group, rows: [{ shopName: 'Prési 1', quantity: 24, packs: 1 }] }
+      expect(filterGroupsBySupplier([other], idx, ['idf'])).toHaveLength(1)
+      expect(filterGroupsBySupplier([other], idx, ['loire'])).toHaveLength(1)
+    })
+  })
 })
