@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { ElementRef } from '../logistics.types';
 import { canAdoptStockLevelByName } from '../stock-level-identity';
+import { escapeLikePattern } from '../../../shared/utils/like-pattern';
 
 /**
  * Identité d'un article de stock (ADR-0006), conditionnement et application d'un delta à un niveau.
@@ -152,7 +153,7 @@ export class StockItemIdentityService {
     const result = new Map<string, number | null>();
     if (!names.length) return result;
     const insensitive = <F extends string>(field: F) =>
-      names.map((n) => ({ [field]: { equals: n, mode: 'insensitive' as const } }));
+      names.map((n) => ({ [field]: { equals: escapeLikePattern(n), mode: 'insensitive' as const } }));
     const [marketPrices, components, menuItems] = await Promise.all([
       this.prisma.marketPrice.findMany({
         where: { tenantId, deletedAt: null, OR: insensitive('itemName') },
@@ -170,21 +171,11 @@ export class StockItemIdentityService {
         orderBy: { createdAt: 'asc' },
       }),
     ]);
-    // Plus ancienne ligne correspondant au nom. Prisma traduit `equals` insensible à la casse en
-    // ILIKE, où `%` et `_` sont des jokers (ex. « Heineken 0% 33cl » correspond à « Heineken 0%
-    // - CAN 33CL ») : on reproduit exactement cette correspondance pour ne rien changer aux
-    // résultats. Les rows arrivent déjà triées par createdAt croissant.
+    // Plus ancienne ligne correspondant au nom (égalité insensible à la casse, jokers ILIKE
+    // échappés). Les rows arrivent déjà triées par createdAt croissant.
     const matcher = (name: string) => {
-      if (!/[%_]/.test(name)) {
-        const lower = name.toLowerCase();
-        return (value: string) => value.toLowerCase() === lower;
-      }
-      const pattern = name
-        .split('')
-        .map((ch) => (ch === '%' ? '.*' : ch === '_' ? '.' : ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
-        .join('');
-      const re = new RegExp(`^${pattern}$`, 'is');
-      return (value: string) => re.test(value);
+      const lower = name.toLowerCase();
+      return (value: string) => value.toLowerCase() === lower;
     };
     for (const name of names) {
       const matches = matcher(name);

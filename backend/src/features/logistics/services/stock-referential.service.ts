@@ -4,6 +4,7 @@ import { SpaceAccessService } from '../../../core/auth/space-access.service';
 import { LogisticsElementScopeService } from './logistics-element-scope.service';
 import { RecipeExplosionService } from './recipe-explosion.service';
 import { SHOP_TYPES, ElementItem } from '../logistics.types';
+import { escapeLikePattern } from '../../../shared/utils/like-pattern';
 
 /**
  * Référentiel d'articles de stock par élément d'un espace.
@@ -261,7 +262,10 @@ export class StockReferentialService {
       where: {
         tenantId,
         deletedAt: null,
-        OR: [{ itemName: { equals: name, mode: 'insensitive' } }, { itemName: { contains: name, mode: 'insensitive' } }],
+        OR: [
+          { itemName: { equals: escapeLikePattern(name), mode: 'insensitive' } },
+          { itemName: { contains: escapeLikePattern(name), mode: 'insensitive' } },
+        ],
       },
       select,
       take: 20,
