@@ -9,6 +9,7 @@ import { RecipeExplosionService } from './recipe-explosion.service';
 import { StockItemIdentityService } from './stock-item-identity.service';
 import { StockReferentialService } from './stock-referential.service';
 import { SalesRawRow, SHOP_TYPES } from '../logistics.types';
+import { collectOrphanLevels } from './orphan-stock-levels';
 
 /**
  * Niveaux de stock et consommation dérivée des ventes (vue stock, inventaire live, attendus).
@@ -237,20 +238,9 @@ export class StockLevelService {
       { aggregateAllConfigs, stockElementIds },
     );
 
-    // Un mouvement (ex. transfert) peut viser un élément qui ne vend pas cette
-    // denrée sur son propre menu (référentiel vide pour cet itemKey) — le niveau
-    // existe quand même en base. Sans ce filet, ce stock devient invisible côté
-    // élément receveur/donneur (« le produit a disparu ») alors qu'il est bien là.
-    // On complète chaque élément avec les niveaux orphelins, en ligne minimale.
-    const orphanEntries: Array<{ el: any; level: any }> = [];
-    for (const el of elementsWithItems) {
-      const known = new Set(el.items.map((it) => it.name));
-      for (const level of levels) {
-        if (level.elementId !== el.id || known.has(level.itemKey)) continue;
-        orphanEntries.push({ el, level });
-        known.add(level.itemKey);
-      }
-    }
+    // Chaque élément est complété par ses niveaux orphelins non vides, en ligne
+    // minimale (cf. collectOrphanLevels).
+    const orphanEntries = collectOrphanLevels(elementsWithItems, levels);
     // BUG-133-02 : marketPriceId est déjà connu sur le niveau (posé par le
     // mouvement qui l'a créé) — résolution groupée du packagingType, bornée aux
     // seuls ids réellement référencés par ces niveaux orphelins (jamais tout le
