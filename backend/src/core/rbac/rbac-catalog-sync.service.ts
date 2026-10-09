@@ -35,7 +35,9 @@ export class RbacCatalogSyncService implements OnApplicationBootstrap {
         // qui bootent en parallèle (web + worker) dupliqueraient des codes.
         await lockRbacCatalogSync(tx);
         await ensureSystemPermissionCatalog(tx);
-      }));
+        // Marge au-delà des 5 s par défaut : base distante (Supabase) et verrou éventuellement
+        // tenu par l'autre process qui démarre en même temps (API et worker).
+      }, { timeout: 30_000, maxWait: 10_000 }));
       this.logger.log('Catalogue de permissions système synchronisé');
     } catch (e) {
       // Un échec de sync ne doit pas empêcher le boot : le catalogue sera repris
