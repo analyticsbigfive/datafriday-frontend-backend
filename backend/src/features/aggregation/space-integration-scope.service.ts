@@ -7,7 +7,7 @@ import { PrismaService } from '../../core/database/prisma.service';
  * doivent respecter : une transaction d'une intégration mappée à un autre espace n'a rien à
  * faire dans les agrégats de celui-ci, quel que soit le mode de fenêtre.
  *
- * Le lecteur (`SpacesService.resolveEventSalesScope`) applique déjà cette liste ; jusqu'ici le
+ * Le lecteur (`SpaceEventTimelineService.resolveEventSalesScope`) applique déjà cette liste ; jusqu'ici le
  * writer ne connaissait que l'intégration DU JOB, optionnelle. Un job sans integrationId en
  * mode `range` ramenait donc toutes les ventes du tenant tombant dans la fenêtre jour de
  * l'event (Le Mans-Brest 22/08 : + 46 k€ de FC Nantes Digifood, rollup 112 k€ au lieu de 66 k€).

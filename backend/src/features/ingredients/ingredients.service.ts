@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
+import { TenantListCache } from '../../shared/cache/tenant-list-cache';
 
 @Injectable()
 export class IngredientsService {
@@ -11,18 +12,7 @@ export class IngredientsService {
     private redis: RedisService,
   ) {}
 
-  private cacheKey(tenantId: string, suffix = 'list') {
-    return `ingredients:${tenantId}:${suffix}`;
-  }
-
-  private async invalidateCache(tenantId: string) {
-    // `deletePattern` préfixe déjà avec `datafriday:` en interne (RedisService.buildKey) — le
-    // remettre ici double-préfixait le pattern (`datafriday:datafriday:...`), qui ne matchait
-    // donc jamais aucune clé réelle : le cache liste n'était en réalité jamais invalidé après
-    // create/update/delete. Même bug que menu-components.service.ts, trouvé le 2026-08-14 en
-    // creusant pourquoi la liste de composants ne se rafraîchissait pas après suppression.
-    await this.redis.deletePattern(`ingredients:${tenantId}:*`);
-  }
+  private readonly listCache = new TenantListCache(this.redis, 'ingredients');
 
   // `MarketPrice.image` peut contenir du base64 (cf. DTOs) — jamais affiché depuis
   // cette liste, on l'omet pour éviter de gonfler la réponse.
@@ -56,7 +46,7 @@ export class IngredientsService {
           active: dto.active ?? true,
         },
       });
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return result;
     } catch (error) {
       this.logger.error(`Failed to create ingredient: ${error.message}`, error.stack);
@@ -73,7 +63,7 @@ export class IngredientsService {
   async findAll(tenantId: string, page = 1, limit = 100) {
     this.logger.log(`Fetching ingredients for tenant ${tenantId} (page=${page}, limit=${limit})`);
     try {
-      const cacheKey = this.cacheKey(tenantId, `list:${page}:${limit}`);
+      const cacheKey = this.listCache.key(tenantId, `list:${page}:${limit}`);
       return this.redis.getOrSet(cacheKey, async () => {
         const skip = (page - 1) * limit;
         const [data, total] = await Promise.all([
@@ -157,7 +147,7 @@ export class IngredientsService {
         include: { marketPrice: true },
       });
       this.logger.log(`Ingredient ${id} updated`);
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return result;
     } catch (error) {
       this.logger.error(`Failed to update ingredient ${id}: ${error.message}`, error.stack);
@@ -180,7 +170,7 @@ export class IngredientsService {
         data: { deletedAt: new Date() },
       });
       this.logger.log(`Ingredient ${id} soft-deleted`);
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete ingredient ${id}: ${error.message}`, error.stack);

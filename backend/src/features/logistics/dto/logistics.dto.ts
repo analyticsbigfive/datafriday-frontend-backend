@@ -18,7 +18,7 @@ import {
  * Raisons exposées à l'API pour un mouvement MANUEL. `SALE` et `INVENTORY_RESET`
  * sont réservés au serveur (dérivation ventes / reset) et refusés ici.
  */
-export const MANUAL_MOVEMENT_REASONS = [
+const MANUAL_MOVEMENT_REASONS = [
   'DELIVERY',
   'TRANSFER_SHOP',
   'TRANSFER_STORAGE',

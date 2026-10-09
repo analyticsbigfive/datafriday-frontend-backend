@@ -4,7 +4,9 @@ import { IsString, IsNotEmpty, IsOptional, IsNumber, Min, IsBoolean, IsIn } from
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
-import { HrService, HR_PERSON_CONTRACTS } from './hr.service';
+import { HR_PERSON_CONTRACTS } from './hr.constants';
+import { HrPersonsFindAllQueryDto } from './dto/hr-persons.query.dto';
+import { HrPersonService } from './services/hr-person.service';
 
 class CreateHrPersonDto {
   @IsString()
@@ -40,7 +42,7 @@ class UpdateHrPersonDto extends PartialType(CreateHrPersonDto) {}
 @RequirePermissions('menu.hr.manage')
 @Controller('hr/persons')
 export class HrPersonsController {
-  constructor(private readonly service: HrService) {}
+  constructor(private readonly hrPersonService: HrPersonService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lister les personnes internes (dropdown « Nom » des lignes staff)' })
@@ -48,27 +50,27 @@ export class HrPersonsController {
   @ApiQuery({ name: 'contractType', required: false, enum: HR_PERSON_CONTRACTS as unknown as string[] })
   findAll(
     @CurrentTenant() tenantId: string,
-    @Query('roleId') roleId?: string,
-    @Query('contractType') contractType?: string,
+    @Query() params: HrPersonsFindAllQueryDto,
   ) {
-    return this.service.findAllPersons(tenantId, { roleId, contractType });
+    const { roleId, contractType } = params;
+    return this.hrPersonService.findAllPersons(tenantId, { roleId, contractType });
   }
 
   @Post()
   @ApiOperation({ summary: 'Créer une personne interne (CDI/CDD)' })
   create(@Body() dto: CreateHrPersonDto, @CurrentTenant() tenantId: string) {
-    return this.service.createPerson(dto as any, tenantId);
+    return this.hrPersonService.createPerson(dto as any, tenantId);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour une personne interne' })
   update(@Param('id') id: string, @Body() dto: UpdateHrPersonDto, @CurrentTenant() tenantId: string) {
-    return this.service.updatePerson(id, dto, tenantId);
+    return this.hrPersonService.updatePerson(id, dto, tenantId);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer une personne interne' })
   remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.service.removePerson(id, tenantId);
+    return this.hrPersonService.removePerson(id, tenantId);
   }
 }

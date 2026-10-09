@@ -20,6 +20,7 @@ import { CreateMarketPriceTypeDto } from './dto/create-market-price-type.dto';
 import { UpdateMarketPriceTypeDto } from './dto/update-market-price-type.dto';
 import { CreateMarketPriceCategoryDto } from './dto/create-market-price-category.dto';
 import { UpdateMarketPriceCategoryDto } from './dto/update-market-price-category.dto';
+import { MarketPriceTypesFindAllQueryDto, MarketPriceCategoriesFindAllQueryDto } from './dto/market-price-taxonomy.query.dto';
 
 @ApiTags('Market Price Types')
 @ApiBearerAuth('supabase-jwt')
@@ -39,10 +40,9 @@ export class MarketPriceTypesController {
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
+    @Query() params: MarketPriceTypesFindAllQueryDto,
   ) {
+    const { page, limit, search } = params;
     this.logger.log(`GET /market-price-types - User: ${user?.id}`);
     return this.taxonomyService.getTypes(tenantId, page ? +page : 1, limit ? +limit : 200, search);
   }
@@ -99,13 +99,11 @@ export class MarketPriceCategoriesController {
   @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre par nom (contains, insensible à la casse)' })
   @ApiResponse({ status: 200, description: 'Liste paginée des Market Price Categories' })
   findAll(
-    @Query('typeId') typeId: string,
+    @Query() params: MarketPriceCategoriesFindAllQueryDto,
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
   ) {
+    const { typeId, page, limit, search } = params;
     this.logger.log(`GET /market-price-categories - User: ${user?.id}`);
     return this.taxonomyService.getCategories(tenantId, typeId, page ? +page : 1, limit ? +limit : 200, search);
   }

@@ -23,24 +23,24 @@ import { Injectable } from '@nestjs/common';
  */
 
 // ── Constantes nommées (aucune valeur métier en dur ailleurs) — Q1–Q7 spec §7 ──
-export const TPE_PAR_METRE = 0.7;
-export const BURGERS_PER_COMMIS_BATCH = 200; // CEIL(nbBurgers/200)·2 commis
-export const COMMIS_PER_BURGER_BATCH = 2;
-export const HOTDOGS_PER_EPR_BATCH = 200; // FLOOR(nbHotdogs/200) EPR
-export const TX_RATE_BASIS = 'PEAK' as const; // Q1 : cadence appliquée au pic
-export const EXTRA_POS_MODE = 'WARNING' as const; // Q2 : POS supplémentaire = warning, pas de caissier auto
-export const BEVERAGE_RUNNER_MODE = 'MAX' as const; // Q3 : runners = MAX(runners, tireuses)
-export const DINETTE_CASHIER_INCLUDED = true; // Q4 : caissier de dinette couvert par le calcul caissiers
+const TPE_PAR_METRE = 0.7;
+const BURGERS_PER_COMMIS_BATCH = 200; // CEIL(nbBurgers/200)·2 commis
+const COMMIS_PER_BURGER_BATCH = 2;
+const HOTDOGS_PER_EPR_BATCH = 200; // FLOOR(nbHotdogs/200) EPR
+// Q1 : cadence de transactions appliquée au pic (PEAK).
+const EXTRA_POS_MODE = 'WARNING' as const; // Q2 : POS supplémentaire = warning, pas de caissier auto
+const BEVERAGE_RUNNER_MODE = 'MAX' as const; // Q3 : runners = MAX(runners, tireuses)
+// Q4 : caissier de dinette couvert par le calcul caissiers.
 // Q5 : commis inter-stands mutualisés — NON TRAITÉ (TODO visible, cf. rapport final)
 export const DAILY_HOURS = 8; // Q6 : conversion Daily → horaire
 export const MONTHLY_HOURS = 151.67; // Q6 : conversion Monthly → horaire
-export const PRODUCTIVITY_UNDERSTAFF_THRESHOLD = 2500; // > 2500 €/pers → SOUS_EFFECTIF
-export const PRODUCTIVITY_OVERSTAFF_THRESHOLD = 1000; // < 1000 €/pers → SUREFFECTIF
+const PRODUCTIVITY_UNDERSTAFF_THRESHOLD = 2500; // > 2500 €/pers → SOUS_EFFECTIF
+const PRODUCTIVITY_OVERSTAFF_THRESHOLD = 1000; // < 1000 €/pers → SUREFFECTIF
 export const DEFAULT_TX_PAR_SECONDE = 30; // capacité type : 30 | 60
 export const DEFAULT_OFFSET_OPEN_MINUTES = -120; // horaires suggérés : ouverture des portes − 2 h
 export const DEFAULT_OFFSET_CLOSE_MINUTES = 60; // heure de fin + 1 h (Bertrand 2026-09-17, était + 2 h)
 
-export const ALGO_KEYS = [
+const ALGO_KEYS = [
   'RESPONSABLE_ZONE',
   'RESPONSABLE_PDV',
   'CAISSIER',

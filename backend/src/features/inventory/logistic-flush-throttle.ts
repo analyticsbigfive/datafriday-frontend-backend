@@ -30,7 +30,7 @@ export class LogisticFlushThrottle {
       this.run(key).catch(() => undefined);
     }, wait);
     // Ne retient pas le processus à l'arrêt (le cron rattrape).
-    (timer as any).unref?.();
+    (timer as { unref?: () => void }).unref?.();
     this.timers.set(key, timer);
   }
 

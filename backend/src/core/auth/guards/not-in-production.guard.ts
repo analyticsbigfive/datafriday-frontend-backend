@@ -1,4 +1,5 @@
 import { Injectable, CanActivate, ForbiddenException } from '@nestjs/common';
+import { AppConfigService } from '../../../config/app-config.service';
 
 /**
  * Bloque un endpoint QA-only (ex. simulation de vente Live) en production.
@@ -10,8 +11,10 @@ import { Injectable, CanActivate, ForbiddenException } from '@nestjs/common';
  */
 @Injectable()
 export class NotInProductionGuard implements CanActivate {
+  constructor(private readonly appConfig: AppConfigService) {}
+
   canActivate(): boolean {
-    if (process.env.NODE_ENV === 'production') {
+    if (this.appConfig.isProduction) {
       throw new ForbiddenException('Outil QA désactivé en production.');
     }
     return true;

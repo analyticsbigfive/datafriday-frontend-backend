@@ -524,13 +524,6 @@ export async function deleteMenuComponent(id) {
   });
 }
 
-export async function repairMenuComponents() {
-  const result = await apiFetch('/menu-components/repair', {
-    method: 'POST',
-  });
-  return result;
-}
-
 // ===== MENU ITEMS =====
 export async function getAllMenuItems() {
   try {

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventSyncService } from './weezevent-sync.service';
 import { LiveEventWindowService } from './live/live-event-window.service';
@@ -100,7 +100,7 @@ export class WebhookEventHandler {
         const transactionId = (payload.id ?? payload.values?.id ?? payload.data?.id)?.toString();
 
         if (!transactionId) {
-            throw new Error('Transaction ID not found in webhook payload');
+            throw new BadRequestException('Transaction ID not found in webhook payload');
         }
 
         this.logger.log(
@@ -169,6 +169,7 @@ export class WebhookEventHandler {
                 (e) => e.tenantId === tenantId && (e.integrationId === integrationId || !e.integrationId),
             );
             for (const group of LiveEventWindowService.groupBySpaceAndIntegration(events)) {
+                // eslint-disable-next-line no-await-in-loop -- quelques groupes live, mise en file une par une
                 await this.liveTrigger.queueMinuteAggregation(group, 'webhook-live');
             }
         } catch (error) {
@@ -214,7 +215,7 @@ export class WebhookEventHandler {
         const eventId = (payload.values?.event_id ?? payload.data?.event_id)?.toString();
 
         if (!orderId || !eventId) {
-            throw new Error('Order ID or Event ID not found in webhook payload');
+            throw new BadRequestException('Order ID or Event ID not found in webhook payload');
         }
 
         this.logger.log(`Handling order ${method} for ID: ${orderId}`);
@@ -239,7 +240,7 @@ export class WebhookEventHandler {
         const productId = (payload.id ?? payload.data?.id)?.toString();
 
         if (!productId) {
-            throw new Error('Product ID not found in webhook payload');
+            throw new BadRequestException('Product ID not found in webhook payload');
         }
 
         this.logger.log(`Handling product ${method} for ID: ${productId}`);

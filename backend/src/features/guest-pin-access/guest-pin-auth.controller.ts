@@ -15,11 +15,12 @@ import { Public } from '../../core/auth/decorators/public.decorator';
 import { JwtGuestPinGuard } from '../../core/auth/guards/jwt-guest-pin.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import type { GuestPinUser } from '../../core/auth/strategies/jwt-guest-pin.strategy';
-import { GuestPinAccessService } from './guest-pin-access.service';
 import { LoginPinDto } from './dto/login-pin.dto';
 import { SaveGuestCountDto } from './dto/save-guest-count.dto';
 import { GuestVentilationDepositDto } from './dto/ventilation.dto';
 import { VentilationAccessService } from './ventilation-access.service';
+import { GuestPinCountingService } from './services/guest-pin-counting.service';
+import { GuestPinSessionService } from './services/guest-pin-session.service';
 
 /**
  * Surface invité (managers de PDV sans compte). @Public() neutralise les guards
@@ -35,7 +36,8 @@ import { VentilationAccessService } from './ventilation-access.service';
 @Public()
 export class GuestPinAuthController {
   constructor(
-    private readonly service: GuestPinAccessService,
+    private readonly guestPinCountingService: GuestPinCountingService,
+    private readonly guestPinSessionService: GuestPinSessionService,
     private readonly ventilation: VentilationAccessService,
   ) {}
 
@@ -45,7 +47,7 @@ export class GuestPinAuthController {
     // QR « Ventilation » d'un espace (slug préfixé, jamais celui d'un élément).
     const space = await this.ventilation.findSpaceBySlug(slug);
     if (space) return this.ventilation.getPublicContext(space);
-    return this.service.getPublicContext(slug);
+    return this.guestPinSessionService.getPublicContext(slug);
   }
 
   @Post('login/:slug')
@@ -59,7 +61,7 @@ export class GuestPinAuthController {
   ) {
     const space = await this.ventilation.findSpaceBySlug(slug);
     if (space) return this.ventilation.login(space, dto.pin, deviceId, ip);
-    return this.service.login(dto.pin, deviceId, ip, slug);
+    return this.guestPinSessionService.login(dto.pin, deviceId, ip, slug);
   }
 
   @Get('ventilation')
@@ -101,7 +103,7 @@ export class GuestPinAuthController {
   @ApiBearerAuth('guest-pin-jwt')
   @ApiOperation({ summary: 'État courant de la session invité (réhydratation après refresh)' })
   async session(@CurrentUser() user: GuestPinUser) {
-    return this.service.getSession(user);
+    return this.guestPinSessionService.getSession(user);
   }
 
   @Get('catalog')
@@ -109,7 +111,7 @@ export class GuestPinAuthController {
   @ApiBearerAuth('guest-pin-jwt')
   @ApiOperation({ summary: "Catalogue brut du PDV de l'invité (mêmes données que le staff, explosées côté client par buildConsolidatedInventory)" })
   async catalog(@CurrentUser() user: GuestPinUser) {
-    return this.service.getCatalog(user);
+    return this.guestPinCountingService.getCatalog(user);
   }
 
   @Get('inventory')
@@ -117,7 +119,7 @@ export class GuestPinAuthController {
   @ApiBearerAuth('guest-pin-jwt')
   @ApiOperation({ summary: "Comptages déjà sauvegardés pour le PDV de l'invité" })
   async inventory(@CurrentUser() user: GuestPinUser) {
-    return this.service.getInventory(user);
+    return this.guestPinCountingService.getInventory(user);
   }
 
   @Post('inventory/counts')
@@ -126,7 +128,7 @@ export class GuestPinAuthController {
   @ApiBearerAuth('guest-pin-jwt')
   @ApiOperation({ summary: 'Sauvegarde un comptage pour le PDV de l\'invité' })
   async saveCount(@CurrentUser() user: GuestPinUser, @Body() dto: SaveGuestCountDto) {
-    return this.service.saveCount(user, dto);
+    return this.guestPinCountingService.saveCount(user, dto);
   }
 
   @Post('element-complete')
@@ -135,7 +137,7 @@ export class GuestPinAuthController {
   @ApiBearerAuth('guest-pin-jwt')
   @ApiOperation({ summary: "Tous les articles du PDV sont comptés : régénère la feuille pre-event et recale la Logistique" })
   async elementComplete(@CurrentUser() user: GuestPinUser) {
-    return this.service.notifyElementComplete(user);
+    return this.guestPinCountingService.notifyElementComplete(user);
   }
 
   @Post('submit')
@@ -144,6 +146,6 @@ export class GuestPinAuthController {
   @ApiBearerAuth('guest-pin-jwt')
   @ApiOperation({ summary: '"J\'ai terminé" — gèle ce PDV (lecture seule), sans clôturer la fenêtre' })
   async submit(@CurrentUser() user: GuestPinUser) {
-    return this.service.submitCount(user);
+    return this.guestPinCountingService.submitCount(user);
   }
 }

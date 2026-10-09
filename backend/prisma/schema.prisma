@@ -1,8 +1,8 @@
 // Datasource Supabase Postgres
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
+  directUrl         = env("DIRECT_URL")
   // `prisma migrate dev` a besoin de recréer l'historique complet des migrations sur une
   // base vide pour le valider. Sans ceci, Prisma tente de le faire sur DATABASE_URL/DIRECT_URL
   // (le pooler Supabase), qui bloque indéfiniment. Base locale dédiée — cf. 2026-09-07,
@@ -213,7 +213,6 @@ model Tenant {
   weezeventAttendees       WeezeventAttendee[]
   integrations             Integration[]
 
-  @@index([slug])
   @@index([status])
   @@index([weezeventEnabled])
   @@index([weezeventWebhookEnabled])
@@ -263,9 +262,8 @@ model Integration {
   syncJobs          WeezeventSyncJob[]
   csvImportRuns     DigifoodCsvImportRun[]
   // BUG-368-02 : Event DataFriday déclarant explicitement cette intégration comme sa source.
-  dfEvents          Event[]                  @relation("EventIntegration")
+  dfEvents          Event[]                   @relation("EventIntegration")
 
-  @@index([tenantId])
   @@index([tenantId, enabled])
   @@index([tenantId, provider, enabled])
   @@map("WeezeventIntegration")
@@ -315,16 +313,16 @@ enum TenantStatus {
 // ==================== USER & AUTH ====================
 
 model User {
-  id        String  @id @default(cuid())
-  email     String
-  firstName String
-  lastName  String
-  fullName  String?
-  phone     String? // Téléphone de contact (optionnel), réutilisé comme numéro WhatsApp
+  id             String  @id @default(cuid())
+  email          String
+  firstName      String
+  lastName       String
+  fullName       String?
+  phone          String? // Téléphone de contact (optionnel), réutilisé comme numéro WhatsApp
   // Opt-in notifications WhatsApp (décision Bertrand 08/2026, option pour les logisticiens).
   // Terrain préparé, aucun envoi réel : pas de fournisseur (Twilio/Meta Cloud API) branché
   // encore, ce flag ne fait rien tant que ce chantier n'est pas repris.
-  notifyWhatsapp  Boolean  @default(false)
+  notifyWhatsapp Boolean @default(false)
 
   role            UserRole @default(VIEWER) // Legacy - conservé pour compatibilité, voir roleRef
   roleId          String? // RBAC dynamique - FK vers Role (nullable pendant la transition)
@@ -350,7 +348,6 @@ model User {
 
   @@unique([email, tenantId])
   @@index([tenantId])
-  @@index([email])
   @@index([roleId])
 }
 
@@ -370,7 +367,6 @@ model UserTenant {
   roleRef Role?  @relation(fields: [roleId], references: [id], onDelete: SetNull)
 
   @@unique([userId, tenantId])
-  @@index([userId])
   @@index([tenantId])
   @@index([isOwner])
   @@index([roleId])
@@ -386,7 +382,7 @@ model UserPinnedSpace {
   space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@unique([userId, spaceId])
-  @@index([userId])
+  @@index([spaceId])
 }
 
 model UserSpaceAccess {
@@ -400,7 +396,6 @@ model UserSpaceAccess {
   space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@unique([userId, spaceId])
-  @@index([userId])
   @@index([spaceId])
 }
 
@@ -431,7 +426,6 @@ model Permission {
   roles  RolePermission[]
 
   @@unique([tenantId, code])
-  @@index([tenantId])
   @@index([scope])
 }
 
@@ -454,7 +448,6 @@ model Role {
   userTenants UserTenant[]
 
   @@unique([tenantId, name])
-  @@index([tenantId])
   @@index([systemKey])
 }
 
@@ -577,7 +570,6 @@ model HrGoalSpace {
   space Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@id([goalId, spaceId])
-  @@index([goalId])
   @@index([spaceId])
 }
 
@@ -603,7 +595,6 @@ model HrStaffRatioSpace {
   space Space        @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@id([ratioId, spaceId])
-  @@index([ratioId])
   @@index([spaceId])
 }
 
@@ -642,7 +633,6 @@ model SeasonSpace {
   space  Space  @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@id([seasonId, spaceId])
-  @@index([seasonId])
   @@index([spaceId])
 }
 
@@ -673,7 +663,6 @@ model HrSupplier {
   staffLines    EventStaffLine[]
 
   @@unique([tenantId, name])
-  @@index([tenantId])
 }
 
 /// Rôle RH (= « position ») — slide 4. Migre staff_positions du localStorage.
@@ -699,7 +688,6 @@ model HrRole {
   menuItemRatios HrRoleMenuItemRatio[]
 
   @@unique([tenantId, name])
-  @@index([tenantId])
 }
 
 model HrRoleSupplier {
@@ -710,7 +698,6 @@ model HrRoleSupplier {
   supplier HrSupplier @relation(fields: [supplierId], references: [id], onDelete: Cascade)
 
   @@id([roleId, supplierId])
-  @@index([roleId])
   @@index([supplierId])
 }
 
@@ -731,6 +718,7 @@ model HrPerson {
   staffLines EventStaffLine[]
 
   @@index([tenantId, roleId])
+  @@index([roleId])
 }
 
 /// Agence par défaut d'un espace pour un rôle donné (présélection fournisseur, slide 3).
@@ -782,6 +770,8 @@ model EventStaffLine {
   @@index([tenantId])
   @@index([roleId])
   @@index([elementId])
+  @@index([supplierId])
+  @@index([personId])
 }
 
 /// Règle « Sinking RH » (STF-2, 2026-07-30) — force un quota minimal d'un rôle
@@ -803,7 +793,6 @@ model HrSinkingRule {
   role HrRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, roleId, fnbCategory, conditionAttribute])
-  @@index([tenantId])
   @@index([roleId])
 }
 
@@ -889,7 +878,6 @@ model Zone {
 
   // Un seul étage par niveau et par espace (et un seul parvis / une seule zone externe).
   @@unique([spaceId, kind, level])
-  @@index([spaceId])
 }
 
 // Adhésion élément ↔ configuration : cocher = INSERT, décocher = DELETE,
@@ -929,7 +917,7 @@ model Floor {
 // Polymorphic: belongs to either a Floor or a Forecourt (one must be set)
 
 model SpaceElement {
-  id String @id @default(cuid())
+  id              String  @id @default(cuid())
   // Identifiant stable et opaque pour les URLs publiques d'accès invité PIN
   // (/login/pin/:slug/:phase). Généré à la création (slugify(name) + suffixe si collision),
   // jamais recalculé au renommage — un lien/QR déjà imprimé doit rester valable.
@@ -997,10 +985,7 @@ model SpaceElement {
   eventStaffLines       EventStaffLine[]
   menuItemSalesInputs   ElementMenuItemSalesInput[]
 
-  @@index([floorId])
-  @@index([forecourtId])
   @@index([externalMerchId])
-  @@index([zoneId])
   @@index([type])
   @@index([floorId, type]) // Composite: shop queries filter by floor + type
   @@index([forecourtId, type]) // Composite: shop queries filter by forecourt + type
@@ -1031,7 +1016,6 @@ model ElementPerformance {
   config  Config?      @relation(fields: [configId], references: [id], onDelete: Cascade)
 
   @@unique([elementId, configId])
-  @@index([elementId])
   @@index([configId])
 }
 
@@ -1087,8 +1071,8 @@ model ElementMenuItemSalesInput {
 
   @@unique([elementId, configId, menuItemId])
   @@index([tenantId])
-  @@index([elementId, configId])
   @@index([menuItemId])
+  @@index([configId])
 }
 
 // ==================== ELEMENT INVENTORY ====================
@@ -1289,7 +1273,6 @@ model SalesEvent {
   events       Event[]             @relation("EventWeezeventEvent")
 
   @@unique([tenantId, integrationId, externalId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([externalId])
   @@index([startDate])
@@ -1325,7 +1308,6 @@ model WeezeventMerchant {
   transactions SalesTransaction[]
 
   @@unique([tenantId, integrationId, weezeventId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([weezeventId])
 }
@@ -1360,7 +1342,6 @@ model SalesLocation {
   transactions SalesTransaction[]
 
   @@unique([tenantId, integrationId, externalId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([externalId])
   @@index([eventId])
@@ -1410,7 +1391,6 @@ model SalesProduct {
   prices            WeezeventPrice[]
 
   @@unique([tenantId, integrationId, externalId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([externalId])
   @@index([nature])
@@ -1456,10 +1436,10 @@ model WeezeventUser {
   wallet      WeezeventWallet? @relation(fields: [walletId], references: [id])
 
   @@unique([tenantId, integrationId, weezeventId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([weezeventId])
   @@index([email])
+  @@index([walletId])
 }
 
 model WeezeventWallet {
@@ -1495,7 +1475,6 @@ model WeezeventWallet {
   sellerTransactions SalesTransaction[] @relation("SellerWallet")
 
   @@unique([tenantId, integrationId, weezeventId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([weezeventId])
   @@index([userId])
@@ -1548,10 +1527,8 @@ model SalesTransaction {
   items        SalesTransactionItem[]
 
   @@unique([tenantId, integrationId, externalId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([externalId])
-  @@index([eventId])
   @@index([merchantId])
   @@index([locationId])
   @@index([status])
@@ -1570,7 +1547,6 @@ model SalesTransaction {
   // jamais reportés ici — un `prisma migrate dev` les aurait silencieusement droppés).
   // map: obligatoire sur le premier — Postgres a tronqué le nom à 63 caractères à la création.
   @@index([tenantId, integrationId, status, transactionDate], map: "WeezeventTransaction_tenantId_integrationId_status_transactionD") // resolveEventSalesScope (event-timeline / transaction-baskets)
-  @@index([tenantId, locationId, status]) // RPC get_space_shop_details : _space_event_ids
   // BUG-128-01 : rend le scan _space_event_ids de la RPC index-only (eventId dans la clé) —
   // sans lui, le planner passait par locationId seul + re-filtre heap (185k lignes, ~11 s).
   @@index([tenantId, locationId, status, eventId])
@@ -1617,7 +1593,6 @@ model WeezeventSyncState {
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, integrationId, syncType])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([syncType])
   @@index([lastSyncedAt])
@@ -1656,7 +1631,6 @@ model IntegrationWebhookEvent {
 
   @@unique([integrationId, externalDeliveryId])
   @@index([tenantId])
-  @@index([integrationId])
   @@index([eventType])
   @@index([processed])
   @@index([createdAt])
@@ -1691,7 +1665,6 @@ model SalesTransactionItem {
   payments    SalesPayment[]
 
   @@index([transactionId])
-  @@index([productId])
   @@index([externalItemId])
   // Composite index for product analytics
   @@index([productId, transactionId])
@@ -1779,7 +1752,6 @@ model SalesProductVariant {
   product     SalesProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, integrationId, weezeventId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([productId])
   @@index([weezeventId])
@@ -1811,7 +1783,6 @@ model SalesProductComponent {
   product     SalesProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([tenantId, integrationId, weezeventId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([productId])
   @@index([weezeventId])
@@ -1867,11 +1838,11 @@ model WeezeventSyncChunk {
 // Les aperçus (dryRun=true) ne sont pas persistés — même logique que WeezeventSyncJob,
 // qui ne trace que des exécutions réelles, pas des simulations.
 model DigifoodCsvImportRun {
-  id            String   @id @default(cuid())
+  id            String  @id @default(cuid())
   tenantId      String
   integrationId String
   fileName      String?
-  status        String   @default("COMPLETED") // COMPLETED | FAILED
+  status        String  @default("COMPLETED") // COMPLETED | FAILED
 
   ordersDetected   Int @default(0)
   ordersCreated    Int @default(0)
@@ -1891,6 +1862,7 @@ model DigifoodCsvImportRun {
   integration Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
 
   @@index([tenantId, integrationId, startedAt])
+  @@index([integrationId])
 }
 
 model WeezeventOrder {
@@ -1920,7 +1892,6 @@ model WeezeventOrder {
   event       SalesEvent? @relation(fields: [eventId], references: [id])
 
   @@unique([tenantId, integrationId, weezeventId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([eventId])
   @@index([weezeventId])
@@ -1956,7 +1927,6 @@ model WeezeventPrice {
   product     SalesProduct? @relation(fields: [productId], references: [id])
 
   @@unique([tenantId, integrationId, weezeventId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([eventId])
   @@index([productId])
@@ -1989,7 +1959,6 @@ model WeezeventAttendee {
   event       SalesEvent? @relation(fields: [eventId], references: [id])
 
   @@unique([tenantId, integrationId, weezeventId])
-  @@index([tenantId])
   @@index([integrationId])
   @@index([eventId])
   @@index([weezeventId])
@@ -2021,11 +1990,11 @@ model Ingredient {
   componentIngredients ComponentIngredient[]
   menuItemIngredients  MenuItemIngredient[]
 
-  @@index([tenantId])
   @@index([name])
   @@index([active])
   @@index([ingredientCategory])
   @@index([tenantId, deletedAt])
+  @@index([marketPriceId])
 }
 
 model Packaging {
@@ -2050,10 +2019,10 @@ model Packaging {
   marketPrice        MarketPrice?        @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
   menuItemPackagings MenuItemPackaging[]
 
-  @@index([tenantId])
   @@index([name])
   @@index([active])
   @@index([tenantId, deletedAt])
+  @@index([marketPriceId])
 }
 
 // ==================== MENU COMPONENTS ====================
@@ -2106,6 +2075,7 @@ model MenuComponent {
   @@index([componentTypeId])
   @@index([componentCategoryId])
   @@index([readyForSale])
+  @@index([kitchenId])
 }
 
 // ==================== COMPONENT TAXONOMY ====================
@@ -2123,7 +2093,6 @@ model ComponentType {
   components MenuComponent[]
 
   @@unique([tenantId, name])
-  @@index([tenantId])
   @@index([name])
 }
 
@@ -2139,7 +2108,6 @@ model ComponentCategory {
   components MenuComponent[]
 
   @@unique([tenantId, typeId, name])
-  @@index([tenantId])
   @@index([typeId])
   @@index([name])
 }
@@ -2157,7 +2125,6 @@ model ComponentIngredient {
   ingredient Ingredient    @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@unique([componentId, ingredientId])
-  @@index([componentId])
   @@index([ingredientId])
 }
 
@@ -2173,7 +2140,6 @@ model ComponentComponent {
   child  MenuComponent @relation("ChildToParent", fields: [childId], references: [id], onDelete: Cascade)
 
   @@unique([parentId, childId])
-  @@index([parentId])
   @@index([childId])
 }
 
@@ -2193,7 +2159,6 @@ model ProductType {
   menuItems  MenuItem[]
 
   @@unique([tenantId, name])
-  @@index([tenantId])
   @@index([name])
 }
 
@@ -2210,7 +2175,6 @@ model ProductCategory {
   menuItems MenuItem[]
 
   @@unique([tenantId, typeId, name])
-  @@index([tenantId])
   @@index([typeId])
   @@index([name])
 }
@@ -2230,7 +2194,6 @@ model MarketPriceType {
   marketPrices MarketPrice[]
 
   @@unique([tenantId, name])
-  @@index([tenantId])
   @@index([name])
 }
 
@@ -2246,7 +2209,6 @@ model MarketPriceCategory {
   marketPrices MarketPrice[]
 
   @@unique([tenantId, typeId, name])
-  @@index([tenantId])
   @@index([typeId])
   @@index([name])
 }
@@ -2262,7 +2224,6 @@ model Brand {
   menuItems MenuItem[]
 
   @@unique([tenantId, name])
-  @@index([tenantId])
 }
 
 model DisplayName {
@@ -2274,7 +2235,6 @@ model DisplayName {
   menuItems MenuItem[]
 
   @@unique([tenantId, name])
-  @@index([tenantId])
 }
 
 model Industrial {
@@ -2286,7 +2246,6 @@ model Industrial {
   marketPrices MarketPrice[]
 
   @@unique([tenantId, name])
-  @@index([tenantId])
 }
 
 /// Référentiel de formats de conditionnement (Cup, Fût, Box...) pour
@@ -2301,7 +2260,6 @@ model PackingType {
   createdAt DateTime @default(now())
 
   @@unique([tenantId, name])
-  @@index([tenantId])
 }
 
 /// Référentiel de conditions de stockage (Cold/Dry/Frozen par défaut, CRUD-éditable dans
@@ -2322,7 +2280,6 @@ model StorageType {
   updatedAt DateTime @updatedAt
 
   @@unique([tenantId, name])
-  @@index([tenantId])
 }
 
 /// CFG-2 (taxonomie unifiée) — Étape 1 : référentiel des "départements" (types d'outil Builder v2 /
@@ -2371,7 +2328,6 @@ model Subtype {
   department Department @relation(fields: [departmentId], references: [id], onDelete: Cascade)
 
   @@unique([departmentId, name])
-  @@index([departmentId])
 }
 
 // ==================== MENU ITEMS ====================
@@ -2433,14 +2389,13 @@ model MenuItem {
   // Composition "Combo"/"Menu" par d'autres MenuItem vendables (ex. "Burger + Frites" = composé
   // de "Burger" + "Frites"), distincte de `comboItem` (flag scalaire "cet item est réutilisable
   // tel quel dans un combo") et de `components[]` (qui pointe vers MenuComponent, pas MenuItem).
-  comboChildren   MenuItemCombo[]             @relation("ComboParentToChild")
-  comboParents    MenuItemCombo[]             @relation("ComboChildToParent")
-  salesInputs     ElementMenuItemSalesInput[]
+  comboChildren          MenuItemCombo[]             @relation("ComboParentToChild")
+  comboParents           MenuItemCombo[]             @relation("ComboChildToParent")
+  salesInputs            ElementMenuItemSalesInput[]
   // Promotion portée par CET item (0 ou 1) + promotions où CET item est le produit remisé.
-  promotion               Promotion?  @relation("MenuItemPromotion")
-  discountedInPromotions  Promotion[] @relation("PromotionDiscountedProduct")
+  promotion              Promotion?                  @relation("MenuItemPromotion")
+  discountedInPromotions Promotion[]                 @relation("PromotionDiscountedProduct")
 
-  @@index([tenantId])
   @@index([name])
   @@index([typeId])
   @@index([categoryId])
@@ -2449,6 +2404,7 @@ model MenuItem {
   @@index([seasonId])
   @@index([readyForSale])
   @@index([tenantId, deletedAt])
+  @@index([kitchenId])
 }
 
 /// Type de promotion (référentiel de configuration, comme DisplayName) — alimente le select
@@ -2462,27 +2418,25 @@ model PromotionType {
   promotions Promotion[]
 
   @@unique([tenantId, name])
-  @@index([tenantId])
 }
 
 /// Promotion attachée à UN menu item (0 ou 1 par item, `menuItemId @unique`). Quand un menu
 /// item « est en promotion », il désigne un produit remisé (`discountedProduct`, un autre
 /// MenuItem) et un `promotionType` (référentiel ci-dessus).
 model Promotion {
-  id                  String    @id @default(cuid())
+  id                  String         @id @default(cuid())
   tenantId            String
-  menuItemId          String    @unique
-  menuItem            MenuItem  @relation("MenuItemPromotion", fields: [menuItemId], references: [id], onDelete: Cascade)
+  menuItemId          String         @unique
+  menuItem            MenuItem       @relation("MenuItemPromotion", fields: [menuItemId], references: [id], onDelete: Cascade)
   discountedProductId String?
-  discountedProduct   MenuItem? @relation("PromotionDiscountedProduct", fields: [discountedProductId], references: [id], onDelete: SetNull)
+  discountedProduct   MenuItem?      @relation("PromotionDiscountedProduct", fields: [discountedProductId], references: [id], onDelete: SetNull)
   promotionTypeId     String?
   promotionType       PromotionType? @relation(fields: [promotionTypeId], references: [id], onDelete: SetNull)
-  isActive            Boolean   @default(true)
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  isActive            Boolean        @default(true)
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
   @@index([tenantId])
-  @@index([menuItemId])
   @@index([discountedProductId])
   @@index([promotionTypeId])
 }
@@ -2499,7 +2453,6 @@ model MenuItemCombo {
   child  MenuItem @relation("ComboChildToParent", fields: [childId], references: [id], onDelete: Cascade)
 
   @@unique([parentId, childId])
-  @@index([parentId])
   @@index([childId])
 }
 
@@ -2509,15 +2462,15 @@ model MenuItemCombo {
 /// MenuItem.spaceIds (String[] sans FK) et MenuItem.spacePrices (Json) — gelés en DB, plus lus.
 /// Le contrat API expose toujours `spaceIds`/`spacePrices`, sérialisés depuis cette table.
 model SpaceMenuItem {
-  id         String   @id @default(cuid())
-  spaceId    String
-  menuItemId String
-  priceTtc   Decimal? @db.Decimal(10, 2) // prix TTC spécifique à cet espace (null = basePrice global) ; pour un combo = prix APRÈS promo
-  vatRate    Decimal? @db.Decimal(5, 2) // TVA spécifique (null = vatRate item, sinon défaut tenant)
-  discountType  String?  // Promo par espace (combo) : "percent" | "amount" | null
+  id            String   @id @default(cuid())
+  spaceId       String
+  menuItemId    String
+  priceTtc      Decimal? @db.Decimal(10, 2) // prix TTC spécifique à cet espace (null = basePrice global) ; pour un combo = prix APRÈS promo
+  vatRate       Decimal? @db.Decimal(5, 2) // TVA spécifique (null = vatRate item, sinon défaut tenant)
+  discountType  String? // Promo par espace (combo) : "percent" | "amount" | null
   discountValue Decimal? @db.Decimal(10, 2) // Valeur de la promo (% si percent, montant TTC si amount)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   space    Space    @relation(fields: [spaceId], references: [id], onDelete: Cascade)
   menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
@@ -2564,7 +2517,6 @@ model MenuItemComponent {
   component MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
 
   @@unique([menuItemId, componentId])
-  @@index([menuItemId])
   @@index([componentId])
 }
 
@@ -2581,7 +2533,6 @@ model MenuItemIngredient {
   ingredient Ingredient @relation(fields: [ingredientId], references: [id], onDelete: Cascade)
 
   @@unique([menuItemId, ingredientId])
-  @@index([menuItemId])
   @@index([ingredientId])
 }
 
@@ -2598,7 +2549,6 @@ model MenuItemPackaging {
   packaging Packaging @relation(fields: [packagingId], references: [id], onDelete: Cascade)
 
   @@unique([menuItemId, packagingId])
-  @@index([menuItemId])
   @@index([packagingId])
 }
 
@@ -2638,8 +2588,6 @@ model MenuAssignment {
 
   @@unique([stationId, menuItemId])
   @@unique([elementId, menuItemId, configId])
-  @@index([stationId])
-  @@index([elementId])
   @@index([elementId, enabled]) // Composite: shop menu assignment query filters by elementId + enabled
   @@index([menuItemId])
   @@index([configId])
@@ -2712,7 +2660,6 @@ model EventType {
   events     Event[]
 
   @@unique([tenantId, name])
-  @@index([tenantId])
   @@index([name])
 }
 
@@ -2732,7 +2679,6 @@ model EventCategory {
   teams         Team[]
 
   @@unique([tenantId, eventTypeId, name])
-  @@index([tenantId])
   @@index([eventTypeId])
   @@index([name])
 }
@@ -2751,7 +2697,6 @@ model EventSubcategory {
   teams         Team[]
 
   @@unique([tenantId, eventCategoryId, name])
-  @@index([tenantId])
   @@index([eventCategoryId])
   @@index([name])
 }
@@ -2780,7 +2725,6 @@ model Team {
   // contrainte DB ; le check applicatif reste la défense principale pour ce cas, celle-ci n'est
   // qu'un filet de sécurité pour la race exact-match.
   @@unique([tenantId, eventCategoryId, eventSubcategoryId, name])
-  @@index([tenantId])
   @@index([eventCategoryId])
   @@index([eventSubcategoryId])
 }
@@ -2886,7 +2830,6 @@ model Event {
   @@index([tenantId])
   @@index([integrationId])
   @@index([spaceId, integrationId])
-  @@index([spaceId])
   @@index([configurationId])
   @@index([eventDate])
   @@index([eventTypeId])
@@ -2935,7 +2878,6 @@ model Menu {
 
   @@unique([spaceId, configId, name])
   @@index([tenantId])
-  @@index([spaceId])
   @@index([configId])
 }
 
@@ -2974,6 +2916,7 @@ model LocationShopMapping {
   @@unique([tenantId, salesLocationId])
   @@index([tenantId, spaceElementId])
   @@index([salesLocationId])
+  @@index([spaceElementId])
   @@map("WeezeventLocationShopMapping")
 }
 
@@ -2988,7 +2931,6 @@ model TenantVatConfig {
   updatedAt      DateTime @updatedAt
 
   @@unique([tenantId, effectiveFrom])
-  @@index([tenantId])
 }
 
 // ==================== SPACE DASHBOARD - READ MODELS ====================
@@ -3011,7 +2953,7 @@ model SpaceRevenueMinuteAgg {
   // intégration, l'unicité de la ligne ne dépend pas de ce champ. Sert uniquement à scoper les
   // deleteMany par intégration (BUG-317-02/318-02, docs/bugs/) sans effacer la contribution
   // d'une autre intégration partageant le même Space.
-  integrationId String?
+  integrationId       String?
 
   // Aggregated metrics
   revenueHt         Decimal @db.Decimal(12, 2)
@@ -3022,7 +2964,6 @@ model SpaceRevenueMinuteAgg {
   updatedAt DateTime @updatedAt
 
   @@unique([tenantId, spaceId, minute, weezeventEventId, weezeventLocationId, weezeventMerchantId, spaceElementId])
-  @@index([tenantId, spaceId, minute])
   @@index([tenantId, spaceId, weezeventEventId, minute])
   @@index([tenantId, spaceId, spaceElementId, minute])
   @@index([tenantId, spaceId, weezeventLocationId, minute])
@@ -3122,7 +3063,6 @@ model SpaceProductRevenueDailyAgg {
   updatedAt DateTime @updatedAt
 
   @@unique([tenantId, spaceId, day, weezeventProductId])
-  @@index([tenantId, spaceId, day])
   @@index([tenantId, spaceId, weezeventProductId, day])
   @@index([tenantId, spaceId, integrationId])
 }
@@ -3159,7 +3099,6 @@ model SalesPriceAgg {
   updatedAt DateTime @updatedAt
 
   @@unique([tenantId, locationId, productId, itemWeezeventId, productNameNorm, unitPrice, vat])
-  @@index([tenantId, locationId, productId])
   @@index([tenantId, locationId, itemWeezeventId])
   @@index([tenantId, locationId, productNameNorm])
   @@index([tenantId, integrationId])
@@ -3269,18 +3208,18 @@ model InventorySnapshot {
 
 // Per-item count upserted by POST /inventory-counts (one row per space+event+shop+item)
 model InventoryCount {
-  id                String   @id @default(cuid())
+  id                String    @id @default(cuid())
   tenantId          String
   spaceId           String
   eventId           String?
   shopId            String?
   itemId            String
-  packedUnits       Int      @default(0)
-  looseUnits        Float    @default(0)
-  isCounted         Boolean  @default(false)
+  packedUnits       Int       @default(0)
+  looseUnits        Float     @default(0)
+  isCounted         Boolean   @default(false)
   storageLocation   String?
-  countingStatus    String   @default("pending")
-  discardedQuantity Int      @default(0)
+  countingStatus    String    @default("pending")
+  discardedQuantity Int       @default(0)
   discardedReason   String?
   countedBy         String?
   // Dernier push de CETTE ligne vers le registre Logistic (pushCountToLogistic). Une ligne
@@ -3288,11 +3227,10 @@ model InventoryCount {
   // déjà pris en compte remettrait StockLevel à la valeur comptée et effacerait les ventes et
   // mouvements survenus depuis. Posée en SQL brut pour ne pas toucher `updatedAt`.
   logisticPushedAt  DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
 
   @@unique([tenantId, spaceId, eventId, shopId, itemId], name: "uniq_inventory_count")
-  @@index([tenantId])
   @@index([spaceId, eventId])
   @@index([shopId])
   @@index([itemId])
@@ -3320,15 +3258,15 @@ model InventoryWindow {
   // HMAC-SHA256(pin, GUEST_PIN_HMAC_SECRET), jamais le PIN en clair. Le PDV visé n'est
   // plus identifié par LE PIN (qui ne l'identifie plus, il est partagé) mais par le
   // `slug` de l'URL scannée (/login/pin/:slug) — cf. GuestPinAccessService.login.
-  pinLookupHash String?   @unique
+  pinLookupHash      String?   @unique
   // PIN retrouvable après fermeture du popup (critère d'acceptation 2026-09-14 :
   // "le code PIN peut être retrouvé sous le bouton Reset Code PIN"). Chiffré
   // AES-256-GCM (clé dérivée de GUEST_PIN_HMAC_SECRET, cf. guest-pin-crypto.ts),
   // jamais en clair. Déchiffré uniquement pour le status board directeur
   // (permission front.fb.guestPinManage). Remis à null à la clôture, comme le hash.
-  pinCiphertext String?
-  pinSetAt      DateTime?
-  pinSetBy      String?
+  pinCiphertext      String?
+  pinSetAt           DateTime?
+  pinSetBy           String?
   openedAt           DateTime  @default(now())
   openedBy           String
   closedAt           DateTime?
@@ -3356,10 +3294,10 @@ model GuestPinAccess {
   spaceId   String // dénormalisé (pattern InventoryCount) — évite un join pour les requêtes fréquentes
   elementId String // = InventoryCount.shopId = SpaceElement.id
 
-  status         String    @default("active") // 'active' | 'revoked'
-  failedAttempts Int       @default(0)
-  lockedUntil    DateTime?
-  lastLoginAt    DateTime?
+  status          String    @default("active") // 'active' | 'revoked'
+  failedAttempts  Int       @default(0)
+  lockedUntil     DateTime?
+  lastLoginAt     DateTime?
   // Diagnostic uniquement — PAS un verrou : n'importe qui a le PIN peut se connecter,
   // potentiellement plusieurs personnes en même temps. Ces deux champs sont écrasés à
   // CHAQUE login réussi ("dernière connexion vue"), pas figés au premier (décision produit
@@ -3371,11 +3309,11 @@ model GuestPinAccess {
   // GuestPinAccessService.saveCount) tant que le DIRECTEUR n'a pas validé (décision
   // produit 2026-09-08, revenue sur le gel immédiat initial : c'est le directeur qui
   // doit vérifier et valider, pas le manager qui se verrouille lui-même).
-  submittedAt DateTime?
+  submittedAt     DateTime?
   // Verrou RÉEL (lecture seule) : posé uniquement par le directeur (validateAccess),
   // jamais par le manager. `requestCorrection` le remet à null (correction ciblée).
-  validatedAt DateTime?
-  validatedBy String?
+  validatedAt     DateTime?
+  validatedBy     String?
   revokedAt       DateTime?
   revokedBy       String?
   // Null = auto-créée au premier login (PIN partagé, plus d'action directeur préalable
@@ -3624,7 +3562,7 @@ model LogisticTask {
 // store frontend `notifications.js` (purement local/localStorage) : ce modèle est la
 // source de vérité côté serveur, le frontend la fusionne avec ses notices client-side.
 model Notification {
-  id        String    @id @default(cuid())
+  id        String   @id @default(cuid())
   tenantId  String
   userId    String
   type      String // ex: "logistic_task_assigned"
@@ -3632,8 +3570,8 @@ model Notification {
   message   String
   meta      Json?
   link      String?
-  read      Boolean   @default(false)
-  createdAt DateTime  @default(now())
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
 
   @@index([tenantId, userId, read, createdAt])
 }
@@ -3649,7 +3587,6 @@ model KvStore {
   updatedAt DateTime @updatedAt
 
   @@unique([tenantId, key], name: "uniq_kv_store")
-  @@index([tenantId])
 }
 
 // ==================== EVENT PREDICT VERSIONS ====================
@@ -3676,7 +3613,6 @@ model EventPredictVersion {
   createdAt                  DateTime @default(now())
   updatedAt                  DateTime @updatedAt
 
-  @@index([tenantId])
   @@index([eventId])
   @@index([spaceId])
   // Couvre findAll : where { eventId, tenantId } (cf. predict-versions.service.ts)
@@ -3707,7 +3643,6 @@ model MenuItemHistoryAlias {
   updatedAt        DateTime @updatedAt
 
   @@unique([tenantId, spaceId, sourceName])
-  @@index([tenantId, spaceId])
   @@index([targetMenuItemId])
 }
 
@@ -3726,7 +3661,6 @@ model RestockState {
   updatedAt DateTime @updatedAt
 
   @@unique([tenantId, spaceId])
-  @@index([tenantId])
   @@index([spaceId])
 }
 
@@ -3749,17 +3683,17 @@ model RestockPlan {
   name     String
 
   // ── Entrées (rejouées au détachement du plan) ────────────────────────────
-  objectiveSource   String  @default("forecast")
+  objectiveSource   String   @default("forecast")
   referenceEventId  String?
   selectedEventIds  String[]
   // [{ id, name, date }] dénormalisé : un event supprimé ou renommé ne doit pas
   // effacer l'intitulé du plan (même raison que StockReconciliation.eventName).
-  eventsSnapshot    Json    @default("[]")
-  scenarioByEventId Json    @default("{}")
-  stockAdjustments  Json    @default("{}")
-  stockPackedModes  Json    @default("{}")
-  stockExcluded     Json    @default("{}")
-  restockedRows     Json    @default("{}")
+  eventsSnapshot    Json     @default("[]")
+  scenarioByEventId Json     @default("{}")
+  stockAdjustments  Json     @default("{}")
+  stockPackedModes  Json     @default("{}")
+  stockExcluded     Json     @default("{}")
+  restockedRows     Json     @default("{}")
 
   // ── Photo figée (sorties des 3 étapes) ───────────────────────────────────
   stockLines     Json   @default("[]") // étape 1, grain article
@@ -3809,6 +3743,5 @@ model UnmappedDataMetrics {
   updatedAt DateTime @updatedAt
 
   @@unique([tenantId, entityType, entityId])
-  @@index([tenantId, entityType])
   @@index([lastSeenAt])
 }

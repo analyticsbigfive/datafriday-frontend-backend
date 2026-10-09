@@ -109,3 +109,33 @@ export function applyTenantScope(
 
   params.args = args;
 }
+
+export type TenantScopeDecision =
+  | { kind: 'scope'; tenantId: string }
+  | { kind: 'pass' }
+  | { kind: 'reject' };
+
+/**
+ * Décide du sort d'une requête Prisma vis-à-vis de l'isolation tenant.
+ *
+ * - modèle non tenant-scopé : passe tel quel ;
+ * - AUCUN contexte CLS (job, cron, script) : refus. Le code hors requête HTTP doit
+ *   ouvrir un contexte explicite (TenantContextService.runForTenant ou
+ *   runWithoutTenantScope), sinon une requête oublierait son filtre sans que rien
+ *   ne le détecte ;
+ * - contexte HTTP sans tenant (route publique, webhook) ou contournement explicite :
+ *   passe (les guards protègent ces routes) ;
+ * - sinon : la requête est restreinte au tenant du contexte.
+ */
+export function decideTenantScope(input: {
+  model: string | undefined;
+  scopedModels: Set<string>;
+  hasContext: boolean;
+  bypass: boolean;
+  tenantId: string | undefined;
+}): TenantScopeDecision {
+  if (!input.model || !input.scopedModels.has(input.model)) return { kind: 'pass' };
+  if (!input.hasContext) return { kind: 'reject' };
+  if (input.bypass || !input.tenantId) return { kind: 'pass' };
+  return { kind: 'scope', tenantId: input.tenantId };
+}

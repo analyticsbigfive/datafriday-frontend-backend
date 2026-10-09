@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse }
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { AnalyseService } from './analyse.service';
+import { AnalyseGetTimelineQueryDto } from './dto/analyse.query.dto';
 
 @ApiTags('Analyse')
 @ApiBearerAuth('supabase-jwt')
@@ -137,13 +138,10 @@ export class AnalyseController {
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   getTimeline(
     @Param('eventId') eventId: string,
-    @Query('startTime') startTime?: string,
-    @Query('endTime') endTime?: string,
-    @Query('shopId') shopId?: string,
-    @Query('menuItemId') menuItemId?: string,
-    @Query('limit') limit?: string,
+    @Query() params: AnalyseGetTimelineQueryDto,
     @Req() req?: any,
   ) {
+    const { startTime, endTime, shopId, menuItemId, limit } = params;
     return this.analyseService.getTimeline(eventId, req.user.tenantId, {
       startTime,
       endTime,

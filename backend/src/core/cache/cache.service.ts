@@ -1,10 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-interface CacheOptions {
-    ttl?: number; // Time to live in seconds
-    key: string;
-}
-
 /**
  * Simple in-memory cache service
  * For production, consider using Redis

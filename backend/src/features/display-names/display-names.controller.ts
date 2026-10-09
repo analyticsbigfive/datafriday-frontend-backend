@@ -5,6 +5,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { DisplayNamesService } from './display-names.service';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { DisplayNamesFindAllQueryDto } from './dto/display-names.query.dto';
 
 class CreateDisplayNameDto {
   @IsString()
@@ -26,10 +27,9 @@ export class DisplayNamesController {
   @ApiOperation({ summary: 'Lister les display names du tenant (paginé)' })
   findAll(
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
+    @Query() params: DisplayNamesFindAllQueryDto,
   ) {
+    const { page, limit, search } = params;
     return this.displayNamesService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined, search);
   }
 

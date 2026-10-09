@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { WebhookController } from './webhook.controller';
@@ -5,12 +6,10 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { WebhookSignatureService } from './services/webhook-signature.service';
 import { WebhookEventHandler } from './services/webhook-event.handler';
 import { EncryptionService } from '../../core/encryption/encryption.service';
+import { WeezeventWebhookIngestService } from './services/weezevent-webhook-ingest.service';
 
 describe('WebhookController', () => {
   let controller: WebhookController;
-  let prisma: PrismaService;
-  let signatureService: WebhookSignatureService;
-  let eventHandler: WebhookEventHandler;
 
   const mockTenant = {
     id: 'tenant-123',
@@ -73,6 +72,7 @@ describe('WebhookController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [WebhookController],
       providers: [
+        WeezeventWebhookIngestService,
         {
           provide: PrismaService,
           useValue: mockPrismaService,
@@ -93,9 +93,6 @@ describe('WebhookController', () => {
     }).compile();
 
     controller = module.get<WebhookController>(WebhookController);
-    prisma = module.get<PrismaService>(PrismaService);
-    signatureService = module.get<WebhookSignatureService>(WebhookSignatureService);
-    eventHandler = module.get<WebhookEventHandler>(WebhookEventHandler);
 
     jest.clearAllMocks();
   });
@@ -111,7 +108,7 @@ describe('WebhookController', () => {
       { rawBody: rawOf(payload) } as any,
     );
   const deliveryIdOf = (payload: unknown) =>
-    require('crypto').createHash('sha256').update(rawOf(payload)).digest('hex');
+    createHash('sha256').update(rawOf(payload)).digest('hex');
 
   it('should be defined', () => {
     expect(controller).toBeDefined();

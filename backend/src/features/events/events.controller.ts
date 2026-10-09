@@ -14,6 +14,9 @@ import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { EventsFindAllQueryDto, TeamsFindAllQueryDto } from './dto/events.query.dto';
+import { EventTaxonomyService } from './services/event-taxonomy.service';
+import { EventTeamService } from './services/event-team.service';
 
 @ApiTags('Events')
 @ApiBearerAuth('supabase-jwt')
@@ -47,11 +50,9 @@ export class EventsController {
   @ApiResponse({ status: 200, description: 'Liste paginée des événements' })
   findAll(
     @Req() req,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('spaceId') spaceId?: string,
-    @Query('excludeSimulated') excludeSimulated?: string,
+    @Query() params: EventsFindAllQueryDto,
   ) {
+    const { page, limit, spaceId, excludeSimulated } = params;
     return this.eventsService.findAll(
       req.user.tenantId,
       +page || 1,
@@ -105,32 +106,32 @@ export class EventsController {
 @UseGuards(JwtDatabaseGuard)
 @Controller('event-types')
 export class EventTypesController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(private readonly eventTaxonomyService: EventTaxonomyService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lister les types d’événements' })
   @ApiResponse({ status: 200, description: 'Liste des types d’événements' })
-  findAll(@Req() req) { return this.eventsService.getEventTypes(req.user.tenantId); }
+  findAll(@Req() req) { return this.eventTaxonomyService.getEventTypes(req.user.tenantId); }
 
   @RequirePermissions('menu.events.manage')
   @Post()
   @ApiOperation({ summary: 'Créer un type d’événement' })
   @ApiResponse({ status: 201, description: 'Type d’événement créé' })
-  create(@Req() req, @Body() dto: CreateEventTypeDto) { return this.eventsService.createEventType(req.user.tenantId, dto); }
+  create(@Req() req, @Body() dto: CreateEventTypeDto) { return this.eventTaxonomyService.createEventType(req.user.tenantId, dto); }
 
   @RequirePermissions('menu.events.manage')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un type d’événement' })
   @ApiParam({ name: 'id', description: 'ID du type d’événement' })
   @ApiResponse({ status: 200, description: 'Type d’événement mis à jour' })
-  update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventTypeDto) { return this.eventsService.updateEventType(req.user.tenantId, id, dto); }
+  update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventTypeDto) { return this.eventTaxonomyService.updateEventType(req.user.tenantId, id, dto); }
 
   @RequirePermissions('menu.events.manage')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un type d’événement' })
   @ApiParam({ name: 'id', description: 'ID du type d’événement' })
   @ApiResponse({ status: 200, description: 'Type d’événement supprimé' })
-  remove(@Req() req, @Param('id') id: string) { return this.eventsService.deleteEventType(req.user.tenantId, id); }
+  remove(@Req() req, @Param('id') id: string) { return this.eventTaxonomyService.deleteEventType(req.user.tenantId, id); }
 }
 
 @ApiTags('Event Categories')
@@ -138,32 +139,32 @@ export class EventTypesController {
 @UseGuards(JwtDatabaseGuard)
 @Controller('event-categories')
 export class EventCategoriesController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(private readonly eventTaxonomyService: EventTaxonomyService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lister les catégories d’événements' })
   @ApiResponse({ status: 200, description: 'Liste des catégories d’événements' })
-  findAll(@Req() req) { return this.eventsService.getEventCategories(req.user.tenantId); }
+  findAll(@Req() req) { return this.eventTaxonomyService.getEventCategories(req.user.tenantId); }
 
   @RequirePermissions('menu.events.manage')
   @Post()
   @ApiOperation({ summary: 'Créer une catégorie d’événement' })
   @ApiResponse({ status: 201, description: 'Catégorie d’événement créée' })
-  create(@Req() req, @Body() dto: CreateEventCategoryDto) { return this.eventsService.createEventCategory(req.user.tenantId, dto); }
+  create(@Req() req, @Body() dto: CreateEventCategoryDto) { return this.eventTaxonomyService.createEventCategory(req.user.tenantId, dto); }
 
   @RequirePermissions('menu.events.manage')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour une catégorie d’événement' })
   @ApiParam({ name: 'id', description: 'ID de la catégorie d’événement' })
   @ApiResponse({ status: 200, description: 'Catégorie d’événement mise à jour' })
-  update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventCategoryDto) { return this.eventsService.updateEventCategory(req.user.tenantId, id, dto); }
+  update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventCategoryDto) { return this.eventTaxonomyService.updateEventCategory(req.user.tenantId, id, dto); }
 
   @RequirePermissions('menu.events.manage')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer une catégorie d’événement' })
   @ApiParam({ name: 'id', description: 'ID de la catégorie d’événement' })
   @ApiResponse({ status: 200, description: 'Catégorie d’événement supprimée' })
-  remove(@Req() req, @Param('id') id: string) { return this.eventsService.deleteEventCategory(req.user.tenantId, id); }
+  remove(@Req() req, @Param('id') id: string) { return this.eventTaxonomyService.deleteEventCategory(req.user.tenantId, id); }
 }
 
 @ApiTags('Event Subcategories')
@@ -171,32 +172,32 @@ export class EventCategoriesController {
 @UseGuards(JwtDatabaseGuard)
 @Controller('event-subcategories')
 export class EventSubcategoriesController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(private readonly eventTaxonomyService: EventTaxonomyService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lister les sous-catégories d’événements' })
   @ApiResponse({ status: 200, description: 'Liste des sous-catégories d’événements' })
-  findAll(@Req() req) { return this.eventsService.getEventSubcategories(req.user.tenantId); }
+  findAll(@Req() req) { return this.eventTaxonomyService.getEventSubcategories(req.user.tenantId); }
 
   @RequirePermissions('menu.events.manage')
   @Post()
   @ApiOperation({ summary: 'Créer une sous-catégorie d’événement' })
   @ApiResponse({ status: 201, description: 'Sous-catégorie d’événement créée' })
-  create(@Req() req, @Body() dto: CreateEventSubcategoryDto) { return this.eventsService.createEventSubcategory(req.user.tenantId, dto); }
+  create(@Req() req, @Body() dto: CreateEventSubcategoryDto) { return this.eventTaxonomyService.createEventSubcategory(req.user.tenantId, dto); }
 
   @RequirePermissions('menu.events.manage')
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour une sous-catégorie d’événement' })
   @ApiParam({ name: 'id', description: 'ID de la sous-catégorie d’événement' })
   @ApiResponse({ status: 200, description: 'Sous-catégorie d’événement mise à jour' })
-  update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventSubcategoryDto) { return this.eventsService.updateEventSubcategory(req.user.tenantId, id, dto); }
+  update(@Req() req, @Param('id') id: string, @Body() dto: UpdateEventSubcategoryDto) { return this.eventTaxonomyService.updateEventSubcategory(req.user.tenantId, id, dto); }
 
   @RequirePermissions('menu.events.manage')
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer une sous-catégorie d’événement' })
   @ApiParam({ name: 'id', description: 'ID de la sous-catégorie d’événement' })
   @ApiResponse({ status: 200, description: 'Sous-catégorie d’événement supprimée' })
-  remove(@Req() req, @Param('id') id: string) { return this.eventsService.deleteEventSubcategory(req.user.tenantId, id); }
+  remove(@Req() req, @Param('id') id: string) { return this.eventTaxonomyService.deleteEventSubcategory(req.user.tenantId, id); }
 }
 
 @ApiTags('Teams')
@@ -204,7 +205,7 @@ export class EventSubcategoriesController {
 @UseGuards(JwtDatabaseGuard)
 @Controller('teams')
 export class TeamsController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(private readonly eventTeamService: EventTeamService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lister les équipes (scopées tenant, filtrables par compétition)' })
@@ -213,10 +214,10 @@ export class TeamsController {
   @ApiResponse({ status: 200, description: 'Liste des équipes (compétition demandée + équipes génériques)' })
   findAll(
     @Req() req,
-    @Query('eventCategoryId') eventCategoryId?: string,
-    @Query('eventSubcategoryId') eventSubcategoryId?: string,
+    @Query() params: TeamsFindAllQueryDto,
   ) {
-    return this.eventsService.getTeams(req.user.tenantId, eventCategoryId, eventSubcategoryId);
+    const { eventCategoryId, eventSubcategoryId } = params;
+    return this.eventTeamService.getTeams(req.user.tenantId, eventCategoryId, eventSubcategoryId);
   }
 
   @RequirePermissions('menu.events.manage')
@@ -225,7 +226,7 @@ export class TeamsController {
   @ApiResponse({ status: 201, description: 'Équipe créée' })
   @ApiResponse({ status: 409, description: 'Équipe déjà existante pour cette compétition' })
   create(@Req() req, @Body() dto: CreateTeamDto) {
-    return this.eventsService.createTeam(req.user.tenantId, dto);
+    return this.eventTeamService.createTeam(req.user.tenantId, dto);
   }
 
   @RequirePermissions('menu.events.manage')
@@ -234,7 +235,7 @@ export class TeamsController {
   @ApiParam({ name: 'id', description: 'ID de l’équipe' })
   @ApiResponse({ status: 200, description: 'Équipe mise à jour' })
   update(@Req() req, @Param('id') id: string, @Body() dto: UpdateTeamDto) {
-    return this.eventsService.updateTeam(req.user.tenantId, id, dto);
+    return this.eventTeamService.updateTeam(req.user.tenantId, id, dto);
   }
 
   @RequirePermissions('menu.events.manage')
@@ -243,6 +244,6 @@ export class TeamsController {
   @ApiParam({ name: 'id', description: 'ID de l’équipe' })
   @ApiResponse({ status: 200, description: 'Équipe supprimée' })
   remove(@Req() req, @Param('id') id: string) {
-    return this.eventsService.deleteTeam(req.user.tenantId, id);
+    return this.eventTeamService.deleteTeam(req.user.tenantId, id);
   }
 }

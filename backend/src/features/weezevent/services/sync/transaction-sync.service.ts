@@ -1,10 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent-client.service';
 import {
     WeezeventTransaction as ApiTransaction,
 } from '../../interfaces/weezevent-entities.interface';
-import { SyncResult, SyncTransactionsOptions } from '../weezevent-sync.service';
 import { SalesPriceAggService } from '../../../../shared/pricing/sales-price-agg.service';
 
 /**
@@ -25,190 +24,6 @@ export class WeezeventTransactionSyncService {
     ) {}
 
     /**
-     * Bulk-sync transactions from the Weezevent API.
-     * Upserts events, products, and locations inline from each transaction row,
-     * so the caller does not need to run syncEvents() or syncProducts() first.
-     */
-    async syncTransactions(
-        tenantId: string,
-        integrationId: string,
-        options?: SyncTransactionsOptions,
-    ): Promise<SyncResult> {
-        const startTime = Date.now();
-        const result: SyncResult = {
-            type: 'transactions',
-            success: false,
-            itemsSynced: 0,
-            itemsCreated: 0,
-            itemsUpdated: 0,
-            errors: 0,
-            duration: 0,
-            fromDate: options?.fromDate,
-            toDate: options?.toDate,
-        };
-
-        try {
-            const integration = await this.prisma.integration.findUnique({
-                where: { id: integrationId },
-                select: { id: true, enabled: true, tenantId: true, weezevent: { select: { organizationId: true } } },
-            });
-            if (!integration || integration.tenantId !== tenantId) {
-                throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
-            }
-            if (!integration.enabled) {
-                throw new Error(`Weezevent integration ${integrationId} is disabled`);
-            }
-            if (!integration.weezevent?.organizationId) {
-                throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
-            }
-            const organizationId = integration.weezevent.organizationId;
-
-            this.logger.log(
-                `Starting transaction sync for tenant ${tenantId}, organization ${organizationId}`,
-            );
-
-            // Build weezeventId → CUID maps once for the whole sync.
-            const [allProducts, allEvents] = await Promise.all([
-                this.prisma.salesProduct.findMany({
-                    where: { tenantId, integrationId },
-                    select: { id: true, externalId: true },
-                }),
-                this.prisma.salesEvent.findMany({
-                    where: { tenantId, integrationId },
-                    select: { id: true, externalId: true },
-                }),
-            ]);
-            const productIdMap = new Map(allProducts.map(p => [p.externalId, p.id]));
-            const eventIdMap = new Map(allEvents.map(e => [e.externalId, e.id]));
-            this.logger.log(`Maps loaded — products: ${productIdMap.size}, events: ${eventIdMap.size}`);
-
-            // Track wids already seen this run to avoid redundant upserts.
-            const seenProductWids = new Set<string>(productIdMap.keys());
-            const seenEventWids = new Set<string>(eventIdMap.keys());
-
-            let page = 1;
-            let hasMore = true;
-
-            while (hasMore) {
-                const response = await this.weezeventClient.getTransactions(
-                    tenantId,
-                    integrationId,
-                    organizationId,
-                    {
-                        page,
-                        perPage: 100,
-                        fromDate: options?.fromDate,
-                        toDate: options?.toDate,
-                        eventId: options?.eventId,
-                    },
-                );
-
-                this.logger.debug(
-                    `Fetched ${response.data.length} transactions (page ${page}/${response.meta.total_pages})`,
-                );
-
-                for (const apiTransaction of response.data) {
-                    const rawTx = apiTransaction as any;
-
-                    // ── Inline event upsert ─────────────────────────────────────────────
-                    const eventWid = rawTx.event_id?.toString() ?? null;
-                    const eventName = rawTx.event_name ?? null;
-                    if (eventWid && eventName && !seenEventWids.has(eventWid)) {
-                        seenEventWids.add(eventWid);
-                        try {
-                            const upsertedEvent = await this.prisma.salesEvent.upsert({
-                                where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId: eventWid } },
-                                create: {
-                                    externalId: eventWid,
-                                    tenantId,
-                                    integrationId,
-                                    name: eventName,
-                                    organizationId,
-                                    rawData: {},
-                                    syncedAt: new Date(),
-                                },
-                                update: { syncedAt: new Date() },
-                                select: { id: true, externalId: true },
-                            });
-                            eventIdMap.set(eventWid, upsertedEvent.id);
-                        } catch (err) {
-                            this.logger.warn(
-                                `Could not upsert event ${eventWid} from transaction ${apiTransaction.id}: ${(err as Error).message}`,
-                            );
-                        }
-                    }
-
-                    // ── Inline product upsert ───────────────────────────────────────────
-                    for (const row of (apiTransaction.rows ?? [])) {
-                        const rawRow = row as any;
-                        const wid = String(row.item_id ?? '');
-                        if (!wid || seenProductWids.has(wid)) continue;
-                        seenProductWids.add(wid);
-                        try {
-                            const upserted = await this.prisma.salesProduct.upsert({
-                                where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId: wid } },
-                                create: {
-                                    externalId: wid,
-                                    tenantId,
-                                    integrationId,
-                                    name: rawRow.item_name || `Item ${wid}`,
-                                    basePrice: (row.unit_price ?? 0) / 100,
-                                    vatRate: row.vat ?? null,
-                                    rawData: rawRow,
-                                    syncedAt: new Date(),
-                                },
-                                update: { syncedAt: new Date() },
-                                select: { id: true, externalId: true },
-                            });
-                            productIdMap.set(wid, upserted.id);
-                        } catch (err) {
-                            this.logger.warn(
-                                `Could not upsert product ${wid} from transaction ${apiTransaction.id}: ${(err as Error).message}`,
-                            );
-                        }
-                    }
-
-                    try {
-                        const { created, updated } = await this.upsertTransaction(
-                            tenantId,
-                            integrationId,
-                            apiTransaction,
-                            productIdMap,
-                            eventIdMap,
-                        );
-                        result.itemsSynced++;
-                        if (created) result.itemsCreated++;
-                        if (updated) result.itemsUpdated++;
-                    } catch (error) {
-                        this.logger.error(
-                            `Failed to sync transaction ${apiTransaction.id}`,
-                            (error as Error).stack,
-                        );
-                        result.errors++;
-                    }
-                }
-
-                hasMore = page < response.meta.total_pages;
-                page++;
-            }
-
-            result.success = result.errors === 0;
-            result.duration = Date.now() - startTime;
-
-            this.logger.log(
-                `Transaction sync completed: ${result.itemsSynced} synced (${result.itemsCreated} created, ${result.itemsUpdated} updated), ${result.errors} errors in ${result.duration}ms`,
-            );
-
-            return result;
-        } catch (error) {
-            this.logger.error('Transaction sync failed', (error as Error).stack);
-            result.success = false;
-            result.duration = Date.now() - startTime;
-            throw error;
-        }
-    }
-
-    /**
      * Sync a single transaction by ID — for webhook-triggered syncs.
      * Builds entity maps from DB and upserts event/products inline before persisting,
      * so eventId and productId FKs are always set correctly.
@@ -225,10 +40,10 @@ export class WeezeventTransactionSyncService {
             select: { id: true, tenantId: true, weezevent: { select: { organizationId: true } } },
         });
         if (!integration || integration.tenantId !== tenantId) {
-            throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
+            throw new NotFoundException(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
         }
         if (!integration.weezevent?.organizationId) {
-            throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
+            throw new BadRequestException(`Weezevent organization ID not configured for integration ${integrationId}`);
         }
         const organizationId = integration.weezevent.organizationId;
 
@@ -287,6 +102,7 @@ export class WeezeventTransactionSyncService {
             const wid = String(row.item_id ?? '');
             if (!wid || productIdMap.has(wid)) continue;
             try {
+                // eslint-disable-next-line no-await-in-loop -- lignes d'une seule transaction (1 à 20)
                 const upserted = await this.prisma.salesProduct.upsert({
                     where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId: wid } },
                     create: {

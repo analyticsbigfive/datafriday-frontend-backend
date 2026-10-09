@@ -2,9 +2,11 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { randomUUID } from 'crypto';
 import { LogisticTaskPriority, LogisticTaskStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
-import { LogisticsService } from '../logistics/logistics.service';
 import { StockItemKind } from '../logistics/dto/logistics.dto';
 import { CreateLogisticTaskBatchDto } from './dto/logistic-tasks.dto';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { StockMovementService } from '../logistics/services/stock-movement.service';
+import { NotificationPublisherService } from '../notifications/notification-publisher.service';
 
 /** Miroir de SHOP_TYPES (logistics.service.ts) : sert uniquement à choisir TRANSFER_SHOP
  * vs TRANSFER_STORAGE pour la contrepartie, même convention que LogisticMovementDialog. */
@@ -24,14 +26,10 @@ export class LogisticTasksService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly logisticsService: LogisticsService,
+    private readonly stockMovementService: StockMovementService,
+    private readonly spaceAccess: SpaceAccessService,
+    private readonly notificationPublisher: NotificationPublisherService,
   ) {}
-
-  private async assertSpace(spaceId: string, tenantId: string) {
-    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true, name: true } });
-    if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
-    return space;
-  }
 
   /** Résout le nom + type des SpaceElement référencés, pour enrichir les réponses. */
   private async resolveElements(ids: string[]) {
@@ -60,7 +58,7 @@ export class LogisticTasksService {
     if (!dto.tasks?.length) {
       throw new BadRequestException('Aucune tâche à créer');
     }
-    const space = await this.assertSpace(spaceId, tenantId);
+    const space = await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     // Un batchId par appel : sert uniquement à détecter la clôture complète du lot
     // (tous ses statuts passés à COMPLETED) pour notifier son créateur, cf. drop().
     const batchId = randomUUID();
@@ -115,6 +113,7 @@ export class LogisticTasksService {
           link: `/spaces/${spaceId}/logistic`,
         })),
       });
+      await this.notificationPublisher.signal(tenantId, byStaff.keys());
     } catch (e) {
       this.logger.error(`Notification logistic_task_assigned échouée pour le lot ${spaceId} : ${(e as Error)?.message}`);
     }
@@ -127,7 +126,7 @@ export class LogisticTasksService {
 
   /** Tâches de l'espace, enrichies des noms (item déjà porté par itemKey, éléments, staff). */
   async listBySpace(spaceId: string, tenantId: string, assignedToUserId?: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const rows = await this.prisma.logisticTask.findMany({
       where: { tenantId, spaceId, ...(assignedToUserId ? { assignedToUserId } : {}) },
       orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
@@ -170,7 +169,7 @@ export class LogisticTasksService {
    * nombre de tâches en cours (PENDING/PICKED_UP) pour le tri croissant du drawer Restocker.
    */
   async listAssignableStaff(spaceId: string, tenantId: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const users = await this.prisma.user.findMany({
       where: {
         tenantId,
@@ -230,7 +229,7 @@ export class LogisticTasksService {
 
     let movement: { id: string };
     try {
-      ({ movement } = await this.logisticsService.createMovement(
+      ({ movement } = await this.stockMovementService.createMovement(
         {
           spaceId: task.spaceId,
           elementId: task.sourceElementId,
@@ -276,7 +275,7 @@ export class LogisticTasksService {
     }
 
     try {
-      await this.logisticsService.confirmTransfer(task.pickupMovementId, {}, tenantId, userId);
+      await this.stockMovementService.confirmTransfer(task.pickupMovementId, {}, tenantId, userId);
     } catch (e) {
       await this.notifyTaskFailure(task, tenantId, 'drop', e as Error);
       throw e;
@@ -317,6 +316,7 @@ export class LogisticTasksService {
           link: `/spaces/${task.spaceId}/logistic`,
         },
       });
+      await this.notificationPublisher.signal(tenantId, [task.createdBy]);
     } catch (e) {
       this.logger.error(`Notification logistic_task_failed échouée pour ${task.id} : ${(e as Error)?.message}`);
     }
@@ -344,6 +344,7 @@ export class LogisticTasksService {
           link: `/spaces/${task.spaceId}/logistic`,
         },
       });
+      await this.notificationPublisher.signal(tenantId, [task.createdBy]);
     } catch (e) {
       this.logger.error(`Notification logistic_batch_completed échouée pour le lot ${task.batchId} : ${(e as Error)?.message}`);
     }
@@ -364,7 +365,7 @@ export class LogisticTasksService {
       throw new BadRequestException(`Tâche ${id} sans mouvement de récupération associé`);
     }
 
-    await this.logisticsService.reverseMovement(task.pickupMovementId, tenantId);
+    await this.stockMovementService.reverseMovement(task.pickupMovementId, tenantId);
 
     return this.prisma.logisticTask.update({
       where: { id: task.id },

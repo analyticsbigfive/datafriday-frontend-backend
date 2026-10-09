@@ -7,6 +7,7 @@ import { AxiosRequestConfig, AxiosResponse } from 'axios';
 // opossum est un module CommonJS sans export default => import en require pour
 // rester compatible avec `esModuleInterop: false` du tsconfig.
 import CircuitBreaker = require('opossum');
+import { AppConfigService } from '../../../config/app-config.service';
 
 @Injectable()
 export class WeezeventApiService {
@@ -23,16 +24,21 @@ export class WeezeventApiService {
      */
     private readonly breaker: CircuitBreaker<[AxiosRequestConfig], AxiosResponse<any>>;
 
+    private readonly hardTimeoutMs: number;
+
     constructor(
         private readonly httpService: HttpService,
         private readonly authService: WeezeventAuthService,
+        appConfig: AppConfigService,
     ) {
+        const http = appConfig.weezeventHttp;
+        this.hardTimeoutMs = http.timeoutMs;
         this.breaker = new CircuitBreaker(
             (config: AxiosRequestConfig) => this.httpService.axiosRef.request(config),
             {
-                timeout: Number(process.env.WEEZEVENT_HTTP_TIMEOUT_MS || 15000),
-                errorThresholdPercentage: Number(process.env.WEEZEVENT_BREAKER_THRESHOLD || 50),
-                resetTimeout: Number(process.env.WEEZEVENT_BREAKER_RESET_MS || 30000),
+                timeout: http.timeoutMs,
+                errorThresholdPercentage: http.breakerThresholdPercent,
+                resetTimeout: http.breakerResetMs,
                 volumeThreshold: 10,
                 rollingCountTimeout: 10000,
                 name: 'weezevent-api',
@@ -115,7 +121,7 @@ export class WeezeventApiService {
 
         // Build request config
         // ⚠️ timeout placé APRÈS le spread pour qu'aucun appelant ne puisse l'écraser
-        const HARD_TIMEOUT_MS = Number(process.env.WEEZEVENT_HTTP_TIMEOUT_MS || 15000);
+        const HARD_TIMEOUT_MS = this.hardTimeoutMs;
         const config: AxiosRequestConfig = {
             method,
             url: `${this.baseUrl}${endpoint}`,

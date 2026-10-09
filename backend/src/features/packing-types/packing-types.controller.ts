@@ -5,6 +5,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { PackingTypesService } from './packing-types.service';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { PackingTypesFindAllQueryDto } from './dto/packing-types.query.dto';
 
 class CreatePackingTypeDto {
   @IsString()
@@ -26,10 +27,9 @@ export class PackingTypesController {
   @ApiOperation({ summary: 'Lister les packing types du tenant (paginé)' })
   findAll(
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
+    @Query() params: PackingTypesFindAllQueryDto,
   ) {
+    const { page, limit, search } = params;
     return this.packingTypesService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined, search);
   }
 

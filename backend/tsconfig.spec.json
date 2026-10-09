@@ -1,7 +1,10 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["jest", "node"]
+    "types": ["jest", "node"],
+    // Jest transpile chaque fichier isolément (pas de vérification de types) :
+    // le typage est vérifié une seule fois par `tsc --noEmit`, en CI comme en local.
+    "isolatedModules": true
   },
   "include": ["src/**/*.spec.ts", "src/**/*.e2e-spec.ts"],
   "exclude": ["node_modules", "dist"]

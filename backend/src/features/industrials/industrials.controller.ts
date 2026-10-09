@@ -5,6 +5,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { IndustrialsService } from './industrials.service';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { IndustrialsFindAllQueryDto } from './dto/industrials.query.dto';
 
 class CreateIndustrialDto {
   @IsString()
@@ -26,10 +27,9 @@ export class IndustrialsController {
   @ApiOperation({ summary: 'Lister les industrials du tenant (paginé)' })
   findAll(
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
+    @Query() params: IndustrialsFindAllQueryDto,
   ) {
+    const { page, limit, search } = params;
     return this.industrialsService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined, search);
   }
 

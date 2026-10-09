@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { IntegrationsController } from './integrations.controller';
-import { IntegrationsService } from './integrations.service';
 import { WeezeventIntegrationService } from './services/weezevent-integration.service';
 import { DigifoodIntegrationService } from './services/digifood-integration.service';
 import { WebhookIntegrationService } from './services/webhook-integration.service';
@@ -13,7 +12,6 @@ import { DigifoodModule } from '../digifood/digifood.module';
   imports: [EncryptionModule, WeezeventModule, DigifoodModule],
   controllers: [IntegrationsController],
   providers: [
-    IntegrationsService,
     WeezeventIntegrationService,
     DigifoodIntegrationService,
     WebhookIntegrationService,

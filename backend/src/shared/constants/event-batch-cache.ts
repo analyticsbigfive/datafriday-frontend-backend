@@ -1,10 +1,10 @@
 /**
  * BUG-143-01 — motifs Redis des caches par event des endpoints batch de l'Analyse
  * (event-timeline, transaction-baskets, et depuis BUG-144-01 analyse-unmapped). Clés
- * écrites par SpacesService (`spaces:evtimeline:{tenantId}:{spaceId}:{eventId}`,
+ * écrites par SpaceEventTimelineService (`spaces:evtimeline:{tenantId}:{spaceId}:{eventId}`,
  * `spaces:baskets:…`, `spaces:unmapped:…`), purgées à DEUX endroits qui doivent rester
  * alignés — d'où cette constante partagée :
- *  - SpacesService.invalidateSpaceCache (écritures espace/builder) ;
+ *  - SpaceCacheService.invalidateSpaceCache (écritures espace/builder) ;
  *  - AggregationService.executeProcessEvents (fin de re-agrégation — sans cette purge,
  *    une re-agrégation servirait jusqu'à 6 h de timeline périmée).
  * `spaces:unmapped:*` est EN PLUS purgé à l'écriture de mapping (MappingsService,

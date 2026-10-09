@@ -91,11 +91,7 @@ export class MetricsController {
       users: userCount,
       menuItems: menuItemCount,
       weezeventTransactions: transactionCount,
-      connectionPool: {
-        configured: true,
-        timeout: '30s',
-        keepAlive: '65s',
-      },
+      connectionPool: this.prisma.poolStats(),
     };
   }
 
@@ -126,7 +122,7 @@ export class MetricsController {
     } catch (error) {
       return {
         connected: false,
-        error: error.message,
+        error: (error as Error).message,
       };
     }
   }

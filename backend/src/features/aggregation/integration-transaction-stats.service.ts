@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
+import { dailyTransactionTotals, unmappedLocationsWithSales } from './integration-transaction-stats.queries';
 
-export interface UnregisteredDateRow {
+interface UnregisteredDateRow {
   date: string;
   transactionCount: number;
   revenue: number;
@@ -22,7 +22,7 @@ const CACHE_TTL_SEC = 60;
 
 /**
  * Statistiques transactions d'une intégration pour la page statut d'agrégation
- * (AggregationService.getEventsTimelineStatus) : jours de vente sans event, couverture
+ * (AggregationStatusService.getEventsTimelineStatus) : jours de vente sans event, couverture
  * total/matched, PdV non mappés.
  *
  * Avant : trois requêtes en parallèle, chacune parcourant toutes les transactions de
@@ -51,34 +51,14 @@ export class IntegrationTransactionStatsService {
     if (cached && Array.isArray(cached.unregisteredDates)) return cached;
 
     const [dailyRows, coveringEvents, unmappedRows] = await Promise.all([
-      this.prisma.$queryRaw<Array<{ date: Date | string; transactionCount: number; revenue: number }>>(Prisma.sql`
-        SELECT DATE(t."transactionDate") AS "date",
-               COUNT(*)::int AS "transactionCount",
-               SUM(t."amount")::float AS "revenue"
-        FROM "WeezeventTransaction" t
-        WHERE t."tenantId" = ${tenantId} AND t."integrationId" = ${integrationId}
-        GROUP BY DATE(t."transactionDate")
-        ORDER BY DATE(t."transactionDate") DESC
-      `),
+      dailyTransactionTotals(this.prisma, tenantId, integrationId),
       // BUG-368-02 : un Event qui déclare explicitement SON intégration ne "couvre" que ses
       // transactions ; les events legacy sans integrationId couvrent par coïncidence de date.
       this.prisma.event.findMany({
         where: { tenantId, spaceId, OR: [{ integrationId: null }, { integrationId }] },
         select: { eventDate: true },
       }),
-      this.prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-        SELECT l."id"
-        FROM "WeezeventLocation" l
-        WHERE l."tenantId" = ${tenantId} AND l."integrationId" = ${integrationId}
-          AND NOT EXISTS (
-            SELECT 1 FROM "WeezeventLocationShopMapping" m
-            WHERE m."tenantId" = l."tenantId" AND m."weezeventLocationId" = l."id"
-          )
-          AND EXISTS (
-            SELECT 1 FROM "WeezeventTransaction" t
-            WHERE t."tenantId" = l."tenantId" AND t."locationId" = l."id" AND t."integrationId" = l."integrationId"
-          )
-      `),
+      unmappedLocationsWithSales(this.prisma, tenantId, integrationId),
     ]);
 
     const coveringDates = new Set(coveringEvents.map((e) => toIsoDate(e.eventDate)));
@@ -93,7 +73,7 @@ export class IntegrationTransactionStatsService {
       total += count;
       if (matchedDates.has(date)) matched += count;
       if (!coveringDates.has(date)) {
-        // Même format sur le fil que l'ancien $queryRaw (DATE → Date minuit UTC sérialisée en ISO).
+        // Même format sur le fil qu'avant (DATE → Date minuit UTC sérialisée en ISO).
         unregisteredDates.push({ date: `${date}T00:00:00.000Z`, transactionCount: count, revenue: Number(row.revenue) || 0 });
       }
     }

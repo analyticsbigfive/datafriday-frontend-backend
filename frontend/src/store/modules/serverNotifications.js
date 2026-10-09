@@ -2,8 +2,9 @@
 // WhatsApp en option plus tard, cf. backend/src/features/notifications). Module
 // SÉPARÉ de `notifications` (local/localStorage, volontairement sans réseau ni
 // polling, cf. son propre en-tête). NotificationPanel fusionne les deux listes à
-// l'affichage. Poll léger (pas de websocket) piloté par App.vue sur auth/userId,
-// même pattern que `notifications/setUser`.
+// l'affichage. Chargé au login (App.vue, sur auth/userId), puis rechargé à chaque signal
+// du flux SSE global /live/stream (GlobalLiveIndicator.vue) ; poll de secours toutes les
+// 30 s seulement quand ce flux est coupé.
 
 import { toast } from 'vue-sonner'
 import { getNotifications, markNotificationRead, markAllNotificationsRead } from '@/api/endpoints/notifications.api'
@@ -125,11 +126,20 @@ export default {
       }
     },
 
-    /** Login (ou boot déjà authentifié) : fetch immédiat + poll régulier. */
+    /** Login (ou boot déjà authentifié) : chargement immédiat. La suite arrive par le flux SSE. */
     startPolling({ dispatch }) {
       dispatch('fetch')
-      if (pollTimer) clearInterval(pollTimer)
-      pollTimer = setInterval(() => dispatch('fetch'), POLL_MS)
+    },
+
+    /** Flux SSE connecté : plus de poll, rattrapage de ce qui a pu arriver pendant la coupure.
+     *  Flux coupé : poll de secours jusqu'à la reconnexion. */
+    setStreamConnected({ dispatch }, connected) {
+      if (connected) {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+        dispatch('fetch')
+      } else if (!pollTimer) {
+        pollTimer = setInterval(() => dispatch('fetch'), POLL_MS)
+      }
     },
 
     /** Logout : plus rien à afficher pour le prochain utilisateur du poste, et son

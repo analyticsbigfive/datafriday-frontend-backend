@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { EventDayFields, resolveEventTransactionWindow } from '../../shared/utils/event-window.util';
-import { EventWindow } from './event-aggregation-sql';
+import { EventWindow } from './event-aggregation.queries';
+import { observedEventSpans } from './event-window.queries';
 
 // BUG-338-02 : même seuil que resolveEventSalesScope (spaces.service.ts). Un SalesEvent dont
 // les transactions liées s'étalent sur plus de 2 jours est un conteneur de saison, pas un match.
@@ -50,16 +50,7 @@ export class EventWindowResolverService {
   }
 
   private async computeSeasonContainerEventIds(tenantId: string): Promise<Set<string>> {
-    // Index couvrant WeezeventTransaction(tenantId, eventId, transactionDate, deletedAt) :
-    // index-only scan trié par eventId, plus de seq scan de la table.
-    const rows = await this.prisma.$queryRaw<Array<{ eventId: string; minDate: Date; maxDate: Date }>>(Prisma.sql`
-      SELECT t."eventId", MIN(t."transactionDate") AS "minDate", MAX(t."transactionDate") AS "maxDate"
-      FROM "WeezeventTransaction" t
-      WHERE t."tenantId" = ${tenantId}
-        AND t."eventId" IS NOT NULL
-        AND t."deletedAt" IS NULL
-      GROUP BY t."eventId"
-    `);
+    const rows = await observedEventSpans(this.prisma, tenantId);
     const spanMs = MAX_EVENT_SPAN_DAYS * 86_400_000;
     const containerIds = new Set(
       rows.filter((r) => new Date(r.maxDate).getTime() - new Date(r.minDate).getTime() > spanMs).map((r) => r.eventId),

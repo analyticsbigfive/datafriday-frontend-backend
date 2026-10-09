@@ -3,16 +3,23 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiBody, ApiParam, ApiQuery, ApiR
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
-import { SpaceMenusService } from './space-menus.service';
 import { SaveSpaceMenuConfigurationDto } from './dto/save-space-menu-configuration.dto';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { SpaceMenusGetShopAvailableMenuItemsQueryDto, SpaceMenusGetStorageInventoryQueryDto, SpaceMenusGetConfigShopMenuItemsLightQueryDto } from './dto/space-menus.query.dto';
+import { ShopMenuService } from './services/shop-menu.service';
+import { ShopStockInventoryService } from './services/shop-stock-inventory.service';
+import { SpaceMenuAvailabilityService } from './services/space-menu-availability.service';
+import { SpaceMenuConfigurationService } from './services/space-menu-configuration.service';
 
 @ApiTags('Space Menus')
 @ApiBearerAuth('supabase-jwt')
 @Controller('space-menu')
 @UseGuards(JwtDatabaseGuard, RolesGuard)
 export class SpaceMenusController {
-  constructor(private readonly spaceMenusService: SpaceMenusService) {}
+  constructor(private readonly shopMenuService: ShopMenuService,
+    private readonly shopStockInventoryService: ShopStockInventoryService,
+    private readonly spaceMenuAvailabilityService: SpaceMenuAvailabilityService,
+    private readonly spaceMenuConfigurationService: SpaceMenuConfigurationService) {}
 
   @Get('shop/:shopId')
   @ApiOperation({ 
@@ -208,7 +215,7 @@ export class SpaceMenusController {
     @Query('configId') configId: string | undefined,
     @CurrentUser() user: any,
   ) {
-    return this.spaceMenusService.getShopMenu(shopId, user.tenantId, configId || undefined, user);
+    return this.shopMenuService.getShopMenu(shopId, user.tenantId, configId || undefined, user);
   }
 
   @Get('shop/:shopId/items')
@@ -286,11 +293,11 @@ export class SpaceMenusController {
   @ApiResponse({ status: 404, description: "Shop non trouvé ou n'appartient pas au tenant" })
   async getShopAvailableMenuItems(
     @Param('shopId') shopId: string,
-    @Query('configId') configId: string | undefined,
-    @Query('enabledOnly') enabledOnly: string | undefined,
+    @Query() params: SpaceMenusGetShopAvailableMenuItemsQueryDto,
     @CurrentUser() user: any,
   ) {
-    return this.spaceMenusService.getShopAvailableMenuItems(
+    const { configId, enabledOnly } = params;
+    return this.spaceMenuAvailabilityService.getShopAvailableMenuItems(
       shopId,
       user.tenantId,
       configId || undefined,
@@ -360,7 +367,7 @@ export class SpaceMenusController {
     @Query('configId') configId: string | undefined,
     @CurrentUser() user: any,
   ) {
-    return this.spaceMenusService.getShopInventory(shopId, user.tenantId, configId || undefined, user);
+    return this.shopStockInventoryService.getShopInventory(shopId, user.tenantId, configId || undefined, user);
   }
 
   @Get('storage-inventory')
@@ -436,11 +443,11 @@ export class SpaceMenusController {
     },
   })
   async getStorageInventory(
-    @Query('shopIds') shopIds: string | undefined,
-    @Query('configId') configId: string | undefined,
+    @Query() params: SpaceMenusGetStorageInventoryQueryDto,
     @CurrentUser() user: any,
   ) {
-    return this.spaceMenusService.getStorageInventory(
+    const { shopIds, configId } = params;
+    return this.shopStockInventoryService.getStorageInventory(
       (shopIds || '').split(','),
       user.tenantId,
       configId || undefined,
@@ -463,7 +470,7 @@ export class SpaceMenusController {
     @Param('spaceId') spaceId: string,
     @CurrentUser() user: any,
   ) {
-    return this.spaceMenusService.getSpaceMenuItems(spaceId, user.tenantId);
+    return this.spaceMenuAvailabilityService.getSpaceMenuItems(spaceId, user.tenantId);
   }
 
   @Get(':spaceId/:configId/shop-items')
@@ -484,11 +491,11 @@ export class SpaceMenusController {
   async getConfigShopMenuItemsLight(
     @Param('spaceId') spaceId: string,
     @Param('configId') configId: string,
-    @Query('itemsScope') itemsScope: string | undefined,
-    @Query('shopsScope') shopsScope: string | undefined,
+    @Query() params: SpaceMenusGetConfigShopMenuItemsLightQueryDto,
     @CurrentUser() user: any,
   ) {
-    return this.spaceMenusService.getConfigShopMenuItemsLight(spaceId, configId, user.tenantId, {
+    const { itemsScope, shopsScope } = params;
+    return this.spaceMenuConfigurationService.getConfigShopMenuItemsLight(spaceId, configId, user.tenantId, {
       itemsScope: itemsScope === 'space' ? 'space' : 'config',
       shopsScope: shopsScope === 'space' ? 'space' : 'config',
     });
@@ -504,7 +511,7 @@ export class SpaceMenusController {
     @Param('configId') configId: string,
     @CurrentUser() user: any,
   ) {
-    return this.spaceMenusService.getMenuConfiguration(spaceId, configId, user.tenantId);
+    return this.spaceMenuConfigurationService.getMenuConfiguration(spaceId, configId, user.tenantId);
   }
 
   @RequirePermissions('menu.fb.spaceMenu')
@@ -516,6 +523,6 @@ export class SpaceMenusController {
     @Body() body: SaveSpaceMenuConfigurationDto,
     @CurrentUser() user: any,
   ) {
-    return this.spaceMenusService.saveMenuConfiguration(body.spaceId, body.configId, body.menuItems, user.tenantId);
+    return this.spaceMenuConfigurationService.saveMenuConfiguration(body.spaceId, body.configId, body.menuItems, user.tenantId);
   }
 }

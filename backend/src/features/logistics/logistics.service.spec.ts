@@ -1,20 +1,35 @@
+import { Prisma } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
-import { LogisticsService } from './logistics.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { spaceAccessStub } from '../../core/auth/space-access.testing';
+import { LogisticsElementScopeService } from './services/logistics-element-scope.service';
+import { StockItemIdentityService } from './services/stock-item-identity.service';
+import { RecipeExplosionService } from './services/recipe-explosion.service';
+import { StockReferentialService } from './services/stock-referential.service';
+import { StockMovementService } from './services/stock-movement.service';
+import { StockLossService } from './services/stock-loss.service';
+import { StockLevelService } from './services/stock-level.service';
+import { StockReconciliationService } from './services/stock-reconciliation.service';
+import { SalesSimulationService } from './services/sales-simulation.service';
 
 describe('LogisticsService — readyForSale display logic', () => {
-  let service: any;
+  let recipeExplosionService: any; // any : la spec teste aussi des méthodes privées
+  let stockReferentialService: any; // any : la spec teste aussi des méthodes privées
+  let stockMovementService: any; // any : la spec teste aussi des méthodes privées
+  let stockLevelService: any; // any : la spec teste aussi des méthodes privées
+  let salesSimulationService: any; // any : la spec teste aussi des méthodes privées
 
   const mockPrisma: any = {
     menuItem: { findMany: jest.fn(), findFirst: jest.fn() },
     menuComponent: { findMany: jest.fn() },
     marketPrice: { findMany: jest.fn(), findFirst: jest.fn() },
     spaceElement: { findFirst: jest.fn() },
+    stockLevel: { findUnique: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn(),
   };
   const mockPricingService: any = {
@@ -36,7 +51,15 @@ describe('LogisticsService — readyForSale display logic', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        LogisticsService,
+        LogisticsElementScopeService,
+        StockItemIdentityService,
+        RecipeExplosionService,
+        StockReferentialService,
+        StockMovementService,
+        StockLossService,
+        StockLevelService,
+        StockReconciliationService,
+        SalesSimulationService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: QueueService, useValue: { queueAggregationJob: jest.fn() } },
         {
@@ -47,10 +70,14 @@ describe('LogisticsService — readyForSale display logic', () => {
           },
         },
         { provide: MenuItemPricingService, useValue: mockPricingService },
-        { provide: SpaceAccessService, useValue: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => 'ALL' } },
+        { provide: SpaceAccessService, useValue: spaceAccessStub() },
       ],
     }).compile();
-    service = module.get<LogisticsService>(LogisticsService);
+    recipeExplosionService = module.get<RecipeExplosionService>(RecipeExplosionService);
+    stockReferentialService = module.get<StockReferentialService>(StockReferentialService);
+    stockMovementService = module.get<StockMovementService>(StockMovementService);
+    stockLevelService = module.get<StockLevelService>(StockLevelService);
+    salesSimulationService = module.get<SalesSimulationService>(SalesSimulationService);
     jest.clearAllMocks();
   });
 
@@ -68,10 +95,10 @@ describe('LogisticsService — readyForSale display logic', () => {
         inventoryNumberOfUnits: 24,
       };
 
-      const refs = service.itemRefsForMenuItem(item, emptyCtx());
+      const refs = recipeExplosionService.itemRefsForMenuItem(item, emptyCtx());
 
       expect(refs).toEqual([
-        { key: 'Coca-Cola CAN', id: 'mi-1', kind: 'product', unit: null, marketPriceId: null, unitsPerPack: 24, packagingType: 'Box', picture: null },
+        { key: 'Coca-Cola CAN', id: 'mi-1', kind: 'product', refKind: 'menuItem', unit: null, marketPriceId: null, unitsPerPack: 24, packagingType: 'Box', picture: null },
       ]);
     });
 
@@ -82,29 +109,32 @@ describe('LogisticsService — readyForSale display logic', () => {
         inventoryPackagingType: 'Bag', inventoryNumberOfUnits: 10,
       };
 
-      const refs = service.itemRefsForMenuItem(item, emptyCtx());
+      const refs = recipeExplosionService.itemRefsForMenuItem(item, emptyCtx());
 
       expect(refs).toEqual([
-        { key: 'Empty Product', id: 'mi-2', kind: 'product', unit: null, marketPriceId: null, unitsPerPack: 10, packagingType: 'Bag', picture: null },
+        { key: 'Empty Product', id: 'mi-2', kind: 'product', refKind: 'menuItem', unit: null, marketPriceId: null, unitsPerPack: 10, packagingType: 'Bag', picture: null },
       ]);
     });
   });
 
-  describe('componentRefsForComponent — Gap 2 (Component own readyForSale)', () => {
-    it('counts a readyForSale=Yes component as itself, using its own packedUnits/inventoryPackaging', () => {
+  // Décision Q13 (Bertrand, 2026-08-04) + BUG-260-02 : un Component n'est plus jamais
+  // décomposé (ni au stock-up, ni à l'inventaire, ni au réarmement). Il est suivi tel quel,
+  // quel que soit son readyForSale, avec son propre conditionnement.
+  describe('componentRefsForComponent — Q13 (un composant est suivi tel quel)', () => {
+    const expectedLeaf = (comp: any) => ({
+      key: comp.name, id: comp.id, kind: 'component', refKind: 'menuComponent', unit: comp.unit,
+      marketPriceId: null, unitsPerPack: comp.packedUnits, packagingType: comp.inventoryPackaging, picture: null,
+    });
+
+    it('compte un composant comme lui-même, avec son packedUnits/inventoryPackaging', () => {
       const comp = {
         id: 'comp-1', name: 'Cheddar Tranche', unit: 'Pc', readyForSale: 'Yes',
         packedUnits: 12, inventoryPackaging: 'Sac', ingredients: [], children: [],
       };
-
-      const refs = service.componentRefsForComponent(comp, emptyCtx());
-
-      expect(refs).toEqual([
-        { key: 'Cheddar Tranche', id: 'comp-1', kind: 'component', unit: 'Pc', marketPriceId: null, unitsPerPack: 12, packagingType: 'Sac', picture: null },
-      ]);
+      expect(recipeExplosionService.componentRefsForComponent(comp, emptyCtx())).toEqual([expectedLeaf(comp)]);
     });
 
-    it('explodes a readyForSale=No component into its own ingredients', () => {
+    it('ne décompose pas un composant readyForSale=No en ses ingrédients', () => {
       const comp = {
         id: 'comp-2', name: 'Sauce Base', unit: 'L', readyForSale: 'No',
         packedUnits: null, inventoryPackaging: null,
@@ -113,66 +143,35 @@ describe('LogisticsService — readyForSale display logic', () => {
         ],
         children: [],
       };
-
-      const refs = service.componentRefsForComponent(comp, emptyCtx());
-
-      expect(refs).toEqual([
-        { key: 'Sugar', id: 'mp-1', kind: 'ingredient', unit: 'g', marketPriceId: 'mp-1', unitsPerPack: 5, packagingType: 'Bag', picture: null },
-      ]);
+      expect(recipeExplosionService.componentRefsForComponent(comp, emptyCtx())).toEqual([expectedLeaf(comp)]);
     });
 
-    it('recurses into a sub-component (readyForSale=No) reachable via componentById, and stops recursing once a descendant is readyForSale=Yes', () => {
-      const grandchildYes = {
-        id: 'comp-4', name: 'Ready Sub', unit: 'Pc', readyForSale: 'Yes',
-        packedUnits: 6, inventoryPackaging: 'Carton', ingredients: [], children: [],
-      };
-      const child = {
-        id: 'comp-3', name: 'Sub Component', unit: 'Pc', readyForSale: 'No',
-        packedUnits: null, inventoryPackaging: null,
-        ingredients: [],
-        children: [{ quantity: 1, child: { id: 'comp-4', name: 'Ready Sub', unit: 'Pc' } }],
-      };
+    it('ne descend pas dans les sous-composants', () => {
       const parent = {
         id: 'comp-2', name: 'Parent Component', unit: 'Pc', readyForSale: 'No',
-        packedUnits: null, inventoryPackaging: null,
-        ingredients: [],
+        packedUnits: null, inventoryPackaging: null, ingredients: [],
         children: [{ quantity: 1, child: { id: 'comp-3', name: 'Sub Component', unit: 'Pc' } }],
       };
       const ctx = emptyCtx();
-      ctx.componentById.set('comp-3', child);
-      ctx.componentById.set('comp-4', grandchildYes);
-
-      const refs = service.componentRefsForComponent(parent, ctx);
-
-      expect(refs).toEqual([
-        { key: 'Ready Sub', id: 'comp-4', kind: 'component', unit: 'Pc', marketPriceId: null, unitsPerPack: 6, packagingType: 'Carton', picture: null },
-      ]);
+      ctx.componentById.set('comp-3', { id: 'comp-3', name: 'Sub Component', unit: 'Pc', ingredients: [], children: [] });
+      expect(recipeExplosionService.componentRefsForComponent(parent, ctx)).toEqual([expectedLeaf(parent)]);
     });
 
-    it('falls back to a flat leaf on a ComponentComponent cycle instead of looping forever', () => {
+    it('termine sur un cycle ComponentComponent', () => {
       const compA: any = {
         id: 'comp-a', name: 'A', unit: 'Pc', readyForSale: 'No',
         packedUnits: 3, inventoryPackaging: 'Box', ingredients: [],
         children: [{ quantity: 1, child: { id: 'comp-b', name: 'B', unit: 'Pc' } }],
       };
-      const compB: any = {
-        id: 'comp-b', name: 'B', unit: 'Pc', readyForSale: 'No',
-        packedUnits: null, inventoryPackaging: null, ingredients: [],
-        children: [{ quantity: 1, child: { id: 'comp-a', name: 'A', unit: 'Pc' } }], // cycle back to A
-      };
       const ctx = emptyCtx();
       ctx.componentById.set('comp-a', compA);
-      ctx.componentById.set('comp-b', compB);
-
-      const refs = service.componentRefsForComponent(compA, ctx);
-
-      // Doesn't hang; A is re-encountered via the cycle and falls back to a flat leaf.
-      expect(refs.some((r: any) => r.id === 'comp-a' && r.kind === 'component')).toBe(true);
+      ctx.componentById.set('comp-b', { id: 'comp-b', name: 'B', unit: 'Pc', ingredients: [], children: [{ quantity: 1, child: { id: 'comp-a' } }] });
+      expect(recipeExplosionService.componentRefsForComponent(compA, ctx)).toEqual([expectedLeaf(compA)]);
     });
   });
 
-  describe('itemRefsForMenuItem — Gap 2 wiring (MenuItem readyForSale=No exploding a component)', () => {
-    it('delegates to componentRefsForComponent instead of emitting a flat component leaf', () => {
+  describe('itemRefsForMenuItem — un MenuItem readyForSale=No référence ses composants tels quels', () => {
+    it('émet le composant lui-même, pas ses ingrédients', () => {
       const fullComp = {
         id: 'comp-5', name: 'Bun - Burger', unit: 'Pc', readyForSale: 'No',
         packedUnits: null, inventoryPackaging: null,
@@ -189,10 +188,8 @@ describe('LogisticsService — readyForSale display logic', () => {
       const ctx = emptyCtx();
       ctx.componentById.set('comp-5', fullComp);
 
-      const refs = service.itemRefsForMenuItem(item, ctx);
-
-      expect(refs).toEqual([
-        { key: 'Flour', id: 'mp-2', kind: 'ingredient', unit: 'kg', marketPriceId: 'mp-2', unitsPerPack: 25, packagingType: 'Sac', picture: null },
+      expect(recipeExplosionService.itemRefsForMenuItem(item, ctx)).toEqual([
+        { key: 'Bun - Burger', id: 'comp-5', kind: 'component', refKind: 'menuComponent', unit: 'Pc', marketPriceId: null, unitsPerPack: null, packagingType: null, picture: null },
       ]);
     });
   });
@@ -209,10 +206,10 @@ describe('LogisticsService — readyForSale display logic', () => {
         packagings: [],
       };
 
-      const refs = service.itemRefsForMenuItem(combo, emptyCtx());
+      const refs = recipeExplosionService.itemRefsForMenuItem(combo, emptyCtx());
 
       expect(refs).toEqual([
-        { key: 'Bun', id: 'mp-3', kind: 'ingredient', unit: 'pc', marketPriceId: 'mp-3', unitsPerPack: 1, packagingType: null, picture: null },
+        { key: 'Bun', id: 'mp-3', kind: 'ingredient', refKind: 'marketPrice', unit: 'pc', marketPriceId: 'mp-3', unitsPerPack: 1, packagingType: null, picture: null },
       ]);
       // Ne doit PLUS être compté comme son propre produit.
       expect(refs.some((r: any) => r.key === 'Menu Burger')).toBe(false);
@@ -232,7 +229,7 @@ describe('LogisticsService — readyForSale display logic', () => {
       mockPrisma.menuComponent.findMany.mockResolvedValue([]);
 
       const raw = [{ elementId: 'el-1', menuItemId: 'mi-combo-2', eventId: null, eventName: null, qty: 2, lastAt: new Date('2026-07-24') }];
-      const consumption = await service.explodeSalesToConsumption(raw, 'tenant-1');
+      const consumption = await recipeExplosionService.explodeSalesToConsumption(raw, 'tenant-1');
 
       expect(consumption).toEqual([{ elementId: 'el-1', itemKey: 'Bun', quantity: 2 }]);
     });
@@ -260,7 +257,7 @@ describe('LogisticsService — readyForSale display logic', () => {
         { elementId: 'el-1', menuItemId: 'mi-pinte', eventId: null, eventName: null, qty: 2, lastAt: new Date('2026-09-05') },
         { elementId: 'el-1', menuItemId: 'mi-coca', eventId: null, eventName: null, qty: 3, lastAt: new Date('2026-09-05') },
       ];
-      const consumption = await service.explodeSalesToConsumption(raw, 'tenant-1');
+      const consumption = await recipeExplosionService.explodeSalesToConsumption(raw, 'tenant-1');
 
       expect(consumption).toEqual(
         expect.arrayContaining([
@@ -282,14 +279,14 @@ describe('LogisticsService — readyForSale display logic', () => {
       ]);
       mockPrisma.menuComponent.findMany.mockResolvedValue([]);
       const raw = [{ elementId: 'el-1', menuItemId: 'mi-1', eventId: null, eventName: null, qty: 1, lastAt: new Date('2026-09-05') }];
-      const consumption = await service.explodeSalesToConsumption(raw, 'tenant-1');
+      const consumption = await recipeExplosionService.explodeSalesToConsumption(raw, 'tenant-1');
       expect(consumption).toEqual([{ elementId: 'el-1', itemKey: 'Sel', quantity: 1 }]);
       expect(Object.keys(consumption[0])).toEqual(['elementId', 'itemKey', 'quantity']);
     });
   });
 
   describe('explodeSalesToConsumption — Path B parity with Path A', () => {
-    it('explodes sales through a readyForSale=No component into its ingredient (not a flat component key)', async () => {
+    it('compte les ventes d’un composant comme le composant lui-même (Q13), avec son identité catalogue', async () => {
       mockPrisma.menuItem.findMany.mockResolvedValueOnce([
         {
           id: 'mi-4', name: 'Burger Seul', readyForSale: 'No', comboItem: 'No', numberOfPiecesRecipe: 1,
@@ -310,9 +307,9 @@ describe('LogisticsService — readyForSale display logic', () => {
       mockPrisma.menuComponent.findMany.mockResolvedValue([]);
 
       const raw = [{ elementId: 'el-1', menuItemId: 'mi-4', eventId: null, eventName: null, qty: 3, lastAt: new Date('2026-07-15') }];
-      const consumption = await service.explodeSalesToConsumption(raw, 'tenant-1');
+      const consumption = await recipeExplosionService.explodeSalesToConsumption(raw, 'tenant-1');
 
-      expect(consumption).toEqual([{ elementId: 'el-1', itemKey: 'Flour', quantity: 3 }]);
+      expect(consumption).toEqual([{ elementId: 'el-1', itemKey: 'Bun - Burger', quantity: 3, itemKind: 'menuComponent', itemRefId: 'comp-6' }]);
     });
   });
 
@@ -322,7 +319,7 @@ describe('LogisticsService — readyForSale display logic', () => {
   // nombreuses dépendances) pour isoler la seule logique neuve : le reformatage.
   describe('getLiveInventory', () => {
     it('builds the shop→items tree, enriching each item with its StockLevel and derived consumption', async () => {
-      jest.spyOn(service, 'getStock').mockResolvedValue({
+      jest.spyOn(stockLevelService, 'getStock').mockResolvedValue({
         elements: [
           {
             id: 'shop-1', name: 'Bar Nord', type: 'fnb_bar',
@@ -337,7 +334,7 @@ describe('LogisticsService — readyForSale display logic', () => {
         consumption: [{ elementId: 'shop-1', itemKey: 'Heineken 33cl', quantity: 12 }],
       } as any);
 
-      const result = await service.getLiveInventory('space-1', 'tenant-1');
+      const result = await stockLevelService.getLiveInventory('space-1', 'tenant-1');
 
       // Storage exclu — l'onglet Live est scopé aux shops (11_LIVE.md §3 : "par Shop", pas storage).
       expect(result.shops).toEqual([
@@ -346,6 +343,8 @@ describe('LogisticsService — readyForSale display logic', () => {
           shopName: 'Bar Nord',
           items: [{
             itemKey: 'Heineken 33cl',
+            itemKind: null,
+            itemRefId: 'mi-1',
             unit: null,
             packedUnits: 5,
             looseUnits: 3,
@@ -358,7 +357,7 @@ describe('LogisticsService — readyForSale display logic', () => {
     });
 
     it('defaults packedUnits/looseUnits/consumedLoose to 0 when no StockLevel/consumption row exists yet', async () => {
-      jest.spyOn(service, 'getStock').mockResolvedValue({
+      jest.spyOn(stockLevelService, 'getStock').mockResolvedValue({
         elements: [
           { id: 'shop-1', name: 'Bar Nord', type: 'fnb_bar', items: [{ name: 'Nouveau Cocktail', id: 'mi-2', kind: 'product', unitsPerPack: null, marketPriceId: null }] },
         ],
@@ -366,10 +365,12 @@ describe('LogisticsService — readyForSale display logic', () => {
         consumption: [],
       } as any);
 
-      const result = await service.getLiveInventory('space-1', 'tenant-1');
+      const result = await stockLevelService.getLiveInventory('space-1', 'tenant-1');
 
       expect(result.shops[0].items[0]).toEqual({
         itemKey: 'Nouveau Cocktail',
+        itemKind: null,
+        itemRefId: 'mi-2',
         unit: null,
         packedUnits: 0,
         looseUnits: 0,
@@ -380,7 +381,7 @@ describe('LogisticsService — readyForSale display logic', () => {
     });
 
     it('builds the inverted item→shops index from the same data, sorted by itemKey', async () => {
-      jest.spyOn(service, 'getStock').mockResolvedValue({
+      jest.spyOn(stockLevelService, 'getStock').mockResolvedValue({
         elements: [
           { id: 'shop-1', name: 'Bar Nord', type: 'fnb_bar', items: [{ name: 'Heineken 33cl', id: 'mi-1', kind: 'product', unitsPerPack: 24, marketPriceId: 'mp-1' }] },
           { id: 'shop-2', name: 'Bar Sud', type: 'fnb_bar', items: [{ name: 'Heineken 33cl', id: 'mi-1', kind: 'product', unitsPerPack: 24, marketPriceId: 'mp-1' }, { name: 'Coca-Cola', id: 'mi-3', kind: 'product', unitsPerPack: null, marketPriceId: null }] },
@@ -392,12 +393,14 @@ describe('LogisticsService — readyForSale display logic', () => {
         consumption: [],
       } as any);
 
-      const result = await service.getLiveInventory('space-1', 'tenant-1');
+      const result = await stockLevelService.getLiveInventory('space-1', 'tenant-1');
 
       expect(result.items).toEqual([
-        { itemKey: 'Coca-Cola', unit: null, shops: [{ shopId: 'shop-2', shopName: 'Bar Sud', packedUnits: 0, looseUnits: 0, unitsPerPack: null, marketPriceId: null, consumedLoose: 0 }] },
+        { itemKey: 'Coca-Cola', itemKind: null, itemRefId: 'mi-3', unit: null, shops: [{ shopId: 'shop-2', shopName: 'Bar Sud', packedUnits: 0, looseUnits: 0, unitsPerPack: null, marketPriceId: null, consumedLoose: 0 }] },
         {
           itemKey: 'Heineken 33cl',
+          itemKind: null,
+          itemRefId: 'mi-1',
           unit: null,
           shops: [
             { shopId: 'shop-1', shopName: 'Bar Nord', packedUnits: 5, looseUnits: 0, unitsPerPack: 24, marketPriceId: 'mp-1', consumedLoose: 0 },
@@ -432,12 +435,18 @@ describe('LogisticsService — readyForSale display logic', () => {
       mockPrisma.marketPrice.findFirst.mockResolvedValueOnce({ packedUnits: 24, itemName: 'Coca 33cl' });
 
       await expect(
-        service.createMovement({ ...baseDto, marketPriceId: 'mp-mismatch' }, 'tenant-1'),
+        stockMovementService.createMovement({ ...baseDto, marketPriceId: 'mp-mismatch' }, 'tenant-1'),
       ).rejects.toThrow('ne correspond pas');
     });
 
     it('accepts a marketPriceId whose itemName matches the itemKey (case/whitespace-insensitive)', async () => {
       mockPrisma.spaceElement.findFirst.mockResolvedValueOnce(validElement);
+      // Résolution d'identité catalogue (ADR-0006) : aucun article homonyme trouvé.
+      mockPrisma.marketPrice.findMany.mockResolvedValueOnce([]);
+      mockPrisma.ingredient = { findMany: jest.fn().mockResolvedValue([]) };
+      mockPrisma.packaging = { findMany: jest.fn().mockResolvedValue([]) };
+      mockPrisma.menuComponent.findMany.mockResolvedValueOnce([]);
+      mockPrisma.menuItem.findMany.mockResolvedValueOnce([]);
       mockPrisma.marketPrice.findFirst.mockResolvedValueOnce({ packedUnits: 24, itemName: '  heineken 33cl  ' });
       const tx = {
         stockLevel: {
@@ -449,7 +458,7 @@ describe('LogisticsService — readyForSale display logic', () => {
       mockPrisma.$transaction = jest.fn((cb: any) => cb(tx));
 
       await expect(
-        service.createMovement({ ...baseDto, marketPriceId: 'mp-ok' }, 'tenant-1'),
+        stockMovementService.createMovement({ ...baseDto, marketPriceId: 'mp-ok' }, 'tenant-1'),
       ).resolves.toBeDefined();
     });
   });
@@ -467,23 +476,22 @@ describe('LogisticsService — readyForSale display logic', () => {
     };
 
     it('refuse un dépôt VENTILATION sans eventId', async () => {
-      await expect(service.createMovement({ ...dto, eventId: undefined }, 'tenant-1')).rejects.toThrow('eventId requis');
+      await expect(stockMovementService.createMovement({ ...dto, eventId: undefined }, 'tenant-1')).rejects.toThrow('eventId requis');
     });
 
     it('refuse un retrait VENTILATION', async () => {
-      await expect(service.createMovement({ ...dto, direction: 'remove' }, 'tenant-1')).rejects.toThrow('réservé aux ajouts');
+      await expect(stockMovementService.createMovement({ ...dto, direction: 'remove' }, 'tenant-1')).rejects.toThrow('réservé aux ajouts');
     });
 
     it("refuse une seconde annulation d'un même mouvement (index unique)", async () => {
       mockPrisma.spaceElement.findFirst.mockResolvedValueOnce({
         id: 'el-1', name: 'Bar', floor: { config: { spaceId: 'space-1' } }, forecourt: null, externalMerch: null, zone: null,
       });
-      const { Prisma } = require('@prisma/client');
       mockPrisma.$transaction = jest.fn().mockRejectedValueOnce(
         new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }),
       );
       await expect(
-        service.writeReversal(
+        stockMovementService.writeReversal(
           { id: 'mv-1', tenantId: 'tenant-1', spaceId: 'space-1', elementId: 'el-1', itemKey: 'Coca', itemKind: null, itemRefId: null,
             menuItemId: null, marketPriceId: null, packedDelta: 2, looseDelta: 0, reason: 'VENTILATION', eventId: 'ev-1', note: null },
           'user-1',
@@ -520,8 +528,8 @@ describe('LogisticsService — readyForSale display logic', () => {
         { salesLocationId: 'integ-pfc' },
         { salesLocationId: 'integ-sfp' },
       ]);
-      jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([]);
-      await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      jest.spyOn(recipeExplosionService, 'explodeSalesToConsumption').mockResolvedValue([]);
+      await stockLevelService.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
       expect(p.$queryRaw).toHaveBeenCalledTimes(1);
       const sql = p.$queryRaw.mock.calls[0][0];
       expect(sql.values).toEqual(expect.arrayContaining(['integ-pfc', 'integ-sfp']));
@@ -530,8 +538,8 @@ describe('LogisticsService — readyForSale display logic', () => {
 
     it('BUG-378-02 : aucune intégration mappée → mode dégradé sans clause intégration (PdV de l’espace seulement)', async () => {
       p.locationSpaceMapping.findMany.mockResolvedValueOnce([]);
-      jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([]);
-      await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      jest.spyOn(recipeExplosionService, 'explodeSalesToConsumption').mockResolvedValue([]);
+      await stockLevelService.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
       const sql = p.$queryRaw.mock.calls[0][0];
       expect(sql.sql).not.toMatch(/"integrationId" IN/);
       expect(sql.sql).not.toMatch(/"spaceElementId" IS NULL/);
@@ -539,7 +547,7 @@ describe('LogisticsService — readyForSale display logic', () => {
 
     it('404 quand l’event n’appartient pas au space/tenant (pas de fenêtre arbitraire)', async () => {
       p.event.findFirst.mockResolvedValueOnce(null);
-      await expect(service.deriveEventConsumption('space-1', 'ev-x', 'tenant-1')).rejects.toThrow(
+      await expect(stockLevelService.deriveEventConsumption('space-1', 'ev-x', 'tenant-1')).rejects.toThrow(
         'Event ev-x not found in space space-1',
       );
     });
@@ -551,10 +559,10 @@ describe('LogisticsService — readyForSale display logic', () => {
         { elementId: 'shop-1', menuItemId: null, locationName: 'Buvette Nord', productName: 'Produit inconnu', qty: 2 },
       ]);
       const explode = jest
-        .spyOn(service, 'explodeSalesToConsumption')
+        .spyOn(recipeExplosionService, 'explodeSalesToConsumption')
         .mockResolvedValue([{ elementId: 'shop-1', itemKey: 'Budweiser Fût', quantity: 7 }]);
 
-      const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      const result = await stockLevelService.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
 
       expect(explode).toHaveBeenCalledWith(
         [expect.objectContaining({ elementId: 'shop-1', menuItemId: 'mi-1', qty: 140 })],
@@ -569,14 +577,14 @@ describe('LogisticsService — readyForSale display logic', () => {
     });
 
     it('aucune vente → lines vides, unjoined null (le front distingue « 0 vente » de « échec réseau »)', async () => {
-      const explode = jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([]);
-      const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      const explode = jest.spyOn(recipeExplosionService, 'explodeSalesToConsumption').mockResolvedValue([]);
+      const result = await stockLevelService.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
       expect(explode).toHaveBeenCalledWith([], 'tenant-1');
       expect(result).toEqual({ eventId: 'ev-1', eventName: 'Match test', lines: [], unjoined: null, elementNames: {} });
     });
 
     it('BUG-378-02 : renvoie le NOM des PdV vendeurs (un PdV non compté ne peut pas être nommé par le client)', async () => {
-      jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([
+      jest.spyOn(recipeExplosionService, 'explodeSalesToConsumption').mockResolvedValue([
         { elementId: 'shop-1', itemKey: 'Coca', quantity: 3 },
         { elementId: 'shop-2', itemKey: 'Coca', quantity: 1 },
         { elementId: 'shop-1', itemKey: 'Bun', quantity: 2 },
@@ -586,7 +594,7 @@ describe('LogisticsService — readyForSale display logic', () => {
         { id: 'shop-1', name: 'Click & Collect' },
         { id: 'shop-2', name: 'Live Order' },
       ]);
-      const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      const result = await stockLevelService.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
       expect(result.elementNames).toEqual({ 'shop-1': 'Click & Collect', 'shop-2': 'Live Order' });
       // Dictionnaire, pas un champ par ligne : le même PdV revient sur des centaines de lignes.
       expect(result.lines[0]).not.toHaveProperty('elementName');
@@ -594,7 +602,7 @@ describe('LogisticsService — readyForSale display logic', () => {
 
     it('espace sans PdV → réponse vide sans requête ventes (pas de fenêtre tenant-wide)', async () => {
       p.spaceElement.findMany.mockResolvedValueOnce([]);
-      const result = await service.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
+      const result = await stockLevelService.deriveEventConsumption('space-1', 'ev-1', 'tenant-1');
       expect(p.$queryRaw).not.toHaveBeenCalled();
       expect(result.lines).toEqual([]);
     });
@@ -612,14 +620,14 @@ describe('LogisticsService — readyForSale display logic', () => {
         create: jest.fn(),
         update: jest.fn(),
       };
-      simulationQueue = service['simulationQueue'];
+      simulationQueue = salesSimulationService['simulationQueue'];
     });
 
     it('startSimulationRun est idempotent : un run déjà actif est renvoyé tel quel, pas de doublon ni de nouveau scheduler', async () => {
       const existing = { id: 'run-1', status: 'active' };
       p.simulationRun.findFirst.mockResolvedValue(existing);
 
-      const result = await service.startSimulationRun('space-1', 'tenant-1', 'user-1', { intervalMs: 10000 });
+      const result = await salesSimulationService.startSimulationRun('space-1', 'tenant-1', 'user-1', { intervalMs: 10000 });
 
       expect(result).toBe(existing);
       expect(p.simulationRun.create).not.toHaveBeenCalled();
@@ -631,7 +639,7 @@ describe('LogisticsService — readyForSale display logic', () => {
       const created = { id: 'run-2', status: 'active' };
       p.simulationRun.create.mockResolvedValue(created);
 
-      const result = await service.startSimulationRun('space-1', 'tenant-1', 'user-1', { intervalMs: 15000, realMode: false });
+      const result = await salesSimulationService.startSimulationRun('space-1', 'tenant-1', 'user-1', { intervalMs: 15000, realMode: false });
 
       expect(result).toBe(created);
       expect(p.simulationRun.create).toHaveBeenCalledWith({
@@ -656,7 +664,7 @@ describe('LogisticsService — readyForSale display logic', () => {
       p.simulationRun.findFirst.mockResolvedValue({ id: 'run-3', status: 'stopped' });
       p.simulationRun.findUnique.mockResolvedValue({ id: 'run-3', status: 'stopped' });
 
-      await service.stopSimulationRun('space-1', 'run-3', 'tenant-1', 'user-1');
+      await salesSimulationService.stopSimulationRun('space-1', 'run-3', 'tenant-1', 'user-1');
 
       expect(simulationQueue.removeJobScheduler).not.toHaveBeenCalled();
       expect(p.simulationRun.update).not.toHaveBeenCalled();
@@ -666,7 +674,7 @@ describe('LogisticsService — readyForSale display logic', () => {
       p.simulationRun.findFirst.mockResolvedValue({ id: 'run-4', status: 'active' });
       p.simulationRun.findUnique.mockResolvedValue({ id: 'run-4', status: 'stopped' });
 
-      await service.stopSimulationRun('space-1', 'run-4', 'tenant-1', 'user-1');
+      await salesSimulationService.stopSimulationRun('space-1', 'run-4', 'tenant-1', 'user-1');
 
       expect(simulationQueue.removeJobScheduler).toHaveBeenCalledWith('run-4');
       expect(p.simulationRun.update).toHaveBeenCalledWith({
@@ -677,7 +685,7 @@ describe('LogisticsService — readyForSale display logic', () => {
 
     it('stopSimulationRun sur un run introuvable jette une 404', async () => {
       p.simulationRun.findFirst.mockResolvedValue(null);
-      await expect(service.stopSimulationRun('space-1', 'run-x', 'tenant-1', 'user-1')).rejects.toThrow(
+      await expect(salesSimulationService.stopSimulationRun('space-1', 'run-x', 'tenant-1', 'user-1')).rejects.toThrow(
         'Run run-x introuvable',
       );
     });
@@ -692,7 +700,7 @@ describe('LogisticsService — readyForSale display logic', () => {
     // plusieurs produits Weezevent, un doublon au prix incomplet ne doit plus
     // masquer un item au prix catalogue pourtant sain).
     it('ne retient que les menu items dont le prix catalogue DataFriday (espace) est > 0', async () => {
-      jest.spyOn(service, 'getSpaceElementsWithItems').mockResolvedValue([
+      jest.spyOn(stockReferentialService, 'getSpaceElementsWithItems').mockResolvedValue([
         {
           id: 'shop-1',
           name: 'Buvette',
@@ -717,14 +725,14 @@ describe('LogisticsService — readyForSale display logic', () => {
       ]);
       p.spaceMenuItem = { findMany: jest.fn().mockResolvedValue([]) };
 
-      const result = await service.getSimulableShops('space-1', 'tenant-1');
+      const result = await stockReferentialService.getSimulableShops('space-1', 'tenant-1');
 
       expect(result).toEqual([{ id: 'shop-1', name: 'Buvette', menuItemIds: ['mi-priced'] }]);
       // storage exclu (type), shop non mappé exclu (provider null) — comportement déjà en place.
     });
 
     it('un override SpaceMenuItem.priceTtc prime sur MenuItem.basePrice', async () => {
-      jest.spyOn(service, 'getSpaceElementsWithItems').mockResolvedValue([
+      jest.spyOn(stockReferentialService, 'getSpaceElementsWithItems').mockResolvedValue([
         {
           id: 'shop-1',
           name: 'Buvette',
@@ -738,7 +746,7 @@ describe('LogisticsService — readyForSale display logic', () => {
       p.menuItem.findMany.mockResolvedValue([{ id: 'mi-override', basePrice: 0 }]);
       p.spaceMenuItem = { findMany: jest.fn().mockResolvedValue([{ menuItemId: 'mi-override', priceTtc: 5.5 }]) };
 
-      const result = await service.getSimulableShops('space-1', 'tenant-1');
+      const result = await stockReferentialService.getSimulableShops('space-1', 'tenant-1');
 
       expect(result).toEqual([{ id: 'shop-1', name: 'Buvette', menuItemIds: ['mi-override'] }]);
     });
@@ -765,12 +773,12 @@ describe('LogisticsService — readyForSale display logic', () => {
         levels: [{ elementId: 'el-1', itemKey: 'Bière', packedUnits: 2, looseUnits: 1, unitsPerPack: 6 }],
         anchor: { id: 'reco-1', createdAt: new Date('2026-08-01T00:00:00Z'), eventId: null },
       });
-      jest.spyOn(service, 'deriveSalesRaw').mockResolvedValue([{ raw: true }]);
-      jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([
+      jest.spyOn(recipeExplosionService, 'deriveSalesRaw').mockResolvedValue([{ raw: true }]);
+      jest.spyOn(recipeExplosionService, 'explodeSalesToConsumption').mockResolvedValue([
         { elementId: 'el-1', itemKey: 'Bière', quantity: 7 },
       ]);
 
-      const { index } = await service.getExpectedStockIndex('space-1', 'tenant-1');
+      const { index } = await stockLevelService.getExpectedStockIndex('space-1', 'tenant-1');
 
       // loose 1 − 7 = −6 → casse d'1 pack (6/pack) → packed 1, loose 0.
       expect(index.get('el-1::Bière')).toMatchObject({ packed: 1, loose: 0, unitsPerPack: 6 });
@@ -781,12 +789,12 @@ describe('LogisticsService — readyForSale display logic', () => {
         levels: [],
         anchor: { id: 'reco-1', createdAt: new Date('2026-08-01T00:00:00Z'), eventId: null },
       });
-      jest.spyOn(service, 'deriveSalesRaw').mockResolvedValue([{ raw: true }]);
-      jest.spyOn(service, 'explodeSalesToConsumption').mockResolvedValue([
+      jest.spyOn(recipeExplosionService, 'deriveSalesRaw').mockResolvedValue([{ raw: true }]);
+      jest.spyOn(recipeExplosionService, 'explodeSalesToConsumption').mockResolvedValue([
         { elementId: 'el-1', itemKey: 'Frites', quantity: 4 },
       ]);
 
-      const { index } = await service.getExpectedStockIndex('space-1', 'tenant-1');
+      const { index } = await stockLevelService.getExpectedStockIndex('space-1', 'tenant-1');
 
       expect(index.get('el-1::Frites')).toMatchObject({ packed: 0, loose: 0 });
     });
@@ -796,9 +804,9 @@ describe('LogisticsService — readyForSale display logic', () => {
         levels: [{ elementId: 'el-1', itemKey: 'Bière', packedUnits: 3, looseUnits: 0, unitsPerPack: null }],
         anchor: null,
       });
-      const derive = jest.spyOn(service, 'deriveSalesRaw');
+      const derive = jest.spyOn(recipeExplosionService, 'deriveSalesRaw');
 
-      const { index, anchorAt } = await service.getExpectedStockIndex('space-1', 'tenant-1');
+      const { index, anchorAt } = await stockLevelService.getExpectedStockIndex('space-1', 'tenant-1');
 
       expect(anchorAt).toBeNull();
       expect(derive).not.toHaveBeenCalled();

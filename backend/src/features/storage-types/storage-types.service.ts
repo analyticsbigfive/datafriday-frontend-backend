@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { renameStorageTypeInMenuItems } from './storage-types.queries';
 
 @Injectable()
 export class StorageTypesService {
@@ -115,7 +116,7 @@ export class StorageTypesService {
                 where: { storageType: oldName, menuItem: { tenantId } },
                 data: { storageType: trimmed },
               }),
-              this.prisma.$executeRaw`UPDATE "MenuItem" SET "storageType" = array_replace("storageType", ${oldName}, ${trimmed}) WHERE "tenantId" = ${tenantId} AND ${oldName} = ANY("storageType")`,
+              renameStorageTypeInMenuItems(this.prisma, tenantId, oldName, trimmed),
             ]
           : []),
       ]);

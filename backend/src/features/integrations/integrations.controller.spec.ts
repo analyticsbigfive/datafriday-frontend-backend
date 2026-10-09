@@ -11,8 +11,6 @@ import { WebhookConfigDto } from './dto/webhook-config.dto';
 
 describe('IntegrationsController', () => {
   let controller: IntegrationsController;
-  let weezeventService: WeezeventIntegrationService;
-  let webhookService: WebhookIntegrationService;
 
   const mockUser = { id: 'user-123', tenantId: 'org-123', email: 'test@example.com' };
 
@@ -81,8 +79,6 @@ describe('IntegrationsController', () => {
     }).compile();
 
     controller = module.get<IntegrationsController>(IntegrationsController);
-    weezeventService = module.get<WeezeventIntegrationService>(WeezeventIntegrationService);
-    webhookService = module.get<WebhookIntegrationService>(WebhookIntegrationService);
 
     jest.clearAllMocks();
   });

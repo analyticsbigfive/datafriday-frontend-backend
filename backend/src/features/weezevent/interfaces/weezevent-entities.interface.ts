@@ -19,7 +19,7 @@ export interface WeezeventTransaction {
     rows: WeezeventTransactionRow[];
 }
 
-export interface WeezeventTransactionRow {
+interface WeezeventTransactionRow {
     id: number;
     item_id: number;
     item_name?: string | null;
@@ -32,7 +32,7 @@ export interface WeezeventTransactionRow {
     payments: WeezeventPayment[];
 }
 
-export interface WeezeventPayment {
+interface WeezeventPayment {
     id: number;
     wallet_id: number;
     balance_id: number | null;

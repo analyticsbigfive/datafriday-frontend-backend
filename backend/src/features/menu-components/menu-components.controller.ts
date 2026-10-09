@@ -21,6 +21,8 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { ValidationErrorEnricherInterceptor } from './interceptors/validation-error-enricher.interceptor';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { MenuComponentsFindAllQueryDto } from './dto/menu-components.query.dto';
+import { MenuComponentCostService } from './services/menu-component-cost.service';
 
 @ApiTags('Menu Components')
 @ApiBearerAuth('supabase-jwt')
@@ -29,7 +31,8 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 export class MenuComponentsController {
   private readonly logger = new Logger(MenuComponentsController.name);
 
-  constructor(private readonly menuComponentsService: MenuComponentsService) {}
+  constructor(private readonly menuComponentCostService: MenuComponentCostService,
+    private readonly menuComponentsService: MenuComponentsService) {}
 
   @RequirePermissions('menu.fb.components')
   @Post()
@@ -46,21 +49,12 @@ export class MenuComponentsController {
   }
 
   @RequirePermissions('menu.fb.components')
-  @Post('repair')
-  @ApiOperation({ summary: 'Réparer les composants de menu' })
-  @ApiResponse({ status: 200, description: 'Composants réparés' })
-  repair(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
-    this.logger.log(`POST /menu-components/repair - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuComponentsService.repair(tenantId);
-  }
-
-  @RequirePermissions('menu.fb.components')
   @Post('refresh-costs')
   @ApiOperation({ summary: 'Recalculer les coûts des composants de menu' })
   @ApiResponse({ status: 200, description: 'Coûts recalculés' })
   refreshCosts(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /menu-components/refresh-costs - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuComponentsService.refreshCosts(tenantId);
+    return this.menuComponentCostService.refreshCosts(tenantId);
   }
 
   @Get()
@@ -69,11 +63,11 @@ export class MenuComponentsController {
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 100)', example: 100 })
   @ApiResponse({ status: 200, description: 'Liste des composants' })
   findAll(
-    @Query('page') page: string | undefined,
-    @Query('limit') limit: string | undefined,
+    @Query() params: MenuComponentsFindAllQueryDto,
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
   ) {
+    const { page, limit } = params;
     this.logger.log(`GET /menu-components - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.menuComponentsService.findAll(
       tenantId,

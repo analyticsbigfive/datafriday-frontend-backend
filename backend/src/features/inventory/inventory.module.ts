@@ -1,22 +1,26 @@
 import { Module } from '@nestjs/common';
 import { InventoryController, InventoryCountsController } from './inventory.controller';
-import { InventoryService } from './inventory.service';
-import { InventoryLiveInitCronService } from './inventory-live-init.cron';
-import { InventoryLogisticSyncCronService } from './inventory-logistic-sync.cron';
 import { PostEventDraftService } from './post-event-draft.service';
 import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
 import { LogisticsModule } from '../logistics/logistics.module';
+import { InventoryBaselineService } from './services/inventory-baseline.service';
+import { InventoryCountService } from './services/inventory-count.service';
+import { InventoryLogisticPushService } from './services/inventory-logistic-push.service';
+import { InventoryReconciliationService } from './services/inventory-reconciliation.service';
+import { InventoryUnitResolverService } from './services/inventory-unit-resolver.service';
 
 @Module({
   imports: [LogisticsModule],
   controllers: [InventoryController, InventoryCountsController],
   providers: [
-    InventoryService,
     PreEventInventoryFlowService,
-    InventoryLiveInitCronService,
-    InventoryLogisticSyncCronService,
+    InventoryUnitResolverService,
+    InventoryCountService,
+    InventoryBaselineService,
+    InventoryLogisticPushService,
+    InventoryReconciliationService,
     PostEventDraftService,
   ],
-  exports: [InventoryService, PreEventInventoryFlowService, PostEventDraftService],
+  exports: [PreEventInventoryFlowService, InventoryCountService, InventoryLogisticPushService, PostEventDraftService],
 })
 export class InventoryModule {}

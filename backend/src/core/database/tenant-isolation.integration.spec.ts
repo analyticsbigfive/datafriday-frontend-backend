@@ -3,6 +3,9 @@ import { ClsModule, ClsService } from 'nestjs-cls';
 import { PrismaService } from './prisma.service';
 import { TenantContextService } from '../tenant/tenant-context.service';
 import { TENANT_ID_KEY } from '../tenant/tenant-context.constants';
+import { AppConfigService } from '../../config/app-config.service';
+import { testAppConfig } from '../../config/app-config.testing';
+import { upsertProductMappings } from '../../features/mappings/mappings.queries';
 
 /**
  * End-to-end validation of the automatic multi-tenant isolation against a REAL
@@ -36,7 +39,11 @@ const hasDatabase = !!process.env.DATABASE_URL;
   beforeAll(async () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
       imports: [ClsModule.forRoot({ global: true })],
-      providers: [PrismaService, TenantContextService],
+      providers: [
+        PrismaService,
+        TenantContextService,
+        { provide: AppConfigService, useValue: testAppConfig({ DATABASE_URL: process.env.DATABASE_URL }) },
+      ],
     }).compile();
 
     prisma = moduleRef.get(PrismaService);
@@ -59,7 +66,8 @@ const hasDatabase = !!process.env.DATABASE_URL;
     // Cascade-deletes the seeded spaces; run with no tenant context.
     if (tenantA) await prisma.tenant.delete({ where: { id: tenantA } }).catch(() => undefined);
     if (tenantB) await prisma.tenant.delete({ where: { id: tenantB } }).catch(() => undefined);
-    await prisma.$disconnect();
+    // Ferme aussi le pool pg du driver adapter (sinon Jest ne se termine pas).
+    await prisma.onModuleDestroy();
   });
 
   it('auto-injects tenantId on create (no tenantId passed)', async () => {
@@ -147,10 +155,53 @@ const hasDatabase = !!process.env.DATABASE_URL;
     expect(seen.has(tenantB)).toBe(true);
   });
 
-  it('no active context → no scoping (background jobs / seeds)', async () => {
-    const all = await prisma.space.findMany({
-      where: { tenantId: { in: [tenantA, tenantB] } },
-    });
-    expect(all.length).toBeGreaterThanOrEqual(2);
+  it('upsert SQL brut des mappings : un conflit sur la ligne d’un autre tenant la laisse intacte', async () => {
+    const seed = (tenantId: string, suffixName: string) =>
+      inTenant(tenantId, async () => {
+        const integration = await prisma.integration.create({
+          data: { name: `ISO ${suffixName}`, provider: 'WEEZEVENT' } as any,
+        });
+        const product = await prisma.salesProduct.create({
+          data: { externalId: `ext-${suffixName}-${suffix}`, integrationId: integration.id, name: 'Bière', rawData: {} } as any,
+        });
+        const item = await prisma.menuItem.create({ data: { name: `Item ${suffixName}`, basePrice: 5 } as any });
+        return { product, item };
+      });
+    const a = await seed(tenantA, 'map-A');
+    const b = await seed(tenantB, 'map-B');
+    await inTenant(tenantA, () =>
+      prisma.productMapping.create({ data: { salesProductId: a.product.id, menuItemId: a.item.id } as any }),
+    );
+
+    // Tenant B tente de remapper le produit de A vers son propre article.
+    await upsertProductMappings(prisma, tenantB, [{ weezeventProductId: a.product.id, menuItemId: b.item.id }], 'attacker');
+
+    const mapping = await tenantCtx.runWithoutTenantScope(() =>
+      prisma.productMapping.findUnique({ where: { salesProductId: a.product.id } }),
+    );
+    expect(mapping).toMatchObject({ tenantId: tenantA, menuItemId: a.item.id });
+  });
+
+  it('sans contexte (job, cron) : requête refusée, aucun filtre oublié en silence', async () => {
+    await expect(prisma.space.findMany({ where: { tenantId: { in: [tenantA, tenantB] } } })).rejects.toThrow(
+      '[tenant-scope] Space.findMany hors contexte tenant',
+    );
+  });
+
+  it('runWithoutTenantScope hors requête : lecture transverse explicite', async () => {
+    const all = await tenantCtx.runWithoutTenantScope(() =>
+      prisma.space.findMany({ where: { tenantId: { in: [tenantA, tenantB] } } }),
+    );
+    expect(new Set(all.map((sp) => sp.tenantId))).toEqual(new Set([tenantA, tenantB]));
+  });
+
+  it('runForTenant hors requête : restreint au tenant, même imbriqué dans un contournement', async () => {
+    const rows = await tenantCtx.runWithoutTenantScope(() =>
+      tenantCtx.runForTenant(tenantA, () =>
+        prisma.space.findMany(),
+      ),
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((sp) => sp.tenantId === tenantA)).toBe(true);
   });
 });

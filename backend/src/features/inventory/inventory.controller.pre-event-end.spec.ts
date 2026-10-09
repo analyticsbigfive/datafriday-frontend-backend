@@ -9,7 +9,7 @@ import { InventoryController } from './inventory.controller';
  */
 describe('InventoryController.regeneratePreEventReconciliation (PDV complet, staff)', () => {
     const preEventFlow = { regenerateOnPdvComplete: jest.fn().mockResolvedValue({ ok: true, reconciliationId: 'reco-1', lineCount: 12 }) };
-    const controller = new InventoryController({} as any, preEventFlow as any, {} as any);
+    const controller = new InventoryController({} as any, {} as any, {} as any, {} as any, preEventFlow as any, {} as any);
     const user = { id: 'user-1', tenantId: 'tenant-1' };
 
     beforeEach(() => jest.clearAllMocks());

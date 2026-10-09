@@ -4,10 +4,10 @@ import { MeController } from './me.controller';
 import { PrismaService } from '../../core/database/prisma.service';
 import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
 import { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
+import { MeService } from './me.service';
 
 describe('MeController', () => {
   let controller: MeController;
-  let prisma: PrismaService;
 
   const mockUser: CurrentUserData = {
     id: 'user-123',
@@ -51,6 +51,7 @@ describe('MeController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [MeController],
       providers: [
+        MeService,
         {
           provide: PrismaService,
           useValue: mockPrismaService,
@@ -63,7 +64,6 @@ describe('MeController', () => {
     }).compile();
 
     controller = module.get<MeController>(MeController);
-    prisma = module.get<PrismaService>(PrismaService);
 
     jest.clearAllMocks();
   });

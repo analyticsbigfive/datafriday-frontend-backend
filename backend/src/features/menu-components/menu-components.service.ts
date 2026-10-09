@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
@@ -7,20 +8,28 @@ import { resolveKitchenFields } from '../../shared/utils/resolve-kitchen';
 import { mergeScopedSpaces } from '../../shared/utils/scoped-spaces';
 import { CreateMenuComponentDto } from './dto/create-menu-component.dto';
 import { UpdateMenuComponentDto } from './dto/update-menu-component.dto';
+import { TenantListCache } from '../../shared/cache/tenant-list-cache';
+import { MenuComponentCostService } from './services/menu-component-cost.service';
+import { MenuComponentValidationService } from './services/menu-component-validation.service';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
+/**
+ * Composants de menu : création, lecture, modification, suppression, réparation et remplacement de la composition.
+ */
 @Injectable()
 export class MenuComponentsService {
-  private readonly logger = new Logger(MenuComponentsService.name);
-
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
     private spaceAccess: SpaceAccessService,
     private storage: SupabaseStorageService,
+    private readonly menuComponentCostService: MenuComponentCostService,
+    private readonly menuComponentValidationService: MenuComponentValidationService,
   ) {}
+
+  private readonly logger = new Logger(MenuComponentsService.name);
 
   /**
    * Espaces visibles par `user` : 'ALL' (accès complet, ou appel interne sans user) ou
@@ -53,116 +62,7 @@ export class MenuComponentsService {
     return spaces;
   }
 
-  private cacheKey(tenantId: string, suffix = 'list') {
-    return `menu-components:${tenantId}:${suffix}`;
-  }
-
-  private async invalidateCache(tenantId: string) {
-    // `deletePattern` préfixe déjà avec `datafriday:` en interne (RedisService.buildKey) — le
-    // remettre ici double-préfixait le pattern (`datafriday:datafriday:...`), qui ne matchait
-    // donc jamais aucune clé réelle : le cache liste (`findAll`, TTL 60s) n'était en réalité
-    // JAMAIS invalidé après create/update/delete. Bug constaté 2026-08-14 (liste de composants
-    // ne se rafraîchissant pas après suppression/duplication, même après le fix front sur le
-    // fetch concurrent — cf. menuComponents.js).
-    await this.redis.deletePattern(`menu-components:${tenantId}:*`);
-  }
-
-  private toDecimalOrUndefined(value: unknown): any {
-    if (value === null || value === undefined || value === '') return undefined;
-    const n = Number(value);
-    return Number.isFinite(n) ? n : undefined;
-  }
-
-  private uniqueStringList(values: unknown[]): string[] {
-    const result: string[] = [];
-    const seen = new Set<string>();
-    for (const v of values) {
-      if (typeof v !== 'string') continue;
-      const id = v.trim();
-      if (!id) continue;
-      if (seen.has(id)) continue;
-      seen.add(id);
-      result.push(id);
-    }
-    return result;
-  }
-
-  private async assertIngredientsExist(ingredientIds: unknown[], tenantId: string) {
-    const ids = this.uniqueStringList(ingredientIds);
-    if (!ids.length) return;
-
-    const found = await this.prisma.ingredient.findMany({
-      where: {
-        id: { in: ids },
-        tenantId,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-
-    const foundIds = new Set(found.map((i) => i.id));
-    const missing = ids.filter((id) => !foundIds.has(id));
-    if (missing.length) {
-      throw new BadRequestException(
-        `Unknown ingredient ID(s): ${missing.join(', ')}. ` +
-          `Make sure these IDs belong to the "ingredients" table, not "market_prices". ` +
-          `Use POST /market-prices/sync-ingredients to auto-create missing ingredients from market prices.`,
-      );
-    }
-  }
-
-  private async assertChildrenExist(childIds: unknown[], tenantId: string) {
-    const ids = this.uniqueStringList(childIds);
-    if (!ids.length) return;
-
-    const found = await this.prisma.menuComponent.findMany({
-      where: {
-        id: { in: ids },
-        tenantId,
-        deletedAt: null,
-      },
-      select: { id: true },
-    });
-
-    const foundIds = new Set(found.map((c) => c.id));
-    const missing = ids.filter((id) => !foundIds.has(id));
-    if (missing.length) {
-      throw new BadRequestException(`Invalid childId(s): ${missing.join(', ')}`);
-    }
-  }
-
-  // BUG-80 : componentTypeId/componentCategoryId étaient assignés directement depuis le payload
-  // client sans vérifier qu'ils pointent vers un ComponentType/ComponentCategory accessible au
-  // tenant courant (privé au tenant ou global) — la contrainte FK Prisma ne garantit que
-  // l'existence de la ligne, pas son appartenance tenant. Pattern "accessible"
-  // (OR: [{tenantId}, {tenantId: null}]) identique à findAccessibleEventTypeOrThrow
-  // (events.service.ts) — PAS la variante "owned" stricte, qui rejetterait à tort les entrées
-  // globales (voir BUG-77, régression évitée).
-  private async assertComponentTypeAccessible(componentTypeId: unknown, tenantId: string) {
-    if (componentTypeId === undefined || componentTypeId === null) return;
-    if (typeof componentTypeId !== 'string' || !componentTypeId.trim()) return;
-
-    const type = await this.prisma.componentType.findFirst({
-      where: { id: componentTypeId, OR: [{ tenantId }, { tenantId: null }] },
-      select: { id: true },
-    });
-    if (!type) {
-      throw new BadRequestException('componentTypeId must reference an accessible component type');
-    }
-  }
-
-  private async assertComponentCategoryAccessible(componentCategoryId: unknown, tenantId: string) {
-    if (componentCategoryId === undefined || componentCategoryId === null) return;
-    if (typeof componentCategoryId !== 'string' || !componentCategoryId.trim()) return;
-
-    const category = await this.prisma.componentCategory.findFirst({
-      where: { id: componentCategoryId, OR: [{ tenantId }, { tenantId: null }] },
-      select: { id: true },
-    });
-    if (!category) {
-      throw new BadRequestException('componentCategoryId must reference an accessible component category');
-    }
-  }
+  private readonly listCache = new TenantListCache(this.redis, 'menu-components');
 
   async replaceIngredients(
     componentId: string,
@@ -174,7 +74,7 @@ export class MenuComponentsService {
 
     const lines = Array.isArray(ingredients) ? ingredients : [];
 
-    await this.assertIngredientsExist(
+    await this.menuComponentValidationService.assertIngredientsExist(
       lines.map((l: any) => l?.ingredientId),
       tenantId,
     );
@@ -189,14 +89,14 @@ export class MenuComponentsService {
               ingredientId: l.ingredientId,
               quantity: Number(l.quantity ?? l.numberOfUnits),
               unit: l.unit,
-              unitCost: this.toDecimalOrUndefined((l as any).unitCost),
-              cost: this.toDecimalOrUndefined((l as any).cost),
+              unitCost: this.menuComponentValidationService.toDecimalOrUndefined((l as any).unitCost),
+              cost: this.menuComponentValidationService.toDecimalOrUndefined((l as any).cost),
             })),
           },
         },
       });
 
-      await this.refreshCosts(tenantId, { componentIds: [componentId] });
+      await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [componentId] });
       return this.findOne(componentId, tenantId);
     } catch (error) {
       this.logger.error(
@@ -225,7 +125,7 @@ export class MenuComponentsService {
 
     const lines = Array.isArray(children) ? children : [];
 
-    await this.assertChildrenExist(
+    await this.menuComponentValidationService.assertChildrenExist(
       lines.map((l: any) => l?.childId),
       tenantId,
     );
@@ -240,13 +140,13 @@ export class MenuComponentsService {
               childId: l.childId,
               quantity: Number(l.quantity),
               unit: l.unit,
-              cost: this.toDecimalOrUndefined((l as any).cost),
+              cost: this.menuComponentValidationService.toDecimalOrUndefined((l as any).cost),
             })),
           },
         },
       });
 
-      await this.refreshCosts(tenantId, { componentIds: [componentId] });
+      await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [componentId] });
       return this.findOne(componentId, tenantId);
     } catch (error) {
       this.logger.error(
@@ -261,64 +161,6 @@ export class MenuComponentsService {
       }
       throw error;
     }
-  }
-
-  private async resolveIngredientUnitCost(ingredientId: string, tenantId: string): Promise<number> {
-    const ingredient = await this.prisma.ingredient.findFirst({
-      where: { id: ingredientId, tenantId, deletedAt: null },
-      select: { costPerRecipeUnit: true },
-    });
-    if (!ingredient) throw new BadRequestException(`Ingredient ${ingredientId} not found`);
-    return Number(ingredient.costPerRecipeUnit || 0);
-  }
-
-  private async computeComponentUnitCost(
-    componentId: string,
-    tenantId: string,
-    stack: string[] = [],
-  ): Promise<number> {
-    if (stack.includes(componentId)) {
-      throw new BadRequestException(
-        `Cycle detected in components: ${[...stack, componentId].join(' -> ')}`,
-      );
-    }
-
-    const component = await this.prisma.menuComponent.findFirst({
-      where: { id: componentId, tenantId, deletedAt: null },
-      include: {
-        ingredients: true,
-        children: true,
-      },
-    });
-    if (!component) throw new BadRequestException(`MenuComponent ${componentId} not found`);
-
-    const nextStack = [...stack, componentId];
-
-    let total = 0;
-    for (const line of component.ingredients || []) {
-      const unitCost =
-        Number(line.unitCost || 0) ||
-        (await this.resolveIngredientUnitCost(line.ingredientId, tenantId));
-      total += unitCost * (Number(line.quantity) || 0);
-    }
-
-    for (const childLine of component.children || []) {
-      const childUnitCost = await this.computeComponentUnitCost(
-        childLine.childId,
-        tenantId,
-        nextStack,
-      );
-      total += childUnitCost * (Number(childLine.quantity) || 0);
-    }
-
-    // BUG-001: `total` est le coût de la fournée entière. Une recette qui produit plusieurs
-    // unités (numberOfUnitsRecipe > 1) doit voir son coût divisé par ce nombre pour obtenir le
-    // coût UNITAIRE. `numberOfUnitsRecipe` est nullable/optionnel : falsy (null/undefined/0) est
-    // traité comme 1 (cas par défaut d'une recette qui produit une seule unité), pour ne jamais
-    // diviser par zéro.
-    const numberOfUnitsRecipe = Number(component.numberOfUnitsRecipe) || 1;
-
-    return Math.round((total / numberOfUnitsRecipe) * 10000) / 10000;
   }
 
   private readonly includeRelations = {
@@ -361,16 +203,16 @@ export class MenuComponentsService {
         : undefined;
 
       await Promise.all([
-        this.assertIngredientsExist(
+        this.menuComponentValidationService.assertIngredientsExist(
           (ingredientsLines || []).map((l: any) => l?.ingredientId),
           tenantId,
         ),
-        this.assertChildrenExist(
+        this.menuComponentValidationService.assertChildrenExist(
           (childrenLines || []).map((l: any) => l?.childId),
           tenantId,
         ),
-        this.assertComponentTypeAccessible(dto.componentTypeId, tenantId),
-        this.assertComponentCategoryAccessible(dto.componentCategoryId, tenantId),
+        this.menuComponentValidationService.assertComponentTypeAccessible(dto.componentTypeId, tenantId),
+        this.menuComponentValidationService.assertComponentCategoryAccessible(dto.componentCategoryId, tenantId),
       ]);
       const spaceIds = await this.scopedSpaces(dto.spaceIds ?? [], [], user);
       const kitchen = await resolveKitchenFields(this.prisma, dto, tenantId);
@@ -405,8 +247,8 @@ export class MenuComponentsService {
                     ingredientId: l.ingredientId,
                     quantity: Number(l.quantity ?? l.numberOfUnits),
                     unit: l.unit,
-                    unitCost: this.toDecimalOrUndefined(l.unitCost),
-                    cost: this.toDecimalOrUndefined(l.cost),
+                    unitCost: this.menuComponentValidationService.toDecimalOrUndefined(l.unitCost),
+                    cost: this.menuComponentValidationService.toDecimalOrUndefined(l.cost),
                   })),
                 },
               }
@@ -419,7 +261,7 @@ export class MenuComponentsService {
                     childId: l.childId,
                     quantity: Number(l.quantity),
                     unit: l.unit,
-                    cost: this.toDecimalOrUndefined(l.cost),
+                    cost: this.menuComponentValidationService.toDecimalOrUndefined(l.cost),
                   })),
                 },
               }
@@ -431,16 +273,16 @@ export class MenuComponentsService {
       this.logger.log(`Menu component created: ${component.id}`);
 
       if (ingredientsLines || childrenLines) {
-        await this.refreshCosts(tenantId, { componentIds: [component.id] });
+        await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [component.id] });
         // Même patron que update() : un composant créé avec des ingrédients ou des
         // sous-composants (le cas courant) sortait ici SANS invalider le cache liste
         // (`findAll`, TTL 1 h) et n'apparaissait pas dans la liste Composants avant
         // expiration. Purge après refreshCosts, pour ne pas remettre en cache un coût à 0.
-        await this.invalidateCache(tenantId);
+        await this.listCache.invalidate(tenantId);
         return this.findOne(component.id, tenantId);
       }
 
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return component;
     } catch (error) {
       this.logger.error(`Failed to create menu component: ${error.message}`, error.stack);
@@ -468,11 +310,11 @@ export class MenuComponentsService {
       // périmètre fait partie de la clé de cache (même réflexe que menu-items.service.ts).
       const visible = await this.visibleSpaces(user);
       const scope = visible === 'ALL' ? 'all' : `s:${[...visible].sort().join(',')}`;
-      const where: any = { tenantId, deletedAt: null };
+      const where: Prisma.MenuComponentWhereInput = { tenantId, deletedAt: null };
       if (visible !== 'ALL') {
         where.OR = [{ spaceIds: { isEmpty: true } }, { spaceIds: { hasSome: visible } }];
       }
-      const cacheKey = this.cacheKey(tenantId, `list:${scope}:${page}:${limit}`);
+      const cacheKey = this.listCache.key(tenantId, `list:${scope}:${page}:${limit}`);
       return this.redis.getOrSet(
         cacheKey,
         async () => {
@@ -493,7 +335,7 @@ export class MenuComponentsService {
             meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
           };
         },
-        // 3600 (pas 60) : catalogue rarement modifié, `invalidateCache()` purge déjà
+        // 3600 (pas 60) : catalogue rarement modifié, `listCache.invalidate()` purge déjà
         // cette clé à chaque écriture (:20-28) — le TTL est un filet de sécurité, pas
         // le mécanisme de fraîcheur (même raisonnement que menu-items.service.ts).
         { ttl: 3600 },
@@ -553,16 +395,16 @@ export class MenuComponentsService {
     const childrenLines = Array.isArray((dto as any).children) ? (dto as any).children : undefined;
 
     await Promise.all([
-      this.assertIngredientsExist(
+      this.menuComponentValidationService.assertIngredientsExist(
         (ingredientsLines || []).map((l: any) => l?.ingredientId),
         tenantId,
       ),
-      this.assertChildrenExist(
+      this.menuComponentValidationService.assertChildrenExist(
         (childrenLines || []).map((l: any) => l?.childId),
         tenantId,
       ),
-      this.assertComponentTypeAccessible(dto.componentTypeId, tenantId),
-      this.assertComponentCategoryAccessible(dto.componentCategoryId, tenantId),
+      this.menuComponentValidationService.assertComponentTypeAccessible(dto.componentTypeId, tenantId),
+      this.menuComponentValidationService.assertComponentCategoryAccessible(dto.componentCategoryId, tenantId),
     ]);
 
     if (ingredientsLines) {
@@ -572,8 +414,8 @@ export class MenuComponentsService {
           ingredientId: l.ingredientId,
           quantity: Number(l.quantity ?? l.numberOfUnits),
           unit: l.unit,
-          unitCost: this.toDecimalOrUndefined(l.unitCost),
-          cost: this.toDecimalOrUndefined(l.cost),
+          unitCost: this.menuComponentValidationService.toDecimalOrUndefined(l.unitCost),
+          cost: this.menuComponentValidationService.toDecimalOrUndefined(l.cost),
         })),
       };
     }
@@ -585,7 +427,7 @@ export class MenuComponentsService {
           childId: l.childId,
           quantity: Number(l.quantity),
           unit: l.unit,
-          cost: this.toDecimalOrUndefined(l.cost),
+          cost: this.menuComponentValidationService.toDecimalOrUndefined(l.cost),
         })),
       };
     }
@@ -599,12 +441,12 @@ export class MenuComponentsService {
       this.logger.log(`Menu component ${id} updated`);
 
       if (ingredientsLines || childrenLines) {
-        await this.refreshCosts(tenantId, { componentIds: [id] });
-        await this.invalidateCache(tenantId);
+        await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [id] });
+        await this.listCache.invalidate(tenantId);
         return this.findOne(id, tenantId);
       }
 
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return component;
     } catch (error) {
       this.logger.error(`Failed to update menu component ${id}: ${error.message}`, error.stack);
@@ -623,72 +465,6 @@ export class MenuComponentsService {
     }
   }
 
-  async refreshCosts(tenantId: string, opts?: { componentIds?: string[] }) {
-    const componentIds = opts?.componentIds;
-    this.logger.log(
-      `Refreshing menu component costs for tenant ${tenantId}${componentIds?.length ? ` (ids=${componentIds.length})` : ''}...`,
-    );
-
-    const components = await this.prisma.menuComponent.findMany({
-      where: {
-        tenantId,
-        deletedAt: null,
-        ...(componentIds?.length ? { id: { in: componentIds } } : {}),
-      },
-      include: {
-        ingredients: true,
-        children: true,
-      },
-    });
-
-    let updatedComponents = 0;
-    let updatedLines = 0;
-
-    for (const comp of components) {
-      const ingredientLineUpdates = [] as any[];
-      for (const line of comp.ingredients || []) {
-        const unitCost =
-          Number(line.unitCost || 0) ||
-          (await this.resolveIngredientUnitCost(line.ingredientId, tenantId));
-        const cost = Math.round(unitCost * (Number(line.quantity) || 0) * 10000) / 10000;
-        ingredientLineUpdates.push(
-          this.prisma.componentIngredient.update({
-            where: { id: line.id },
-            data: { unitCost, cost },
-          }),
-        );
-      }
-
-      const childLineUpdates = [] as any[];
-      for (const line of comp.children || []) {
-        const childUnitCost = await this.computeComponentUnitCost(line.childId, tenantId, [
-          comp.id,
-        ]);
-        const cost = Math.round(childUnitCost * (Number(line.quantity) || 0) * 10000) / 10000;
-        childLineUpdates.push(
-          this.prisma.componentComponent.update({
-            where: { id: line.id },
-            data: { cost },
-          }),
-        );
-      }
-
-      const unitCost = await this.computeComponentUnitCost(comp.id, tenantId);
-
-      await this.prisma.$transaction([
-        ...ingredientLineUpdates,
-        ...childLineUpdates,
-        this.prisma.menuComponent.update({ where: { id: comp.id }, data: { unitCost } }),
-      ]);
-
-      updatedComponents++;
-      updatedLines += (comp.ingredients?.length || 0) + (comp.children?.length || 0);
-    }
-
-    this.logger.log(`Refreshed costs for ${updatedComponents} components (${updatedLines} lines)`);
-    return { updatedComponents, updatedLines };
-  }
-
   async remove(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Deleting menu component ${id} for tenant ${tenantId}`);
     await this.findOne(id, tenantId, user);
@@ -699,44 +475,13 @@ export class MenuComponentsService {
         data: { deletedAt: new Date() },
       });
       this.logger.log(`Menu component ${id} soft-deleted`);
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete menu component ${id}: ${error.message}`, error.stack);
       if (error.code === 'P2025') {
         throw new NotFoundException(`Menu component with ID ${id} not found`);
       }
-      throw error;
-    }
-  }
-
-  async repair(tenantId: string) {
-    this.logger.log(`Repairing menu components for tenant ${tenantId}...`);
-    try {
-      // Recalculate unit costs from subComponents
-      const components = await this.prisma.menuComponent.findMany({
-        where: { tenantId },
-        include: this.includeRelations,
-      });
-
-      let repaired = 0;
-      for (const comp of components) {
-        const subComps = comp.subComponents as any[];
-        if (subComps && Array.isArray(subComps) && subComps.length > 0) {
-          const totalCost = subComps.reduce((sum, sub) => sum + (Number(sub.cost) || 0), 0);
-          const unitCost = totalCost * (comp.numberOfUnitsRecipe || 1);
-          await this.prisma.menuComponent.update({
-            where: { id: comp.id },
-            data: { unitCost },
-          });
-          repaired++;
-        }
-      }
-
-      this.logger.log(`Repaired ${repaired} menu components`);
-      return { repaired, total: components.length };
-    } catch (error) {
-      this.logger.error(`Failed to repair menu components: ${error.message}`, error.stack);
       throw error;
     }
   }

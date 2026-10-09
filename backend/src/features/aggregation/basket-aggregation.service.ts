@@ -5,9 +5,9 @@ import {
   buildIntegrationClause,
   buildMatchClause,
   EventAggregationSqlInput,
-  insertMinuteBasketAggSql,
+  insertMinuteBasketAgg,
   isUnscopedRangeWindow,
-} from './event-aggregation-sql';
+} from './event-aggregation.queries';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { EventDayFields } from '../../shared/utils/event-window.util';
@@ -33,7 +33,7 @@ export class BasketAggregationService {
 
   async replaceForEvent(deleteWhere: Prisma.SpaceBasketMinuteAggWhereInput, sqlInput: EventAggregationSqlInput): Promise<number> {
     await this.prisma.spaceBasketMinuteAgg.deleteMany({ where: deleteWhere });
-    return this.prisma.$executeRaw(insertMinuteBasketAggSql(sqlInput));
+    return insertMinuteBasketAgg(this.prisma, sqlInput);
   }
 
   async backfillSpace(tenantId: string, spaceId: string): Promise<{ events: number; rows: number; skipped: string[] }> {
@@ -67,6 +67,7 @@ export class BasketAggregationService {
         matchClause: buildMatchClause(window, seasonContainerIds),
       };
       try {
+        // eslint-disable-next-line no-await-in-loop -- events reconstruits un par un : grosses requêtes SQL, charge base bornée
         rows += await this.replaceForEvent({ tenantId, spaceId, weezeventEventId: event.id }, sqlInput);
       } catch (err) {
         this.logger.warn(`Basket backfill failed for event ${event.id} (space ${spaceId}): ${(err as Error).message}`);

@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { MenuItemsService } from './menu-items.service';
+import { createMenuItemsServices } from './services/menu-items-services.testing';
 
 describe('MenuItemsService product categories', () => {
   const mockPrisma = {
@@ -7,6 +7,8 @@ describe('MenuItemsService product categories', () => {
       findFirst: jest.fn(),
     },
     productCategory: {
+      // Contrôle d'unicité insensible à la casse avant création : aucun doublon ici.
+      findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
     },
   } as any;
@@ -15,11 +17,10 @@ describe('MenuItemsService product categories', () => {
   const mockPricing = {} as any;
   const mockStorage = { resolveImage: jest.fn((value) => Promise.resolve(value)) } as any;
   const mockSpaceAccess = {} as any;
-
-  let service: MenuItemsService;
+  let productTaxonomyService: any;
 
   beforeEach(() => {
-    service = new MenuItemsService(mockPrisma, mockRedis, mockPricing, mockStorage, mockSpaceAccess);
+    ({ productTaxonomyService } = createMenuItemsServices({ prisma: mockPrisma, redis: mockRedis, pricing: mockPricing, storage: mockStorage, spaceAccess: mockSpaceAccess }));
     jest.clearAllMocks();
   });
 
@@ -27,7 +28,7 @@ describe('MenuItemsService product categories', () => {
     mockPrisma.productType.findFirst.mockResolvedValue({ id: 'type-1', tenantId: 'tenant-1' });
     mockPrisma.productCategory.create.mockResolvedValue({ id: 'cat-1', name: 'Food' });
 
-    const result = await service.createProductCategory('Food', 'type-1', 'tenant-1');
+    const result = await productTaxonomyService.createProductCategory('Food', 'type-1', 'tenant-1');
 
     expect(result.name).toBe('Food');
     expect(mockPrisma.productCategory.create).toHaveBeenCalledWith({
@@ -46,7 +47,7 @@ describe('MenuItemsService product categories', () => {
     mockPrisma.productType.findFirst.mockResolvedValue({ id: 'type-1', tenantId: null });
     mockPrisma.productCategory.create.mockResolvedValue({ id: 'cat-1', name: 'Food' });
 
-    await service.createProductCategory('Food', undefined as any, 'tenant-1', 'type-1');
+    await productTaxonomyService.createProductCategory('Food', undefined as any, 'tenant-1', 'type-1');
 
     expect(mockPrisma.productCategory.create).toHaveBeenCalledWith({
       data: {
@@ -61,11 +62,11 @@ describe('MenuItemsService product categories', () => {
   });
 
   it('throws a detailed BadRequestException when type is missing', async () => {
-    await expect(service.createProductCategory('Food', undefined as any, 'tenant-1')).rejects.toThrow(
+    await expect(productTaxonomyService.createProductCategory('Food', undefined as any, 'tenant-1')).rejects.toThrow(
       BadRequestException,
     );
 
-    await service.createProductCategory('Food', undefined as any, 'tenant-1').catch((error) => {
+    await productTaxonomyService.createProductCategory('Food', undefined as any, 'tenant-1').catch((error) => {
       expect(error.getResponse()).toEqual(
         expect.objectContaining({
           message: 'Validation failed',
@@ -86,7 +87,7 @@ describe('MenuItemsService product categories', () => {
   it('throws a detailed BadRequestException when type is not accessible', async () => {
     mockPrisma.productType.findFirst.mockResolvedValue(null);
 
-    await expect(service.createProductCategory('Food', 'type-404', 'tenant-1')).rejects.toThrow(
+    await expect(productTaxonomyService.createProductCategory('Food', 'type-404', 'tenant-1')).rejects.toThrow(
       BadRequestException,
     );
   });

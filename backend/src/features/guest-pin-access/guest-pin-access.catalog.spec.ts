@@ -1,12 +1,13 @@
-import { GuestPinAccessService } from './guest-pin-access.service';
+import { createGuestPinAccessServices } from './services/guest-pin-access-services.testing';
+import { GuestPinCountingService } from './services/guest-pin-counting.service';
 
-describe('GuestPinAccessService.getCatalog (BUG-383-02 : articles = union des configurations de l\'espace)', () => {
+describe('GuestPinCountingService.getCatalog (BUG-383-02 : articles = union des configurations de l\'espace)', () => {
     const user = { tenantId: 'tenant-1', spaceId: 'space-1', eventId: 'event-1', elementId: 'shop-1', phase: 'pre-event' } as any;
     let prisma: any;
     let menuItems: any;
     let spaceMenus: any;
     let storageTypes: any;
-    let service: GuestPinAccessService;
+    let service: GuestPinCountingService;
 
     beforeEach(() => {
         prisma = {
@@ -35,12 +36,14 @@ describe('GuestPinAccessService.getCatalog (BUG-383-02 : articles = union des co
         const menuComponents = { findAll: jest.fn().mockResolvedValue({ data: [] }) };
         spaceMenus = { getConfigShopMenuItemsLight: jest.fn() };
         storageTypes = { findAll: jest.fn().mockResolvedValue({ data: [{ name: 'Sec', code: 'dry' }] }) };
-        service = new GuestPinAccessService(
-            prisma, {} as any, {} as any, {} as any, {} as any, menuItems, marketPrices as any, menuComponents as any, {} as any, {} as any, {} as any,
-            {} as any, // postEventDraft
+        ({ guestPinCountingService: service } = createGuestPinAccessServices({
+            prisma,
+            menuItemRecipeService: menuItems,
+            marketPrices,
+            menuComponents,
             spaceMenus,
             storageTypes,
-        );
+        }));
     });
 
     it("propose au PDV les articles de toutes les configurations de son espace, dédupliqués, jamais ceux d'un autre espace", async () => {

@@ -5,7 +5,6 @@ import { PrismaService } from '../../../core/database/prisma.service';
 
 describe('WebhookIntegrationService', () => {
   let service: WebhookIntegrationService;
-  let prisma: PrismaService;
 
   const mockTenant = {
     id: 'org-123',
@@ -34,7 +33,6 @@ describe('WebhookIntegrationService', () => {
     }).compile();
 
     service = module.get<WebhookIntegrationService>(WebhookIntegrationService);
-    prisma = module.get<PrismaService>(PrismaService);
 
     jest.clearAllMocks();
   });

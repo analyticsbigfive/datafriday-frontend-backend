@@ -40,7 +40,7 @@ export class SupabaseStorageService implements OnModuleInit {
     try {
       await this.ensureBucket();
     } catch (error) {
-      this.logger.warn(`Could not ensure storage bucket "${this.bucket}": ${error.message}`);
+      this.logger.warn(`Could not ensure storage bucket "${this.bucket}": ${(error as Error).message}`);
     }
   }
 

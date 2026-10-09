@@ -5,6 +5,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { PromotionTypesService } from './promotion-types.service';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { PromotionTypesFindAllQueryDto } from './dto/promotion-types.query.dto';
 
 class CreatePromotionTypeDto {
   @IsString()
@@ -26,10 +27,9 @@ export class PromotionTypesController {
   @ApiOperation({ summary: 'Lister les types de promotion du tenant (paginé)' })
   findAll(
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
+    @Query() params: PromotionTypesFindAllQueryDto,
   ) {
+    const { page, limit, search } = params;
     return this.promotionTypesService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined, search);
   }
 

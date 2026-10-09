@@ -9,6 +9,11 @@ import { WeezeventCatalogSyncService } from './services/sync/catalog-sync.servic
 import { WeezeventQueuedEntitySyncService } from './services/sync/queued-entity-sync.service';
 import { WebhookSignatureService } from './services/webhook-signature.service';
 import { WebhookEventHandler } from './services/webhook-event.handler';
+import { WeezeventSalesDataQueryService } from './services/console/weezevent-sales-data-query.service';
+import { WeezeventProductCatalogService } from './services/console/weezevent-product-catalog.service';
+import { WeezeventProductMappingAdminService } from './services/console/weezevent-product-mapping-admin.service';
+import { WeezeventSyncAdminService } from './services/console/weezevent-sync-admin.service';
+import { WeezeventSyncJobService } from './services/console/weezevent-sync-job.service';
 import { WeezeventController } from './weezevent.controller';
 import { WebhookController } from './webhook.controller';
 import { WeezeventAnalyticsController } from './weezevent-analytics.controller';
@@ -16,8 +21,6 @@ import { OnboardingModule } from '../onboarding/onboarding.module';
 import { PricingModule } from '../../shared/pricing/pricing.module';
 import { EventsModule } from '../events/events.module';
 import { SyncTrackerService } from './services/sync-tracker.service';
-import { WeezeventCronService } from './services/weezevent-cron.service';
-import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
 import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
 import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
 import { LiveEventWindowService } from './services/live/live-event-window.service';
@@ -25,8 +28,12 @@ import { LiveAggregationTriggerService } from './services/live/live-aggregation-
 import { WebhookHealthService } from './services/live/webhook-health.service';
 import { LiveHeartbeatService } from './services/live/live-heartbeat.service';
 import { LiveSyncRunnerService } from './services/live/live-sync-runner.service';
-import { LiveSyncSchedulerService } from './services/live/live-sync-scheduler.service';
-import { LiveReconciliationCronService } from './services/live/live-reconciliation-cron.service';
+import { WeezeventWebhookIngestService } from './services/weezevent-webhook-ingest.service';
+import { WeezeventSalesAnalyticsService } from './services/weezevent-sales-analytics.service';
+import { WeezeventEventBatchWriterService } from './services/sync/event-batch-writer.service';
+import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
+import { WeezeventSyncStateService } from './services/sync/sync-state.service';
+import { WeezeventTransactionBatchWriterService } from './services/sync/transaction-batch-writer.service';
 
 @Module({
     imports: [
@@ -40,6 +47,8 @@ import { LiveReconciliationCronService } from './services/live/live-reconciliati
     ],
     controllers: [WeezeventController, WebhookController, WeezeventAnalyticsController],
     providers: [
+        WeezeventSalesAnalyticsService,
+        WeezeventWebhookIngestService,
         WeezeventAuthService,
         WeezeventApiService,
         WeezeventClientService,
@@ -49,11 +58,9 @@ import { LiveReconciliationCronService } from './services/live/live-reconciliati
         WeezeventQueuedEntitySyncService,
         // Thin facade — keeps backward-compat for all existing callers
         WeezeventSyncService,
-        WeezeventIncrementalSyncService,
         WebhookSignatureService,
         WebhookEventHandler,
         SyncTrackerService,
-        WeezeventCronService,
         WeezeventCollectWorkerService,
         WeezeventInsertWorkerService,
         // BUG-379-02 : pipeline live (fenêtre, cadence de sync, agrégation minute, santé webhook)
@@ -62,8 +69,17 @@ import { LiveReconciliationCronService } from './services/live/live-reconciliati
         WebhookHealthService,
         LiveHeartbeatService,
         LiveSyncRunnerService,
-        LiveSyncSchedulerService,
-        LiveReconciliationCronService,
+        // Services de la console Weezevent (corps des routes de WeezeventController)
+        WeezeventSalesDataQueryService,
+        WeezeventProductCatalogService,
+        WeezeventProductMappingAdminService,
+        WeezeventSyncAdminService,
+        WeezeventSyncJobService,
+        // Sync incrémentale : état, écriture des lots, orchestration
+        WeezeventSyncStateService,
+        WeezeventTransactionBatchWriterService,
+        WeezeventEventBatchWriterService,
+        WeezeventIncrementalSyncService,
     ],
     exports: [
         WeezeventClientService,
@@ -71,11 +87,13 @@ import { LiveReconciliationCronService } from './services/live/live-reconciliati
         WeezeventTransactionSyncService,
         WeezeventCatalogSyncService,
         WeezeventQueuedEntitySyncService,
-        WeezeventIncrementalSyncService,
         WeezeventAuthService,
         WebhookHealthService,
         LiveHeartbeatService,
         LiveEventWindowService,
+        LiveSyncRunnerService,
+        LiveAggregationTriggerService,
+        WeezeventIncrementalSyncService,
     ],
 })
 export class WeezeventModule { }

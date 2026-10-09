@@ -19,6 +19,9 @@ import { ImportMarketPricesDto } from './dto/import-market-prices.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { MarketPricesFindAllQueryDto, MarketPricesFindAllWithPackagingsQueryDto, MarketPricesFindAllWithIngredientsQueryDto } from './dto/market-prices.query.dto';
+import { MarketPriceQueryService } from './services/market-price-query.service';
+import { MarketPriceRecipeSyncService } from './services/market-price-recipe-sync.service';
 
 @ApiTags('Market Prices')
 @ApiBearerAuth('supabase-jwt')
@@ -27,7 +30,9 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 export class MarketPricesController {
   private readonly logger = new Logger(MarketPricesController.name);
 
-  constructor(private readonly marketPricesService: MarketPricesService) {}
+  constructor(private readonly marketPriceQueryService: MarketPriceQueryService,
+    private readonly marketPriceRecipeSyncService: MarketPriceRecipeSyncService,
+    private readonly marketPricesService: MarketPricesService) {}
 
   @RequirePermissions('menu.fb.marketPrices')
   @Post()
@@ -62,7 +67,7 @@ export class MarketPricesController {
   @ApiResponse({ status: 200, description: 'Synchronisation effectuée' })
   syncIngredients(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /market-prices/sync-ingredients - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.marketPricesService.syncIngredients(tenantId);
+    return this.marketPriceRecipeSyncService.syncIngredients(tenantId);
   }
 
   @RequirePermissions('menu.fb.marketPrices')
@@ -83,7 +88,7 @@ export class MarketPricesController {
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   syncPackagings(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /market-prices/sync-packagings - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.marketPricesService.syncPackagings(tenantId);
+    return this.marketPriceRecipeSyncService.syncPackagings(tenantId);
   }
 
   @Get()
@@ -94,11 +99,11 @@ export class MarketPricesController {
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() params: MarketPricesFindAllQueryDto,
   ) {
+    const { page, limit } = params;
     this.logger.log(`GET /market-prices - User: ${user?.id}, Tenant: ${tenantId}, page=${page}, limit=${limit}`);
-    return this.marketPricesService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined, user);
+    return this.marketPriceQueryService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined, user);
   }
 
   @Get('with-packagings')
@@ -144,16 +149,14 @@ export class MarketPricesController {
   findAllWithPackagings(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
-    @Query('category') category?: string,
+    @Query() params: MarketPricesFindAllWithPackagingsQueryDto,
   ) {
+    const { page, limit, search, category } = params;
     this.logger.log(
       `GET /market-prices/with-packagings - User: ${user?.id}, Tenant: ${tenantId}, ` +
       `page=${page}, limit=${limit}, search="${search}", category="${category}"`,
     );
-    return this.marketPricesService.findAllWithPackagings(tenantId, {
+    return this.marketPriceQueryService.findAllWithPackagings(tenantId, {
       page: page ? +page : undefined,
       limit: limit ? +limit : undefined,
       search,
@@ -172,17 +175,14 @@ export class MarketPricesController {
   findAllWithIngredients(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
-    @Query('category') category?: string,
-    @Query('goodType') goodType?: string,
+    @Query() params: MarketPricesFindAllWithIngredientsQueryDto,
   ) {
+    const { page, limit, search, category, goodType } = params;
     this.logger.log(
       `GET /market-prices/with-ingredients - User: ${user?.id}, Tenant: ${tenantId}, ` +
       `page=${page}, limit=${limit}, search="${search}", category="${category}", goodType=${goodType}`,
     );
-    return this.marketPricesService.findAllWithIngredients(tenantId, {
+    return this.marketPriceQueryService.findAllWithIngredients(tenantId, {
       page: page ? +page : undefined,
       limit: limit ? +limit : undefined,
       search,
@@ -198,7 +198,7 @@ export class MarketPricesController {
   @ApiResponse({ status: 404, description: 'Prix non trouvé' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /market-prices/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.marketPricesService.findOne(id, tenantId, user);
+    return this.marketPriceQueryService.findOne(id, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.marketPrices')
