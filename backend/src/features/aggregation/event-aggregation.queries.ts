@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import { lineRevenueHtSql } from '../../shared/sales/line-revenue.queries';
 import { SqlClient } from '../../core/database/sql-client';
 
 /**
@@ -12,21 +13,8 @@ export type EventWindow =
   | { mode: 'container-range'; salesEventId: string; start: Date; end: Date }
   | { mode: 'range'; start: Date; end: Date };
 
-/**
- * BUG-352-01 : montant réellement payé par ligne (rawData->'payments', vide sur une ligne
- * formule), repli unitPrice net de remise puis détaxé quand la clé "payments" est absente.
- */
-/** CA HT d'une ligne de vente (paiements Weezevent si présents, sinon prix x quantité). */
-export const revenueHtExpr = Prisma.sql`
-  CASE WHEN t."provider" = 'WEEZEVENT' AND ti."rawData" ? 'payments' THEN
-    COALESCE((
-      SELECT SUM((p->>'amount')::numeric - (p->>'amount_vat')::numeric)
-      FROM jsonb_array_elements(ti."rawData"->'payments') AS p
-    ), 0) / 100
-  ELSE
-    (ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
-  END
-`;
+/** CA HT d'une ligne de vente (paiements Weezevent si présents, sinon prix x quantité), cf. line-revenue.queries.ts. */
+export const revenueHtExpr = lineRevenueHtSql('t', 'ti');
 
 /** Clause de rattachement transaction → event selon le mode de fenêtre. */
 export function buildMatchClause(window: EventWindow, seasonContainerIds: ReadonlySet<string>): Prisma.Sql {
