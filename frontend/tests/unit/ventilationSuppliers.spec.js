@@ -34,4 +34,24 @@ describe('ventilationSuppliers', () => {
     expect(filterGroupsBySupplier(groups, index, [NO_SUPPLIER]).map((g) => g.itemName)).toEqual(['Canari'])
     expect(filterGroupsBySupplier(groups, index, [])).toHaveLength(4)
   })
+
+  it('fiche article avec seulement l’id : nom lu dans la liste des fournisseurs, jamais l’id brut', () => {
+    const names = new Map([['cmsk4pbsz07oagnhhoxwgrqka', 'Socodis']])
+    const idx = buildSupplierIndex(
+      { shoppingGroups: [{ supplierId: '__finished__', supplierName: 'Sans fournisseur (ingrédients manquants)', items: [{ itemName: 'Canari' }] }] },
+      [
+        { itemName: 'Coca', supplierId: 'cmsk4pbsz07oagnhhoxwgrqka', supplier: null },
+        { itemName: 'Eau', supplierId: 'cmsk5v5nn07srgnhhoyt9i4if', supplier: null },
+        { itemName: 'Canari', supplierId: 'cmsk4pbsz07oagnhhoxwgrqka', supplier: null },
+      ],
+      names,
+    )
+    expect(idx.get('coca')).toEqual([{ id: 'cmsk4pbsz07oagnhhoxwgrqka', name: 'Socodis' }])
+    // Id inconnu de la liste : sans fournisseur plutôt qu'un id à l'écran.
+    expect(idx.get('eau')).toBeUndefined()
+    // Groupe technique de la feuille : sans fournisseur, et la feuille fait foi sur la fiche.
+    expect(idx.get('canari')).toBeUndefined()
+    const opts = supplierOptions([{ itemName: 'Coca' }, { itemName: 'Eau' }, { itemName: 'Canari' }], idx)
+    expect(opts).toEqual([{ value: 'cmsk4pbsz07oagnhhoxwgrqka', label: 'Socodis' }, { value: NO_SUPPLIER, label: null }])
+  })
 })
