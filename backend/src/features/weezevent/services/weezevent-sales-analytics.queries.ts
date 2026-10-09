@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { SqlClient } from '../../../core/database/sql-client';
+import { lineRevenueTtcSql } from '../../../shared/sales/line-revenue.queries';
 
 /** Filtre des transactions d'une analyse (tenant, non supprimées, événement et période facultatifs). */
 export interface AnalyticsFilter {
@@ -21,7 +22,7 @@ const transactionFilter = (f: AnalyticsFilter) =>
     ' AND ',
   );
 
-/** Ventes par produit : quantité, montant (prix unitaire × quantité), nombre de lignes. */
+/** Ventes par produit : quantité, montant TTC encaissé (lineRevenueTtcSql), nombre de lignes. */
 export async function salesByProduct(db: SqlClient, f: AnalyticsFilter) {
   const rows = await db.$queryRaw<
     { productId: string; productName: string; quantity: number; totalAmount: Prisma.Decimal | number; transactionCount: bigint }[]
@@ -29,7 +30,7 @@ export async function salesByProduct(db: SqlClient, f: AnalyticsFilter) {
     SELECT COALESCE(i."productId", 'unknown') AS "productId",
            COALESCE(MIN(i."productName"), 'Unknown Product') AS "productName",
            SUM(i."quantity") AS "quantity",
-           SUM(i."unitPrice" * i."quantity") AS "totalAmount",
+           SUM(${lineRevenueTtcSql('t', 'i')}) AS "totalAmount",
            COUNT(*) AS "transactionCount"
     FROM "WeezeventTransactionItem" i
     JOIN "WeezeventTransaction" t ON t."id" = i."transactionId"
@@ -87,7 +88,7 @@ export async function soldLinesWithMenuItemCost(db: SqlClient, f: AnalyticsFilte
     }[]
   >`
     SELECT i."productId", i."productName", i."quantity",
-           i."unitPrice" * i."quantity" AS "sales",
+           ${lineRevenueTtcSql('t', 'i')} AS "sales",
            mi."id" AS "menuItemId", mi."name" AS "menuItemName", mi."totalCost" AS "menuItemTotalCost"
     FROM "WeezeventTransactionItem" i
     JOIN "WeezeventTransaction" t ON t."id" = i."transactionId"
@@ -115,7 +116,7 @@ export async function productRevenue(db: SqlClient, f: AnalyticsFilter) {
            COALESCE(MIN(i."productName"), 'Unknown Product') AS "productName",
            MIN(p."categoryId") AS "category",
            SUM(i."quantity") AS "quantity",
-           SUM(i."unitPrice" * i."quantity") AS "revenue"
+           SUM(${lineRevenueTtcSql('t', 'i')}) AS "revenue"
     FROM "WeezeventTransactionItem" i
     JOIN "WeezeventTransaction" t ON t."id" = i."transactionId"
     LEFT JOIN "WeezeventProduct" p ON p."id" = i."productId"
