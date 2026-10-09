@@ -125,14 +125,6 @@ export async function updateMenuComponent(id, data) {
 }
 
 /**
- * Réparer les composants de menu
- * @returns {Promise<Object>}
- */
-export async function repairMenuComponents() {
-  return api.post('/menu-components/repair')
-}
-
-/**
  * Remplacer intégralement les lignes d'ingrédients d'un composant.
  * @param {string} id
  * @param {Array<{ingredientId: string, quantity?: number, numberOfUnits?: number, unit?: string, unitCost?: number, cost?: number}>} ingredients

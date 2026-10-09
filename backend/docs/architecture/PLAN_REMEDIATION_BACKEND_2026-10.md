@@ -600,24 +600,26 @@ Builder v2 en 500, erreurs Fastify 4xx renvoyées en 500, chronologie d'analyse 
 ventes Weezevent capables d'arrêter l'API, préchargement de tout l'historique des transactions en
 synchro complète, faille de réécriture des rattachements produit d'un autre tenant.
 
-Décisions en attente :
+Décisions prises le 2026-10-09 (déléguées par Ulrich) :
 
-1. Faire tourner le secret client Weezevent : il figurait en clair dans des scripts versionnés,
-   donc dans l'historique git.
-2. Routes non appelées par le frontend (73 candidates, liste à vérifier) : en particulier le
-   tableau de bord d'espace (`/spaces/:spaceId/dashboard/*`, dont la reconstruction écrit dans les
-   agrégats avec une autre logique que le pipeline principal) et `POST /menu-components/repair`
-   (formule contraire à BUG-001).
-3. Pagination bornée des listes : le frontend charge des pages de 1000 à 5000 lignes ; un plafond
-   à 200 demande une évolution coordonnée du frontend.
-4. ADR 0007 : calendrier de la migration des configurations v1 (16 configurations, 255 éléments).
-5. Correspondance des noms d'articles par `equals` insensible à la casse : Prisma la traduit en
-   ILIKE, où `%` et `_` sont des jokers (« Heineken 0% 33cl » correspond à « Heineken 0% - CAN
-   33CL »). Comportement conservé à l'identique ; à corriger ou à assumer.
-6. Colonnes héritées encore remplies en production (`MenuItem.spaceIds`, `spacePrices`,
-   `WeezeventIntegration.clientSecret`).
-7. Reformatage Prettier global (493 fichiers) : volontairement non fait, il créerait des conflits
-   avec toutes les branches en cours.
+1. Secret client Weezevent : non changé, le dépôt est privé (décision Ulrich).
+2. Routes non appelées : le tableau de bord d'espace (`/spaces/:spaceId/dashboard`, `/health`,
+   `/invalidate`, `/rebuild`, avec `SpaceDashboardService` et `SpaceAggregationService`) et
+   `POST /menu-components/repair` sont retirés, ainsi que les deux fonctions frontend jamais
+   appelées qui visaient `repair`. Aucune table n'est touchée : les lignes d'agrégats déjà écrites
+   par l'ancienne reconstruction restent en base. Les autres routes de la liste restent ; elles
+   seront retirées après 30 jours de journaux de production sans aucun appel.
+3. Pagination bornée : reportée au prochain chantier frontend. Un plafond côté backend seul
+   tronquerait les écrans qui chargent 1000 à 5000 lignes.
+4. ADR 0007 : chantier dédié après la mise en production de cette branche, hors période de match.
+5. Correspondance des noms d'articles : corrigée. `%`, `_` et `\` sont échappés
+   (`shared/utils/like-pattern.ts`) avant les filtres `equals` et `contains` insensibles à la casse
+   du référentiel Logistic ; « Heineken 0% 33cl » ne correspond plus qu'à lui-même.
+6. Colonnes héritées (`MenuItem.spaceIds`, `spacePrices`, `WeezeventIntegration.clientSecret`) :
+   conservées. Les supprimer effacerait des données ; à reprendre seulement avec une sauvegarde
+   et la preuve qu'aucun code ne les lit.
+7. Reformatage Prettier global : non. Seuls les fichiers modifiés sont formatés, pour ne pas créer
+   de conflits avec les branches en cours.
 
 ## Annexe A. Index redondants détectés dans `schema.prisma`
 

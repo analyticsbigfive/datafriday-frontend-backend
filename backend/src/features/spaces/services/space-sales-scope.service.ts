@@ -249,7 +249,8 @@ export class SpaceSalesScopeService {
    * integration mapping (tenant-wide degraded scope) are unmapped rows excluded.
    *
    * PERF (event-timeline-item-agg) : lit désormais `SpaceRevenueMinuteItemAgg` (pré-agrégée
-   * à l'écriture par aggregation.service.ts et space-aggregation.service.ts) au lieu de
+   * à l'écriture par aggregation.service.ts ; space-aggregation.service.ts, retiré le 2026-10-09,
+   * y écrivait aussi) au lieu de
    * scanner WeezeventTransaction/WeezeventTransactionItem à chaque appel. Le grain stocké
    * (event × minute × shop × article) est déjà celui dont cette méthode a besoin — il ne
    * reste que la résolution du nom/type/catégorie d'article (WeezeventProductMapping →

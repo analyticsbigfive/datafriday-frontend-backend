@@ -485,31 +485,4 @@ export class MenuComponentsService {
       throw error;
     }
   }
-
-  async repair(tenantId: string) {
-    this.logger.log(`Repairing menu components for tenant ${tenantId}...`);
-    try {
-      // Recalculate unit costs from subComponents
-      const components = await this.prisma.menuComponent.findMany({
-        where: { tenantId },
-        include: this.includeRelations,
-      });
-
-      const updates = components.flatMap((comp) => {
-        const subComps = comp.subComponents as any[];
-        if (!subComps || !Array.isArray(subComps) || subComps.length === 0) return [];
-        const totalCost = subComps.reduce((sum, sub) => sum + (Number(sub.cost) || 0), 0);
-        const unitCost = totalCost * (comp.numberOfUnitsRecipe || 1);
-        return [this.prisma.menuComponent.update({ where: { id: comp.id }, data: { unitCost } })];
-      });
-      if (updates.length) await this.prisma.$transaction(updates);
-      const repaired = updates.length;
-
-      this.logger.log(`Repaired ${repaired} menu components`);
-      return { repaired, total: components.length };
-    } catch (error) {
-      this.logger.error(`Failed to repair menu components: ${error.message}`, error.stack);
-      throw error;
-    }
-  }
 }

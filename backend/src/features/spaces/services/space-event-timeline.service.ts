@@ -149,8 +149,9 @@ export class SpaceEventTimelineService {
     // LATERAL `tz` pour que Postgres ne voie qu'une seule interpolation du paramètre).
     //
     // Le JOIN reste borné par fenêtre de dates (ev."windowStart"/"windowEnd"), PAS par égalité
-    // sur "weezeventEventId" : les deux pipelines d'écriture (aggregation.service.ts,
-    // space-aggregation.service.ts) taguent ce champ avec des conventions d'id différentes
+    // sur "weezeventEventId" : les deux pipelines d'écriture (aggregation.service.ts, et
+    // space-aggregation.service.ts retiré le 2026-10-09 dont les lignes restent en base)
+    // taguent ce champ avec des conventions d'id différentes
     // (id "Event" DataFriday vs id "WeezeventEvent" brut — cf. BUG-123-01 dans la RPC
     // get_space_shop_details) ; une égalité stricte manquerait les events qui n'existent
     // qu'en WeezeventEvent. Depuis BUG-339-02, la fenêtre est resserrée sur l'heure de fin

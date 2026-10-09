@@ -49,15 +49,6 @@ export class MenuComponentsController {
   }
 
   @RequirePermissions('menu.fb.components')
-  @Post('repair')
-  @ApiOperation({ summary: 'Réparer les composants de menu' })
-  @ApiResponse({ status: 200, description: 'Composants réparés' })
-  repair(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
-    this.logger.log(`POST /menu-components/repair - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuComponentsService.repair(tenantId);
-  }
-
-  @RequirePermissions('menu.fb.components')
   @Post('refresh-costs')
   @ApiOperation({ summary: 'Recalculer les coûts des composants de menu' })
   @ApiResponse({ status: 200, description: 'Coûts recalculés' })
