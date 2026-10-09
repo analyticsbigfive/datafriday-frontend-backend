@@ -1,18 +1,32 @@
 # Render : description de l'infrastructure backend (seule référence, backend/render.yaml retiré).
+# Relevé sur Render le 2026-10-09 (offre pro, déploiement automatique de la branche `staging`).
 #
-# Deux services, mêmes variables via le groupe « datafriday-backend-env » :
 #  - datafriday-backend : API HTTP. N'exécute ni crons ni files (BACKGROUND_JOBS_IN_API=false).
 #  - datafriday-worker  : seul process qui exécute les crons (cycle d'inventaire, fenêtres PIN,
 #    envoi des comptages vers Logistic, synchro Weezevent) et consomme les files BullMQ.
 # Sans worker, mettre BACKGROUND_JOBS_IN_API=true sur l'API ; jamais les deux à la fois
 # (chaque cron tournerait deux fois et chaque file aurait deux consommateurs).
 #
-# Migrations : jamais au démarrage (ADR-0002), toujours à la main avant le déploiement du code.
-# Plans : à aligner sur le dashboard (offre pro) avant toute synchronisation de ce fichier.
+# Les deux services ont les MÊMES variables (sauf PORT et DOCS_* propres à l'API) : toute
+# variable modifiée sur l'un doit l'être sur l'autre, en particulier REDIS_QUEUE_URL (sinon le
+# worker ne voit aucun job) et DATABASE_URL.
+#
+# Migrations : l'API les applique au démarrage (pratique en place, contraire à l'ADR-0002 qui
+# reste à trancher). Le worker ne migre jamais. Une migration lourde (index sur les tables de
+# transactions) se joue à la main en CONCURRENTLY avant le déploiement, puis `migrate resolve`.
 
-envVarGroups:
-  - name: datafriday-backend-env
-    envVars:
+services:
+  - type: web
+    name: datafriday-backend
+    runtime: node
+    region: frankfurt
+    plan: standard
+    branch: staging
+    rootDir: backend
+    buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
+    startCommand: npx prisma migrate deploy && node dist/main
+    healthCheckPath: /api/v1/health
+    envVars: &backendEnv
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
@@ -27,10 +41,10 @@ envVarGroups:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: JWT_CLOCK_TOLERANCE_SECONDS
+        sync: false
       - key: ENCRYPTION_KEY
         sync: false
-      # Redis du cache et Redis des files : MÊMES valeurs pour l'API (producteur) et le worker
-      # (consommateur), sinon le worker ne voit aucun job.
       - key: REDIS_URL
         sync: false
       - key: REDIS_QUEUE_URL
@@ -43,36 +57,35 @@ envVarGroups:
         sync: false
       - key: INVITE_REDIRECT_URL
         value: https://datafriday.fr/accept-invite
+      - key: RATE_LIMIT_SHORT_TTL
+        sync: false
+      - key: RATE_LIMIT_SHORT_MAX
+        sync: false
+      - key: RATE_LIMIT_MEDIUM_TTL
+        sync: false
+      - key: RATE_LIMIT_MEDIUM_MAX
+        sync: false
+      - key: RATE_LIMIT_LONG_TTL
+        sync: false
+      - key: RATE_LIMIT_LONG_MAX
+        sync: false
       # `warn` au premier déploiement de la remédiation (requête hors contexte tenant journalisée),
       # puis `strict` une fois les journaux propres.
       - key: TENANT_SCOPE_MODE
         value: warn
-      - key: LOG_LEVEL
-        value: info
-
-services:
-  - type: web
-    name: datafriday-backend
-    runtime: node
-    region: frankfurt
-    rootDir: backend
-    buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
-    startCommand: node dist/main
-    healthCheckPath: /api/v1/health
-    envVars:
-      - fromGroup: datafriday-backend-env
-      - key: PORT
-        value: 3000
       - key: BACKGROUND_JOBS_IN_API
         value: "false"
+      - key: LOG_LEVEL
+        value: info
+    # Propres à l'API (non copiées sur le worker) : PORT, DOCS_USER, DOCS_PASSWORD.
 
   - type: worker
     name: datafriday-worker
     runtime: node
     region: frankfurt
     plan: starter
+    branch: staging
     rootDir: backend
     buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
     startCommand: node dist/worker
-    envVars:
-      - fromGroup: datafriday-backend-env
+    envVars: *backendEnv

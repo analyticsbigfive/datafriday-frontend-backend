@@ -1,52 +1,39 @@
 # Déploiement de la remédiation backend (branche `chore/backend-remediation-v2`)
 
 État au 2026-10-09 : base de production déjà migrée (20261009140000, 150000 et 160000, aucune donnée
-effacée), code de la branche non déployé. Render : un seul service, `datafriday-backend` (web), pas de
-worker. Le code actuellement en production exécute crons et files dans l'API ; la branche les déplace
+effacée), code de la branche non déployé. Render (offre pro) : un seul service, `datafriday-backend` (web,
+branche `staging`), pas de worker. Le code actuellement en production exécute crons et files dans l'API ; la branche les déplace
 dans un worker dédié (`node dist/worker`).
 
 À faire hors match : entre le déploiement de l'API et le démarrage du worker, aucun cron ne tourne
 (cycle d'inventaire, clôture des PIN, envoi vers Logistic, synchro Weezevent).
 
-## 1. Groupe de variables (Render, Env Groups)
+## 1. Variables de l'API `datafriday-backend`
 
-Créer le groupe `datafriday-backend-env` avec **toutes** les variables actuelles de
-`datafriday-backend` (onglet Environment), sauf `PORT`, puis :
+Ajouter `BACKGROUND_JOBS_IN_API=false` et `TENANT_SCOPE_MODE=warn` (sans effet tant que l'ancien code
+tourne). `REDIS_QUEUE_URL` est déjà présente et égale à `REDIS_URL`.
 
-| Variable | Valeur |
-|---|---|
-| `REDIS_QUEUE_URL` | si absente : la même valeur que `REDIS_URL` |
-| `TENANT_SCOPE_MODE` | `warn` (passer à `strict` une fois les journaux propres) |
-| `GUEST_PIN_JWT_SECRET`, `GUEST_PIN_HMAC_SECRET` | déjà présentes sur l'API, à reprendre telles quelles |
+## 2. Déployer le code
 
-Retirer les variables devenues sans effet : `WEEZEVENT_CRON_ENABLED`, `INVENTORY_LIVE_INIT_CRON_ENABLED`,
-`INVENTORY_CYCLE_CRON_ENABLED`, `INVENTORY_LOGISTIC_SYNC_CRON_ENABLED`,
-`INVENTORY_WINDOW_LIFECYCLE_CRON_ENABLED`.
+Fusionner `chore/backend-remediation-v2` dans `develop`, puis `develop` dans `staging` : Render déploie
+automatiquement `staging` sur `datafriday-backend`. Sa commande de démarrage applique les migrations ;
+il n'y en a aucune en attente (base de production déjà migrée).
 
-## 2. Service API `datafriday-backend`
-
-- Lier le groupe `datafriday-backend-env` ; garder en propre `PORT` et ajouter
-  `BACKGROUND_JOBS_IN_API=false` (sans effet tant que l'ancien code tourne).
-- Settings, Start Command : `node dist/main`, sans `prisma migrate deploy` (ADR-0002).
-
-## 3. Déployer le code
-
-Fusionner `chore/backend-remediation-v2` dans la branche suivie par `datafriday-backend` (Settings,
-Build & Deploy, Branch). Le déploiement automatique reconstruit l'API.
-
-## 4. Créer le worker `datafriday-worker` (New, Background Worker)
+## 3. Créer le worker `datafriday-worker` (Background Worker)
 
 | Champ | Valeur |
 |---|---|
-| Dépôt et branche | les mêmes que `datafriday-backend` |
+| Dépôt et branche | les mêmes que `datafriday-backend` (`staging`) |
 | Root Directory | `backend` |
 | Runtime, région | Node, Frankfurt |
 | Build Command | `npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build` |
-| Start Command | `node dist/worker` |
-| Instance | Starter suffit (une seule instance : les crons ne se partagent pas entre instances) |
-| Environment | lier le groupe `datafriday-backend-env` |
+| Start Command | `node dist/worker` (jamais de migration ici) |
+| Instance | Starter, une seule instance (les crons ne se partagent pas entre instances) |
+| Environment | copie des variables de l'API, sauf `PORT`, `DOCS_USER`, `DOCS_PASSWORD` |
 
-## 5. Vérifier
+Toute variable modifiée ensuite sur l'API doit l'être aussi sur le worker.
+
+## 4. Vérifier
 
 - Worker, onglet Logs : `✅ BullMQ worker started — waiting for jobs`, puis chaque minute des lignes
   `[InventoryCycleCronService]` et `[InventoryWindowLifecycleCronService]`.
@@ -57,5 +44,5 @@ Build & Deploy, Branch). Le déploiement automatique reconstruit l'API.
 ## Retour arrière
 
 Mettre `BACKGROUND_JOBS_IN_API=true` sur l'API et suspendre le worker : l'API reprend crons et files.
-Pour revenir à l'ancien code, redéployer le commit précédent de la branche suivie ; la base migrée
+Pour revenir à l'ancien code, redéployer sur Render le commit précédent de `staging` ; la base migrée
 reste compatible avec lui (vérifié : son `prisma migrate deploy` ne trouve rien à appliquer).
