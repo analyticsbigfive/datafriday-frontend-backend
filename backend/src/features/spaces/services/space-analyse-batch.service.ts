@@ -8,6 +8,7 @@ import { hasPermission, PermissionCheckableUser } from '../../../core/rbac/permi
 import { SpaceCacheService } from './space-cache.service';
 import { SpaceCrudService } from './space-crud.service';
 import { SpaceSalesScopeService } from './space-sales-scope.service';
+import { lineRevenueHtSql } from '../../../shared/sales/line-revenue.queries';
 
 /**
  * Lectures par lot de l'écran Analyse : paniers et ventes non rattachées.
@@ -167,10 +168,8 @@ export class SpaceAnalyseBatchService {
           ARRAY_AGG(DISTINCT COALESCE(mi.name, ti."productName")
                     ORDER BY COALESCE(mi.name, ti."productName"))         AS "itemCombo",
           SUM(ti.quantity)::integer                                       AS quantity,
-          SUM(
-            ti."unitPrice" * ti.quantity
-            / (1 + ti."vat" / 100)
-          )::numeric(12,2)                                                AS "revenueHt"
+          -- Montants réellement payés (ligne menu sans paiement = 0), même formule que l'agrégation.
+          SUM(${lineRevenueHtSql('t', 'ti')})::numeric(12,2)              AS "revenueHt"
         FROM ev
         INNER JOIN "WeezeventTransaction" t
           ON t."transactionDate" >= ev."windowStart"
@@ -306,7 +305,7 @@ export class SpaceAnalyseBatchService {
         ev."eventId"                                                        AS "eventId",
         COUNT(ti."id")::int                                                 AS "unmappedLines",
         COALESCE(SUM(ti."quantity"), 0)::float8                             AS "unmappedUnits",
-        COALESCE(SUM(ti."unitPrice" * ti."quantity" / (1 + ti."vat" / 100)), 0)::float8 AS "unmappedRevenueHt",
+        COALESCE(SUM(${lineRevenueHtSql('t', 'ti')}), 0)::float8      AS "unmappedRevenueHt",
         COUNT(ti."id") FILTER (WHERE wpm."menuItemId" IS NULL)::int         AS "unmappedProductLines",
         COUNT(ti."id") FILTER (WHERE mem."spaceElementId" IS NULL)::int     AS "unmappedPosLines"
       FROM ev
