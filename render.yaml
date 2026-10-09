@@ -1,18 +1,20 @@
-services:
-  - type: web
-    name: datafriday-api
-    runtime: node
-    region: frankfurt
-    plan: free
-    rootDir: backend
-    buildCommand: cd backend && npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
-    startCommand: cd backend && npx prisma migrate deploy && node dist/main
-    healthCheckPath: /api/v1/health
+# Render : description de l'infrastructure backend (seule référence, backend/render.yaml retiré).
+#
+# Deux services, mêmes variables via le groupe « datafriday-backend-env » :
+#  - datafriday-backend : API HTTP. N'exécute ni crons ni files (BACKGROUND_JOBS_IN_API=false).
+#  - datafriday-worker  : seul process qui exécute les crons (cycle d'inventaire, fenêtres PIN,
+#    envoi des comptages vers Logistic, synchro Weezevent) et consomme les files BullMQ.
+# Sans worker, mettre BACKGROUND_JOBS_IN_API=true sur l'API ; jamais les deux à la fois
+# (chaque cron tournerait deux fois et chaque file aurait deux consommateurs).
+#
+# Migrations : jamais au démarrage (ADR-0002), toujours à la main avant le déploiement du code.
+# Plans : à aligner sur le dashboard (offre pro) avant toute synchronisation de ce fichier.
+
+envVarGroups:
+  - name: datafriday-backend-env
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 3000
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
@@ -27,54 +29,50 @@ services:
         sync: false
       - key: ENCRYPTION_KEY
         sync: false
+      # Redis du cache et Redis des files : MÊMES valeurs pour l'API (producteur) et le worker
+      # (consommateur), sinon le worker ne voit aucun job.
       - key: REDIS_URL
-        sync: false
-      - key: CORS_ORIGINS
         sync: false
       - key: REDIS_QUEUE_URL
         sync: false
+      - key: GUEST_PIN_JWT_SECRET
+        sync: false
+      - key: GUEST_PIN_HMAC_SECRET
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: INVITE_REDIRECT_URL
+        value: https://datafriday.fr/accept-invite
+      # `warn` au premier déploiement de la remédiation (requête hors contexte tenant journalisée),
+      # puis `strict` une fois les journaux propres.
+      - key: TENANT_SCOPE_MODE
+        value: warn
       - key: LOG_LEVEL
         value: info
-      # BUG-144-01 : WeezeventCronService tourne aussi dans datafriday-worker (dédié). Le
-      # laisser actif ici en plus fait tourner les mêmes crons deux fois en parallèle (un
-      # process web ET un worker) et, surtout, expose la synchro live à un OOM du process
-      # web (ex. page Analyse Jean Bouin, cf. BUG-144-01) qui tue le scheduler avec lui.
-      - key: WEEZEVENT_CRON_ENABLED
+
+services:
+  - type: web
+    name: datafriday-backend
+    runtime: node
+    region: frankfurt
+    rootDir: backend
+    buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
+    startCommand: node dist/main
+    healthCheckPath: /api/v1/health
+    envVars:
+      - fromGroup: datafriday-backend-env
+      - key: PORT
+        value: 3000
+      - key: BACKGROUND_JOBS_IN_API
         value: "false"
-      # Flux Pre-event Inventory (InventoryLiveInitCronService, toutes les minutes) : tourne
-      # ICI (InventoryModule n'est pas importé par le worker). Le marqueur KvStore rend le
-      # passage « portes ouvertes » idempotent entre process, mais les régénérations ne sont
-      # sérialisées qu'en mémoire : si le web passe à plusieurs instances, ne laisser le cron
-      # actif que sur une seule (ou le déplacer dans le worker).
-      - key: INVENTORY_LIVE_INIT_CRON_ENABLED
-        value: "true"
 
   - type: worker
     name: datafriday-worker
     runtime: node
     region: frankfurt
-    plan: free
+    plan: starter
     rootDir: backend
-    buildCommand: cd backend && npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
-    startCommand: cd backend && npx prisma migrate deploy && node dist/worker
+    buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
+    startCommand: node dist/worker
     envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DATABASE_URL
-        sync: false
-      - key: DIRECT_URL
-        sync: false
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_ANON_KEY
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: JWT_SECRET
-        sync: false
-      - key: ENCRYPTION_KEY
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: LOG_LEVEL
-        value: info
+      - fromGroup: datafriday-backend-env
