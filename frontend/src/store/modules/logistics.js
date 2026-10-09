@@ -1,6 +1,6 @@
 // src/store/modules/logistics.js
 // Vuex module : Logistic — stock attendu par PDV/Storage (ledger backend),
-// mouvements +/−, historique par élément, reset après inventaire, réconciliations.
+// mouvements +/−, historique par élément, réconciliations.
 //
 // Clé item = `itemKey` = NOM du référentiel d'inventaire (même clé que
 // buildConsolidatedInventory : itemName market price, nom d'ingrédient/composant
@@ -13,7 +13,6 @@ import {
   confirmTransfer as confirmTransferApi,
   getPendingTransfers,
   getElementHistory,
-  resetLogisticsInventory,
   getReconciliations,
   getLossesSummary,
   getLosses,
@@ -84,7 +83,6 @@ const state = () => ({
   activeRun: null,
   loading: false,
   saving: false,
-  resetting: false,
   error: null,
 })
 
@@ -143,7 +141,6 @@ const getters = {
 const mutations = {
   SET_LOADING(state, v) { state.loading = !!v },
   SET_SAVING(state, v) { state.saving = !!v },
-  SET_RESETTING(state, v) { state.resetting = !!v },
   SET_ERROR(state, v) { state.error = v || null },
   SET_STOCK(state, { spaceId, space, configurations, resolvedConfigId, nextEventId, elements, levels, consumption, anchor }) {
     state.spaceId = spaceId || null
@@ -209,7 +206,6 @@ const mutations = {
     state.error = null
     state.loading = false
     state.saving = false
-    state.resetting = false
   },
 }
 
@@ -323,30 +319,6 @@ const actions = {
     }
   },
 
-  /**
-   * Inventory Reset : le référentiel + comptages sont mappés côté vue en lignes
-   * { elementId, itemKey, countedPacked, countedLoose, unitsPerPack? }.
-   * Recharge le stock (nouvelle ancre) puis les réconciliations.
-   */
-  async reset({ commit, dispatch }, { spaceId, eventId, eventName, lines }) {
-    commit('SET_RESETTING', true)
-    try {
-      const payload = { lines }
-      if (eventId) payload.eventId = eventId
-      if (eventName) payload.eventName = eventName
-      const res = await resetLogisticsInventory(spaceId, payload)
-      await Promise.all([
-        dispatch('loadStock', { spaceId }),
-        dispatch('loadReconciliations', { spaceId }),
-      ])
-      return res
-    } catch (e) {
-      console.error('[logistics] 🔄❌ reset ÉCHEC —', e?.response?.status, e?.response?.data ?? e?.message)
-      throw e
-    } finally {
-      commit('SET_RESETTING', false)
-    }
-  },
 
   async loadReconciliations({ commit }, { spaceId }) {
     try {

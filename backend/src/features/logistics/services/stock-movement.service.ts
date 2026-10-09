@@ -142,7 +142,7 @@ export class StockMovementService {
       expiryDate: dto.expiryDate ? new Date(dto.expiryDate) : null,
       note: dto.note?.trim() || null,
       // Seul un dépôt de ventilation porte le match : c'est ce qui permet de
-      // retrancher ce qui a déjà été déposé de la feuille (VentilationDepositsService.sumByEvent).
+      // retrancher ce qui a déjà été déposé de la feuille (VentilationDepositsService.sumByEvents).
       eventId: dto.reason === 'VENTILATION' ? dto.eventId! : null,
       createdBy: userId ?? null,
     };

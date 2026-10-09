@@ -13,6 +13,8 @@ import {
   cancelGuestVentilationDeposit,
 } from '@/api/endpoints/guestPin.api'
 import { buildDepositLines, groupDepositLinesByItem } from '@/utils/restockDepositSheet'
+import { mergeRestockPlans, allocateDeposit } from '@/utils/ventilationPlans'
+import { readViewMode, writeViewMode, normalizeViewMode } from '@/utils/ventilationViewMode'
 
 const DEPOSITOR_KEY = 'guestPin.depositorName'
 
@@ -38,10 +40,20 @@ export function useGuestVentilation() {
   const loading = ref(false)
   const error = ref(null)
 
-  const plan = computed(() => sheet.value?.plan || null)
+  // Feuilles des matchs de l'accès (PIN du premier match d'une sélection), fusionnées
+  // comme sur l'écran Logistique (utils/ventilationPlans.js).
+  const plan = computed(() => mergeRestockPlans(sheet.value?.plans || [], sheet.value?.eventOrder || []))
   const lines = computed(() => buildDepositLines(plan.value, sheet.value?.deposits || []))
   const groups = computed(() => groupDepositLinesByItem(lines.value))
   const movements = computed(() => sheet.value?.movements || [])
+  // Stockages du match : section « Espaces de stockage », même sans rien à y déposer.
+  const storages = computed(() => sheet.value?.storages || [])
+  const viewMode = ref(readViewMode())
+
+  function setViewMode(mode) {
+    viewMode.value = normalizeViewMode(mode)
+    writeViewMode(viewMode.value)
+  }
 
   async function load({ silent = false } = {}) {
     if (!silent) loading.value = true
@@ -55,9 +67,31 @@ export function useGuestVentilation() {
     }
   }
 
-  async function deposit({ rowKey, packed, loose, depositorName }) {
-    await createGuestVentilationDeposit({ rowKey, packed, loose, depositorName })
-    await load({ silent: true })
+  /**
+   * Dépôt sur une destination de la feuille (réparti entre les feuilles qui la
+   * portent, match le plus proche d'abord) ou dans un stockage sans ligne prévue
+   * (`storageId` + `itemName`).
+   */
+  async function deposit({ parts = [], unitsPerPack = null, storageId, itemName, packed, loose, depositorName }) {
+    let written = 0
+    try {
+      if (!parts.length) {
+        await createGuestVentilationDeposit({ storageId, itemName, packed, loose, depositorName })
+      } else {
+        for (const share of allocateDeposit({ packed, loose }, parts, unitsPerPack)) {
+          // eslint-disable-next-line no-await-in-loop -- mouvements du même niveau de stock, dans l'ordre
+          await createGuestVentilationDeposit({ rowKey: share.rowKey, packed: share.packed, loose: share.loose, depositorName })
+          written += 1
+        }
+      }
+    } catch (e) {
+      // Une part déjà enregistrée : l'appelant ferme la saisie (réessayer la doublerait).
+      e.partialDeposit = written > 0
+      throw e
+    } finally {
+      // Relue même après un échec : une part déjà enregistrée apparaît dans « Déjà déposé ».
+      await load({ silent: true })
+    }
   }
 
   async function cancel(movementId) {
@@ -65,5 +99,5 @@ export function useGuestVentilation() {
     await load({ silent: true })
   }
 
-  return { sheet, plan, groups, movements, loading, error, load, deposit, cancel }
+  return { sheet, plan, groups, movements, storages, viewMode, setViewMode, loading, error, load, deposit, cancel }
 }

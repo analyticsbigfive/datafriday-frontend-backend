@@ -5,14 +5,15 @@ import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { StockMovementService } from '../logistics/services/stock-movement.service';
-import { VentilationDepositsService, normalizeItemName } from '../logistics/ventilation-deposits.service';
+import { VentilationDepositsService, normalizeItemName, uniqueIds } from '../logistics/ventilation-deposits.service';
+import { VentilationEventsService } from '../logistics/ventilation-events.service';
 import { generateSlug } from '../../shared/utils';
 import { isEventOver } from '../../shared/utils/event-window.util';
 import { GuestLoginResult, GuestPinSessionService } from './services/guest-pin-session.service';
 import { GuestPinWindowService } from './services/guest-pin-window.service';
 import { GuestPinCredentialService } from './services/guest-pin-credential.service';
 import { VENTILATION_PHASE } from './inventory-window-period';
-import { GuestVentilationDepositDto, VentilationTargetDto } from './dto/ventilation.dto';
+import { GuestVentilationDepositDto, VentilationSelectionDto, VentilationWindowDto } from './dto/ventilation.dto';
 import type { GuestPinUser } from '../../core/auth/strategies/jwt-guest-pin.strategy';
 import type { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 
@@ -52,9 +53,14 @@ export interface VentilationPublicContext {
  * `GuestPinAccess` par fenêtre dont `elementId` vaut l'id de l'espace (pas de clé
  * étrangère sur ce champ : valeur sentinelle, l'accès ne vise aucun élément).
  *
- * Cycle de vie (décision #75) : ouverture manuelle depuis Logistique, fermeture
- * automatique à la fin réelle du match (InventoryWindowLifecycleCronService),
- * l'ouverture d'un autre match ferme la précédente, arrêt manuel possible.
+ * Ventilation v2 (maquettes Bertrand et décision Ulrich du 2026-10-09) : un accès et
+ * un PIN par COMBINAISON de matchs (A, A + B, B + C, A + B + C…), créé et ouvert dès
+ * que Logistique l'affiche (`ensure`) ; le PIN n'affiche que les matchs de sa
+ * combinaison, dont la feuille de l'invité additionne les feuilles de réarmement.
+ * Fenêtre : `eventId` = premier match, `linkedEventIds` = les autres, `selectionKey` =
+ * empreinte de la combinaison. Plusieurs accès restent ouverts en même temps.
+ * Fermeture automatique à la fin réelle du DERNIER match de la combinaison
+ * (InventoryWindowLifecycleCronService), arrêt et reprise manuels possibles.
  */
 @Injectable()
 export class VentilationAccessService {
@@ -68,85 +74,93 @@ export class VentilationAccessService {
     private readonly stockMovementService: StockMovementService,
     private readonly deposits: VentilationDepositsService,
     private readonly spaceAccess: SpaceAccessService,
+    private readonly ventilationEvents: VentilationEventsService,
   ) {}
 
   // ── Logistique (utilisateur connecté) ───────────────────────────────────────
 
-  async getStatus(spaceId: string, eventId: string, user: CurrentUserData) {
-    await this.spaceAccess.assertCanAccessSpace(user, spaceId);
-    const tenantId = user.tenantId!;
-    const [space, window] = await Promise.all([
-      this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { ventilationSlug: true } }),
-      eventId ? this.findWindow(tenantId, spaceId, eventId) : null,
-    ]);
-    if (!space) throw new NotFoundException('Espace introuvable');
-    return this.statusView(space.ventilationSlug, window);
-  }
-
-  async start(dto: VentilationTargetDto, user: CurrentUserData) {
+  /**
+   * PIN de la combinaison de matchs choisie dans Logistique (décision Ulrich du
+   * 2026-10-09 : un PIN par combinaison, qui n'affiche que ses matchs). L'accès est
+   * créé et ouvert s'il n'existe pas encore (PIN prédéfini, utilisable dès qu'il
+   * s'affiche) ; la même combinaison, dans n'importe quel ordre, retrouve toujours le
+   * même accès. Un accès arrêté à la main le reste : seule « Reprendre » le rouvre.
+   * Les matchs déjà terminés sont écartés de la combinaison.
+   */
+  async ensure(dto: VentilationSelectionDto, user: CurrentUserData) {
     await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
     const tenantId = user.tenantId!;
-    const event = await this.prisma.event.findFirst({
-      where: { id: dto.eventId, spaceId: dto.spaceId, tenantId },
-      select: {
-        id: true,
-        eventDate: true,
-        eventStartDate: true,
-        eventEndDate: true,
-        eventEndTime: true,
-        sessions: true,
-        space: { select: { timezone: true } },
-      },
-    });
-    if (!event) throw new NotFoundException('Match introuvable pour cet espace');
-    if (isEventOver(event, event.space?.timezone || 'Europe/Paris')) {
-      throw new BadRequestException("Ce match est terminé : l'accès ventilation ne peut plus être ouvert.");
-    }
+    const space = await this.prisma.space.findFirst({ where: { id: dto.spaceId, tenantId }, select: { timezone: true } });
+    if (!space) throw new NotFoundException('Espace introuvable');
+    const timeZone = space.timezone || 'Europe/Paris';
+    const ordered = (await this.ventilationEvents.orderedEvents(dto.spaceId, tenantId, dto.eventIds)).filter(
+      (e) => !isEventOver(e, timeZone),
+    );
+    const slug = await this.ensureSpaceSlug(dto.spaceId, tenantId);
+    if (!ordered.length) return this.statusView(slug, null);
 
-    // Une seule fenêtre ventilation ouverte par espace : ouvrir ce match ferme l'autre.
-    const stale = await this.prisma.inventoryWindow.findMany({
-      where: { tenantId, spaceId: dto.spaceId, phase: VENTILATION_PHASE, status: 'open', eventId: { not: dto.eventId } },
-    });
-    for (const w of stale) {
-      // eslint-disable-next-line no-await-in-loop -- au plus une fenêtre ventilation ouverte par espace (index partiel)
-      await this.guestPinWindowService.closeWindowRecord(w, user.id, { pushToLogistic: false, reason: 'superseded' });
-    }
-
+    const [primary, ...others] = ordered;
+    const selectionKey = ventilationSelectionKey(ordered.map((e) => e.id));
     const window = await this.prisma.inventoryWindow.upsert({
       where: {
-        uniq_inventory_window: { tenantId, spaceId: dto.spaceId, eventId: dto.eventId, phase: VENTILATION_PHASE },
+        uniq_inventory_window: { tenantId, spaceId: dto.spaceId, eventId: primary.id, phase: VENTILATION_PHASE, selectionKey },
       },
-      create: { tenantId, spaceId: dto.spaceId, eventId: dto.eventId, phase: VENTILATION_PHASE, openedBy: user.id },
-      update: { status: 'open', openedAt: new Date(), openedBy: user.id, closedAt: null, closedBy: null },
+      create: {
+        tenantId,
+        spaceId: dto.spaceId,
+        eventId: primary.id,
+        phase: VENTILATION_PHASE,
+        selectionKey,
+        linkedEventIds: others.map((e) => e.id),
+        openedBy: user.id,
+      },
+      // La combinaison est figée par sa clé : rien à mettre à jour.
+      update: {},
+    });
+    if (window.status === 'open') await this.guestPinWindowService.ensureWindowPin(window, user.id);
+    return this.statusView(slug, await this.findWindowById(tenantId, dto.spaceId, window.id));
+  }
+
+  /** Reprend un accès arrêté à la main (même PIN), tant qu'un de ses matchs n'est pas terminé. */
+  async start(dto: VentilationWindowDto, user: CurrentUserData) {
+    await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
+    const tenantId = user.tenantId!;
+    const window = await this.requireWindow(tenantId, dto.spaceId, dto.windowId);
+    const space = await this.prisma.space.findFirst({ where: { id: dto.spaceId, tenantId }, select: { timezone: true } });
+    const events = await this.ventilationEvents.orderedEvents(dto.spaceId, tenantId, [window.eventId, ...(window.linkedEventIds ?? [])]);
+    if (!events.some((e) => !isEventOver(e, space?.timezone || 'Europe/Paris'))) {
+      throw new BadRequestException("Ces matchs sont terminés : l'accès ventilation ne peut plus être ouvert.");
+    }
+    await this.prisma.inventoryWindow.update({
+      where: { id: window.id },
+      data: { status: 'open', openedAt: new Date(), openedBy: user.id, closedAt: null, closedBy: null },
     });
     // Reprise : l'arrêt avait révoqué l'accès, il redevient joignable avec le même PIN.
     await this.prisma.guestPinAccess.updateMany({
       where: { windowId: window.id, status: 'revoked' },
       data: { status: 'active', revokedAt: null, revokedBy: null },
     });
-    await this.guestPinWindowService.ensureWindowPin(window, user.id);
-    const slug = await this.ensureSpaceSlug(dto.spaceId, tenantId);
-    const fresh = await this.findWindow(tenantId, dto.spaceId, dto.eventId);
-    return this.statusView(slug, fresh);
+    await this.guestPinWindowService.ensureWindowPin({ ...window, status: 'open' }, user.id);
+    return this.windowStatus(tenantId, dto.spaceId, window.id);
   }
 
-  async stop(dto: VentilationTargetDto, user: CurrentUserData) {
+  async stop(dto: VentilationWindowDto, user: CurrentUserData) {
     await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
-    const window = await this.findWindow(user.tenantId!, dto.spaceId, dto.eventId);
-    if (window?.status === 'open') {
+    const window = await this.requireWindow(user.tenantId!, dto.spaceId, dto.windowId);
+    if (window.status === 'open') {
       await this.guestPinWindowService.closeWindowRecord(window, user.id, { pushToLogistic: false, reason: 'manual-stop' });
     }
-    return this.getStatus(dto.spaceId, dto.eventId, user);
+    return this.windowStatus(user.tenantId!, dto.spaceId, window.id);
   }
 
-  async resetPin(dto: VentilationTargetDto, user: CurrentUserData) {
+  async resetPin(dto: VentilationWindowDto, user: CurrentUserData) {
     await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
-    const window = await this.findWindow(user.tenantId!, dto.spaceId, dto.eventId);
-    if (!window || window.status !== 'open') {
-      throw new BadRequestException("L'accès ventilation est arrêté : démarrez-le avant de changer le PIN.");
+    const window = await this.requireWindow(user.tenantId!, dto.spaceId, dto.windowId);
+    if (window.status !== 'open') {
+      throw new BadRequestException("L'accès ventilation est arrêté : reprenez-le avant de changer le PIN.");
     }
     await this.guestPinWindowService.regenerateWindowPin(window.id, window.tenantId, user.id);
-    return this.getStatus(dto.spaceId, dto.eventId, user);
+    return this.windowStatus(user.tenantId!, dto.spaceId, window.id);
   }
 
   // ── Logisticien (QR + PIN) ──────────────────────────────────────────────────
@@ -203,67 +217,72 @@ export class VentilationAccessService {
   }
 
   /**
-   * Données de la feuille de ventilation du match de l'invité : lignes de la feuille
-   * de réarmement (champs utiles seulement), corrections, lignes cochées « réarmé »,
-   * dépôts déjà faits (cumul + liste) et tailles de pack Logistic des destinations.
+   * Données de la feuille de ventilation de l'invité : feuilles de réarmement des
+   * matchs de son accès (premier match + matchs rattachés ; lignes réduites aux
+   * champs utiles), corrections, lignes cochées « réarmé », dépôts déjà faits (cumul
+   * + liste) pour tous les matchs de ces feuilles, stockages et tailles de pack.
    * Le reste à déposer est calculé côté front par le MÊME code que l'écran Logistique
-   * (utils/restockDepositSheet.js).
+   * (utils/ventilationPlans.js + utils/restockDepositSheet.js).
    */
   async getSheet(user: GuestPinUser, deviceId: string | undefined) {
     this.assertVentilationSession(user);
-    const [plan, event, sums, movements] = await Promise.all([
-      this.findPlan(user.tenantId, user.spaceId, user.eventId),
-      this.prisma.event.findFirst({ where: { id: user.eventId, tenantId: user.tenantId }, select: { name: true } }),
-      this.deposits.sumByEvent(user.spaceId, user.eventId, user.tenantId),
-      this.deposits.listByEvent(user.spaceId, user.eventId, user.tenantId),
+    const session = await this.sessionContext(user);
+    const depositEventIds = this.depositEventIds(session);
+    const [sums, movements, storages] = await Promise.all([
+      this.deposits.sumByEvents(user.spaceId, depositEventIds, user.tenantId),
+      this.deposits.listByEvents(user.spaceId, depositEventIds, user.tenantId),
+      this.storagesOf(user, session.events),
     ]);
-    const restockLines = (Array.isArray(plan?.restockLines) ? (plan!.restockLines as RestockLine[]) : []).map(pickSheetLine);
-    const elementIds = [...new Set([...restockLines.map((l) => String(l.shopId)), ...sums.map((d) => d.elementId)])];
+    const plans = session.plans.map((plan) => ({
+      id: plan.id,
+      name: plan.name,
+      selectedEventIds: plan.selectedEventIds,
+      restockLines: planLines(plan).map(pickSheetLine),
+      lineOverrides: plan.lineOverrides ?? {},
+      restockedRows: plan.restockedRows ?? {},
+    }));
+    const elementIds = uniqueIds([
+      ...plans.flatMap((p) => p.restockLines.map((l) => String(l.shopId))),
+      ...sums.map((d) => d.elementId),
+    ]);
     const packSizes = await this.deposits.packSizes(user.spaceId, user.tenantId, elementIds);
     const uppByKey = new Map(packSizes.map((p) => [`${p.elementId}::${normalizeItemName(p.itemName)}`, p.unitsPerPack]));
     const actor = this.actorOf(user, deviceId);
     return {
       eventId: user.eventId,
-      eventName: event?.name ?? null,
-      plan: plan
-        ? {
-            name: plan.name,
-            restockLines,
-            lineOverrides: plan.lineOverrides ?? {},
-            restockedRows: plan.restockedRows ?? {},
-          }
-        : null,
+      eventName: session.events.map((e) => e.name).join(' + ') || null,
+      // Matchs de l'accès, ordre chronologique (ordre d'imputation des dépôts).
+      eventOrder: session.events.map((e) => e.id),
+      plans,
       deposits: sums.map((d) => ({ ...d, unitsPerPack: uppByKey.get(`${d.elementId}::${normalizeItemName(d.itemKey)}`) ?? null })),
       packSizes,
+      storages,
       movements: movements.map(({ createdBy, ...m }) => ({ ...m, cancellable: !m.cancelled && createdBy === actor })),
     };
   }
 
+  /**
+   * Dépôt d'un logisticien : sur une ligne d'une des feuilles de son accès (`rowKey`
+   * préfixé par l'id de la feuille, cf. utils/ventilationPlans.js), ou dans un
+   * stockage du périmètre sans ligne prévue. Le front répartit déjà une saisie entre
+   * les feuilles ; chaque dépôt est enregistré sur un match de SA feuille.
+   */
   async deposit(user: GuestPinUser, dto: GuestVentilationDepositDto, deviceId: string | undefined) {
     this.assertVentilationSession(user);
-    const plan = await this.findPlan(user.tenantId, user.spaceId, user.eventId);
-    const lines = Array.isArray(plan?.restockLines) ? (plan!.restockLines as RestockLine[]) : [];
-    const line = lines.find((l) => l?.rowKey === dto.rowKey);
-    if (!line?.shopId) throw new NotFoundException('Cette ligne ne figure pas sur la feuille de ventilation du match');
-    // Ligne retirée de la feuille depuis (cochée « réarmé » ou corrigée à 0) : plus rien à y déposer.
-    const restocked = (plan?.restockedRows ?? {}) as Record<string, unknown>;
-    const overrides = (plan?.lineOverrides ?? {}) as Record<string, unknown>;
-    const override = overrides[dto.rowKey];
-    if (restocked[dto.rowKey] || (override != null && override !== '' && Number(override) <= 0)) {
-      throw new BadRequestException("Cette ligne n'est plus à déposer : rechargez la feuille");
-    }
     if (dto.packed <= 0 && dto.loose <= 0) throw new BadRequestException('Quantité nulle');
-    const itemKey = await this.deposits.resolveElementItemKey(user.spaceId, String(line.shopId), String(line.itemName ?? ''), user.tenantId);
+    const session = await this.sessionContext(user);
+    const target = dto.rowKey ? this.lineTarget(session, dto.rowKey) : await this.storageTarget(user, session, dto);
+    const itemKey = await this.deposits.resolveElementItemKey(user.spaceId, target.elementId, target.itemName, user.tenantId);
     const { movement } = await this.stockMovementService.createMovement(
       {
         spaceId: user.spaceId,
-        elementId: String(line.shopId),
+        elementId: target.elementId,
         itemKey,
         direction: 'add',
         packed: dto.packed,
         loose: dto.loose,
         reason: 'VENTILATION',
-        eventId: user.eventId,
+        eventId: target.eventId,
         note: dto.depositorName?.trim() || undefined,
       },
       user.tenantId,
@@ -283,6 +302,88 @@ export class VentilationAccessService {
 
   // ── Interne ────────────────────────────────────────────────────────────────
 
+  /**
+   * Matchs de l'accès de l'invité (premier match + matchs rattachés à sa fenêtre),
+   * ordre chronologique, et la feuille de réarmement de chacun (la plus récemment
+   * modifiée qui le contient, même règle que Logistique), sans doublon.
+   */
+  private async sessionContext(user: GuestPinUser): Promise<SessionContext> {
+    const window = await this.prisma.inventoryWindow.findFirst({
+      where: { id: user.windowId, tenantId: user.tenantId },
+      select: { eventId: true, linkedEventIds: true },
+    });
+    const ids = uniqueIds([window?.eventId ?? user.eventId, ...(window?.linkedEventIds ?? [])]);
+    const events = await this.ventilationEvents.orderedEvents(user.spaceId, user.tenantId, ids);
+    const order = events.map((e) => e.id);
+    const candidates = order.length
+      ? await this.prisma.restockPlan.findMany({
+          where: { tenantId: user.tenantId, spaceId: user.spaceId, selectedEventIds: { hasSome: order } },
+          orderBy: { updatedAt: 'desc' },
+          select: { id: true, name: true, selectedEventIds: true, restockLines: true, lineOverrides: true, restockedRows: true },
+        })
+      : [];
+    const plans: SessionPlan[] = [];
+    for (const eventId of order) {
+      const plan = candidates.find((p) => p.selectedEventIds.includes(eventId));
+      if (plan && !plans.some((p) => p.id === plan.id)) plans.push(plan);
+    }
+    return { events, order, plans };
+  }
+
+  /** Tous les matchs des feuilles de l'accès : un dépôt compte pour sa feuille, quel que soit son match. */
+  private depositEventIds(session: SessionContext): string[] {
+    return uniqueIds([...session.order, ...session.plans.flatMap((p) => p.selectedEventIds)]);
+  }
+
+  /**
+   * Destination, article et match d'un dépôt sur une ligne d'une feuille de l'accès.
+   * `rowKey` = `planId::rowKey` (feuilles fusionnées) ; sans préfixe, première feuille.
+   */
+  private lineTarget(session: SessionContext, key: string): DepositTarget {
+    const sep = key.indexOf('::');
+    const planId = sep >= 0 ? key.slice(0, sep) : null;
+    const rowKey = sep >= 0 ? key.slice(sep + 2) : key;
+    const plan = planId ? session.plans.find((p) => p.id === planId) : session.plans[0];
+    const line = plan ? planLines(plan).find((l) => l?.rowKey === rowKey) : null;
+    if (!plan || !line?.shopId) throw new NotFoundException('Cette ligne ne figure pas sur la feuille de ventilation du match');
+    // Ligne retirée de la feuille depuis (cochée « réarmé » ou corrigée à 0) : plus rien à y déposer.
+    const restocked = (plan.restockedRows ?? {}) as Record<string, unknown>;
+    const overrides = (plan.lineOverrides ?? {}) as Record<string, unknown>;
+    const override = overrides[rowKey];
+    if (restocked[rowKey] || (override != null && override !== '' && Number(override) <= 0)) {
+      throw new BadRequestException("Cette ligne n'est plus à déposer : rechargez la feuille");
+    }
+    // Match de la feuille le plus proche parmi ceux de l'accès (même règle que le front).
+    const eventId = session.order.find((id) => plan.selectedEventIds.includes(id)) ?? plan.selectedEventIds[0];
+    return { elementId: String(line.shopId), itemName: String(line.itemName ?? ''), eventId };
+  }
+
+  /**
+   * Dépôt dans un espace de stockage sans ligne prévue (section « Espaces de
+   * stockage ») : le stockage doit être dans le périmètre des matchs et l'article sur
+   * une de leurs feuilles (jamais un article inventé par le client). Enregistré sur le
+   * premier match de l'accès.
+   */
+  private async storageTarget(user: GuestPinUser, session: SessionContext, dto: GuestVentilationDepositDto): Promise<DepositTarget> {
+    const storages = await this.storagesOf(user, session.events);
+    if (!storages.some((s) => s.id === dto.storageId)) {
+      throw new NotFoundException('Cet espace de stockage ne fait pas partie du match');
+    }
+    const wanted = normalizeItemName(dto.itemName);
+    const line = session.plans.flatMap(planLines).find((l) => normalizeItemName(String(l?.itemName ?? '')) === wanted);
+    if (!wanted || !line) throw new NotFoundException('Cet article ne figure pas sur la feuille de ventilation du match');
+    return { elementId: String(dto.storageId), itemName: String(line.itemName), eventId: session.order[0] ?? user.eventId };
+  }
+
+  /** Stockages des configurations des matchs de l'accès. */
+  private storagesOf(user: GuestPinUser, events: Array<{ configurationId: string | null }>) {
+    return this.deposits.storagesOfConfigs(
+      user.spaceId,
+      user.tenantId,
+      uniqueIds(events.map((e) => e.configurationId)),
+    );
+  }
+
   private assertVentilationSession(user: GuestPinUser): void {
     if (user.phase !== VENTILATION_PHASE) {
       throw new ForbiddenException("Cet accès ne permet pas d'utiliser la feuille de ventilation");
@@ -299,24 +400,28 @@ export class VentilationAccessService {
     return `guest-pin:${user.id}:${device}`;
   }
 
-  private findWindow(tenantId: string, spaceId: string, eventId: string) {
-    return this.prisma.inventoryWindow.findFirst({ where: { tenantId, spaceId, eventId, phase: VENTILATION_PHASE } });
+  private findWindowById(tenantId: string, spaceId: string, windowId: string) {
+    return this.prisma.inventoryWindow.findFirst({ where: { id: windowId, tenantId, spaceId, phase: VENTILATION_PHASE } });
+  }
+
+  private async requireWindow(tenantId: string, spaceId: string, windowId: string) {
+    const window = await this.findWindowById(tenantId, spaceId, windowId);
+    if (!window) throw new NotFoundException('Accès ventilation introuvable');
+    return window;
+  }
+
+  private async windowStatus(tenantId: string, spaceId: string, windowId: string) {
+    const [space, window] = await Promise.all([
+      this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { ventilationSlug: true } }),
+      this.findWindowById(tenantId, spaceId, windowId),
+    ]);
+    return this.statusView(space?.ventilationSlug ?? null, window);
   }
 
   private openWindowWithPin(spaceId: string) {
     return this.prisma.inventoryWindow.findFirst({
       where: { spaceId, phase: VENTILATION_PHASE, status: 'open', pinLookupHash: { not: null } },
       select: { id: true },
-    });
-  }
-
-  /** Même choix que l'écran Logistique : la feuille la plus récemment modifiée
-   *  dont les matchs incluent celui-ci. */
-  private findPlan(tenantId: string, spaceId: string, eventId: string) {
-    return this.prisma.restockPlan.findFirst({
-      where: { tenantId, spaceId, selectedEventIds: { has: eventId } },
-      orderBy: { updatedAt: 'desc' },
-      select: { name: true, restockLines: true, lineOverrides: true, restockedRows: true },
     });
   }
 
@@ -328,6 +433,7 @@ export class VentilationAccessService {
             id: window.id,
             eventId: window.eventId,
             status: window.status,
+            linkedEventIds: window.linkedEventIds ?? [],
             pin: window.status === 'open' ? this.guestPinCredentialService.readWindowPin(window) : null,
             pinSetAt: window.pinSetAt,
             openedAt: window.openedAt,
@@ -365,6 +471,41 @@ export class VentilationAccessService {
 
 /** Ligne de la feuille de réarmement telle que stockée (JSON du RestockPlan). */
 type RestockLine = Record<string, unknown> & { rowKey?: string; shopId?: string };
+
+interface SessionPlan {
+  id: string;
+  name: string;
+  selectedEventIds: string[];
+  restockLines: Prisma.JsonValue;
+  lineOverrides: Prisma.JsonValue;
+  restockedRows: Prisma.JsonValue;
+}
+
+interface SessionContext {
+  /** Matchs de l'accès, ordre chronologique. */
+  events: Array<{ id: string; name: string; configurationId: string | null }>;
+  order: string[];
+  plans: SessionPlan[];
+}
+
+interface DepositTarget {
+  elementId: string;
+  itemName: string;
+  eventId: string;
+}
+
+function planLines(plan: { restockLines: Prisma.JsonValue }): RestockLine[] {
+  return Array.isArray(plan.restockLines) ? (plan.restockLines as RestockLine[]) : [];
+}
+
+/**
+ * Clé d'une combinaison de matchs : empreinte des ids triés, pour que la même
+ * combinaison donne toujours le même accès quel que soit l'ordre de sélection.
+ */
+export function ventilationSelectionKey(eventIds: string[]): string {
+  const ids = uniqueIds(eventIds).sort();
+  return createHash('sha256').update(ids.join(',')).digest('hex').slice(0, 32);
+}
 
 function pickSheetLine(line: RestockLine) {
   const out: Record<string, unknown> = {};

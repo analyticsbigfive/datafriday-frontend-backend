@@ -1,8 +1,9 @@
 // src/composables/useLogisticVentilation.js
 //
-// Mode « Ventilation » de l'écran Logistique (chantier logistic_ventilation) : feuille
-// de réarmement du match, reste à déposer, dépôts « Ventilation » (confirmation,
-// liste, annulation) et index « À déposer » des fiches PDV. Sorti de
+// Mode « Ventilation » de l'écran Logistique (chantier logistic_ventilation, v2 du
+// 2026-10-09) : feuilles de réarmement des matchs choisis, reste à déposer, dépôts
+// « Ventilation » (confirmation, liste, annulation), index « À déposer » des fiches
+// PDV, bascule Par PdV / Par article et filtre Fournisseur. Sorti de
 // SpaceLogisticView.vue pour ne pas grossir la vue hôte ; la vue garde l'affichage,
 // les notifications et la correspondance avec son référentiel d'articles.
 
@@ -12,9 +13,19 @@ import {
   getVentilationDeposits,
   listVentilationMovements,
   cancelVentilationDeposit,
+  getVentilationStorages,
 } from '@/api/endpoints/logistics.api'
 import { buildDepositLines, groupDepositLinesByItem, depositPrefill } from '@/utils/restockDepositSheet'
 import { buildRestockNeedIndex } from '@/composables/usePredictedNeed'
+import { readViewMode, writeViewMode, normalizeViewMode } from '@/utils/ventilationViewMode'
+import { buildSupplierIndex, supplierOptions as buildSupplierOptions, filterGroupsBySupplier } from '@/utils/ventilationSuppliers'
+import {
+  pickPlansForEvents,
+  mergeRestockPlans,
+  depositEventForPlan,
+  allocateDeposit,
+  splitMergedRowKey,
+} from '@/utils/ventilationPlans'
 
 /**
  * @param {Object} deps
@@ -22,15 +33,18 @@ import { buildRestockNeedIndex } from '@/composables/usePredictedNeed'
  * @param {(key:string) => string} deps.t traduction (message d'erreur par défaut)
  */
 export function useLogisticVentilation({ store, t }) {
-  // Feuille de réarmement complète du match, gardée pour recalculer le reste à
-  // déposer après chaque dépôt sans la relire.
+  // Feuille fusionnée des matchs choisis (utils/ventilationPlans.js), gardée pour
+  // recalculer le reste à déposer après chaque dépôt sans la relire.
   const plan = shallowRef(null)
   const planName = ref(null)
-  // Match dont la Ventilation est affichée (`?event=` ou prochain match).
-  const eventId = ref(null)
+  // Matchs choisis, ordre chronologique ; le premier porte le PIN de la sélection.
+  const eventIds = ref([])
+  const eventId = computed(() => eventIds.value[0] || null)
   const loading = ref(false)
   const lines = shallowRef([])
-  // Dépôts du match un par un (liste « Déjà déposé », annulation, décision #76).
+  // Stockages des configurations des matchs choisis (pas de configuration en Ventilation).
+  const storages = ref([])
+  // Dépôts des matchs un par un (liste « Déjà déposé », annulation, décision #76).
   const movements = ref([])
   const cancellingId = ref(null)
   // Drawer de confirmation de dépôt.
@@ -40,51 +54,88 @@ export function useLogisticVentilation({ store, t }) {
   const error = ref(null)
   // Dialogue QR / PIN des logisticiens.
   const accessDialog = ref(false)
+  // Bascule Par PdV / Par article.
+  const viewMode = ref(readViewMode())
+  // Filtre Fournisseur : fiches articles (repli) et fournisseurs choisis.
+  const marketPrices = shallowRef([])
+  const supplierFilter = ref([])
+  // Dernière sélection demandée : la réponse lente d'une ancienne sélection est ignorée.
+  let loadSeq = 0
 
   const groups = computed(() => groupDepositLinesByItem(lines.value))
+  const supplierIndex = computed(() => buildSupplierIndex(plan.value, marketPrices.value))
+  const supplierOptions = computed(() => buildSupplierOptions(groups.value, supplierIndex.value))
+  /** Groupes affichés : filtre Fournisseur appliqué (la recherche reste à la vue). */
+  const visibleGroups = computed(() => filterGroupsBySupplier(groups.value, supplierIndex.value, supplierFilter.value))
   /** Index « À déposer » des fiches PDV et de By Item (null si rien à déposer). */
   const needIndex = computed(() => buildRestockNeedIndex(lines.value))
 
-  function reset(nextEventId = null) {
+  function setViewMode(mode) {
+    viewMode.value = normalizeViewMode(mode)
+    writeViewMode(viewMode.value)
+  }
+
+  /** Fiches articles `{ itemName, supplier, supplierId }` (repli du fournisseur). */
+  function setMarketPrices(list) {
+    marketPrices.value = Array.isArray(list) ? list : []
+  }
+
+  function reset(nextEventIds = []) {
     plan.value = null
     planName.value = null
     lines.value = []
     movements.value = []
-    eventId.value = nextEventId
+    storages.value = []
+    supplierFilter.value = []
+    eventIds.value = [...(nextEventIds || [])].map(String)
   }
 
   /**
-   * Charge la feuille de réarmement du match (la plus récemment modifiée qui le
-   * contient, même règle que le serveur pour l'accès PIN).
-   * @returns {Promise<boolean>} true si une feuille existe pour ce match
+   * Charge les feuilles de réarmement des matchs choisis (pour chacun, la plus
+   * récemment modifiée qui le contient, même règle que le serveur) et les fusionne.
+   * @param {string} spaceId
+   * @param {string[]} orderedEventIds matchs choisis, ordre chronologique
+   * @returns {Promise<boolean>} true si au moins une feuille existe
    */
-  async function loadForEvent(spaceId, nextEventId) {
-    reset(nextEventId)
-    if (!spaceId || !nextEventId) return false
+  async function loadForEvents(spaceId, orderedEventIds) {
+    const seq = ++loadSeq
+    reset(orderedEventIds)
+    if (!spaceId || !eventIds.value.length) return false
     loading.value = true
+    // Indépendant des feuilles : la section s'affiche dès qu'il y a quelque chose à déposer.
+    getVentilationStorages(spaceId, eventIds.value)
+      .then((list) => { if (seq === loadSeq) storages.value = Array.isArray(list) ? list : [] })
+      .catch((e) => console.warn('[logistics] stockages de ventilation indisponibles :', e?.message))
     try {
-      const plans = await listRestockPlans(spaceId)
-      const match = (plans || []).find((p) => (p.selectedEventIds || []).map(String).includes(String(nextEventId)))
-      if (!match) return false
-      const full = await getRestockPlan(match.id)
-      if (!full) return false
-      plan.value = full
-      planName.value = full.name || match.name || null
+      const list = await listRestockPlans(spaceId)
+      const picked = pickPlansForEvents(list || [], eventIds.value)
+      if (!picked.length || seq !== loadSeq) return false
+      const full = (await Promise.all(picked.map((p) => getRestockPlan(p.id).catch(() => null)))).filter(Boolean)
+      const merged = mergeRestockPlans(full, eventIds.value)
+      if (!merged || seq !== loadSeq) return false
+      plan.value = merged
+      planName.value = merged.name
       await refresh(spaceId)
       return true
     } finally {
-      loading.value = false
+      if (seq === loadSeq) loading.value = false
     }
   }
 
-  /** Relit les dépôts du match et recalcule le reste à déposer. */
+  /** Matchs dont les dépôts comptent : ceux des feuilles et ceux choisis (un dépôt en
+   *  stockage hors feuille est enregistré sur le premier match choisi). */
+  function depositEventIds() {
+    return [...new Set([...(plan.value?.eventIds || []), ...eventIds.value])]
+  }
+
+  /** Relit les dépôts de tous les matchs des feuilles et recalcule le reste à déposer. */
   async function refresh(spaceId) {
     if (!plan.value || !spaceId) return
     let sums = []
     try {
       const [s, list] = await Promise.all([
-        getVentilationDeposits(spaceId, eventId.value),
-        listVentilationMovements(spaceId, eventId.value),
+        getVentilationDeposits(spaceId, depositEventIds()),
+        listVentilationMovements(spaceId, depositEventIds()),
       ])
       sums = Array.isArray(s) ? s : []
       // Un utilisateur Logistique peut annuler tout dépôt (décision #76).
@@ -116,36 +167,65 @@ export function useLogisticVentilation({ store, t }) {
       quantity: row.quantity,
       packs: prefill.packs,
       elementId: row.shopId,
+      // Feuilles concernées (plusieurs matchs) ; vide pour un stockage sans ligne prévue.
+      parts: row.parts || [],
       item,
     }
     error.value = null
     dialog.value = true
   }
 
-  /** Crée le mouvement « Ventilation ». @returns {Promise<boolean>} succès */
+  /**
+   * Mouvements « Ventilation » d'une saisie : répartis entre les feuilles de la
+   * destination (match le plus proche d'abord), chacun sur un match de sa feuille.
+   * Stockage sans ligne prévue : un seul mouvement, sur le premier match choisi.
+   */
+  function depositMovements({ packed, loose }, current) {
+    const parts = current.parts || []
+    if (!parts.length) return [{ packed, loose, eventId: eventId.value }]
+    const plans = plan.value?.plans || []
+    return allocateDeposit({ packed, loose }, parts, current.unitsPerPack).map((share) => {
+      const { planId } = splitMergedRowKey(share.rowKey)
+      const owner = plans.find((p) => p.id === planId)
+      return { packed: share.packed, loose: share.loose, eventId: depositEventForPlan(owner, eventIds.value) || eventId.value }
+    })
+  }
+
+  /** Crée le ou les mouvements « Ventilation ». @returns {Promise<boolean>} succès */
   async function submit({ packed, loose }, spaceId) {
     const current = target.value
     if (!current || !spaceId || !eventId.value) return false
     saving.value = true
     error.value = null
+    let written = 0
     try {
-      await store.dispatch('logistics/createMovement', {
-        spaceId,
-        elementId: current.elementId,
-        itemKey: current.item?.name || current.itemName,
-        itemKind: current.item?.refKind ?? undefined,
-        itemRefId: current.item?.refKind ? current.item.id : undefined,
-        direction: 'add',
-        packed,
-        loose,
-        reason: 'VENTILATION',
-        eventId: eventId.value,
-      })
+      for (const share of depositMovements({ packed, loose }, current)) {
+        // eslint-disable-next-line no-await-in-loop -- mouvements du même niveau de stock, dans l'ordre
+        await store.dispatch('logistics/createMovement', {
+          spaceId,
+          elementId: current.elementId,
+          itemKey: current.item?.name || current.itemName,
+          itemKind: current.item?.refKind ?? undefined,
+          itemRefId: current.item?.refKind ? current.item.id : undefined,
+          direction: 'add',
+          packed: share.packed,
+          loose: share.loose,
+          reason: 'VENTILATION',
+          eventId: share.eventId,
+        })
+        written += 1
+      }
       dialog.value = false
       await refresh(spaceId)
       return true
     } catch (e) {
       error.value = e?.response?.data?.message || e?.userMessage || t('logiMovementError')
+      // Dépôt réparti en partie enregistré : fenêtre fermée et feuille relue, pour ne
+      // pas réenregistrer la première part en réessayant.
+      if (written) {
+        dialog.value = false
+        await refresh(spaceId)
+      }
       return false
     } finally {
       saving.value = false
@@ -168,9 +248,18 @@ export function useLogisticVentilation({ store, t }) {
   return {
     plan,
     planName,
+    eventIds,
     eventId,
     loading,
+    storages,
     groups,
+    visibleGroups,
+    supplierIndex,
+    supplierOptions,
+    supplierFilter,
+    viewMode,
+    setViewMode,
+    setMarketPrices,
     needIndex,
     movements,
     cancellingId,
@@ -180,7 +269,7 @@ export function useLogisticVentilation({ store, t }) {
     error,
     accessDialog,
     reset,
-    loadForEvent,
+    loadForEvents,
     refresh,
     openConfirm,
     submit,
