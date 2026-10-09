@@ -21,6 +21,9 @@ import { getEvents } from '@/api/endpoints/event.api'
 import { useLiveStream } from '@/composables/useLiveStream'
 import { buildShopTotals, buildTimelineByMinute, sumBasketTransactions, txPerMinuteFromBaskets } from '@/utils/liveKpis'
 import { isEventInProgress } from '@/utils/eventLifecycle'
+import { getLiveDelta } from '@/api/endpoints/liveDelta.api'
+import { latestMinuteLocal, mergeSince, minuteLocalMinus } from '@/utils/liveDelta'
+import { createThrottledRunner } from '@/utils/throttledRunner'
 
 // Décision utilisateur (2026-09-01) : pas de "front qui va demander" en boucle, même
 // espacé — le backend sait déjà exactement quand quelque chose change (il publie sur
@@ -32,6 +35,17 @@ import { isEventInProgress } from '@/utils/eventLifecycle'
 // connexion SSE elle-même est tombée (mêmes raisons que
 // WeezeventCronService.triggerLiveAggregationSafetyNet côté backend).
 const FALLBACK_POLL_MS = 30000
+
+// Bande passante (mesure du 2026-09-26 : 90 % du trafic d'un match venait de cet écran) :
+// - au plus un rafraîchissement toutes les 30 s, même si les agrégations s'enchaînent ;
+// - seules les dernières minutes sont redemandées (paramètre `since`), avec un recouvrement
+//   pour absorber les ventes arrivées en retard sur les minutes récentes ;
+// - rechargement complet toutes les 10 min (ventes très tardives, corrections) ;
+// - liste des events de l'espace rechargée seulement si l'event change, ou toutes les 10 min.
+const MIN_REFRESH_MS = 30000
+const DELTA_OVERLAP_MIN = 5
+const FULL_RESYNC_MS = 10 * 60 * 1000
+const EVENTS_LIST_TTL_MS = 10 * 60 * 1000
 
 export function useLiveData(spaceId) {
   const isLive = ref(false)
@@ -46,11 +60,21 @@ export function useLiveData(spaceId) {
   let fallbackTimer = null
   let stopped = true
   let reqId = 0
+  // Event dont les lignes sont chargées, et date du dernier chargement complet.
+  let loadedEventId = null
+  let lastFullAt = 0
+  // Résolution de l'event (liste des events de l'espace) mise en cache.
+  let resolvedKey = null
+  let resolvedId = null
+  let eventsFetchedAt = 0
+  // Rafraîchissement manuel (event modifié dans le drawer) : tout est relu, event compris.
+  let forceNext = false
+  const throttled = createThrottledRunner(() => refresh(), MIN_REFRESH_MS)
 
   // onMessage : un message SSE ne porte aucune donnée utile en soi (juste "ça vient de
   // changer pour cet espace", cf. backend liveStream) — on redemande simplement les
   // données habituelles, mêmes endpoints que le polling.
-  const stream = useLiveStream(`/spaces/${spaceId}/live/stream`, () => { refresh() })
+  const stream = useLiveStream(`/spaces/${spaceId}/live/stream`, () => { throttled.request() })
 
   // Repli quand aucune vente n'est tombée dans les 30 dernières minutes (isLive=false) :
   // même logique que findTodayEventId() d'AnalyseView.vue, réimplémentée ici pour ne
@@ -83,18 +107,52 @@ export function useLiveData(spaceId) {
     // pratiquement jamais en cours de vente) — pas besoin de retélécharger les 200
     // events de l'espace À CHAQUE tick SSE juste pour retrouver le même objet.
     // Seul un event qui vient de démarrer/changer justifie le fetch.
-    if (status?.eventId && event.value?.id === status.eventId) {
+    const forced = forceNext
+    forceNext = false
+    if (!forced && status?.eventId && event.value?.id === status.eventId) {
       return status.eventId
+    }
+    // Même résolution que la précédente (event live absent de la liste, ou pas de live) :
+    // la liste n'est pas retéléchargée avant EVENTS_LIST_TTL_MS. Avant, un event live
+    // introuvable dans les 200 premiers la faisait recharger à chaque signal.
+    const key = status?.eventId || 'today'
+    if (!forced && key === resolvedKey && Date.now() - eventsFetchedAt < EVENTS_LIST_TTL_MS) {
+      return resolvedId
     }
     const res = await getEvents({ spaceId, limit: 200, excludeSimulated: false })
     const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : [])
     if (status?.eventId) {
       event.value = list.find((e) => e.id === status.eventId) || null
-      return status.eventId
+    } else {
+      event.value = findTodayEvent(list)
     }
-    const todayEvent = findTodayEvent(list)
-    event.value = todayEvent
-    return todayEvent?.id || null
+    resolvedKey = key
+    resolvedId = status?.eventId || event.value?.id || null
+    eventsFetchedAt = Date.now()
+    return resolvedId
+  }
+
+  /** Lignes de l'event : complètes au premier chargement, au changement d'event et toutes
+   *  les FULL_RESYNC_MS ; sinon seulement les dernières minutes, fusionnées. */
+  async function loadRows(evId, myReqId) {
+    const latest = evId === loadedEventId ? latestMinuteLocal(timelineRows.value) : null
+    const since = latest && Date.now() - lastFullAt < FULL_RESYNC_MS ? minuteLocalMinus(latest, DELTA_OVERLAP_MIN) : null
+    if (since) {
+      const delta = await getLiveDelta(spaceId, evId, since)
+      if (myReqId !== reqId) return
+      timelineRows.value = mergeSince(timelineRows.value, delta.timelineRows, since)
+      basketRows.value = mergeSince(basketRows.value, delta.basketRows, since)
+      return
+    }
+    const [timelineMap, basketMap] = await Promise.all([
+      getSpaceEventTimelineBatch(spaceId, [evId], { bypassCache: true, granularity: 'minute' }),
+      getSpaceTransactionBasketsBatch(spaceId, [evId], { bypassCache: true }),
+    ])
+    if (myReqId !== reqId) return // réponse périmée (jeton), une plus récente est déjà en vol
+    timelineRows.value = timelineMap?.get ? (timelineMap.get(evId) || []) : (timelineMap?.[evId] || [])
+    basketRows.value = basketMap?.get ? (basketMap.get(evId) || []) : (basketMap?.[evId] || [])
+    loadedEventId = evId
+    lastFullAt = Date.now()
   }
 
   async function refresh() {
@@ -104,16 +162,11 @@ export function useLiveData(spaceId) {
       const evId = await resolveEvent()
       eventId.value = evId
       if (evId) {
-        const [timelineMap, basketMap] = await Promise.all([
-          getSpaceEventTimelineBatch(spaceId, [evId], { bypassCache: true, granularity: 'minute' }),
-          getSpaceTransactionBasketsBatch(spaceId, [evId], { bypassCache: true }),
-        ])
-        if (myReqId !== reqId) return // réponse périmée (jeton), une plus récente est déjà en vol
-        timelineRows.value = timelineMap?.get ? (timelineMap.get(evId) || []) : (timelineMap?.[evId] || [])
-        basketRows.value = basketMap?.get ? (basketMap.get(evId) || []) : (basketMap?.[evId] || [])
+        await loadRows(evId, myReqId)
       } else {
         timelineRows.value = []
         basketRows.value = []
+        loadedEventId = null
       }
     } catch (e) {
       if (myReqId !== reqId) return
@@ -134,7 +187,7 @@ export function useLiveData(spaceId) {
     if (stopped) return
     stream.connect()
     fallbackTimer = setInterval(() => {
-      if (!stream.connected.value) refresh()
+      if (!stream.connected.value) throttled.request()
     }, FALLBACK_POLL_MS)
   }
 
@@ -142,12 +195,20 @@ export function useLiveData(spaceId) {
     if (fallbackTimer) { clearInterval(fallbackTimer); fallbackTimer = null }
   }
 
+  /** Appel manuel : event relu et lignes rechargées en entier, hors limiteur de cadence. */
+  function forceRefresh() {
+    forceNext = true
+    lastFullAt = 0
+    return refresh()
+  }
+
   function startPolling() {
     stopped = false
-    refresh()
+    throttled.request() // immédiat au premier appel, puis cadence limitée
   }
   function stopPolling() {
     stopped = true
+    throttled.cancel()
     clearTimers()
     stream.disconnect()
   }
@@ -190,6 +251,6 @@ export function useLiveData(spaceId) {
     isLive, liveSince, eventId, event, shopTotals, loading, error,
     revenue, transactionCount, itemsCount, avgSpendPerTx, txPerMinute,
     categoryBreakdown, timelineByMinute, basketRows, timelineRows,
-    refresh, startPolling, stopPolling,
+    refresh: forceRefresh, startPolling, stopPolling,
   }
 }
