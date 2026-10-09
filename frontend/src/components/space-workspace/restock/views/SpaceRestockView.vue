@@ -2024,6 +2024,7 @@ export default {
       // contenu mais réassigné en bloc pour déclencher la réactivité.
       recipeByMenuItemId: {},
       recipesLoading: false,
+      recipesInFlight: null,
       // BUG-292-01 — catalogue composants AVEC leur recette (`subComponents`).
       // `store.analyse.components` vient de la LISTE /menu-components, qui ne la
       // porte pas : sans cette hydratation, la feuille de course achèterait « de
@@ -3234,6 +3235,18 @@ export default {
       })
       return Array.from(byKey.values())
     },
+    /**
+     * Menu items vendus dont la recette manque alors que la feuille de course
+     * vivante est affichée en mode ingrédients (clé triée, '' si rien à charger).
+     * Après un rechargement, l'état « générée » est restauré sans passer par
+     * « Générer » : sans ce déclencheur, chaque plat restait « Sans fournisseur
+     * (ingrédients manquants) », et la feuille enregistrée aussi.
+     */
+    missingRecipeIdsKey() {
+      if (this.loadedPlan || !this.shoppingGenerated || this.shoppingMode !== 'ingredients') return ''
+      const ids = new Set(this.menuItemDemandRows.map((d) => d.menuItemId).filter(Boolean))
+      return [...ids].filter((id) => !this.recipeByMenuItemId[id]).sort().join(',')
+    },
     /** Feuille de course en mode INGRÉDIENTS : explosion BOM groupée par fournisseur. */
     shoppingIngredientGroups() {
       const groups = buildIngredientRequirements({
@@ -3523,6 +3536,9 @@ export default {
     },
   },
   watch: {
+    missingRecipeIdsKey(key) {
+      if (key) this.ensureRecipesLoaded()
+    },
     // Les 3 routes de l'espace sont keepAlive : au changement d'espace, le
     // composant survit — sans ce watcher, un plan de l'espace X resterait
     // affiché sur l'espace Y. On repart en mode vivant + liste de plans vierge.
@@ -4059,6 +4075,8 @@ export default {
       const name = (this.planSaveDialog.name || '').trim()
       if (!name) return
       const spaceId = this.route.params?.spaceId
+      // La photo fige la feuille de course : jamais avec des recettes absentes.
+      if (this.shoppingMode === 'ingredients') await this.ensureRecipesLoaded()
       const payload = { name, ...this.buildPlanPayload() }
       if (estimateSnapshotBytes(payload) > PLAN_MAX_BYTES) {
         this.showSnackbar(this.t('srSnackPlanTooLarge'), 'error')
@@ -5439,7 +5457,16 @@ export default {
      * La liste /menu-items ne porte pas ingredients/components/packagings : on lit
      * le détail /menu-items/:id (relations nichées) en parallèle, puis on cache.
      */
-    async ensureRecipesLoaded() {
+    ensureRecipesLoaded() {
+      // Un seul chargement à la fois (déclencheur automatique + Générer + sauvegarde).
+      if (!this.recipesInFlight) {
+        this.recipesInFlight = this.loadMissingRecipes().finally(() => {
+          this.recipesInFlight = null
+        })
+      }
+      return this.recipesInFlight
+    },
+    async loadMissingRecipes() {
       // Le mapping ingrédient → fournisseur passe par : marketPrice.supplierId
       // (market prices) → /suppliers (nom). Garantit les deux chargés.
       try {
