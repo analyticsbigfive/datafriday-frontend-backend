@@ -63,7 +63,12 @@ export function useLogisticVentilation({ store, t }) {
   let loadSeq = 0
 
   const groups = computed(() => groupDepositLinesByItem(lines.value))
-  const supplierIndex = computed(() => buildSupplierIndex(plan.value, marketPrices.value))
+  // Noms des fournisseurs (les fiches articles n'ont souvent que l'id).
+  const supplierNames = computed(() => {
+    const list = store.getters['suppliers/suppliers'] || []
+    return new Map(list.filter((x) => x?.id).map((x) => [String(x.id), x.name || x.supplierName || '']))
+  })
+  const supplierIndex = computed(() => buildSupplierIndex(plan.value, marketPrices.value, supplierNames.value))
   const supplierOptions = computed(() => buildSupplierOptions(groups.value, supplierIndex.value))
   /** Groupes affichés : filtre Fournisseur appliqué (la recherche reste à la vue). */
   const visibleGroups = computed(() => filterGroupsBySupplier(groups.value, supplierIndex.value, supplierFilter.value))
