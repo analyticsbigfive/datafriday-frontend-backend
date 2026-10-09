@@ -54,4 +54,33 @@ describe('ventilationSuppliers', () => {
     const opts = supplierOptions([{ itemName: 'Coca' }, { itemName: 'Eau' }, { itemName: 'Canari' }], idx)
     expect(opts).toEqual([{ value: 'cmsk4pbsz07oagnhhoxwgrqka', label: 'Socodis' }, { value: NO_SUPPLIER, label: null }])
   })
+
+  describe('repli limité à la recette ou à l’espace (retour Bertrand 2026-10-09)', () => {
+    const names = new Map([['loire', 'France boisson Loire'], ['idf', 'France boissons IDF'], ['soco', 'Socodis']])
+    const cocaFiches = [
+      { id: 'mp-loire', itemName: 'Coca-Cola Original - CAN 33CL', supplierId: 'loire' },
+      { id: 'mp-idf', itemName: 'Coca-Cola Original - CAN 33CL', supplierId: 'idf' },
+      { id: 'mp-soco', itemName: 'Coca-Cola Original - CAN 33CL', supplierId: 'soco' },
+    ]
+
+    it('prend la fiche exacte de la ligne (celle de la recette)', () => {
+      const idx = buildSupplierIndex(null, cocaFiches, names, { lines: [{ itemKey: 'mp-loire|||Pc' }] })
+      expect(idx.get('coca-cola original - can 33cl')).toEqual([{ id: 'loire', name: 'France boisson Loire' }])
+    })
+
+    it('sans fiche exacte : seulement les fournisseurs de l’espace', () => {
+      const idx = buildSupplierIndex(null, cocaFiches, names, { lines: [{ itemKey: 'menu-item|||pcs' }], spaceSupplierIds: new Set(['loire']) })
+      expect(idx.get('coca-cola original - can 33cl')).toEqual([{ id: 'loire', name: 'France boisson Loire' }])
+    })
+
+    it('aucun fournisseur de l’espace : article sans fournisseur', () => {
+      const idx = buildSupplierIndex(null, cocaFiches, names, { spaceSupplierIds: new Set(['autre']) })
+      expect(idx.get('coca-cola original - can 33cl')).toBeUndefined()
+    })
+
+    it('espace inconnu : toutes les fiches (comportement précédent)', () => {
+      const idx = buildSupplierIndex(null, cocaFiches, names)
+      expect(idx.get('coca-cola original - can 33cl').map((s) => s.name)).toEqual(['France boisson Loire', 'France boissons IDF', 'Socodis'])
+    })
+  })
 })

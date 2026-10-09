@@ -1310,7 +1310,7 @@ export default {
         }
         this.marketPriceImages = map
         // Repli du filtre Fournisseur de la Ventilation (la feuille de réarmement prime).
-        this.ventilation.setMarketPrices(arr.map((mp) => ({ itemName: mp?.itemName, supplier: mp?.supplier, supplierId: mp?.supplierId })))
+        this.ventilation.setMarketPrices(arr.map((mp) => ({ id: mp?.id, itemName: mp?.itemName, supplier: mp?.supplier, supplierId: mp?.supplierId })))
       } catch (e) {
         console.warn('[SpaceLogistic] market prices images indisponibles:', e?.message)
       }
