@@ -250,6 +250,19 @@ describe('LogisticsService — readyForSale display logic', () => {
       expect(keys).toEqual(['Coca-Cola Original - CAN 33CL']);
     });
 
+    it('loadRecipeContext : un enfant déjà vendu dans le même PDV sert d’enfant au combo (cas réel Erdre 4)', async () => {
+      const combo = {
+        id: 'mi-combo', name: 'Combo Croque/Chips/Coca', picture: null, readyForSale: 'No', comboItem: 'No',
+        ingredients: [], components: [], packagings: [], comboChildren: [{ childId: 'mi-coca' }, { childId: 'mi-chips' }],
+      };
+      mockPrisma.menuItem.findMany.mockResolvedValue([]);
+      const ctx = await recipeExplosionService.loadRecipeContext([combo, coca, chips], 'tenant-1');
+      // Enfants déjà en mémoire : aucune requête, et le combo est bien déplié.
+      expect(mockPrisma.menuItem.findMany).not.toHaveBeenCalled();
+      const keys = recipeExplosionService.itemRefsForMenuItem(combo, ctx).map((r: any) => r.key);
+      expect(keys).toEqual(['Coca-Cola Original - CAN 33CL', 'Chips']);
+    });
+
     it('enfant introuvable (supprimé) : le combo reste compté comme lui-même', () => {
       const combo = {
         id: 'mi-combo-orphan', name: 'Combo vide', picture: null, readyForSale: 'No', comboItem: 'No',
