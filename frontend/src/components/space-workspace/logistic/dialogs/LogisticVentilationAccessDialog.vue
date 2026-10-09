@@ -27,7 +27,7 @@
               variant="flat"
               rounded="lg"
               :loading="busy === 'start'"
-              :disabled="!eventId || !!busy"
+              :disabled="!windowId || !!busy"
               @click="run('start')"
             >
               <v-icon size="16" class="mr-1">mdi-play</v-icon>{{ t('logiVentilationAccessStart') }}
@@ -45,7 +45,7 @@
             </v-btn>
           </div>
 
-          <v-alert v-if="!eventId" type="info" variant="tonal" density="compact" class="mt-3">
+          <v-alert v-if="!hasEvent" type="info" variant="tonal" density="compact" class="mt-3">
             {{ t('logiVentilationAccessNoEvent') }}
           </v-alert>
           <v-alert v-if="error" type="error" variant="tonal" density="compact" class="mt-3">{{ error }}</v-alert>
@@ -65,40 +65,42 @@
 <script>
 import { useI18n } from '@/i18n/useI18n'
 import GuestPinQrDialog from '@/components/guest-pin-manage/dialogs/GuestPinQrDialog.vue'
-import {
-  getVentilationAccess,
-  startVentilationAccess,
-  stopVentilationAccess,
-  resetVentilationPin,
-} from '@/api/endpoints/ventilationAccess.api'
 
 /**
- * Accès PIN des logisticiens à la feuille de ventilation (réponses #72, #75, #77) :
- * un QR fixe par espace, un PIN par match ; démarrer, arrêter, changer le PIN.
- * L'accès se ferme seul à la fin réelle du match.
+ * Accès PIN des logisticiens à la feuille de ventilation (réponses #72, #77 ;
+ * décision Ulrich du 2026-10-09) : un QR fixe par espace, un PIN par combinaison de
+ * matchs, qui n'affiche que ses matchs. Arrêter, reprendre, changer le PIN. L'accès
+ * se ferme seul à la fin réelle du dernier match de la combinaison.
+ * L'état vient de useVentilationAccess (même source que le PIN du bandeau).
  */
 export default {
   name: 'LogisticVentilationAccessDialog',
   components: { GuestPinQrDialog },
   props: {
     modelValue: { type: Boolean, default: false },
-    spaceId: { type: String, default: null },
-    /** Match de la Ventilation affichée (null = aucun match à venir). */
-    eventId: { type: String, default: null },
+    /** `{ slug, window }` de useVentilationAccess. */
+    status: { type: Object, default: null },
+    loading: { type: Boolean, default: false },
+    /** Action en cours : 'start' | 'stop' | 'reset' | null. */
+    busy: { type: String, default: null },
+    error: { type: String, default: null },
+    /** Un match est choisi dans le bandeau. */
+    hasEvent: { type: Boolean, default: false },
     spaceName: { type: String, default: '' },
   },
-  emits: ['update:modelValue'],
+  emits: ['update:modelValue', 'action'],
   setup() {
     const { t } = useI18n()
     return { t }
   },
   data() {
-    return { loading: false, busy: null, error: null, status: null, qrOpen: false }
+    return { qrOpen: false }
   },
   computed: {
     slug() { return this.status?.slug || null },
     isOpen() { return this.status?.window?.status === 'open' },
     pin() { return this.status?.window?.pin || null },
+    windowId() { return this.hasEvent ? this.status?.window?.id || null : null },
     statusKey() {
       if (!this.status?.window) return 'never'
       return this.isOpen ? 'open' : 'stopped'
@@ -107,36 +109,9 @@ export default {
       return `${this.t('logiVentilationBtn')} · ${this.spaceName || ''}`.trim()
     },
   },
-  watch: {
-    modelValue(open) {
-      if (open) this.load()
-    },
-  },
   methods: {
-    async load() {
-      if (!this.spaceId) return
-      this.loading = true
-      this.error = null
-      try {
-        this.status = await getVentilationAccess(this.spaceId, this.eventId)
-      } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || null
-      } finally {
-        this.loading = false
-      }
-    },
-    async run(action) {
-      if (!this.spaceId || !this.eventId) return
-      this.busy = action
-      this.error = null
-      try {
-        const call = { start: startVentilationAccess, stop: stopVentilationAccess, reset: resetVentilationPin }[action]
-        this.status = await call(this.spaceId, this.eventId)
-      } catch (e) {
-        this.error = e?.response?.data?.message || e?.message || null
-      } finally {
-        this.busy = null
-      }
+    run(action) {
+      if (this.windowId) this.$emit('action', action)
     },
     close(value) {
       this.$emit('update:modelValue', value === true)

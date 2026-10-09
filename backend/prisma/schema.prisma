@@ -3272,12 +3272,18 @@ model InventoryWindow {
   closedAt           DateTime?
   closedBy           String?
   pushedToLogisticAt DateTime? // horodatage de l'appel pushCurrentCountToLogistic déclenché à la clôture
+  // Phase `ventilation` uniquement : un accès (et un PIN) par COMBINAISON de matchs
+  // (décision Ulrich 2026-10-09). `eventId` = premier match chronologique, `linkedEventIds`
+  // = les autres, `selectionKey` = empreinte des ids triés de la combinaison. Vide pour les
+  // fenêtres d'inventaire (une par match et par phase).
+  linkedEventIds     String[]  @default([])
+  selectionKey       String    @default("")
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 
   guestAccesses GuestPinAccess[]
 
-  @@unique([tenantId, spaceId, eventId, phase], name: "uniq_inventory_window")
+  @@unique([tenantId, spaceId, eventId, phase, selectionKey], name: "uniq_inventory_window")
   @@index([tenantId, spaceId, status])
 }
 

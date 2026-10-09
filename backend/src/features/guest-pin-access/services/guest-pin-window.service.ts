@@ -128,6 +128,8 @@ export class GuestPinWindowService {
           spaceId: dto.spaceId,
           eventId: dto.eventId,
           phase: dto.phase,
+          // Inventaire : une fenêtre par match et par phase (clé de combinaison vide).
+          selectionKey: '',
         },
       },
       create: {
@@ -361,7 +363,7 @@ export class GuestPinWindowService {
 
   findWindow(spaceId: string, eventId: string, tenantId: string, phase: InventoryWindowPhase) {
     return this.prisma.inventoryWindow.findUnique({
-      where: { uniq_inventory_window: { tenantId, spaceId, eventId, phase } },
+      where: { uniq_inventory_window: { tenantId, spaceId, eventId, phase, selectionKey: '' } },
     });
   }
 

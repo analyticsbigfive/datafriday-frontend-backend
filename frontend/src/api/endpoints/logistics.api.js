@@ -48,20 +48,38 @@ export async function createStockMovement(movement) {
 }
 
 /**
- * Dépôts « Ventilation » déjà faits pour un match, cumulés par élément × article.
- * GET /logistics/:spaceId/ventilation-deposits?eventId=
+ * Dépôts « Ventilation » déjà faits pour des matchs, cumulés par élément × article.
+ * GET /logistics/:spaceId/ventilation-deposits?eventIds=a,b
  * @returns {Promise<Array<{elementId:string, itemKey:string, packed:number, loose:number}>>}
  */
-export async function getVentilationDeposits(spaceId, eventId) {
-  return api.get(`/logistics/${spaceId}/ventilation-deposits`, { params: { eventId } })
+export async function getVentilationDeposits(spaceId, eventIds) {
+  return api.get(`/logistics/${spaceId}/ventilation-deposits`, { params: { eventIds: [].concat(eventIds || []).join(',') } })
 }
 
 /**
- * Dépôts « Ventilation » d'un match un par un (plus récents d'abord), avec leur
- * annulation éventuelle. GET /logistics/:spaceId/ventilation-movements?eventId=
+ * Dépôts « Ventilation » de matchs un par un (plus récents d'abord), avec leur
+ * annulation éventuelle. GET /logistics/:spaceId/ventilation-movements?eventIds=a,b
  */
-export async function listVentilationMovements(spaceId, eventId) {
-  return api.get(`/logistics/${spaceId}/ventilation-movements`, { params: { eventId } })
+export async function listVentilationMovements(spaceId, eventIds) {
+  return api.get(`/logistics/${spaceId}/ventilation-movements`, { params: { eventIds: [].concat(eventIds || []).join(',') } })
+}
+
+/**
+ * Espaces de stockage des configurations des matchs choisis (section « Espaces de
+ * stockage » de la Ventilation). GET /logistics/:spaceId/ventilation-storages?eventIds=a,b
+ * @returns {Promise<Array<{id:string, name:string}>>}
+ */
+export async function getVentilationStorages(spaceId, eventIds) {
+  return api.get(`/logistics/${spaceId}/ventilation-storages`, { params: { eventIds: [].concat(eventIds || []).join(',') } })
+}
+
+/**
+ * Matchs non terminés de l'espace (sélecteur d'events de Logistique) ; le premier
+ * est la sélection par défaut jusqu'à sa fin réelle.
+ * GET /logistics/:spaceId/ventilation-events → { events, defaultEventId }
+ */
+export async function getVentilationEvents(spaceId) {
+  return api.get(`/logistics/${spaceId}/ventilation-events`)
 }
 
 /** Annule un dépôt « Ventilation » (mouvement inverse, registre conservé). */
@@ -103,19 +121,6 @@ export async function getElementHistory(elementId, { limit, cursor } = {}) {
   if (limit) params.limit = limit
   if (cursor) params.cursor = cursor
   return api.get(`/logistics/element/${elementId}/history`, { params })
-}
-
-/**
- * Inventory Reset : remplace le stock attendu par les valeurs comptées et fige
- * les écarts dans une réconciliation. Permission front.fb.logisticReconcile.
- * POST /logistics/:spaceId/reset
- * @param {object} payload { eventId?, eventName?, lines: [{elementId, itemKey,
- *   countedPacked, countedLoose, unitsPerPack?, itemKind?, itemRefId?}] } — itemKind/itemRefId
- *   (ADR-0006, chantier 377) : identité stable déjà résolue par le référentiel, préférée par le
- *   backend à la résolution par nom quand fournie.
- */
-export async function resetLogisticsInventory(spaceId, payload) {
-  return api.post(`/logistics/${spaceId}/reset`, payload)
 }
 
 /**
