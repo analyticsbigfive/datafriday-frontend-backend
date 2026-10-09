@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { WebhookController } from './webhook.controller';
@@ -8,9 +9,6 @@ import { EncryptionService } from '../../core/encryption/encryption.service';
 
 describe('WebhookController', () => {
   let controller: WebhookController;
-  let prisma: PrismaService;
-  let signatureService: WebhookSignatureService;
-  let eventHandler: WebhookEventHandler;
 
   const mockTenant = {
     id: 'tenant-123',
@@ -93,9 +91,6 @@ describe('WebhookController', () => {
     }).compile();
 
     controller = module.get<WebhookController>(WebhookController);
-    prisma = module.get<PrismaService>(PrismaService);
-    signatureService = module.get<WebhookSignatureService>(WebhookSignatureService);
-    eventHandler = module.get<WebhookEventHandler>(WebhookEventHandler);
 
     jest.clearAllMocks();
   });
@@ -111,7 +106,7 @@ describe('WebhookController', () => {
       { rawBody: rawOf(payload) } as any,
     );
   const deliveryIdOf = (payload: unknown) =>
-    require('crypto').createHash('sha256').update(rawOf(payload)).digest('hex');
+    createHash('sha256').update(rawOf(payload)).digest('hex');
 
   it('should be defined', () => {
     expect(controller).toBeDefined();

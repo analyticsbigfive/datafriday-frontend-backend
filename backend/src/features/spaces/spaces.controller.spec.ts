@@ -1,10 +1,22 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SpacesController } from './spaces.controller';
-import { SpacesService } from './spaces.service';
+import { REDIS_CLIENT } from '../../core/redis/redis.constants';
+import { SpaceCacheService } from './services/space-cache.service';
+import { SpaceZoneElementsService } from './services/space-zone-elements.service';
+import { SpaceCrudService } from './services/space-crud.service';
+import { SpaceAccessGrantService } from './services/space-access-grant.service';
+import { SpaceConfigurationService } from './services/space-configuration.service';
+import { SpaceElementService } from './services/space-element.service';
+import { SpaceEventTimelineService } from './services/space-event-timeline.service';
+import { SpaceWeezeventEventService } from './services/space-weezevent-event.service';
+import { SpaceAnalyseBatchService } from './services/space-analyse-batch.service';
+import { SpaceElementPlacementService } from './services/space-element-placement.service';
+import { SpaceShopsService } from './services/space-shops.service';
+import { SpaceElementLayoutService } from './services/space-element-layout.service';
+import { SpaceSalesScopeService } from './services/space-sales-scope.service';
 
 describe('SpacesController', () => {
   let controller: SpacesController;
-  let service: SpacesService;
 
   const mockUser = {
     id: 'user-123',
@@ -43,15 +55,25 @@ describe('SpacesController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [SpacesController],
       providers: [
-        {
-          provide: SpacesService,
-          useValue: mockSpacesService,
-        },
+        { provide: SpaceCacheService, useValue: mockSpacesService },
+        { provide: SpaceZoneElementsService, useValue: mockSpacesService },
+        { provide: SpaceCrudService, useValue: mockSpacesService },
+        { provide: SpaceAccessGrantService, useValue: mockSpacesService },
+        { provide: SpaceConfigurationService, useValue: mockSpacesService },
+        { provide: SpaceElementService, useValue: mockSpacesService },
+        { provide: SpaceEventTimelineService, useValue: mockSpacesService },
+        { provide: SpaceWeezeventEventService, useValue: mockSpacesService },
+        { provide: SpaceAnalyseBatchService, useValue: mockSpacesService },
+        { provide: SpaceElementPlacementService, useValue: mockSpacesService },
+        { provide: SpaceShopsService, useValue: mockSpacesService },
+        { provide: SpaceElementLayoutService, useValue: mockSpacesService },
+        { provide: SpaceSalesScopeService, useValue: mockSpacesService },
+        // Client Redis du flux SSE live (abonnement pub/sub), inutilisé par ces tests.
+        { provide: REDIS_CLIENT, useValue: {} },
       ],
     }).compile();
 
     controller = module.get<SpacesController>(SpacesController);
-    service = module.get<SpacesService>(SpacesService);
 
     jest.clearAllMocks();
   });
@@ -102,7 +124,8 @@ describe('SpacesController', () => {
       const result = await controller.findOne('space-123', mockUser);
 
       expect(result).toEqual(mockSpace);
-      expect(mockSpacesService.findOne).toHaveBeenCalledWith('space-123', 'tenant-123');
+      // L'utilisateur est transmis pour le contrôle d'accès espace (STAFF/VIEWER).
+      expect(mockSpacesService.findOne).toHaveBeenCalledWith('space-123', 'tenant-123', mockUser);
     });
   });
 
@@ -123,7 +146,7 @@ describe('SpacesController', () => {
     it('should remove a space', async () => {
       mockSpacesService.remove.mockResolvedValue({ deleted: true });
 
-      const result = await controller.remove('space-123', mockUser);
+      await controller.remove('space-123', mockUser);
 
       expect(mockSpacesService.remove).toHaveBeenCalledWith('space-123', 'tenant-123');
     });
@@ -156,7 +179,7 @@ describe('SpacesController', () => {
     it('should pin a space', async () => {
       mockSpacesService.pin.mockResolvedValue({ pinned: true });
 
-      const result = await controller.pin('space-123', mockUser);
+      await controller.pin('space-123', mockUser);
 
       expect(mockSpacesService.pin).toHaveBeenCalledWith('space-123', 'user-123', 'tenant-123');
     });
@@ -166,7 +189,7 @@ describe('SpacesController', () => {
     it('should unpin a space', async () => {
       mockSpacesService.unpin.mockResolvedValue({ unpinned: true });
 
-      const result = await controller.unpin('space-123', mockUser);
+      await controller.unpin('space-123', mockUser);
 
       expect(mockSpacesService.unpin).toHaveBeenCalledWith('space-123', 'user-123', 'tenant-123');
     });

@@ -2,7 +2,19 @@ import { Module } from '@nestjs/common';
 import { SpacesController, ConfigurationsController } from './spaces.controller';
 import { PinnedSpacesController } from './pinned-spaces.controller';
 import { DashboardController } from './dashboard.controller';
-import { SpacesService } from './spaces.service';
+import { SpaceCacheService } from './services/space-cache.service';
+import { SpaceZoneElementsService } from './services/space-zone-elements.service';
+import { SpaceCrudService } from './services/space-crud.service';
+import { SpaceAccessGrantService } from './services/space-access-grant.service';
+import { SpaceConfigurationService } from './services/space-configuration.service';
+import { SpaceElementService } from './services/space-element.service';
+import { SpaceElementLayoutService } from './services/space-element-layout.service';
+import { SpaceElementPlacementService } from './services/space-element-placement.service';
+import { SpaceSalesScopeService } from './services/space-sales-scope.service';
+import { SpaceAnalyseBatchService } from './services/space-analyse-batch.service';
+import { SpaceShopsService } from './services/space-shops.service';
+import { SpaceEventTimelineService } from './services/space-event-timeline.service';
+import { SpaceWeezeventEventService } from './services/space-weezevent-event.service';
 import { SpaceDashboardService } from './services/space-dashboard.service';
 import { SpaceAggregationService } from './services/space-aggregation.service';
 import { SpaceRevenueSummaryService } from './services/space-revenue-summary.service';
@@ -20,15 +32,31 @@ import { LogisticsModule } from '../logistics/logistics.module';
     DashboardController,
   ],
   providers: [
-    SpacesService,
+    SpaceCacheService,
+    SpaceZoneElementsService,
+    SpaceCrudService,
+    SpaceAccessGrantService,
+    SpaceConfigurationService,
+    SpaceElementService,
+    SpaceElementLayoutService,
+    SpaceElementPlacementService,
+    SpaceSalesScopeService,
+    SpaceEventTimelineService,
+    SpaceAnalyseBatchService,
+    SpaceShopsService,
+    SpaceWeezeventEventService,
     SpaceDashboardService,
     SpaceAggregationService,
     SpaceRevenueSummaryService,
   ],
   exports: [
-    SpacesService,
+    // Utilisés hors du module : invalidation (builder-v2), suppression d'élément (mappings).
+    SpaceCacheService,
+    SpaceElementService,
     SpaceDashboardService,
     SpaceAggregationService,
+    // Première vente par PdV : arrêt du pre-event (InventoryCycleCronService).
+    SpaceShopsService,
   ],
 })
 export class SpacesModule {}

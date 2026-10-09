@@ -6,6 +6,8 @@ import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorat
 import { IngredientsService } from './ingredients.service';
 import { CreateIngredientDto } from './dto/create-ingredient.dto';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { UpdateIngredientDto } from './dto/update-ingredient.dto';
+import { IngredientsFindAllQueryDto } from './dto/ingredients.query.dto';
 
 @ApiTags('Ingredients')
 @ApiBearerAuth('supabase-jwt')
@@ -33,9 +35,9 @@ export class IngredientsController {
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() params: IngredientsFindAllQueryDto,
   ) {
+    const { page, limit } = params;
     this.logger.log(`GET /ingredients - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.ingredientsService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100);
   }
@@ -71,7 +73,7 @@ export class IngredientsController {
   @ApiParam({ name: 'id', description: "ID de l'ingrédient" })
   @ApiResponse({ status: 200, description: 'Ingrédient mis à jour' })
   @ApiResponse({ status: 404, description: 'Ingrédient non trouvé' })
-  update(@Param('id') id: string, @Body() dto: Partial<CreateIngredientDto>, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+  update(@Param('id') id: string, @Body() dto: UpdateIngredientDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     return this.ingredientsService.update(id, dto, tenantId);
   }
 

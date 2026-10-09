@@ -2,7 +2,7 @@ import { Controller, Sse, Inject, MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import type Redis from 'ioredis';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { REDIS_CLIENT } from '../../core/redis/redis.module';
+import { REDIS_CLIENT } from '../../core/redis/redis.constants';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { SpaceAccessService } from '../../core/auth/space-access.service';

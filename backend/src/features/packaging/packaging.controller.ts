@@ -6,6 +6,8 @@ import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorat
 import { PackagingService } from './packaging.service';
 import { CreatePackagingDto } from './dto/create-packaging.dto';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { UpdatePackagingDto } from './dto/update-packaging.dto';
+import { PackagingFindAllQueryDto } from './dto/packaging.query.dto';
 
 @ApiTags('Packaging')
 @ApiBearerAuth('supabase-jwt')
@@ -33,9 +35,9 @@ export class PackagingController {
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() params: PackagingFindAllQueryDto,
   ) {
+    const { page, limit } = params;
     this.logger.log(`GET /packaging - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.packagingService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100);
   }
@@ -55,7 +57,7 @@ export class PackagingController {
   @ApiParam({ name: 'id', description: 'ID du packaging' })
   @ApiResponse({ status: 200, description: 'Packaging mis à jour' })
   @ApiResponse({ status: 404, description: 'Packaging non trouvé' })
-  update(@Param('id') id: string, @Body() dto: Partial<CreatePackagingDto>, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+  update(@Param('id') id: string, @Body() dto: UpdatePackagingDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     return this.packagingService.update(id, dto, tenantId);
   }
 

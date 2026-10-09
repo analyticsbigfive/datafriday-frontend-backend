@@ -19,6 +19,7 @@ import {
   DashboardHealthResponseDto,
   AggregationStatus,
 } from './dto';
+import { DashboardRebuildAggregatesQueryDto } from './dto/dashboard.query.dto';
 
 @ApiTags('Space Dashboard')
 @ApiBearerAuth('supabase-jwt')
@@ -93,10 +94,10 @@ export class DashboardController {
   @ApiResponse({ status: 202, description: 'Reconstruction des agrégations lancée' })
   async rebuildAggregates(
     @Param('spaceId') spaceId: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
+    @Query() params: DashboardRebuildAggregatesQueryDto,
     @Request() req?: any,
   ): Promise<{ message: string; jobId: string }> {
+    const { from, to } = params;
     const tenantId = req.user.tenantId;
 
     const fromDate = from ? new Date(from) : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);

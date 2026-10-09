@@ -1,10 +1,9 @@
 import { Controller, Get, Post, Patch, Delete, Body, Query, Param, UseGuards, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { ApiBearerAuth, ApiBody, ApiOperation, ApiParam, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Prisma } from '@prisma/client';
-import { WeezeventSyncService, SyncResult } from './services/weezevent-sync.service';
-import { WeezeventIncrementalSyncService, IncrementalSyncResult } from './services/weezevent-incremental-sync.service';
+import { WeezeventSyncService } from './services/weezevent-sync.service';
+import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
 import { PrismaService } from '../../core/database/prisma.service';
-import { findDistinctMerchantIds } from '../../shared/sales/distinct-merchant-ids.query';
+import { findDistinctMerchantIds } from '../../shared/sales/distinct-merchants.queries';
 import { SyncWeezeventDto } from './dto/sync-weezevent.dto';
 import { StartSyncJobDto } from './dto/start-sync-job.dto';
 import { GetTransactionsQueryDto } from './dto/get-transactions-query.dto';
@@ -18,6 +17,8 @@ import { WeezeventCollectWorkerService } from './services/weezevent-collect-work
 import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
+import { orphanTransactionItems, tenantIntegrityCounters } from './weezevent-data.queries';
+import { WeezeventResetSyncStateQueryDto, WeezeventGetEventsQueryDto, WeezeventGetLocationsQueryDto, WeezeventGetMerchantsQueryDto, WeezeventGetProductsQueryDto, WeezeventBackfillTransactionItemProductsQueryDto, WeezeventGetProductMappingsQueryDto, WeezeventGetOrdersQueryDto, WeezeventGetPricesQueryDto, WeezeventGetAttendeesQueryDto } from './dto/weezevent.query.dto';
 
 @ApiTags('Weezevent')
 @ApiBearerAuth('supabase-jwt')
@@ -237,30 +238,30 @@ export class WeezeventController {
             }
 
             case 'orders': {
-                if (!dto.eventId) throw new Error('eventId is required for orders sync');
+                if (!dto.eventId) throw new BadRequestException('eventId is required for orders sync');
                 const job = await this.queueService.queueWeezeventSyncType(
-                    tenantId, 'orders', { eventId: dto.eventId },
+                    tenantId, 'orders', dto.integrationId, { eventId: dto.eventId },
                 );
                 return { jobId: job.id, status: 'queued', syncType: 'orders' };
             }
 
             case 'prices': {
                 const job = await this.queueService.queueWeezeventSyncType(
-                    tenantId, 'prices', { eventId: dto.eventId },
+                    tenantId, 'prices', dto.integrationId, { eventId: dto.eventId },
                 );
                 return { jobId: job.id, status: 'queued', syncType: 'prices' };
             }
 
             case 'attendees': {
-                if (!dto.eventId) throw new Error('eventId is required for attendees sync');
+                if (!dto.eventId) throw new BadRequestException('eventId is required for attendees sync');
                 const job = await this.queueService.queueWeezeventSyncType(
-                    tenantId, 'attendees', { eventId: dto.eventId },
+                    tenantId, 'attendees', dto.integrationId, { eventId: dto.eventId },
                 );
                 return { jobId: job.id, status: 'queued', syncType: 'attendees' };
             }
 
             default:
-                throw new Error(`Sync type '${dto.type}' not implemented`);
+                throw new BadRequestException(`Sync type '${dto.type}' not implemented`);
         }
     }
 
@@ -309,40 +310,11 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: "Compteurs d'intégrité — healthy=true si tout est à 0" })
     async getDataIntegrationIntegrity(@CurrentUser() user: any) {
         const tenantId = user.tenantId;
-        // ⚠️ $queryRaw n'est PAS intercepté par l'isolation Prisma (CLS) → scope manuel par tenantId.
-        const [elem, loc, deadItems, deadSpaceLinks, dupProd, dupLoc] = await Promise.all([
-            this.prisma.$queryRaw<{ n: bigint }[]>`
-                SELECT count(*)::bigint AS n FROM "WeezeventLocationShopMapping" m
-                LEFT JOIN "SpaceElement" se ON se.id = m."spaceElementId"
-                WHERE m."tenantId" = ${tenantId} AND se.id IS NULL`,
-            this.prisma.$queryRaw<{ n: bigint }[]>`
-                SELECT count(*)::bigint AS n FROM "WeezeventLocationShopMapping" m
-                LEFT JOIN "WeezeventLocation" l ON l.id = m."weezeventLocationId"
-                WHERE m."tenantId" = ${tenantId} AND l.id IS NULL`,
-            this.prisma.$queryRaw<{ n: bigint }[]>`
-                SELECT count(*)::bigint AS n FROM "WeezeventProductMapping" m
-                JOIN "MenuItem" mi ON mi.id = m."menuItemId"
-                WHERE m."tenantId" = ${tenantId} AND mi."deletedAt" IS NOT NULL`,
-            // BUG-051 : SpaceMenuItem (prix par espace) orphelin d'un MenuItem soft-deleted —
-            // même famille de symptôme que mappingsToDeletedItems ci-dessus, mais côté prix espace.
-            this.prisma.$queryRaw<{ n: bigint }[]>`
-                SELECT count(*)::bigint AS n FROM "SpaceMenuItem" sm
-                JOIN "MenuItem" mi ON mi.id = sm."menuItemId"
-                WHERE mi."tenantId" = ${tenantId} AND mi."deletedAt" IS NOT NULL`,
-            this.prisma.$queryRaw<{ n: bigint }[]>`
-                SELECT count(*)::bigint AS n FROM (
-                  SELECT 1 FROM "WeezeventProduct" WHERE "tenantId" = ${tenantId}
-                  GROUP BY "weezeventId" HAVING count(*) > 1) d`,
-            this.prisma.$queryRaw<{ n: bigint }[]>`
-                SELECT count(*)::bigint AS n FROM (
-                  SELECT 1 FROM "WeezeventLocation" WHERE "tenantId" = ${tenantId}
-                  GROUP BY "weezeventId" HAVING count(*) > 1) d`,
-        ]);
-        const num = (r: { n: bigint }[]) => Number(r[0]?.n ?? 0);
-        const shopElementDanglings = num(elem);
-        const shopLocationDanglings = num(loc);
-        const mappingsToDeletedItems = num(deadItems);
-        const spaceLinksToDeletedItems = num(deadSpaceLinks);
+        const c = await tenantIntegrityCounters(this.prisma, tenantId);
+        const shopElementDanglings = c.danglingShopElement;
+        const shopLocationDanglings = c.danglingShopLocation;
+        const mappingsToDeletedItems = c.mappingsToDeletedMenuItem;
+        const spaceLinksToDeletedItems = c.spaceLinksToDeletedMenuItem;
         return {
             tenantId,
             healthy:
@@ -355,8 +327,8 @@ export class WeezeventController {
             mappingsToDeletedItems,
             spaceLinksToDeletedItems,
             // Informatif : doublons attendus si multi-intégrations volontaires (pas une alerte).
-            duplicateProductGroups: num(dupProd),
-            duplicateLocationGroups: num(dupLoc),
+            duplicateProductGroups: c.duplicateProductGroups,
+            duplicateLocationGroups: c.duplicateLocationGroups,
         };
     }
 
@@ -371,9 +343,9 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'État de synchronisation réinitialisé' })
     async resetSyncState(
         @CurrentUser() user: any,
-        @Query('integrationId') integrationId?: string,
-        @Query('type') syncType?: string,
+        @Query() params: WeezeventResetSyncStateQueryDto,
     ) {
+        const { integrationId, type: syncType } = params;
         const tenantId = user.tenantId;
         this.logger.log(`Resetting sync state for tenant ${tenantId}${integrationId ? ` (integration: ${integrationId})` : ''}${syncType ? ` (type: ${syncType})` : ''}`);
         
@@ -492,17 +464,12 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Liste paginée des événements Weezevent' })
     async getEvents(
         @CurrentUser() user: any,
-        @Query('page') page: any = 1,
-        @Query('perPage') perPage: any = 50,
-        @Query('integrationId') integrationId?: string,
-        @Query('status') status?: string,
-        @Query('search') search?: string,
-        @Query('startDateFrom') startDateFrom?: string,
-        @Query('startDateTo') startDateTo?: string,
+        @Query() params: WeezeventGetEventsQueryDto,
     ) {
+        const { page = 1, perPage = 50, integrationId, status, search, startDateFrom, startDateTo } = params;
         const tenantId = user.tenantId;
-        const p = parseInt(page, 10) || 1;
-        const pp = Math.min(parseInt(perPage, 10) || 50, 500);
+        const p = page || 1;
+        const pp = Math.min(perPage || 50, 500);
 
         // Filters: status (exact, or "all" to skip), name search, date range on startDate
         const where: any = { tenantId };
@@ -559,14 +526,12 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Liste des locations Weezevent' })
     async getLocations(
         @CurrentUser() user: any,
-        @Query('page') page: any = 1,
-        @Query('perPage') perPage: any = 100,
-        @Query('integrationId') integrationId?: string,
-        @Query('type') type?: string,
+        @Query() params: WeezeventGetLocationsQueryDto,
     ) {
+        const { page = 1, perPage = 100, integrationId, type } = params;
         const tenantId = user.tenantId;
-        const p = parseInt(page, 10) || 1;
-        const pp = Math.min(parseInt(perPage, 10) || 100, 500);
+        const p = page || 1;
+        const pp = Math.min(perPage || 100, 500);
 
         const where: any = { tenantId };
         if (integrationId) where.integrationId = integrationId;
@@ -611,14 +576,12 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Liste des merchants Weezevent' })
     async getMerchants(
         @CurrentUser() user: any,
-        @Query('page') page: any = 1,
-        @Query('perPage') perPage: any = 100,
-        @Query('integrationId') integrationId?: string,
-        @Query('locationId') locationId?: string,
+        @Query() params: WeezeventGetMerchantsQueryDto,
     ) {
+        const { page = 1, perPage = 100, integrationId, locationId } = params;
         const tenantId = user.tenantId;
-        const p = parseInt(page, 10) || 1;
-        const pp = Math.min(parseInt(perPage, 10) || 100, 500);
+        const p = page || 1;
+        const pp = Math.min(perPage || 100, 500);
 
         // If locationId provided, find merchants via transactions at that location
         if (locationId) {
@@ -699,14 +662,9 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Liste paginée des produits Weezevent' })
     async getProducts(
         @CurrentUser() user: any,
-        @Query('page') page: number = 1,
-        @Query('perPage') perPage: number = 50,
-        @Query('integrationId') integrationId?: string,
-        @Query('category') category?: string,
-        @Query('spaceId') spaceId?: string,
-        @Query('onlySold') onlySold?: string,
-        @Query('catalogSpaceId') catalogSpaceId?: string,
+        @Query() params: WeezeventGetProductsQueryDto,
     ) {
+        const { page = 1, perPage = 50, integrationId, category, spaceId, onlySold, catalogSpaceId } = params;
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
         const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
@@ -1055,9 +1013,9 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Résumé du backfill' })
     async backfillTransactionItemProducts(
         @CurrentUser() user: any,
-        @Query('integrationId') integrationId?: string,
-        @Query('dryRun') dryRun?: string,
+        @Query() params: WeezeventBackfillTransactionItemProductsQueryDto,
     ) {
+        const { integrationId, dryRun } = params;
         const tenantId = user.tenantId;
         const preview = dryRun === 'true' || (dryRun as any) === true;
         const summary = {
@@ -1071,14 +1029,7 @@ export class WeezeventController {
         };
 
         // 1. Lignes orphelines (productId null) + intégration de la transaction + item_id du produit.
-        const orphans = await this.prisma.$queryRaw<Array<{ id: string; integrationId: string | null; itemWid: string | null; productName: string | null }>>(Prisma.sql`
-            SELECT ti."id" AS "id", t."integrationId" AS "integrationId",
-                   (ti."rawData"->>'item_id') AS "itemWid", ti."productName" AS "productName"
-            FROM "WeezeventTransactionItem" ti
-            JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
-            WHERE ti."productId" IS NULL AND t."tenantId" = ${tenantId}
-              ${integrationId ? Prisma.sql`AND t."integrationId" = ${integrationId}` : Prisma.empty}
-        `);
+        const orphans = await orphanTransactionItems(this.prisma, tenantId, integrationId);
         summary.orphanItems = orphans.length;
         if (orphans.length === 0) return summary;
 
@@ -1167,7 +1118,7 @@ export class WeezeventController {
         });
 
         if (!product) {
-            throw new Error('Product not found');
+            throw new NotFoundException('Product not found');
         }
 
         // Verify menu item exists
@@ -1176,7 +1127,7 @@ export class WeezeventController {
         });
 
         if (!menuItem) {
-            throw new Error('Menu item not found');
+            throw new NotFoundException('Menu item not found');
         }
 
         // Create or update mapping
@@ -1233,10 +1184,9 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Liste paginée des mappings de produits' })
     async getProductMappings(
         @CurrentUser() user: any,
-        @Query('page') page: number = 1,
-        @Query('perPage') perPage: number = 50,
-        @Query('integrationId') integrationId?: string,
+        @Query() params: WeezeventGetProductMappingsQueryDto,
     ) {
+        const { page = 1, perPage = 50, integrationId } = params;
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
         const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
@@ -1312,11 +1262,9 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Liste paginée des commandes Weezevent' })
     async getOrders(
         @CurrentUser() user: any,
-        @Query('page') page: number = 1,
-        @Query('perPage') perPage: number = 50,
-        @Query('integrationId') integrationId?: string,
-        @Query('eventId') eventId?: string,
+        @Query() params: WeezeventGetOrdersQueryDto,
     ) {
+        const { page = 1, perPage = 50, integrationId, eventId } = params;
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
         const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
@@ -1357,11 +1305,9 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Liste paginée des tarifs Weezevent' })
     async getPrices(
         @CurrentUser() user: any,
-        @Query('page') page: number = 1,
-        @Query('perPage') perPage: number = 50,
-        @Query('integrationId') integrationId?: string,
-        @Query('eventId') eventId?: string,
+        @Query() params: WeezeventGetPricesQueryDto,
     ) {
+        const { page = 1, perPage = 50, integrationId, eventId } = params;
         const tenantId = user.tenantId;
         const p = Math.max(1, parseInt(String(page), 10) || 1);
         const pp = Math.min(Math.max(1, parseInt(String(perPage), 10) || 50), 500);
@@ -1402,11 +1348,9 @@ export class WeezeventController {
     @ApiResponse({ status: 200, description: 'Liste paginée des participants Weezevent' })
     async getAttendees(
         @CurrentUser() user: any,
-        @Query('page') page: number = 1,
-        @Query('perPage') perPage: number = 50,
-        @Query('integrationId') integrationId?: string,
-        @Query('eventId') eventId?: string,
+        @Query() params: WeezeventGetAttendeesQueryDto,
     ) {
+        const { page = 1, perPage = 50, integrationId, eventId } = params;
         const tenantId = user.tenantId;
         const where: any = { tenantId };
         if (integrationId) where.integrationId = integrationId;

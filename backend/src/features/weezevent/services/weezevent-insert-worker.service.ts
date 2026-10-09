@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventIncrementalSyncService } from './weezevent-incremental-sync.service';
 import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
@@ -113,7 +113,7 @@ export class WeezeventInsertWorkerService {
                 select: { tenantId: true, integrationId: true },
             });
 
-            if (!job) throw new Error(`Job ${jobId} introuvable`);
+            if (!job) throw new NotFoundException(`Job ${jobId} introuvable`);
 
             const transactions: any[] = Array.isArray(chunk.rawData) ? chunk.rawData : [];
 

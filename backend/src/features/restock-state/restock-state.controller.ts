@@ -56,6 +56,7 @@ export class RestockStateController {
     // route et rejetterait/strippait les champs hors DTO. On garde donc le blob
     // opaque conformément au contrat, validé a minima côté service.
     @Param('spaceId') spaceId: string,
+    // eslint-disable-next-line no-restricted-syntax
     @Body() state: Record<string, unknown>,
     @CurrentUser() user: any,
   ) {

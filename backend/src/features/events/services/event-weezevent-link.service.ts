@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { unlinkedEventIdsOnDate, weezeventEventIdsOnDate } from './event-weezevent-link.queries';
 
 /**
  * BUG-021 — auto-lie Event (DataFriday) <-> WeezeventEvent (synced) par
@@ -20,20 +21,10 @@ export class EventWeezeventLinkService {
     constructor(private readonly prisma: PrismaService) { }
 
     async relinkForTenantDate(tenantId: string, date: Date): Promise<void> {
-        const unlinkedEvents = await this.prisma.$queryRaw<{ id: string }[]>`
-            SELECT id FROM "Event"
-            WHERE "tenantId" = ${tenantId}
-              AND "weezeventEventId" IS NULL
-              AND DATE("eventDate") = DATE(${date})
-        `;
+        const unlinkedEvents = await unlinkedEventIdsOnDate(this.prisma, tenantId, date);
         if (unlinkedEvents.length !== 1) return;
 
-        const weezeventCandidates = await this.prisma.$queryRaw<{ id: string }[]>`
-            SELECT id FROM "WeezeventEvent"
-            WHERE "tenantId" = ${tenantId}
-              AND "startDate" IS NOT NULL
-              AND DATE("startDate") = DATE(${date})
-        `;
+        const weezeventCandidates = await weezeventEventIdsOnDate(this.prisma, tenantId, date);
         if (weezeventCandidates.length !== 1) return;
 
         await this.prisma.event.update({

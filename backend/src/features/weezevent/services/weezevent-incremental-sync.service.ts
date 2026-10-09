@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventClientService } from './weezevent-client.service';
 import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
@@ -393,11 +393,11 @@ export class WeezeventIncrementalSyncService {
         });
 
         if (!integration) {
-            throw new Error(`Weezevent integration ${integrationId} not found or disabled for tenant ${tenantId}`);
+            throw new NotFoundException(`Weezevent integration ${integrationId} not found or disabled for tenant ${tenantId}`);
         }
 
         if (!integration.weezevent?.organizationId) {
-            throw new Error(`Weezevent organizationId not configured for integration ${integrationId}`);
+            throw new BadRequestException(`Weezevent organizationId not configured for integration ${integrationId}`);
         }
 
         return { id: integration.id, enabled: integration.enabled, organizationId: integration.weezevent.organizationId };

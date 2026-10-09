@@ -5,6 +5,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { SuperAdminGuard } from '../../core/auth/guards/super-admin.guard';
 import { AllowNoTenant } from '../../core/auth/decorators/allow-no-tenant.decorator';
 import { DepartmentsService } from './departments.service';
+import { DepartmentsFindAllQueryDto, SubtypesFindAllQueryDto } from './dto/departments.query.dto';
 
 class CreateDepartmentDto {
   @IsString() @IsNotEmpty() @MaxLength(100)
@@ -66,10 +67,9 @@ export class DepartmentsController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'search', required: false, type: String })
   findAll(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
+    @Query() params: DepartmentsFindAllQueryDto,
   ) {
+    const { page, limit, search } = params;
     return this.departmentsService.getDepartments(page ? +page : undefined, limit ? +limit : undefined, search);
   }
 
@@ -116,11 +116,9 @@ export class SubtypesController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'search', required: false, type: String })
   findAll(
-    @Query('departmentId') departmentId?: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
+    @Query() params: SubtypesFindAllQueryDto,
   ) {
+    const { departmentId, page, limit, search } = params;
     return this.departmentsService.getSubtypes(departmentId, page ? +page : undefined, limit ? +limit : undefined, search);
   }
 

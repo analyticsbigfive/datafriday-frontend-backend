@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { ensureSystemPermissionCatalog } from './permission-catalog';
+import { TenantContextService } from '../tenant/tenant-context.service';
+import { lockRbacCatalogSync } from './rbac-catalog.queries';
 
 /**
  * Propage le catalogue de permissions système au DÉMARRAGE du backend (BUG-132-01) :
@@ -18,18 +20,22 @@ import { ensureSystemPermissionCatalog } from './permission-catalog';
 export class RbacCatalogSyncService implements OnApplicationBootstrap {
   private readonly logger = new Logger(RbacCatalogSyncService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly tenantContext: TenantContextService,
+  ) {}
 
   async onApplicationBootstrap(): Promise<void> {
     try {
-      await this.prisma.$transaction(async (tx) => {
+      // Catalogue système : transverse à tous les tenants par construction.
+      await this.tenantContext.runWithoutTenantScope(() => this.prisma.$transaction(async (tx) => {
         // Verrou consultatif : l'unique `[tenantId, code]` de Permission ne
         // dédoublonne PAS les lignes `tenantId = null` (NULLs distincts en
         // Postgres) et le catalogue fait findFirst-puis-create — deux instances
         // qui bootent en parallèle (web + worker) dupliqueraient des codes.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('rbac-catalog-sync'))`;
+        await lockRbacCatalogSync(tx);
         await ensureSystemPermissionCatalog(tx);
-      });
+      }));
       this.logger.log('Catalogue de permissions système synchronisé');
     } catch (e) {
       // Un échec de sync ne doit pas empêcher le boot : le catalogue sera repris

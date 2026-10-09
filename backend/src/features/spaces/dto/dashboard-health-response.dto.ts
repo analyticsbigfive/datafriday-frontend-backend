@@ -1,4 +1,4 @@
-export interface MissingMappingsCountDto {
+interface MissingMappingsCountDto {
   locations: number;
   merchants: number;
   products: number;

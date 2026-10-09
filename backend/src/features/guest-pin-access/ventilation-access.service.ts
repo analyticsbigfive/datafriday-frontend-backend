@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { InventoryWindow } from '@prisma/client';
 import { createHash, randomBytes } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { LogisticsService } from '../logistics/logistics.service';
 import { VentilationDepositsService, normalizeItemName } from '../logistics/ventilation-deposits.service';
 import { generateSlug } from '../../shared/utils';
@@ -62,12 +63,13 @@ export class VentilationAccessService {
     private readonly guestPin: GuestPinAccessService,
     private readonly logistics: LogisticsService,
     private readonly deposits: VentilationDepositsService,
+    private readonly spaceAccess: SpaceAccessService,
   ) {}
 
   // ── Logistique (utilisateur connecté) ───────────────────────────────────────
 
   async getStatus(spaceId: string, eventId: string, user: CurrentUserData) {
-    await this.guestPin.assertSpaceAccess(user, spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, spaceId);
     const tenantId = user.tenantId!;
     const [space, window] = await Promise.all([
       this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { ventilationSlug: true } }),
@@ -78,7 +80,7 @@ export class VentilationAccessService {
   }
 
   async start(dto: VentilationTargetDto, user: CurrentUserData) {
-    await this.guestPin.assertSpaceAccess(user, dto.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
     const tenantId = user.tenantId!;
     const event = await this.prisma.event.findFirst({
       where: { id: dto.eventId, spaceId: dto.spaceId, tenantId },
@@ -124,7 +126,7 @@ export class VentilationAccessService {
   }
 
   async stop(dto: VentilationTargetDto, user: CurrentUserData) {
-    await this.guestPin.assertSpaceAccess(user, dto.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
     const window = await this.findWindow(user.tenantId!, dto.spaceId, dto.eventId);
     if (window?.status === 'open') {
       await this.guestPin.closeWindowRecord(window, user.id, { pushToLogistic: false, reason: 'manual-stop' });
@@ -133,7 +135,7 @@ export class VentilationAccessService {
   }
 
   async resetPin(dto: VentilationTargetDto, user: CurrentUserData) {
-    await this.guestPin.assertSpaceAccess(user, dto.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
     const window = await this.findWindow(user.tenantId!, dto.spaceId, dto.eventId);
     if (!window || window.status !== 'open') {
       throw new BadRequestException("L'accès ventilation est arrêté : démarrez-le avant de changer le PIN.");

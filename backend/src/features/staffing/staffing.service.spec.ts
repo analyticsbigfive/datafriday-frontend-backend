@@ -4,6 +4,7 @@ import {
   DEFAULT_OFFSET_OPEN_MINUTES,
   StaffingCalculatorService,
 } from './staffing-calculator.service';
+import { spaceAccessStub } from '../../core/auth/space-access.testing';
 
 /**
  * `getStaffing` : la fenêtre suggérée (portes − 2 h → fin + 1 h) suit les heures de
@@ -66,10 +67,7 @@ describe('StaffingService.getStaffing : horaires suggérés et recalage des lign
       _realigned: [] as any[],
       _settingsServed: false,
     };
-    const service = new StaffingService(prisma, new StaffingCalculatorService(), {
-      hasFullAccess: () => true,
-      getAccessibleSpaceIds: async () => 'ALL',
-    } as any);
+    const service = new StaffingService(prisma, new StaffingCalculatorService(), spaceAccessStub());
     return { prisma, service };
   }
 
@@ -224,10 +222,7 @@ describe('StaffingService.generate : source du CA prédictif et avertissements',
       _txCalls: 0,
       _writes: [] as any[],
     };
-    const service = new StaffingService(prisma, new StaffingCalculatorService(), {
-      hasFullAccess: () => true,
-      getAccessibleSpaceIds: async () => 'ALL',
-    } as any);
+    const service = new StaffingService(prisma, new StaffingCalculatorService(), spaceAccessStub());
     // La relecture (getStaffing) n'est pas l'objet de ces tests : on renvoie les avertissements.
     jest
       .spyOn(service, 'getStaffing')

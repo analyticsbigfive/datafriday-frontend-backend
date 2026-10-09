@@ -4,6 +4,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
+import { WeezeventAnalyticsGetSalesByProductQueryDto, WeezeventAnalyticsGetSalesByEventQueryDto, WeezeventAnalyticsGetMarginAnalysisQueryDto, WeezeventAnalyticsGetTopProductsQueryDto } from './dto/weezevent-analytics.query.dto';
 
 @ApiTags('Weezevent Analytics')
 @ApiBearerAuth('supabase-jwt')
@@ -24,10 +25,9 @@ export class WeezeventAnalyticsController {
     @ApiResponse({ status: 200, description: 'Analyse des ventes par produit' })
     async getSalesByProduct(
         @CurrentUser() user: any,
-        @Query('eventId') eventId?: string,
-        @Query('fromDate') fromDate?: string,
-        @Query('toDate') toDate?: string,
+        @Query() params: WeezeventAnalyticsGetSalesByProductQueryDto,
     ) {
+        const { eventId, fromDate, toDate } = params;
         const tenantId = user.tenantId;
         // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
         // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
@@ -104,9 +104,9 @@ export class WeezeventAnalyticsController {
     @ApiResponse({ status: 200, description: 'Analyse des ventes par événement' })
     async getSalesByEvent(
         @CurrentUser() user: any,
-        @Query('fromDate') fromDate?: string,
-        @Query('toDate') toDate?: string,
+        @Query() params: WeezeventAnalyticsGetSalesByEventQueryDto,
     ) {
+        const { fromDate, toDate } = params;
         const tenantId = user.tenantId;
         // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
         // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
@@ -177,10 +177,9 @@ export class WeezeventAnalyticsController {
     @ApiResponse({ status: 200, description: 'Analyse des marges Weezevent' })
     async getMarginAnalysis(
         @CurrentUser() user: any,
-        @Query('eventId') eventId?: string,
-        @Query('fromDate') fromDate?: string,
-        @Query('toDate') toDate?: string,
+        @Query() params: WeezeventAnalyticsGetMarginAnalysisQueryDto,
     ) {
+        const { eventId, fromDate, toDate } = params;
         const tenantId = user.tenantId;
         // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
         // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".
@@ -294,11 +293,9 @@ export class WeezeventAnalyticsController {
     @ApiResponse({ status: 200, description: 'Top produits Weezevent par revenu' })
     async getTopProducts(
         @CurrentUser() user: any,
-        @Query('limit') limit: number = 10,
-        @Query('eventId') eventId?: string,
-        @Query('fromDate') fromDate?: string,
-        @Query('toDate') toDate?: string,
+        @Query() params: WeezeventAnalyticsGetTopProductsQueryDto,
     ) {
+        const { limit = 10, eventId, fromDate, toDate } = params;
         const tenantId = user.tenantId;
         // BUG-028 : exclut les transactions supprimées côté Weezevent (soft-delete deletedAt) —
         // sans ce filtre, les métriques ci-dessous restaient gonflées après un webhook "delete".

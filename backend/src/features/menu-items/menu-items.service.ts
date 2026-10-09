@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
@@ -9,6 +9,7 @@ import { UpdateMenuItemDto } from './dto/update-menu-item.dto';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { resolveKitchenFields } from '../../shared/utils/resolve-kitchen';
+import { TenantListCache } from '../../shared/cache/tenant-list-cache';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
@@ -34,6 +35,12 @@ function mapDiet(diet: string[]): string[] {
   return diet.map(d => map[d] ?? null).filter(Boolean);
 }
 
+
+const ASSERT_SPACE_ACCESS_MESSAGES = {
+  none: "Cet article n'est rattaché à aucun espace — réservé aux comptes à accès complet.",
+  denied: "Vous n'avez pas accès à l'espace de cet article.",
+};
+
 @Injectable()
 export class MenuItemsService {
   private readonly logger = new Logger(MenuItemsService.name);
@@ -46,37 +53,7 @@ export class MenuItemsService {
     private spaceAccess: SpaceAccessService,
   ) {}
 
-  private cacheKey(tenantId: string, suffix = 'list') {
-    return `menu-items:${tenantId}:${suffix}`;
-  }
-
-  /**
-   * Lève 403 si `user` n'a pas accès à au moins un des espaces auxquels l'article est
-   * rattaché — que ce soit pour le LIRE (findOne et ses dérivés) ou pour le modifier. Un
-   * article SANS espace n'est rattaché à aucun espace accessible par construction : il
-   * n'est visible/modifiable que par les comptes à accès complet (owner/super-admin/
-   * allSpacesAccess) — pas de « catalogue global » implicite pour un utilisateur restreint.
-   */
-  private async assertSpaceAccess(spaceIds: string[] | undefined, user?: SpaceScopedUser) {
-    if (!user) return;
-    if (this.spaceAccess.hasFullAccess(user)) return;
-    if (!spaceIds?.length) {
-      throw new ForbiddenException("Cet article n'est rattaché à aucun espace — réservé aux comptes à accès complet.");
-    }
-    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
-    if (accessible === 'ALL') return;
-    const allowed = spaceIds.some((sid) => accessible.includes(sid));
-    if (!allowed) {
-      throw new ForbiddenException("Vous n'avez pas accès à l'espace de cet article.");
-    }
-  }
-
-  private async invalidateCache(tenantId: string) {
-    // deletePattern préfixe déjà par 'datafriday:' (RedisService.buildKey) — passer la
-    // clé préfixée produisait 'datafriday:datafriday:…' → aucune correspondance, donc
-    // l'invalidation était un NO-OP silencieux (listes périmées 60s après chaque écriture).
-    await this.redis.deletePattern(`menu-items:${tenantId}:*`);
-  }
+  private readonly listCache = new TenantListCache(this.redis, 'menu-items');
 
   // `MarketPrice.image` peut contenir du base64 (cf. DTOs) — jamais lu par
   // serializeItem/buildRecipeComponents, on l'omet des vues liste/recette.
@@ -148,7 +125,7 @@ export class MenuItemsService {
     for (const sid of assignmentSpaceIds) {
       if (!mergedSpaceIds.includes(sid)) mergedSpaceIds.push(sid);
     }
-    const { menuAssignments, spaceLinks, promotion, ...rest } = item;
+    const { menuAssignments: _menuAssignments, spaceLinks, promotion, ...rest } = item;
     const spacePrices = linksToSpacePrices(spaceLinks);
     // Coût PAR PIÈCE dérivé du coût total recette (colonne `totalCost` = fournée entière) ÷ nombre
     // de pièces. C'est la valeur à afficher/comparer au prix de vente d'une portion (cf. pricing).
@@ -487,7 +464,7 @@ export class MenuItemsService {
         await this.refreshComboCost(tenantId, item.id);
       }
 
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       const refreshed = await this.findOne(item.id, tenantId);
       return refreshed;
     } catch (error) {
@@ -618,7 +595,7 @@ export class MenuItemsService {
         };
       });
 
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       if (duplicates.length) {
         this.logger.log(
           `bulkCreate: skipped ${duplicates.length} duplicate name(s) out of ${dtos.length} for tenant ${tenantId} (reused existing item instead of inserting)`,
@@ -667,7 +644,7 @@ export class MenuItemsService {
       `Fetching menu items for tenant ${tenantId} (page=${page}, limit=${safeLimit}, spaceId=${spaceId ?? 'all'}, search=${search ?? ''}, typeId=${typeId ?? ''}, categoryId=${categoryId ?? ''}, readyForSale=${readyForSale ?? ''})`,
     );
     try {
-      const cacheKey = this.cacheKey(
+      const cacheKey = this.listCache.key(
         tenantId,
         `list:${page}:${safeLimit}:${scopeKey}:${search ?? ''}:${typeId ?? ''}:${categoryId ?? ''}:${readyForSale ?? ''}`,
       );
@@ -731,7 +708,7 @@ export class MenuItemsService {
       throw new NotFoundException(`Menu item with ID ${id} not found`);
     }
     const result = this.serializeItem(item, tenantVatRate);
-    await this.assertSpaceAccess(result.spaceIds, user);
+    await this.spaceAccess.assertCanAccessAny(user, result.spaceIds, ASSERT_SPACE_ACCESS_MESSAGES);
     return result;
   }
 
@@ -915,7 +892,7 @@ export class MenuItemsService {
       include: this.recipeInclude,
     });
     if (!item) throw new NotFoundException(`Menu item with ID ${id} not found`);
-    await this.assertSpaceAccess(linksToSpaceIds((item as any).spaceLinks), user);
+    await this.spaceAccess.assertCanAccessAny(user, linksToSpaceIds((item as any).spaceLinks), ASSERT_SPACE_ACCESS_MESSAGES);
     const { components, supplierIds } = this.buildRecipeComponents(item);
     const suppliers = await this.loadSuppliers(supplierIds, tenantId);
     return { ...this.toRecipeDto(item, components), suppliers };
@@ -942,7 +919,8 @@ export class MenuItemsService {
 
   async update(id: string, dto: UpdateMenuItemDto, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Updating menu item ${id} for tenant ${tenantId}`);
-    const existing = await this.findOne(id, tenantId, user);
+    // Contrôle d'existence et d'accès espace (404/403) avant toute écriture.
+    await this.findOne(id, tenantId, user);
 
     const updateData: any = {};
     if (dto.name !== undefined) updateData.name = dto.name;
@@ -1018,7 +996,7 @@ export class MenuItemsService {
     }
 
     try {
-      const item = await this.prisma.menuItem.update({
+      await this.prisma.menuItem.update({
         where: { id },
         data: updateData,
         include: this.includeRelations,
@@ -1061,7 +1039,7 @@ export class MenuItemsService {
         await this.refreshComboCost(tenantId, id);
       }
 
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return this.findOne(id, tenantId);
     } catch (error) {
       this.logger.error(`Failed to update menu item ${id}: ${error.message}`, error.stack);
@@ -1183,7 +1161,7 @@ export class MenuItemsService {
       select: { id: true, basePrice: true, vatRate: true, spaceLinks: spaceLinksSelect },
     });
     if (!item) throw new NotFoundException(`Menu item ${menuItemId} not found`);
-    await this.assertSpaceAccess(linksToSpaceIds(item.spaceLinks), user);
+    await this.spaceAccess.assertCanAccessAny(user, linksToSpaceIds(item.spaceLinks), ASSERT_SPACE_ACCESS_MESSAGES);
 
     if (spaceId) {
       // L'upsert SpaceMenuItem associe l'item à l'espace si besoin → l'espace doit être au tenant.
@@ -1238,7 +1216,7 @@ export class MenuItemsService {
             update: { priceTtc: next.ttc, vatRate: next.vatRate },
           }),
         ]);
-        await this.invalidateCache(tenantId);
+        await this.listCache.invalidate(tenantId);
         this.logger.log(`Applied Weezevent price ${resolved.basePrice} (${resolved.source}) to menu item ${menuItemId} for space ${spaceId}`);
       }
       return { changed: !unchanged, previous, applied: resolved, item: await this.findOne(menuItemId, tenantId) };
@@ -1271,7 +1249,7 @@ export class MenuItemsService {
           data: { basePrice: resolved.basePrice, vatRate: resolved.vatRate },
         }),
       ]);
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       this.logger.log(`Applied Weezevent price ${resolved.basePrice} (${resolved.source}) to menu item ${menuItemId}`);
     }
 
@@ -1437,7 +1415,7 @@ export class MenuItemsService {
 
     if (writes.length) {
       await this.prisma.$transaction(writes);
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       this.logger.log(`Bulk-applied Weezevent price to ${changed} menu item(s) for tenant ${tenantId}${spaceId ? ` (space ${spaceId})` : ''}`);
     }
     return { total: items.length, changed, results };
@@ -1563,7 +1541,7 @@ export class MenuItemsService {
       for (let i = 0; i < writes.length; i += CHUNK) {
         await this.prisma.$transaction(writes.slice(i, i + CHUNK));
       }
-      if (writes.length) await this.invalidateCache(tenantId);
+      if (writes.length) await this.listCache.invalidate(tenantId);
     }
     this.logger.log(
       `Backfill Weezevent prices${dryRun ? ' [DRY-RUN]' : ''} (tenant ${tenantId}${onlySpaceId ? `, space ${onlySpaceId}` : ''}): ` +
@@ -1581,7 +1559,7 @@ export class MenuItemsService {
       select: { id: true, spaceLinks: spaceLinksSelect },
     });
     if (!item) throw new NotFoundException(`Menu item ${menuItemId} not found`);
-    await this.assertSpaceAccess(linksToSpaceIds(item.spaceLinks), user);
+    await this.spaceAccess.assertCanAccessAny(user, linksToSpaceIds(item.spaceLinks), ASSERT_SPACE_ACCESS_MESSAGES);
     return this.prisma.menuItemPriceHistory.findMany({
       where: { menuItemId, tenantId },
       orderBy: { createdAt: 'desc' },
@@ -1608,7 +1586,7 @@ export class MenuItemsService {
       });
 
       await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return this.findOne(menuItemId, tenantId);
     } catch (error) {
       this.logger.error(`Failed to replace components for menu item ${menuItemId}: ${error.message}`, error.stack);
@@ -1642,7 +1620,7 @@ export class MenuItemsService {
       });
 
       await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return this.findOne(menuItemId, tenantId);
     } catch (error) {
       this.logger.error(`Failed to replace ingredients for menu item ${menuItemId}: ${error.message}`, error.stack);
@@ -1676,7 +1654,7 @@ export class MenuItemsService {
       });
 
       await this.refreshCosts(tenantId, { itemIds: [menuItemId] });
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return this.findOne(menuItemId, tenantId);
     } catch (error) {
       this.logger.error(`Failed to replace packagings for menu item ${menuItemId}: ${error.message}`, error.stack);
@@ -1712,7 +1690,7 @@ export class MenuItemsService {
       });
 
       await this.refreshComboCost(tenantId, menuItemId);
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return this.findOne(menuItemId, tenantId);
     } catch (error) {
       this.logger.error(`Failed to replace combo items for menu item ${menuItemId}: ${error.message}`, error.stack);
@@ -1808,7 +1786,7 @@ export class MenuItemsService {
         this.logger.log(`Removed ${purgedSpaceLinks.count} space price override(s) pointing to soft-deleted menu item ${id}`);
       }
       this.logger.log(`Menu item ${id} soft-deleted`);
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete menu item ${id}: ${error.message}`, error.stack);
@@ -1946,7 +1924,7 @@ export class MenuItemsService {
       }
 
       this.logger.log(`✅ P1: Refreshed costs for ${updated} menu items (${updatedLines} lines) with batch optimization`);
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return { updated, total: items.length, updatedLines };
     } catch (error) {
       this.logger.error(`Failed to refresh costs: ${error.message}`, error.stack);

@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateEventDto } from './dto/create-event.dto';
@@ -11,6 +11,12 @@ import { SpaceAccessService } from '../../core/auth/space-access.service';
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
+
+const ASSERT_SPACE_ACCESS_MESSAGES = {
+  none: "Cet événement n'est rattaché à aucun espace — réservé aux comptes à accès complet.",
+  denied: "Vous n'avez pas accès à l'espace de cet événement.",
+};
+
 @Injectable()
 export class EventsService {
   private readonly logger = new Logger(EventsService.name);
@@ -20,24 +26,6 @@ export class EventsService {
     private readonly weezeventLinkService: EventWeezeventLinkService,
     private spaceAccess: SpaceAccessService,
   ) {}
-
-  /**
-   * Lève 403 si `user` n'a pas accès à l'espace de l'événement. Contrairement aux menu
-   * items/fournisseurs (où l'absence d'espace = catalogue tenant-wide, un vrai choix
-   * métier), un événement sans spaceId est un artefact de démappage/import Weezevent —
-   * pas un événement « global » destiné à tous. Un utilisateur restreint n'y a donc PAS
-   * accès par défaut (seuls les comptes à accès complet peuvent le voir/le remapper).
-   */
-  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
-    if (!user) return;
-    if (this.spaceAccess.hasFullAccess(user)) return;
-    if (!spaceId) {
-      throw new ForbiddenException("Cet événement n'est rattaché à aucun espace — réservé aux comptes à accès complet.");
-    }
-    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
-    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
-    throw new ForbiddenException("Vous n'avez pas accès à l'espace de cet événement.");
-  }
 
   private readonly includeRelations = {
     eventType: true,
@@ -526,7 +514,7 @@ export class EventsService {
       include: this.includeRelations,
     });
     if (!event) throw new NotFoundException(`Event ${id} not found`);
-    await this.assertSpaceAccess(event.spaceId, user);
+    await this.spaceAccess.assertCanAccessAny(user, event.spaceId ? [event.spaceId] : [], ASSERT_SPACE_ACCESS_MESSAGES);
     return event;
   }
 

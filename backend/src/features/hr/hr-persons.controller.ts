@@ -5,6 +5,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { HrService, HR_PERSON_CONTRACTS } from './hr.service';
+import { HrPersonsFindAllQueryDto } from './dto/hr-persons.query.dto';
 
 class CreateHrPersonDto {
   @IsString()
@@ -48,9 +49,9 @@ export class HrPersonsController {
   @ApiQuery({ name: 'contractType', required: false, enum: HR_PERSON_CONTRACTS as unknown as string[] })
   findAll(
     @CurrentTenant() tenantId: string,
-    @Query('roleId') roleId?: string,
-    @Query('contractType') contractType?: string,
+    @Query() params: HrPersonsFindAllQueryDto,
   ) {
+    const { roleId, contractType } = params;
     return this.service.findAllPersons(tenantId, { roleId, contractType });
   }
 

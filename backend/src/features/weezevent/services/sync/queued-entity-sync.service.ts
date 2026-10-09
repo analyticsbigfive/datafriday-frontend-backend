@@ -1,10 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent-client.service';
-import {
-    WeezeventWallet as ApiWallet,
-    WeezeventUser as ApiUser,
-} from '../../interfaces/weezevent-entities.interface';
 import { SyncResult } from '../weezevent-sync.service';
 
 /**
@@ -128,7 +124,7 @@ export class WeezeventQueuedEntitySyncService {
                 select: { id: true, tenantId: true, weezevent: { select: { organizationId: true } } },
             });
             if (!integration || integration.tenantId !== tenantId || !integration.weezevent?.organizationId) {
-                throw new Error(`Weezevent integration ${integrationId} not configured for tenant ${tenantId}`);
+                throw new NotFoundException(`Weezevent integration ${integrationId} not configured for tenant ${tenantId}`);
             }
             const organizationId = integration.weezevent.organizationId;
             this.logger.log(`Syncing orders for event ${eventId}`);
@@ -207,7 +203,7 @@ export class WeezeventQueuedEntitySyncService {
                 select: { id: true, tenantId: true, weezevent: { select: { organizationId: true } } },
             });
             if (!integration || integration.tenantId !== tenantId || !integration.weezevent?.organizationId) {
-                throw new Error(`Weezevent integration ${integrationId} not configured for tenant ${tenantId}`);
+                throw new NotFoundException(`Weezevent integration ${integrationId} not configured for tenant ${tenantId}`);
             }
             const organizationId = integration.weezevent.organizationId;
             this.logger.log(`Syncing prices${eventId ? ` for event ${eventId}` : ''}`);
@@ -280,7 +276,7 @@ export class WeezeventQueuedEntitySyncService {
                 select: { id: true, tenantId: true, weezevent: { select: { organizationId: true } } },
             });
             if (!integration || integration.tenantId !== tenantId || !integration.weezevent?.organizationId) {
-                throw new Error(`Weezevent integration ${integrationId} not configured for tenant ${tenantId}`);
+                throw new NotFoundException(`Weezevent integration ${integrationId} not configured for tenant ${tenantId}`);
             }
             const organizationId = integration.weezevent.organizationId;
             this.logger.log(`Syncing attendees for event ${eventId}`);

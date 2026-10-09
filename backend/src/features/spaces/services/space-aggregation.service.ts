@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
-import { Decimal } from '@prisma/client/runtime/library';
+import { dailyRevenueByProduct, minuteRevenueByLocation, minuteRevenueByProduct, unmappedLocationsWithSalesInPeriod, unmappedMerchantsWithSales } from './space-aggregation.queries';
 
 // BUG-352-01 : revenueHt sommait ti."unitPrice" * ti."quantity" — le prix catalogue de
 // CHAQUE ligne d'article, y compris les lignes "formule/menu" qui n'ont jamais de paiement
@@ -17,17 +16,7 @@ import { Decimal } from '@prisma/client/runtime/library';
 // une lacune de donnée) vs clé PRÉSENTE mais VIDE (6 417 lignes, 27 282 €, vraies lignes
 // formule/menu). Le test `?` restaure `unitPrice` uniquement quand la donnée de paiement
 // est absente, jamais quand elle est présente-et-vide. Détail complet et mesure d'impact :
-// aggregation.service.ts, même constante.
-const REVENUE_HT_EXPR = Prisma.sql`
-  CASE WHEN t."provider" = 'WEEZEVENT' AND ti."rawData" ? 'payments' THEN
-    COALESCE((
-      SELECT SUM((p->>'amount')::numeric - (p->>'amount_vat')::numeric)
-      FROM jsonb_array_elements(ti."rawData"->'payments') AS p
-    ), 0) / 100
-  ELSE
-    (ti."unitPrice" * ti."quantity" - COALESCE(ti."reduction", 0)) / (1 + ti."vat" / 100)
-  END
-`;
+// event-aggregation.queries.ts (revenueHtExpr, constante partagée).
 
 interface AggregationJobParams {
   tenantId: string;
@@ -177,45 +166,7 @@ export class SpaceAggregationService {
       return 0;
     }
 
-    const transactions = await this.prisma.$queryRaw<
-      Array<{
-        minute: Date;
-        weezeventEventId: string | null;
-        weezeventLocationId: string | null;
-        weezeventMerchantId: string | null;
-        spaceElementId: string | null;
-        revenueHt: Decimal;
-        transactionsCount: bigint;
-        itemsCount: number;
-      }>
-    >`
-      SELECT 
-        DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC') as minute,
-        t."eventId" as "weezeventEventId",
-        t."locationId" as "weezeventLocationId",
-        t."merchantId" as "weezeventMerchantId",
-        mem."spaceElementId" as "spaceElementId",
-        SUM(${REVENUE_HT_EXPR}) as "revenueHt",
-        COUNT(DISTINCT t.id) as "transactionsCount",
-        SUM(ti.quantity) as "itemsCount"
-      FROM "WeezeventTransaction" t
-      INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
-      LEFT JOIN "WeezeventLocationShopMapping" mem 
-        ON mem."weezeventLocationId" = t."merchantId" 
-        AND mem."tenantId" = ${tenantId}
-      WHERE 
-        t."tenantId" = ${tenantId}
-        AND t."locationId" = ANY(${locationIds})
-        AND t."transactionDate" >= ${fromDate}
-        AND t."transactionDate" <= ${toDate}
-        AND t.status = 'V'
-      GROUP BY 
-        minute,
-        t."eventId",
-        t."locationId",
-        t."merchantId",
-        mem."spaceElementId"
-    `;
+    const transactions = await minuteRevenueByLocation(this.prisma, tenantId, locationIds, fromDate, toDate);
 
     for (const agg of transactions) {
       await this.prisma.spaceRevenueMinuteAgg.upsert({
@@ -288,30 +239,7 @@ export class SpaceAggregationService {
     toDate: Date,
     timezone: string,
   ): Promise<void> {
-    const productAggregates = await this.prisma.$queryRaw<
-      Array<{
-        day: Date;
-        weezeventProductId: string;
-        revenueHt: Decimal;
-        quantity: number;
-      }>
-    >`
-      SELECT 
-        DATE(t."transactionDate" AT TIME ZONE 'UTC' AT TIME ZONE ${timezone}) as day,
-        ti."productId" as "weezeventProductId",
-        SUM(${REVENUE_HT_EXPR}) as "revenueHt",
-        SUM(ti.quantity) as quantity
-      FROM "WeezeventTransaction" t
-      INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
-      WHERE 
-        t."tenantId" = ${tenantId}
-        AND t."locationId" = ANY(${locationIds})
-        AND t."transactionDate" >= ${fromDate}
-        AND t."transactionDate" <= ${toDate}
-        AND t.status = 'V'
-        AND ti."productId" IS NOT NULL
-      GROUP BY day, ti."productId"
-    `;
+    const productAggregates = await dailyRevenueByProduct(this.prisma, tenantId, timezone, locationIds, fromDate, toDate);
 
     for (const agg of productAggregates) {
       await this.prisma.spaceProductRevenueDailyAgg.upsert({
@@ -357,52 +285,7 @@ export class SpaceAggregationService {
     toDate: Date,
     timezone: string,
   ): Promise<void> {
-    const itemAggregates = await this.prisma.$queryRaw<
-      Array<{
-        minute: Date;
-        weezeventEventId: string | null;
-        weezeventLocationId: string | null;
-        weezeventLocationName: string | null;
-        weezeventMerchantId: string | null;
-        spaceElementId: string | null;
-        weezeventProductId: string | null;
-        revenueHt: Decimal;
-        transactionsCount: bigint;
-        itemsCount: number;
-      }>
-    >`
-      SELECT
-        DATE_TRUNC('minute', t."transactionDate" AT TIME ZONE 'UTC') as minute,
-        t."eventId" as "weezeventEventId",
-        t."locationId" as "weezeventLocationId",
-        t."locationName" as "weezeventLocationName",
-        t."merchantId" as "weezeventMerchantId",
-        lsm."spaceElementId" as "spaceElementId",
-        ti."productId" as "weezeventProductId",
-        SUM(${REVENUE_HT_EXPR}) as "revenueHt",
-        COUNT(DISTINCT t.id) as "transactionsCount",
-        SUM(ti.quantity) as "itemsCount"
-      FROM "WeezeventTransaction" t
-      INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
-      LEFT JOIN "WeezeventLocationShopMapping" lsm
-        ON lsm."weezeventLocationId" = t."locationId"
-        AND lsm."tenantId" = ${tenantId}
-      WHERE
-        t."tenantId" = ${tenantId}
-        AND t."locationId" = ANY(${locationIds})
-        AND t."transactionDate" >= ${fromDate}
-        AND t."transactionDate" <= ${toDate}
-        AND t.status = 'V'
-        AND t."deletedAt" IS NULL
-      GROUP BY
-        minute,
-        t."eventId",
-        t."locationId",
-        t."locationName",
-        t."merchantId",
-        lsm."spaceElementId",
-        ti."productId"
-    `;
+    const itemAggregates = await minuteRevenueByProduct(this.prisma, tenantId, locationIds, fromDate, toDate);
 
     for (const agg of itemAggregates) {
       await this.prisma.spaceRevenueMinuteItemAgg.upsert({
@@ -450,33 +333,7 @@ export class SpaceAggregationService {
     fromDate: Date,
     toDate: Date,
   ): Promise<void> {
-    const unmappedMerchants = await this.prisma.$queryRaw<
-      Array<{
-        merchantId: string;
-        merchantName: string;
-        transactionCount: bigint;
-        revenueHt: Decimal;
-      }>
-    >`
-      SELECT 
-        t."merchantId",
-        t."merchantName",
-        COUNT(DISTINCT t.id) as "transactionCount",
-        SUM(t.amount) as "revenueHt"
-      FROM "WeezeventTransaction" t
-      WHERE 
-        t."tenantId" = ${tenantId}
-        AND t."locationId" = ANY(${locationIds})
-        AND t."transactionDate" >= ${fromDate}
-        AND t."transactionDate" <= ${toDate}
-        AND t."merchantId" IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM "WeezeventLocationShopMapping" mem
-          WHERE mem."weezeventLocationId" = t."merchantId"
-          AND mem."tenantId" = ${tenantId}
-        )
-      GROUP BY t."merchantId", t."merchantName"
-    `;
+    const unmappedMerchants = await unmappedMerchantsWithSales(this.prisma, tenantId, locationIds, fromDate, toDate);
 
     for (const merchant of unmappedMerchants) {
       await this.prisma.unmappedDataMetrics.upsert({
@@ -503,32 +360,7 @@ export class SpaceAggregationService {
       });
     }
 
-    const unmappedLocations = await this.prisma.$queryRaw<
-      Array<{
-        locationId: string;
-        locationName: string;
-        transactionCount: bigint;
-        revenueHt: Decimal;
-      }>
-    >`
-      SELECT 
-        t."locationId",
-        t."locationName",
-        COUNT(DISTINCT t.id) as "transactionCount",
-        SUM(t.amount) as "revenueHt"
-      FROM "WeezeventTransaction" t
-      WHERE 
-        t."tenantId" = ${tenantId}
-        AND t."transactionDate" >= ${fromDate}
-        AND t."transactionDate" <= ${toDate}
-        AND t."locationId" IS NOT NULL
-        AND NOT EXISTS (
-          SELECT 1 FROM "WeezeventLocationSpaceMapping" lsm
-          WHERE lsm."weezeventLocationId" = t."locationId"
-          AND lsm."tenantId" = ${tenantId}
-        )
-      GROUP BY t."locationId", t."locationName"
-    `;
+    const unmappedLocations = await unmappedLocationsWithSalesInPeriod(this.prisma, tenantId, fromDate, toDate);
 
     for (const location of unmappedLocations) {
       await this.prisma.unmappedDataMetrics.upsert({

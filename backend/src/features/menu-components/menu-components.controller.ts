@@ -21,6 +21,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { ValidationErrorEnricherInterceptor } from './interceptors/validation-error-enricher.interceptor';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { MenuComponentsFindAllQueryDto } from './dto/menu-components.query.dto';
 
 @ApiTags('Menu Components')
 @ApiBearerAuth('supabase-jwt')
@@ -69,11 +70,11 @@ export class MenuComponentsController {
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Résultats par page (défaut: 100)', example: 100 })
   @ApiResponse({ status: 200, description: 'Liste des composants' })
   findAll(
-    @Query('page') page: string | undefined,
-    @Query('limit') limit: string | undefined,
+    @Query() params: MenuComponentsFindAllQueryDto,
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
   ) {
+    const { page, limit } = params;
     this.logger.log(`GET /menu-components - User: ${user?.id}, Tenant: ${tenantId}`);
     return this.menuComponentsService.findAll(
       tenantId,

@@ -19,6 +19,7 @@ import { ImportMarketPricesDto } from './dto/import-market-prices.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { MarketPricesFindAllQueryDto, MarketPricesFindAllWithPackagingsQueryDto, MarketPricesFindAllWithIngredientsQueryDto } from './dto/market-prices.query.dto';
 
 @ApiTags('Market Prices')
 @ApiBearerAuth('supabase-jwt')
@@ -94,9 +95,9 @@ export class MarketPricesController {
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() params: MarketPricesFindAllQueryDto,
   ) {
+    const { page, limit } = params;
     this.logger.log(`GET /market-prices - User: ${user?.id}, Tenant: ${tenantId}, page=${page}, limit=${limit}`);
     return this.marketPricesService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined, user);
   }
@@ -144,11 +145,9 @@ export class MarketPricesController {
   findAllWithPackagings(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
-    @Query('category') category?: string,
+    @Query() params: MarketPricesFindAllWithPackagingsQueryDto,
   ) {
+    const { page, limit, search, category } = params;
     this.logger.log(
       `GET /market-prices/with-packagings - User: ${user?.id}, Tenant: ${tenantId}, ` +
       `page=${page}, limit=${limit}, search="${search}", category="${category}"`,
@@ -172,12 +171,9 @@ export class MarketPricesController {
   findAllWithIngredients(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
-    @Query('category') category?: string,
-    @Query('goodType') goodType?: string,
+    @Query() params: MarketPricesFindAllWithIngredientsQueryDto,
   ) {
+    const { page, limit, search, category, goodType } = params;
     this.logger.log(
       `GET /market-prices/with-ingredients - User: ${user?.id}, Tenant: ${tenantId}, ` +
       `page=${page}, limit=${limit}, search="${search}", category="${category}", goodType=${goodType}`,

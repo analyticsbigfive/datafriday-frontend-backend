@@ -2,11 +2,11 @@ import { timingSafeEqual } from 'crypto';
 import { NestFactory } from '@nestjs/core';
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify';
 import { SwaggerModule } from '@nestjs/swagger';
-import { ValidationPipe } from '@nestjs/common';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { buildSwaggerConfig } from './config/swagger.config';
 import { AllExceptionsFilter } from './core/exceptions/all-exceptions.filter';
+import { createGlobalValidationPipe } from './core/pipes/global-validation.pipe';
 import fastifyHelmet from '@fastify/helmet';
 import fastifyCompress from '@fastify/compress';
 import fastifyMultipart from '@fastify/multipart';
@@ -81,16 +81,11 @@ async function bootstrap() {
   // Global exception filter for standardized error responses
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // Global validation pipe for automatic DTO validation
-  app.useGlobalPipes(new ValidationPipe({
-    transform: true,           // Enable transformation using class-transformer
-    whitelist: true,           // Strip properties that don't have decorators
-    forbidNonWhitelisted: true,// Reject unknown fields (anti-mass-assignment)
-    transformOptions: { enableImplicitConversion: true },
-    validationError: { target: false, value: false }, // Ne pas renvoyer le payload dans les erreurs
-  }));
+  // Validation globale des DTO (configuration partagée avec les tests).
+  app.useGlobalPipes(createGlobalValidationPipe());
 
-  // Graceful shutdown — ferme proprement Prisma, Redis, BullMQ
+  // Arrêt gracieux sur SIGTERM/SIGINT (Render, Docker) : ferme Prisma, Redis, BullMQ.
+  // Seul mécanisme d'arrêt : un second app.close() ferait échouer pool.end().
   app.enableShutdownHooks();
 
   // P0: CORS configuration (strict in production)
@@ -174,21 +169,6 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0');
-
-  // Handlers SIGTERM/SIGINT pour orchestrateurs (k8s, Render, Docker)
-  for (const signal of ['SIGTERM', 'SIGINT'] as const) {
-    process.once(signal, async () => {
-      console.log(`\n📥 ${signal} reçu — arrêt gracieux...`);
-      try {
-        await app.close();
-        console.log('✅ Application fermée proprement');
-        process.exit(0);
-      } catch (err) {
-        console.error('❌ Erreur durant le shutdown', err);
-        process.exit(1);
-      }
-    });
-  }
 
   console.log(`\n🚀 Application is running on: http://localhost:${port}/api/v1`);
   console.log(`📚 API Documentation: http://localhost:${port}/docs`);

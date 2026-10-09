@@ -1,10 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PinnedSpacesController } from './pinned-spaces.controller';
-import { SpacesService } from './spaces.service';
+import { SpaceCacheService } from './services/space-cache.service';
+import { SpaceZoneElementsService } from './services/space-zone-elements.service';
+import { SpaceCrudService } from './services/space-crud.service';
+import { SpaceAccessGrantService } from './services/space-access-grant.service';
+import { SpaceConfigurationService } from './services/space-configuration.service';
+import { SpaceElementService } from './services/space-element.service';
+import { SpaceEventTimelineService } from './services/space-event-timeline.service';
+import { SpaceWeezeventEventService } from './services/space-weezevent-event.service';
+import { SpaceAnalyseBatchService } from './services/space-analyse-batch.service';
+import { SpaceElementPlacementService } from './services/space-element-placement.service';
+import { SpaceShopsService } from './services/space-shops.service';
+import { SpaceElementLayoutService } from './services/space-element-layout.service';
+import { SpaceSalesScopeService } from './services/space-sales-scope.service';
 
 describe('PinnedSpacesController', () => {
   let controller: PinnedSpacesController;
-  let spacesService: SpacesService;
 
   const mockSpacesService = {
     getPinned: jest.fn(),
@@ -22,15 +33,23 @@ describe('PinnedSpacesController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [PinnedSpacesController],
       providers: [
-        {
-          provide: SpacesService,
-          useValue: mockSpacesService,
-        },
+        { provide: SpaceCacheService, useValue: mockSpacesService },
+        { provide: SpaceZoneElementsService, useValue: mockSpacesService },
+        { provide: SpaceCrudService, useValue: mockSpacesService },
+        { provide: SpaceAccessGrantService, useValue: mockSpacesService },
+        { provide: SpaceConfigurationService, useValue: mockSpacesService },
+        { provide: SpaceElementService, useValue: mockSpacesService },
+        { provide: SpaceEventTimelineService, useValue: mockSpacesService },
+        { provide: SpaceWeezeventEventService, useValue: mockSpacesService },
+        { provide: SpaceAnalyseBatchService, useValue: mockSpacesService },
+        { provide: SpaceElementPlacementService, useValue: mockSpacesService },
+        { provide: SpaceShopsService, useValue: mockSpacesService },
+        { provide: SpaceElementLayoutService, useValue: mockSpacesService },
+        { provide: SpaceSalesScopeService, useValue: mockSpacesService },
       ],
     }).compile();
 
     controller = module.get<PinnedSpacesController>(PinnedSpacesController);
-    spacesService = module.get<SpacesService>(SpacesService);
   });
 
   afterEach(() => {

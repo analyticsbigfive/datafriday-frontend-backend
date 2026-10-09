@@ -20,7 +20,7 @@ describe('GuestPinAccessService.getStorageSlugs (QR code des espaces de stockage
             {} as any, // spaceMenus
             {} as any, // storageTypes
         );
-        jest.spyOn(service as any, 'assertSpaceAccess').mockResolvedValue(undefined);
+        (service as any).spaceAccess = { assertCanAccessSpace: jest.fn().mockResolvedValue(undefined) };
     });
 
     it("renvoie { elementId: slug } des seuls stockages de l'espace du tenant (v1 et Builder v2)", async () => {
@@ -38,7 +38,7 @@ describe('GuestPinAccessService.getStorageSlugs (QR code des espaces de stockage
     });
 
     it("vérifie l'accès à l'espace avant toute lecture", async () => {
-        (service as any).assertSpaceAccess.mockRejectedValue(new Error('forbidden'));
+        (service as any).spaceAccess.assertCanAccessSpace.mockRejectedValue(new Error('forbidden'));
         await expect(service.getStorageSlugs('space-1', user)).rejects.toThrow('forbidden');
         expect(prisma.spaceElement.findMany).not.toHaveBeenCalled();
     });

@@ -7,7 +7,6 @@ import { CurrentUserData } from '../../core/auth/decorators/current-user.decorat
 
 describe('MeController', () => {
   let controller: MeController;
-  let prisma: PrismaService;
 
   const mockUser: CurrentUserData = {
     id: 'user-123',
@@ -63,7 +62,6 @@ describe('MeController', () => {
     }).compile();
 
     controller = module.get<MeController>(MeController);
-    prisma = module.get<PrismaService>(PrismaService);
 
     jest.clearAllMocks();
   });

@@ -24,23 +24,23 @@ export interface SpaceInfoDto {
   }>;
 }
 
-export interface EventFilterDto {
+interface EventFilterDto {
   id: string;
   name: string;
   startDate: string | null;
 }
 
-export interface ShopFilterDto {
+interface ShopFilterDto {
   spaceElementId: string;
   name: string;
 }
 
-export interface WeezeventLocationFilterDto {
+interface WeezeventLocationFilterDto {
   weezeventLocationId: string;
   name: string;
 }
 
-export interface WeezeventMerchantFilterDto {
+interface WeezeventMerchantFilterDto {
   weezeventMerchantId: string;
   name: string;
 }
@@ -65,13 +65,13 @@ export interface KpisDto {
   refundRate: number;
 }
 
-export interface ChartSeriesDto {
+interface ChartSeriesDto {
   key: string;
   label: string;
   values: number[];
 }
 
-export interface ChartDto {
+interface ChartDto {
   labels: string[];
   series: ChartSeriesDto[];
 }
@@ -81,13 +81,13 @@ export interface ChartsDto {
   revenueByShopOverTime: ChartDto;
 }
 
-export interface TopShopDto {
+interface TopShopDto {
   spaceElementId: string;
   name: string;
   revenueHt: number;
 }
 
-export interface TopProductDto {
+interface TopProductDto {
   weezeventProductId: string;
   name: string;
   revenueHt: number;

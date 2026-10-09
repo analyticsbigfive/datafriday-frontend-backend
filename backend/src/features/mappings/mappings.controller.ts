@@ -22,6 +22,7 @@ import {
   BulkLocationShopMappingDto,
   BulkProductMappingDto,
 } from './dto/mapping.dto';
+import { MappingsGetLocationSpaceMappingsQueryDto, MappingsGetLocationShopMappingsQueryDto, MappingsGetMerchantElementMappingsQueryDto, MappingsGetProductMappingsQueryDto } from './dto/mappings.query.dto';
 
 @ApiTags('Mappings')
 @ApiBearerAuth('supabase-jwt')
@@ -76,9 +77,9 @@ export class MappingsController {
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   getLocationSpaceMappings(
     @CurrentUser() user: any,
-    @Query('page') page = 1,
-    @Query('limit') limit = 100,
+    @Query() params: MappingsGetLocationSpaceMappingsQueryDto,
   ) {
+    const { page = 1, limit = 100 } = params;
     this.logger.log(`GET /mappings/location-space - Tenant: ${user.tenantId}`);
     return this.mappingsService.getLocationSpaceMappings(user.tenantId, +page, +limit, user);
   }
@@ -138,11 +139,9 @@ export class MappingsController {
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 1000 })
   getLocationShopMappings(
     @CurrentUser() user: any,
-    @Query('locationId') locationId?: string,
-    @Query('spaceId') spaceId?: string,
-    @Query('page') page = 1,
-    @Query('limit') limit = 1000,
+    @Query() params: MappingsGetLocationShopMappingsQueryDto,
   ) {
+    const { locationId, spaceId, page = 1, limit = 1000 } = params;
     return this.mappingsService.getLocationShopMappings(
       user.tenantId,
       locationId,
@@ -234,10 +233,9 @@ export class MappingsController {
   })
   getMerchantElementMappings(
     @CurrentUser() user: any,
-    @Query('locationId') locationId?: string,
-    @Query('page') page = 1,
-    @Query('limit') limit = 200,
+    @Query() params: MappingsGetMerchantElementMappingsQueryDto,
   ) {
+    const { locationId, page = 1, limit = 200 } = params;
     return this.mappingsService.getMerchantElementMappings(user.tenantId, locationId, +page, +limit);
   }
 
@@ -367,14 +365,9 @@ export class MappingsController {
   })
   getProductMappings(
     @CurrentUser() user: any,
-    @Query('locationId') locationId?: string,
-    @Query('page') page = 1,
-    @Query('limit') limit = 200,
-    @Query('includeSales') includeSales?: string,
-    @Query('integrationId') integrationId?: string,
-    @Query('fromDate') fromDate?: string,
-    @Query('toDate') toDate?: string,
+    @Query() params: MappingsGetProductMappingsQueryDto,
   ) {
+    const { locationId, page = 1, limit = 200, includeSales, integrationId, fromDate, toDate } = params;
     const parseDate = (v?: string) => {
       if (!v) return undefined;
       const d = new Date(v);

@@ -11,8 +11,6 @@ import { JwtGuestPinStrategy } from '../../core/auth/strategies/jwt-guest-pin.st
 import { GuestPinAccessService } from './guest-pin-access.service';
 import { GuestPinAuthController } from './guest-pin-auth.controller';
 import { GuestPinAdminController } from './guest-pin-admin.controller';
-import { InventoryWindowLifecycleCronService } from './inventory-window-lifecycle.cron';
-import { InventoryCycleCronService } from './inventory-cycle.cron';
 import { SpacesModule } from '../spaces/spaces.module';
 import { SpaceMenusModule } from '../space-menus/space-menus.module';
 import { StorageTypesModule } from '../storage-types/storage-types.module';
@@ -49,12 +47,7 @@ import { VentilationAdminController } from './ventilation-admin.controller';
     }),
   ],
   controllers: [GuestPinAuthController, GuestPinAdminController, VentilationAdminController],
-  providers: [
-    GuestPinAccessService,
-    VentilationAccessService,
-    JwtGuestPinStrategy,
-    InventoryWindowLifecycleCronService,
-    InventoryCycleCronService,
-  ],
+  providers: [GuestPinAccessService, VentilationAccessService, JwtGuestPinStrategy],
+  exports: [GuestPinAccessService],
 })
 export class GuestPinAccessModule {}

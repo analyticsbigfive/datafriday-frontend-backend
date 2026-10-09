@@ -5,6 +5,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { LogisticsService } from '../logistics/logistics.service';
 import { StockItemKind } from '../logistics/dto/logistics.dto';
 import { CreateLogisticTaskBatchDto } from './dto/logistic-tasks.dto';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 
 /** Miroir de SHOP_TYPES (logistics.service.ts) : sert uniquement à choisir TRANSFER_SHOP
  * vs TRANSFER_STORAGE pour la contrepartie, même convention que LogisticMovementDialog. */
@@ -25,13 +26,8 @@ export class LogisticTasksService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly logisticsService: LogisticsService,
+    private readonly spaceAccess: SpaceAccessService,
   ) {}
-
-  private async assertSpace(spaceId: string, tenantId: string) {
-    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true, name: true } });
-    if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
-    return space;
-  }
 
   /** Résout le nom + type des SpaceElement référencés, pour enrichir les réponses. */
   private async resolveElements(ids: string[]) {
@@ -60,7 +56,7 @@ export class LogisticTasksService {
     if (!dto.tasks?.length) {
       throw new BadRequestException('Aucune tâche à créer');
     }
-    const space = await this.assertSpace(spaceId, tenantId);
+    const space = await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     // Un batchId par appel : sert uniquement à détecter la clôture complète du lot
     // (tous ses statuts passés à COMPLETED) pour notifier son créateur, cf. drop().
     const batchId = randomUUID();
@@ -127,7 +123,7 @@ export class LogisticTasksService {
 
   /** Tâches de l'espace, enrichies des noms (item déjà porté par itemKey, éléments, staff). */
   async listBySpace(spaceId: string, tenantId: string, assignedToUserId?: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const rows = await this.prisma.logisticTask.findMany({
       where: { tenantId, spaceId, ...(assignedToUserId ? { assignedToUserId } : {}) },
       orderBy: [{ status: 'asc' }, { createdAt: 'asc' }],
@@ -170,7 +166,7 @@ export class LogisticTasksService {
    * nombre de tâches en cours (PENDING/PICKED_UP) pour le tri croissant du drawer Restocker.
    */
   async listAssignableStaff(spaceId: string, tenantId: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const users = await this.prisma.user.findMany({
       where: {
         tenantId,

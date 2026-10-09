@@ -6,6 +6,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { SpaceMenusService } from './space-menus.service';
 import { SaveSpaceMenuConfigurationDto } from './dto/save-space-menu-configuration.dto';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { SpaceMenusGetShopAvailableMenuItemsQueryDto, SpaceMenusGetStorageInventoryQueryDto, SpaceMenusGetConfigShopMenuItemsLightQueryDto } from './dto/space-menus.query.dto';
 
 @ApiTags('Space Menus')
 @ApiBearerAuth('supabase-jwt')
@@ -286,10 +287,10 @@ export class SpaceMenusController {
   @ApiResponse({ status: 404, description: "Shop non trouvé ou n'appartient pas au tenant" })
   async getShopAvailableMenuItems(
     @Param('shopId') shopId: string,
-    @Query('configId') configId: string | undefined,
-    @Query('enabledOnly') enabledOnly: string | undefined,
+    @Query() params: SpaceMenusGetShopAvailableMenuItemsQueryDto,
     @CurrentUser() user: any,
   ) {
+    const { configId, enabledOnly } = params;
     return this.spaceMenusService.getShopAvailableMenuItems(
       shopId,
       user.tenantId,
@@ -436,10 +437,10 @@ export class SpaceMenusController {
     },
   })
   async getStorageInventory(
-    @Query('shopIds') shopIds: string | undefined,
-    @Query('configId') configId: string | undefined,
+    @Query() params: SpaceMenusGetStorageInventoryQueryDto,
     @CurrentUser() user: any,
   ) {
+    const { shopIds, configId } = params;
     return this.spaceMenusService.getStorageInventory(
       (shopIds || '').split(','),
       user.tenantId,
@@ -484,10 +485,10 @@ export class SpaceMenusController {
   async getConfigShopMenuItemsLight(
     @Param('spaceId') spaceId: string,
     @Param('configId') configId: string,
-    @Query('itemsScope') itemsScope: string | undefined,
-    @Query('shopsScope') shopsScope: string | undefined,
+    @Query() params: SpaceMenusGetConfigShopMenuItemsLightQueryDto,
     @CurrentUser() user: any,
   ) {
+    const { itemsScope, shopsScope } = params;
     return this.spaceMenusService.getConfigShopMenuItemsLight(spaceId, configId, user.tenantId, {
       itemsScope: itemsScope === 'space' ? 'space' : 'config',
       shopsScope: shopsScope === 'space' ? 'space' : 'config',

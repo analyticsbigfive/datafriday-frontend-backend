@@ -25,8 +25,8 @@ describe('InventoryService, feuille post-event et recomptage par PDV', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new InventoryService(prisma as any, {} as any);
-    jest.spyOn(service as any, 'assertSpace').mockResolvedValue(undefined);
+    const spaceAccess = { assertSpaceInTenant: jest.fn().mockResolvedValue({ id: 'space-1', name: 'Espace' }) };
+    service = new InventoryService(prisma as any, {} as any, spaceAccess as any);
     jest.spyOn(service, 'getBySpaceAndEvent').mockResolvedValue({ inventoryCounts: { 'shop-1': {} } } as any);
     push = jest.spyOn(service as any, 'pushCountToLogistic').mockResolvedValue({ ok: true, lineCount: 3 });
   });

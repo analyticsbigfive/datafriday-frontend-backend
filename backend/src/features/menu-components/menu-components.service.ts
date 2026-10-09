@@ -7,6 +7,7 @@ import { resolveKitchenFields } from '../../shared/utils/resolve-kitchen';
 import { mergeScopedSpaces } from '../../shared/utils/scoped-spaces';
 import { CreateMenuComponentDto } from './dto/create-menu-component.dto';
 import { UpdateMenuComponentDto } from './dto/update-menu-component.dto';
+import { TenantListCache } from '../../shared/cache/tenant-list-cache';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
@@ -53,19 +54,7 @@ export class MenuComponentsService {
     return spaces;
   }
 
-  private cacheKey(tenantId: string, suffix = 'list') {
-    return `menu-components:${tenantId}:${suffix}`;
-  }
-
-  private async invalidateCache(tenantId: string) {
-    // `deletePattern` préfixe déjà avec `datafriday:` en interne (RedisService.buildKey) — le
-    // remettre ici double-préfixait le pattern (`datafriday:datafriday:...`), qui ne matchait
-    // donc jamais aucune clé réelle : le cache liste (`findAll`, TTL 60s) n'était en réalité
-    // JAMAIS invalidé après create/update/delete. Bug constaté 2026-08-14 (liste de composants
-    // ne se rafraîchissant pas après suppression/duplication, même après le fix front sur le
-    // fetch concurrent — cf. menuComponents.js).
-    await this.redis.deletePattern(`menu-components:${tenantId}:*`);
-  }
+  private readonly listCache = new TenantListCache(this.redis, 'menu-components');
 
   private toDecimalOrUndefined(value: unknown): any {
     if (value === null || value === undefined || value === '') return undefined;
@@ -436,11 +425,11 @@ export class MenuComponentsService {
         // sous-composants (le cas courant) sortait ici SANS invalider le cache liste
         // (`findAll`, TTL 1 h) et n'apparaissait pas dans la liste Composants avant
         // expiration. Purge après refreshCosts, pour ne pas remettre en cache un coût à 0.
-        await this.invalidateCache(tenantId);
+        await this.listCache.invalidate(tenantId);
         return this.findOne(component.id, tenantId);
       }
 
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return component;
     } catch (error) {
       this.logger.error(`Failed to create menu component: ${error.message}`, error.stack);
@@ -472,7 +461,7 @@ export class MenuComponentsService {
       if (visible !== 'ALL') {
         where.OR = [{ spaceIds: { isEmpty: true } }, { spaceIds: { hasSome: visible } }];
       }
-      const cacheKey = this.cacheKey(tenantId, `list:${scope}:${page}:${limit}`);
+      const cacheKey = this.listCache.key(tenantId, `list:${scope}:${page}:${limit}`);
       return this.redis.getOrSet(
         cacheKey,
         async () => {
@@ -493,7 +482,7 @@ export class MenuComponentsService {
             meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
           };
         },
-        // 3600 (pas 60) : catalogue rarement modifié, `invalidateCache()` purge déjà
+        // 3600 (pas 60) : catalogue rarement modifié, `listCache.invalidate()` purge déjà
         // cette clé à chaque écriture (:20-28) — le TTL est un filet de sécurité, pas
         // le mécanisme de fraîcheur (même raisonnement que menu-items.service.ts).
         { ttl: 3600 },
@@ -600,11 +589,11 @@ export class MenuComponentsService {
 
       if (ingredientsLines || childrenLines) {
         await this.refreshCosts(tenantId, { componentIds: [id] });
-        await this.invalidateCache(tenantId);
+        await this.listCache.invalidate(tenantId);
         return this.findOne(id, tenantId);
       }
 
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return component;
     } catch (error) {
       this.logger.error(`Failed to update menu component ${id}: ${error.message}`, error.stack);
@@ -699,7 +688,7 @@ export class MenuComponentsService {
         data: { deletedAt: new Date() },
       });
       this.logger.log(`Menu component ${id} soft-deleted`);
-      await this.invalidateCache(tenantId);
+      await this.listCache.invalidate(tenantId);
       return result;
     } catch (error) {
       this.logger.error(`Failed to delete menu component ${id}: ${error.message}`, error.stack);

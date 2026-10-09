@@ -16,7 +16,6 @@ import { OnboardingModule } from '../onboarding/onboarding.module';
 import { PricingModule } from '../../shared/pricing/pricing.module';
 import { EventsModule } from '../events/events.module';
 import { SyncTrackerService } from './services/sync-tracker.service';
-import { WeezeventCronService } from './services/weezevent-cron.service';
 import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
 import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
 import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
@@ -25,8 +24,6 @@ import { LiveAggregationTriggerService } from './services/live/live-aggregation-
 import { WebhookHealthService } from './services/live/webhook-health.service';
 import { LiveHeartbeatService } from './services/live/live-heartbeat.service';
 import { LiveSyncRunnerService } from './services/live/live-sync-runner.service';
-import { LiveSyncSchedulerService } from './services/live/live-sync-scheduler.service';
-import { LiveReconciliationCronService } from './services/live/live-reconciliation-cron.service';
 
 @Module({
     imports: [
@@ -53,7 +50,6 @@ import { LiveReconciliationCronService } from './services/live/live-reconciliati
         WebhookSignatureService,
         WebhookEventHandler,
         SyncTrackerService,
-        WeezeventCronService,
         WeezeventCollectWorkerService,
         WeezeventInsertWorkerService,
         // BUG-379-02 : pipeline live (fenêtre, cadence de sync, agrégation minute, santé webhook)
@@ -62,8 +58,6 @@ import { LiveReconciliationCronService } from './services/live/live-reconciliati
         WebhookHealthService,
         LiveHeartbeatService,
         LiveSyncRunnerService,
-        LiveSyncSchedulerService,
-        LiveReconciliationCronService,
     ],
     exports: [
         WeezeventClientService,
@@ -76,6 +70,8 @@ import { LiveReconciliationCronService } from './services/live/live-reconciliati
         WebhookHealthService,
         LiveHeartbeatService,
         LiveEventWindowService,
+        LiveSyncRunnerService,
+        LiveAggregationTriggerService,
     ],
 })
 export class WeezeventModule { }

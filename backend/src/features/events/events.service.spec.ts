@@ -4,6 +4,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { EventWeezeventLinkService } from './services/event-weezevent-link.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { spaceAccessStub } from '../../core/auth/space-access.testing';
 
 describe('EventsService', () => {
   let service: EventsService;
@@ -94,7 +95,7 @@ describe('EventsService', () => {
         EventsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EventWeezeventLinkService, useValue: mockWeezeventLinkService },
-        { provide: SpaceAccessService, useValue: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => 'ALL' } },
+        { provide: SpaceAccessService, useValue: spaceAccessStub() },
       ],
     }).compile();
 

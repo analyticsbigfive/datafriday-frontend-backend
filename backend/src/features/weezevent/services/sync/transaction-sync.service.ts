@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent-client.service';
 import {
@@ -53,13 +53,13 @@ export class WeezeventTransactionSyncService {
                 select: { id: true, enabled: true, tenantId: true, weezevent: { select: { organizationId: true } } },
             });
             if (!integration || integration.tenantId !== tenantId) {
-                throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
+                throw new NotFoundException(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
             }
             if (!integration.enabled) {
-                throw new Error(`Weezevent integration ${integrationId} is disabled`);
+                throw new BadRequestException(`Weezevent integration ${integrationId} is disabled`);
             }
             if (!integration.weezevent?.organizationId) {
-                throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
+                throw new BadRequestException(`Weezevent organization ID not configured for integration ${integrationId}`);
             }
             const organizationId = integration.weezevent.organizationId;
 
@@ -225,10 +225,10 @@ export class WeezeventTransactionSyncService {
             select: { id: true, tenantId: true, weezevent: { select: { organizationId: true } } },
         });
         if (!integration || integration.tenantId !== tenantId) {
-            throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
+            throw new NotFoundException(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
         }
         if (!integration.weezevent?.organizationId) {
-            throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
+            throw new BadRequestException(`Weezevent organization ID not configured for integration ${integrationId}`);
         }
         const organizationId = integration.weezevent.organizationId;
 

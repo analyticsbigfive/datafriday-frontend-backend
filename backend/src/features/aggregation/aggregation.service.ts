@@ -1,5 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService, AggregationJobEnqueueData } from '../../core/queue/queue.service';
@@ -17,11 +16,11 @@ import { SyncStaleRowsService } from './sync-stale-rows.service';
 import {
   buildIntegrationClause,
   buildMatchClause,
-  insertDailyProductAggSql,
-  insertMinuteAggSql,
-  insertMinuteItemAggSql,
+  insertDailyProductAgg,
+  insertMinuteAgg,
+  insertMinuteItemAgg,
   isUnscopedRangeWindow,
-} from './event-aggregation-sql';
+} from './event-aggregation.queries';
 
 
 @Injectable()
@@ -33,7 +32,7 @@ export class AggregationService {
     private queueService: QueueService,
     private mappingsService: MappingsService,
     // BUG-143-01 : RedisService injecté directement (RedisModule est @Global) plutôt que
-    // via SpacesService — une dépendance vers SpacesService créerait un cycle de modules.
+    // via le cache des espaces — une dépendance vers SpacesModule créerait un cycle de modules.
     private redis: RedisService,
     private windowResolver: EventWindowResolverService,
     private eventRollup: EventRollupService,
@@ -277,10 +276,10 @@ export class AggregationService {
           where: { tenantId, salesLocationId: integrationId },
         });
         if (!spaceLink) {
-          throw new Error(`Integration ${integrationId} is not mapped to any space. Complete step 1 of the wizard.`);
+          throw new BadRequestException(`Integration ${integrationId} is not mapped to any space. Complete step 1 of the wizard.`);
         }
         if (spaceLink.spaceId !== spaceId) {
-          throw new Error(`Integration ${integrationId} is mapped to a different space (${spaceLink.spaceId}).`);
+          throw new BadRequestException(`Integration ${integrationId} is mapped to a different space (${spaceLink.spaceId}).`);
         }
       }
 
@@ -318,7 +317,7 @@ export class AggregationService {
           // voir resolveEventWindow / resolveEventTransactionWindow.
           const window = this.windowResolver.resolveEventWindow(event, spaceTimezone, seasonContainerIds, allSpaceEvents);
           if (isUnscopedRangeWindow(integrationId, window, spaceIntegrationIds)) {
-            throw new Error(
+            throw new BadRequestException(
               `Aucune intégration mappée à l'espace ${spaceId} : l'event ${event.id} (fenêtre de dates seule) ` +
                 `ne peut pas être rattaché à des ventes sans agréger tout le tenant (BUG-384-02). Compléter l'étape 1 du wizard.`,
             );
@@ -350,13 +349,13 @@ export class AggregationService {
           const sqlInput = { tenantId, spaceId, eventId: event.id, integrationClause, matchClause };
 
           // Requêtes partagées avec le job live par minute (event-aggregation-sql.ts).
-          const dataPoints = await this.prisma.$executeRaw(insertMinuteAggSql(sqlInput));
+          const dataPoints = await insertMinuteAgg(this.prisma, sqlInput);
           await updateEventSubProgress(1);
 
-          await this.prisma.$executeRaw(insertDailyProductAggSql({ ...sqlInput, eventDate }));
+          await insertDailyProductAgg(this.prisma, { ...sqlInput, eventDate });
           await updateEventSubProgress(2);
 
-          await this.prisma.$executeRaw(insertMinuteItemAggSql(sqlInput));
+          await insertMinuteItemAgg(this.prisma, sqlInput);
           // Paniers pré-agrégés (Analyse) : même purge scopée, même fenêtre que les tables minute.
           await this.basketAgg.replaceForEvent(deleteWhere, sqlInput);
           await updateEventSubProgress(3);
@@ -427,7 +426,7 @@ export class AggregationService {
 
       // BUG-143-01 : les endpoints batch Analyse cachent leurs réponses par event (TTL 6 h
       // pour un event passé) — sans cette purge, une re-agrégation servirait des données
-      // périmées jusqu'à expiration. Mêmes motifs que SpacesService.invalidateSpaceCache.
+      // périmées jusqu'à expiration. Mêmes motifs que SpaceCacheService.invalidateSpaceCache.
       for (const pattern of eventBatchCachePatterns(tenantId, spaceId)) {
         await this.redis.deletePattern(pattern);
       }
@@ -461,8 +460,8 @@ export class AggregationService {
             await this.queueService.queueWeezeventSyncType(
               tenantId,
               'attendees',
-              { eventId: we.externalId },
               r.integrationId,
+              { eventId: we.externalId },
             );
             this.logger.log(`Auto-queued attendees sync for WeezeventEvent ${we.externalId} (event ${r.eventId})`);
           }

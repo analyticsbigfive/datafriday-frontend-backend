@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'crypto';
 
@@ -10,7 +10,7 @@ export class EncryptionService {
   constructor(private configService: ConfigService) {
     const encryptionKey = this.configService.get<string>('ENCRYPTION_KEY');
     if (!encryptionKey || encryptionKey.length !== 64) {
-      throw new Error(
+      throw new InternalServerErrorException(
         'ENCRYPTION_KEY must be 64 hex characters (32 bytes). Generate with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"',
       );
     }
@@ -43,7 +43,7 @@ export class EncryptionService {
   decrypt(encryptedText: string): string {
     const parts = encryptedText.split(':');
     if (parts.length !== 3) {
-      throw new Error('Invalid encrypted text format');
+      throw new BadRequestException('Invalid encrypted text format');
     }
 
     const iv = Buffer.from(parts[0], 'hex');

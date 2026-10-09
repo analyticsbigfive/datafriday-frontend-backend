@@ -11,7 +11,7 @@
  * branchées).
  */
 import { PrismaClient } from '@prisma/client';
-import { LEGACY_DEPARTMENTS } from '../src/features/departments/legacy-departments.seed';
+import { LEGACY_DEPARTMENTS } from './legacy-departments.seed';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const APPLY = process.argv.includes('--apply');

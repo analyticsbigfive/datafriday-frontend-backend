@@ -5,7 +5,6 @@ import { UserRole } from '@prisma/client';
 
 describe('UsersController', () => {
   let controller: UsersController;
-  let service: UsersService;
 
   const mockTenantId = 'tenant-123';
   const mockCurrentUser = {
@@ -49,7 +48,6 @@ describe('UsersController', () => {
     }).compile();
 
     controller = module.get<UsersController>(UsersController);
-    service = module.get<UsersService>(UsersService);
 
     jest.clearAllMocks();
   });
@@ -119,7 +117,7 @@ describe('UsersController', () => {
     it('should return current user profile', async () => {
       mockUsersService.findOne.mockResolvedValue(mockCurrentUser);
 
-      const result = await controller.getMe(mockCurrentUser, mockTenantId);
+      await controller.getMe(mockCurrentUser, mockTenantId);
 
       expect(mockUsersService.findOne).toHaveBeenCalledWith(
         mockCurrentUser.id,
@@ -160,7 +158,7 @@ describe('UsersController', () => {
     it('should remove a user', async () => {
       mockUsersService.remove.mockResolvedValue({ deleted: true });
 
-      const result = await controller.remove('user-456', mockTenantId, mockCurrentUser);
+      await controller.remove('user-456', mockTenantId, mockCurrentUser);
 
       expect(mockUsersService.remove).toHaveBeenCalledWith(
         'user-456',

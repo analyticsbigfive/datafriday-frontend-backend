@@ -25,6 +25,7 @@ import { UpdateProductCategoryDto } from './dto/update-product-category.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { MenuItemsFindAllQueryDto, ProductTypesFindAllQueryDto, ProductCategoriesFindAllQueryDto } from './dto/menu-items.query.dto';
 
 @ApiTags('Menu Items')
 @ApiBearerAuth('supabase-jwt')
@@ -159,14 +160,9 @@ export class MenuItemsController {
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('spaceId') spaceId?: string,
-    @Query('search') search?: string,
-    @Query('typeId') typeId?: string,
-    @Query('categoryId') categoryId?: string,
-    @Query('readyForSale') readyForSale?: string,
+    @Query() params: MenuItemsFindAllQueryDto,
   ) {
+    const { page, limit, spaceId, search, typeId, categoryId, readyForSale } = params;
     this.logger.log(`GET /menu-items - User: ${user?.id}, Tenant: ${tenantId}, spaceId: ${spaceId ?? 'all'}`);
     return this.menuItemsService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100, spaceId, {
       search,
@@ -418,10 +414,9 @@ export class ProductTypesController {
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
+    @Query() params: ProductTypesFindAllQueryDto,
   ) {
+    const { page, limit, search } = params;
     this.logger.log(`GET /product-types - User: ${user?.id}`);
     return this.menuItemsService.getProductTypes(tenantId, page ? +page : 1, limit ? +limit : 200, search);
   }
@@ -478,13 +473,11 @@ export class ProductCategoriesController {
   @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre par nom (contains, insensible à la casse)' })
   @ApiResponse({ status: 200, description: 'Liste paginée des catégories de produits' })
   findAll(
-    @Query('typeId') typeId: string,
+    @Query() params: ProductCategoriesFindAllQueryDto,
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
   ) {
+    const { typeId, page, limit, search } = params;
     this.logger.log(`GET /product-categories - User: ${user?.id}`);
     return this.menuItemsService.getProductCategories(tenantId, typeId, page ? +page : 1, limit ? +limit : 200, search);
   }

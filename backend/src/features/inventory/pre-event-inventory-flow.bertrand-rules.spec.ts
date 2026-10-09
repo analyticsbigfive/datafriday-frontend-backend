@@ -40,7 +40,7 @@ describe('PreEventInventoryFlowService, règles Bertrand 2026-09-29', () => {
     sessions: '[{"doorsOpening":"15:00"}]',
     space: { timezone: 'Europe/Paris' },
   };
-  const flowEvent = { ...sfpLyon, tenantId: 'tenant-1', spaceId: 'space-1', timezone: 'Europe/Paris' };
+  const _flowEvent = { ...sfpLyon, tenantId: 'tenant-1', spaceId: 'space-1', timezone: 'Europe/Paris' };
 
   beforeEach(() => {
     jest.clearAllMocks();

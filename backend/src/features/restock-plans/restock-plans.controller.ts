@@ -25,6 +25,7 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { RestockPlansService } from './restock-plans.service';
 import { RestockPlanDto } from './dto/restock-plan.dto';
+import { DuplicateRestockPlanDto } from './dto/duplicate-restock-plan.dto';
 
 // Deux contrôleurs, même découpage que predict-versions : les routes scopées
 // espace d'un côté, les routes par id de l'autre — pas de collision possible
@@ -73,6 +74,8 @@ export class RestockPlansController {
   @ApiResponse({ status: 400, description: 'Nom manquant, plan trop volumineux ou quota atteint' })
   async create(
     @Param('spaceId') spaceId: string,
+    // Photo figée du plan : blob opaque par contrat, validé par le service (taille, nom, quota).
+    // eslint-disable-next-line no-restricted-syntax
     @Body() body: Record<string, unknown>,
     @CurrentUser() user: any,
   ) {
@@ -105,6 +108,8 @@ export class RestockPlansStandaloneController {
   @ApiResponse({ status: 404, description: 'Plan introuvable' })
   async patch(
     @Param('id') id: string,
+    // Blob opaque par contrat (renommage, corrections, nouvelle photo), validé par le service.
+    // eslint-disable-next-line no-restricted-syntax
     @Body() body: Record<string, unknown>,
     @CurrentUser() user: any,
   ) {
@@ -119,11 +124,10 @@ export class RestockPlansStandaloneController {
   @ApiResponse({ status: 404, description: 'Plan introuvable' })
   async duplicate(
     @Param('id') id: string,
-    @Body() body: Record<string, unknown>,
+    @Body() body: DuplicateRestockPlanDto,
     @CurrentUser() user: any,
   ) {
-    const name = typeof body?.name === 'string' ? body.name : undefined;
-    return this.service.duplicate(id, user.tenantId, name, user.id);
+    return this.service.duplicate(id, user.tenantId, body?.name, user.id);
   }
 
   @Delete(':id')

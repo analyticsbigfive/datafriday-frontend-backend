@@ -44,7 +44,7 @@ export interface PreEventRegenerateResult {
   logisticPush?: { ok: boolean; reason: string | null; lineCount: number } | null;
 }
 
-export type PreEventWindowPhase = 'no-doors-open' | 'before' | 'editing' | 'locked';
+type PreEventWindowPhase = 'no-doors-open' | 'before' | 'editing' | 'locked';
 
 /** État de la fenêtre d'édition pre-event, exposé au front (instants UTC). */
 export interface PreEventWindowState {

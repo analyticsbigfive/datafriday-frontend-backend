@@ -22,6 +22,7 @@ import { LogisticsService } from './logistics.service';
 import { VentilationDepositsService } from './ventilation-deposits.service';
 import { ConfirmTransferDto, CreateMovementDto, InventoryResetDto, SimulateSaleDto } from './dto/logistics.dto';
 import { PurgeSimulatedSalesDto, StartSimulationRunDto } from './dto/simulation-run.dto';
+import { LogisticsGetStockQueryDto, LogisticsGetMarketPricesQueryDto, LogisticsGetHistoryQueryDto, LogisticsGetLossesQueryDto, LogisticsListSimulatedSalesQueryDto } from './dto/logistics.query.dto';
 
 @ApiTags('Logistics')
 @ApiBearerAuth('supabase-jwt')
@@ -55,9 +56,9 @@ export class LogisticsController {
   async getStock(
     @Param('spaceId') spaceId: string,
     @CurrentUser() user: any,
-    @Query('configId') configId?: string,
-    @Query('eventId') eventId?: string,
+    @Query() params: LogisticsGetStockQueryDto,
   ) {
+    const { configId, eventId } = params;
     this.logger.log(`GET /logistics/${spaceId}/stock configId=${configId ?? '(auto)'}`);
     return this.service.getStock(spaceId, user.tenantId, configId || undefined, eventId || undefined);
   }
@@ -114,10 +115,10 @@ export class LogisticsController {
   })
   async getMarketPrices(
     @Param('spaceId') spaceId: string,
-    @Query('itemKey') itemKey: string,
+    @Query() params: LogisticsGetMarketPricesQueryDto,
     @CurrentUser() user: any,
-    @Query('currentMarketPriceId') currentMarketPriceId?: string,
   ) {
+    const { itemKey, currentMarketPriceId } = params;
     return this.service.getMarketPricesForItem(spaceId, user.tenantId, itemKey, currentMarketPriceId);
   }
 
@@ -169,9 +170,9 @@ export class LogisticsController {
   async getHistory(
     @Param('elementId') elementId: string,
     @CurrentUser() user: any,
-    @Query('limit') limit?: string,
-    @Query('cursor') cursor?: string,
+    @Query() params: LogisticsGetHistoryQueryDto,
   ) {
+    const { limit, cursor } = params;
     this.logger.log(`GET /logistics/element/${elementId}/history`);
     const parsedLimit = Number(limit);
     return this.service.getHistory(
@@ -255,10 +256,9 @@ export class LogisticsController {
   async getLosses(
     @Param('spaceId') spaceId: string,
     @CurrentUser() user: any,
-    @Query('limit') limit?: string,
-    @Query('cursor') cursor?: string,
-    @Query('includeArchived') includeArchived?: string,
+    @Query() params: LogisticsGetLossesQueryDto,
   ) {
+    const { limit, cursor, includeArchived } = params;
     const parsedLimit = Number(limit);
     return this.service.getLosses(
       spaceId,
@@ -387,9 +387,9 @@ export class LogisticsController {
   async listSimulatedSales(
     @Param('spaceId') spaceId: string,
     @CurrentUser() user: any,
-    @Query('limit') limit?: string,
-    @Query('cursor') cursor?: string,
+    @Query() params: LogisticsListSimulatedSalesQueryDto,
   ) {
+    const { limit, cursor } = params;
     return this.service.listSimulatedSales(spaceId, user.tenantId, Number(limit) || 50, cursor || undefined);
   }
 

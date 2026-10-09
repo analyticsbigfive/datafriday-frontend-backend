@@ -1,12 +1,39 @@
 import {
-  ExceptionFilter,
-  Catch,
   ArgumentsHost,
+  BadRequestException,
+  Catch,
+  ConflictException,
+  ExceptionFilter,
   HttpException,
   HttpStatus,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { FastifyReply, FastifyRequest } from 'fastify';
+
+/** Message renvoyé au client pour toute erreur serveur : le détail reste dans les logs. */
+export const INTERNAL_ERROR_MESSAGE = 'Erreur interne du serveur';
+
+/**
+ * Erreurs Prisma « attendues » traduites en réponse HTTP : sans cela elles sortaient en 500 avec
+ * le message brut de Prisma (extrait de requête, noms de colonnes) renvoyé au client.
+ */
+function prismaErrorToHttp(exception: unknown): HttpException | null {
+  if (!(exception instanceof Prisma.PrismaClientKnownRequestError)) return null;
+  switch (exception.code) {
+    case 'P2002':
+      return new ConflictException('Cette ressource existe déjà.');
+    case 'P2025':
+      return new NotFoundException('Ressource introuvable.');
+    case 'P2003':
+      return new ConflictException('Opération impossible : une ressource liée est manquante ou encore utilisée.');
+    case 'P2000':
+      return new BadRequestException('Valeur trop longue pour ce champ.');
+    default:
+      return null;
+  }
+}
 
 interface ErrorResponse {
   statusCode: number;
@@ -26,7 +53,8 @@ interface ErrorResponse {
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
 
-  catch(exception: unknown, host: ArgumentsHost) {
+  catch(rawException: unknown, host: ArgumentsHost) {
+    const exception = prismaErrorToHttp(rawException) ?? rawException;
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<FastifyReply>();
     const request = ctx.getRequest<FastifyRequest>();
@@ -38,7 +66,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const errorResponse: ErrorResponse = {
       statusCode: status,
-      message: this.getErrorMessage(exception),
+      // Erreur serveur : jamais de détail interne (SQL, chemins, secrets) côté client.
+      message: status >= 500 ? INTERNAL_ERROR_MESSAGE : this.getErrorMessage(exception),
       timestamp: new Date().toISOString(),
       path: request.url,
       method: request.method,
@@ -55,8 +84,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       errorResponse.errors = validationErrors;
     }
 
-    // Log error
-    this.logError(exception, request, status);
+    // Log : l'exception d'origine (Prisma comprise), avec sa pile pour les 5xx.
+    this.logError(rawException, request, status);
 
     if (status === HttpStatus.TOO_MANY_REQUESTS) {
       const retryAfter = this.getRetryAfter(exception);

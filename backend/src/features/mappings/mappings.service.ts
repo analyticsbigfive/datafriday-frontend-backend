@@ -1,10 +1,6 @@
-;
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { randomUUID } from 'crypto';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { findDistinctMerchantIds, findDistinctMerchantIntegrations } from '../../shared/sales/distinct-merchant-ids.query';
-import { SpacesService } from '../spaces/spaces.service';
+import { findDistinctMerchantIds, findDistinctMerchantIntegrations } from '../../shared/sales/distinct-merchants.queries';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { RedisService } from '../../core/redis/redis.service';
@@ -18,9 +14,14 @@ import {
   BulkLocationShopMappingDto,
   BulkProductMappingDto,
 } from './dto/mapping.dto';
+import { productIdsSoldAtLocation, upsertProductMappings } from './mappings.queries';
+import { SpaceElementService } from '../spaces/services/space-element.service';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
+
+
+const ASSERT_SPACE_ACCESS_DENIED = "Vous n'avez pas accès à l'espace de ce mapping.";
 
 @Injectable()
 export class MappingsService {
@@ -31,7 +32,7 @@ export class MappingsService {
 
   constructor(
     private prisma: PrismaService,
-    private spacesService: SpacesService,
+    private readonly spaceElementService: SpaceElementService,
     private pricing: MenuItemPricingService,
     private spaceAccess: SpaceAccessService,
     // BUG-144-01 : RedisService injecté directement (RedisModule est @Global), même
@@ -47,15 +48,6 @@ export class MappingsService {
     Promise.resolve(this.redis.deletePattern(unmappedCachePattern(tenantId))).catch((e) =>
       this.logger.warn(`purgeUnmappedCache failed: ${e?.message}`),
     );
-  }
-
-  /** Lève 403 si `user` n'a pas accès à cet espace (cf. SpaceAccessService). */
-  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
-    if (!user || !spaceId) return;
-    if (this.spaceAccess.hasFullAccess(user)) return;
-    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
-    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
-    throw new ForbiddenException("Vous n'avez pas accès à l'espace de ce mapping.");
   }
 
   // Compat contrat front : les modèles Prisma renommés portent salesLocationId /
@@ -120,7 +112,7 @@ export class MappingsService {
         tenantId_salesLocationId: { tenantId, salesLocationId: weezeventLocationId },
       },
     });
-    if (mapping) await this.assertSpaceAccess(mapping.spaceId, user);
+    if (mapping) await this.spaceAccess.assertCanAccessSpace(user, mapping.spaceId, ASSERT_SPACE_ACCESS_DENIED);
     return mapping ? this.withLegacyLocationKey(mapping) : mapping;
   }
 
@@ -364,7 +356,7 @@ export class MappingsService {
     // 3D builder too (Data Integration deletion ⇒ delete the 3D element).
     if (mapping?.spaceElementId) {
       try {
-        await this.spacesService.deleteElementIfUnreferenced(mapping.spaceElementId, tenantId);
+        await this.spaceElementService.deleteElementIfUnreferenced(mapping.spaceElementId, tenantId);
       } catch (err) {
         this.logger.warn(`Failed to cascade-delete SpaceElement ${mapping.spaceElementId}: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -541,7 +533,7 @@ export class MappingsService {
 
     for (const { spaceElementId } of mappings) {
       try {
-        await this.spacesService.deleteElementIfUnreferenced(spaceElementId, tenantId);
+        await this.spaceElementService.deleteElementIfUnreferenced(spaceElementId, tenantId);
       } catch (err) {
         this.logger.warn(`Failed to cascade-delete SpaceElement ${spaceElementId}: ${err instanceof Error ? err.message : String(err)}`);
       }
@@ -610,15 +602,7 @@ export class MappingsService {
 
     if (weezeventLocationId) {
       // Filter by products sold at this location via transaction items
-      const productIds = await this.prisma.$queryRaw<{ productId: string }[]>`
-        SELECT DISTINCT ti."productId"
-        FROM "WeezeventTransactionItem" ti
-        JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
-        WHERE t."tenantId" = ${tenantId}
-          AND t."locationId" = ${weezeventLocationId}
-          AND ti."productId" IS NOT NULL
-      `;
-      where.salesProductId = { in: productIds.map((p) => p.productId) };
+      where.salesProductId = { in: await productIdsSoldAtLocation(this.prisma, tenantId, weezeventLocationId) };
     }
 
     const safeLimit = Math.min(Math.max(limit, 1), 1000);
@@ -718,41 +702,36 @@ export class MappingsService {
     const total = uniqueMappings.length;
     this.logger.log(`Bulk mapping ${total} product-menu item pairs (chunk=${this.BULK_CHUNK_SIZE})`);
 
-    // Réactive les MenuItems soft-deleted ciblés avant de (re)créer les mappings.
-    await this.resurrectSoftDeletedMenuItems(tenantId, uniqueMappings.map((m) => m.menuItemId));
-
     const successes: any[] = [];
     const errors: { weezeventProductId: string; error: string }[] = [];
 
-    for (let i = 0; i < total; i += this.BULK_CHUNK_SIZE) {
-      const chunk = uniqueMappings.slice(i, i + this.BULK_CHUNK_SIZE);
-      try {
-        const now = new Date();
-        const values = Prisma.join(
-          chunk.map((m) => Prisma.sql`(
-            ${randomUUID()},
-            ${tenantId},
-            ${m.weezeventProductId},
-            ${m.menuItemId},
-            ${m.autoMapped || false},
-            ${m.confidence || null},
-            ${userId},
-            ${now},
-            ${now}
-          )`),
-        );
+    // Produits et articles doivent appartenir au tenant : l'upsert en masse ne passe pas par
+    // le filtre tenant automatique de Prisma. Les paires étrangères sont rejetées une par une.
+    const [ownedProducts, ownedItems] = await Promise.all([
+      this.prisma.salesProduct.findMany({
+        where: { tenantId, id: { in: uniqueMappings.map((m) => m.weezeventProductId) } },
+        select: { id: true },
+      }),
+      this.prisma.menuItem.findMany({
+        where: { tenantId, id: { in: uniqueMappings.map((m) => m.menuItemId) } },
+        select: { id: true },
+      }),
+    ]);
+    const productOk = new Set(ownedProducts.map((p) => p.id));
+    const itemOk = new Set(ownedItems.map((m) => m.id));
+    const mappings = uniqueMappings.filter((m) => {
+      if (productOk.has(m.weezeventProductId) && itemOk.has(m.menuItemId)) return true;
+      errors.push({ weezeventProductId: m.weezeventProductId, error: 'Produit ou article introuvable pour ce tenant' });
+      return false;
+    });
 
-        await this.prisma.$executeRaw`
-          INSERT INTO "public"."WeezeventProductMapping"
-            ("id", "tenantId", "weezeventProductId", "menuItemId", "autoMapped", "confidence", "mappedBy", "createdAt", "updatedAt")
-          VALUES ${values}
-          ON CONFLICT ("weezeventProductId") DO UPDATE SET
-            "menuItemId" = EXCLUDED."menuItemId",
-            "autoMapped" = EXCLUDED."autoMapped",
-            "confidence" = EXCLUDED."confidence",
-            "mappedBy" = EXCLUDED."mappedBy",
-            "updatedAt" = EXCLUDED."updatedAt"
-        `;
+    // Réactive les MenuItems soft-deleted ciblés avant de (re)créer les mappings.
+    await this.resurrectSoftDeletedMenuItems(tenantId, mappings.map((m) => m.menuItemId));
+
+    for (let i = 0; i < mappings.length; i += this.BULK_CHUNK_SIZE) {
+      const chunk = mappings.slice(i, i + this.BULK_CHUNK_SIZE);
+      try {
+        await upsertProductMappings(this.prisma, tenantId, chunk, userId);
 
         successes.push(
           ...chunk.map((m) => ({

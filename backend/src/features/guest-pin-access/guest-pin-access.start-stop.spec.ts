@@ -57,7 +57,7 @@ describe('GuestPinAccessService : Démarrage / Reprise et Arrêt', () => {
       {} as any, // spaceMenus
       {} as any, // storageTypes
     );
-    jest.spyOn(service as any, 'assertSpaceAccess').mockResolvedValue(undefined);
+    (service as any).spaceAccess = { assertCanAccessSpace: jest.fn().mockResolvedValue(undefined) };
     jest.spyOn(service as any, 'assertPeriodOpen').mockResolvedValue(undefined);
     jest.spyOn(service, 'getStatusBoard').mockResolvedValue([] as any);
     closeSpy = jest.spyOn(service, 'closeWindowRecord').mockResolvedValue({ ok: false, reason: 'not-attempted' });

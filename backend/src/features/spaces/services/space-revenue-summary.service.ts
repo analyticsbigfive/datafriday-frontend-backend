@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { RedisService } from '../../../core/redis/redis.service';
 import { spaceRevenueSummaryCacheKey } from '../../../shared/constants/event-batch-cache';
+import { revenueBySpace, ticketsBySpace } from './space-revenue-summary.queries';
 
 export interface SpaceRevenueSummary {
   totalRevenue: number;
@@ -60,40 +60,17 @@ export class SpaceRevenueSummaryService {
 
   private async compute(tenantId: string, spaceIds: string[]): Promise<Map<string, SpaceRevenueSummary>> {
     const [revenueRows, ticketRows] = await Promise.all([
-      this.prisma.$queryRaw<Array<{
-        spaceId: string;
-        totalRevenue: number;
-        merchRevenue: number;
-        fbRevenue: number;
-        transactionsCount: number;
-        eventsWithRevenue: number;
-      }>>(Prisma.sql`
-        SELECT sra."spaceId",
-          SUM(sra."revenueHt")::float AS "totalRevenue",
-          SUM(CASE WHEN se."type" = 'merchshop' THEN sra."revenueHt" ELSE 0 END)::float AS "merchRevenue",
-          SUM(CASE WHEN se."type" IS DISTINCT FROM 'merchshop' THEN sra."revenueHt" ELSE 0 END)::float AS "fbRevenue",
-          SUM(sra."transactionsCount")::int AS "transactionsCount",
-          COUNT(DISTINCT CASE WHEN sra."revenueHt" > 0 THEN sra."weezeventEventId" END)::int AS "eventsWithRevenue"
-        FROM "SpaceRevenueMinuteAgg" sra
-        LEFT JOIN "SpaceElement" se ON se.id = sra."spaceElementId"
-        WHERE sra."tenantId" = ${tenantId} AND sra."spaceId" IN (${Prisma.join(spaceIds)})
-        GROUP BY sra."spaceId"
-      `),
-      this.prisma.$queryRaw<Array<{ spaceId: string; ticketsCount: number }>>(Prisma.sql`
-        SELECT "spaceId", SUM(COALESCE("ticketsScanned", "ticketsSold", 0))::int AS "ticketsCount"
-        FROM "Event"
-        WHERE "tenantId" = ${tenantId} AND "spaceId" IN (${Prisma.join(spaceIds)})
-        GROUP BY "spaceId"
-      `),
+      revenueBySpace(this.prisma, tenantId, spaceIds),
+      ticketsBySpace(this.prisma, tenantId, spaceIds),
     ]);
 
-    const ticketsBySpace = new Map(ticketRows.map((r) => [r.spaceId, Number(r.ticketsCount) || 0]));
+    const ticketsCountBySpace = new Map(ticketRows.map((r) => [r.spaceId, Number(r.ticketsCount) || 0]));
     const out = new Map<string, SpaceRevenueSummary>();
     for (const row of revenueRows) {
       const totalRevenue = Number(row.totalRevenue) || 0;
       const transactionsCount = Number(row.transactionsCount) || 0;
       const eventsWithRevenue = Number(row.eventsWithRevenue) || 0;
-      const ticketsCount = ticketsBySpace.get(row.spaceId) ?? 0;
+      const ticketsCount = ticketsCountBySpace.get(row.spaceId) ?? 0;
       out.set(row.spaceId, {
         totalRevenue,
         fbRevenue: Number(row.fbRevenue) || 0,

@@ -1,6 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
+import {
+  latestPricesForEvents,
+  latestPricesFromAgg,
+  modalPricesFromAgg,
+  PriceAggFilter,
+  PriceRow,
+  ProductSalesTotals,
+  salesTotalsByProduct,
+} from './sales-price.queries';
 
 /**
  * Source de vérité UNIQUE du calcul de prix (TTC, HT, taxe, remise) — catalogue
@@ -22,6 +30,39 @@ export class MenuItemPricingService {
 
   private round2(value: number) {
     return Math.round((this.toNumber(value) + Number.EPSILON) * 100) / 100;
+  }
+
+  /** Noms normalisés (casse, espaces) vers le nom d'origine fourni par l'appelant. */
+  private normalizedNames(names: string[]): Map<string, string> {
+    const normToOrig = new Map<string, string>();
+    for (const n of names) if (n) normToOrig.set(n.trim().toLowerCase(), n);
+    return normToOrig;
+  }
+
+  /** Lignes de prix vers Map clé d'origine -> dernier prix. Les clés non résolues sont ignorées. */
+  private toLatestMap(rows: PriceRow[], resolve: (key: string) => string | undefined): Map<string, { ttc: number; vatRate: number | null }> {
+    const out: Map<string, { ttc: number; vatRate: number | null }> = new Map();
+    for (const r of rows) {
+      const key = r.key ? resolve(r.key) : undefined;
+      if (key) out.set(key, { ttc: Number(r.unitPrice), vatRate: r.vat != null ? Number(r.vat) : null });
+    }
+    return out;
+  }
+
+  /** Lignes de distribution vers Map clé d'origine -> prix triés par fréquence (HT dérivé de la TVA). */
+  private toModalMap(rows: Array<PriceRow & { n: number }>, resolve: (key: string) => string | undefined): Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>> {
+    const out: Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>> = new Map();
+    for (const r of rows) {
+      const key = r.key ? resolve(r.key) : undefined;
+      if (!key) continue;
+      const ttc = Number(r.unitPrice);
+      const vatRate = r.vat != null ? Number(r.vat) : null;
+      const ht = vatRate != null ? this.round2(ttc / (1 + vatRate / 100)) : null;
+      const list = out.get(key) ?? [];
+      list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
+      out.set(key, list);
+    }
+    return out;
   }
 
   /** Dernier taux TVA tenant (TenantVatConfig) ; `null` si non configuré (pas de 20 par défaut). */
@@ -168,7 +209,7 @@ export class MenuItemPricingService {
    * Les vraies locations individuelles sont dans `LocationShopMapping` (étape 2, "Locations" —
    * `salesLocationId` = un vrai `SalesLocation.id`, `spaceElementId` = le shop/PDV du builder
    * auquel cette location est rattachée). On résout donc : les `SpaceElement` de cet espace
-   * (mêmes 4 chemins que `SpacesService.getSpaceShops` — Floor/Forecourt/ExternalMerch via
+   * (mêmes 4 chemins que `SpaceEventTimelineService.getSpaceShops` — Floor/Forecourt/ExternalMerch via
    * Config.spaceId, ou Zone.spaceId direct pour le builder v2), puis les locations mappées à
    * l'un de ces éléments.
    */
@@ -236,164 +277,32 @@ export class MenuItemPricingService {
   // n'ont pas de tenantId ; le nom n'est pas unique).
 
   /**
-   * Dernier prix non nul par NOM de produit (normalisé casse/espaces). BUG-337-02 (docs/bugs/) :
-   * lit désormais SalesPriceAgg (pré-agrégé, tenu à jour à l'écriture) au lieu du raw JOIN
-   * WeezeventTransactionItem/WeezeventTransaction (17-40s mesurés sur un tenant réel).
-   * `excludeLocationIds` n'a plus d'appelant réel (BUG-336-02 a supprimé le niveau de repli qui le
-   * construisait) et n'est pas représentable dans l'agrégat (pas de dimension "exclusion") — si un
-   * appelant le fournit malgré tout, on retombe sur l'ancienne requête raw pour ne rien casser.
+   * Dernier prix non nul par NOM de produit (normalisé casse/espaces). BUG-337-02 : lu sur
+   * l'agrégat SalesPriceAgg (17-40 s mesurés avec l'ancien JOIN sur les transactions).
    */
   async getLatestSalesPricesByName(
     tenantId: string,
     names: string[],
-    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
+    opts: PriceAggFilter = {},
   ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
-    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) {
-      return this.getLatestSalesPricesByNameRaw(tenantId, names, opts);
-    }
-    const out = new Map<string, { ttc: number; vatRate: number | null }>();
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
-    const normToOrig = new Map<string, string>();
-    for (const n of names) if (n) normToOrig.set(n.trim().toLowerCase(), n);
-    if (!normToOrig.size) return out;
-    const normNames = [...normToOrig.keys()];
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`"tenantId" = ${tenantId}`,
-      Prisma.sql`"productNameNorm" IN (${Prisma.join(normNames)})`,
-    ];
-    if (opts.integrationId) conds.push(Prisma.sql`"integrationId" = ${opts.integrationId}`);
-    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`"locationId" IN (${Prisma.join(opts.locationIds)})`);
-    const rows = await this.prisma.$queryRaw<{ productNameNorm: string; unitPrice: any; vat: any }[]>(Prisma.sql`
-      SELECT DISTINCT ON (agg."productNameNorm") agg."productNameNorm", agg."unitPrice", agg."vat"
-      FROM (
-        SELECT "productNameNorm", "unitPrice", "vat", MAX("lastSoldAt") AS last_sold
-        FROM "SalesPriceAgg"
-        WHERE ${Prisma.join(conds, ' AND ')}
-        GROUP BY "productNameNorm", "unitPrice", "vat"
-      ) agg
-      ORDER BY agg."productNameNorm", agg.last_sold DESC
-    `);
-    for (const r of rows) {
-      const orig = normToOrig.get(r.productNameNorm);
-      if (orig) out.set(orig, { ttc: Number(r.unitPrice), vatRate: r.vat != null ? Number(r.vat) : null });
-    }
-    return out;
-  }
-
-  /** Ancienne implémentation raw (repli si `excludeLocationIds` fourni, cf. getLatestSalesPricesByName). */
-  private async getLatestSalesPricesByNameRaw(
-    tenantId: string,
-    names: string[],
-    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
-  ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
-    const out = new Map<string, { ttc: number; vatRate: number | null }>();
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
-    const normToOrig = new Map<string, string>();
-    for (const n of names) if (n) normToOrig.set(n.trim().toLowerCase(), n);
-    if (!normToOrig.size) return out;
-    const normNames = [...normToOrig.keys()];
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`t."tenantId" = ${tenantId}`,
-      Prisma.sql`LOWER(TRIM(ti."productName")) IN (${Prisma.join(normNames)})`,
-      Prisma.sql`ti."unitPrice" > 0`,
-    ];
-    if (opts.integrationId) conds.push(Prisma.sql`t."integrationId" = ${opts.integrationId}`);
-    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
-    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds)}))`);
-    const rows = await this.prisma.$queryRaw<{ nname: string; unitPrice: any; vat: any }[]>(Prisma.sql`
-      SELECT DISTINCT ON (LOWER(TRIM(ti."productName"))) LOWER(TRIM(ti."productName")) AS nname, ti."unitPrice", ti."vat"
-      FROM "WeezeventTransactionItem" ti
-      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
-      WHERE ${Prisma.join(conds, ' AND ')}
-      ORDER BY LOWER(TRIM(ti."productName")), t."transactionDate" DESC
-    `);
-    for (const r of rows) {
-      const orig = normToOrig.get(r.nname);
-      if (orig) out.set(orig, { ttc: Number(r.unitPrice), vatRate: r.vat != null ? Number(r.vat) : null });
-    }
-    return out;
+    if (opts.locationIds && opts.locationIds.length === 0) return new Map();
+    const normToOrig = this.normalizedNames(names);
+    if (!normToOrig.size) return new Map();
+    const rows = await latestPricesFromAgg(this.prisma, tenantId, 'productNameNorm', [...normToOrig.keys()], opts);
+    return this.toLatestMap(rows, (key) => normToOrig.get(key));
   }
 
   /** Distribution des prix par NOM de produit (normalisé casse/espaces). Cf. getLatestSalesPricesByName. */
   async getModalSalesPricesByName(
     tenantId: string,
     names: string[],
-    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
+    opts: PriceAggFilter = {},
   ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
-    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) {
-      return this.getModalSalesPricesByNameRaw(tenantId, names, opts);
-    }
-    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
-    const normToOrig = new Map<string, string>();
-    for (const n of names) if (n) normToOrig.set(n.trim().toLowerCase(), n);
-    if (!normToOrig.size) return out;
-    const normNames = [...normToOrig.keys()];
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`"tenantId" = ${tenantId}`,
-      Prisma.sql`"productNameNorm" IN (${Prisma.join(normNames)})`,
-    ];
-    if (opts.integrationId) conds.push(Prisma.sql`"integrationId" = ${opts.integrationId}`);
-    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`"locationId" IN (${Prisma.join(opts.locationIds)})`);
-    const rows = await this.prisma.$queryRaw<{ productNameNorm: string; unitPrice: any; vat: any; n: number }[]>(Prisma.sql`
-      SELECT "productNameNorm", "unitPrice", "vat", SUM("salesCount")::int AS n
-      FROM "SalesPriceAgg"
-      WHERE ${Prisma.join(conds, ' AND ')}
-      GROUP BY "productNameNorm", "unitPrice", "vat"
-      ORDER BY "productNameNorm", n DESC
-    `);
-    for (const r of rows) {
-      const orig = normToOrig.get(r.productNameNorm);
-      if (!orig) continue;
-      const ttc = Number(r.unitPrice);
-      const vatRate = r.vat != null ? Number(r.vat) : null;
-      const ht = vatRate != null ? this.round2(ttc / (1 + vatRate / 100)) : null;
-      const list = out.get(orig) ?? [];
-      list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
-      out.set(orig, list);
-    }
-    return out;
-  }
-
-  /** Ancienne implémentation raw (repli si `excludeLocationIds` fourni, cf. getModalSalesPricesByName). */
-  private async getModalSalesPricesByNameRaw(
-    tenantId: string,
-    names: string[],
-    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
-  ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
-    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
-    const normToOrig = new Map<string, string>();
-    for (const n of names) if (n) normToOrig.set(n.trim().toLowerCase(), n);
-    if (!normToOrig.size) return out;
-    const normNames = [...normToOrig.keys()];
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`t."tenantId" = ${tenantId}`,
-      Prisma.sql`LOWER(TRIM(ti."productName")) IN (${Prisma.join(normNames)})`,
-      Prisma.sql`ti."unitPrice" > 0`,
-    ];
-    if (opts.integrationId) conds.push(Prisma.sql`t."integrationId" = ${opts.integrationId}`);
-    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
-    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds)}))`);
-    const rows = await this.prisma.$queryRaw<{ nname: string; unitPrice: any; vat: any; n: number }[]>(Prisma.sql`
-      SELECT LOWER(TRIM(ti."productName")) AS nname, ti."unitPrice", ti."vat", count(*)::int AS n
-      FROM "WeezeventTransactionItem" ti
-      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
-      WHERE ${Prisma.join(conds, ' AND ')}
-      GROUP BY LOWER(TRIM(ti."productName")), ti."unitPrice", ti."vat"
-      ORDER BY LOWER(TRIM(ti."productName")), n DESC
-    `);
-    for (const r of rows) {
-      const orig = normToOrig.get(r.nname);
-      if (!orig) continue;
-      const ttc = Number(r.unitPrice);
-      const vatRate = r.vat != null ? Number(r.vat) : null;
-      const ht = vatRate != null ? this.round2(ttc / (1 + vatRate / 100)) : null;
-      const list = out.get(orig) ?? [];
-      list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
-      out.set(orig, list);
-    }
-    return out;
+    if (opts.locationIds && opts.locationIds.length === 0) return new Map();
+    const normToOrig = this.normalizedNames(names);
+    if (!normToOrig.size) return new Map();
+    const rows = await modalPricesFromAgg(this.prisma, tenantId, 'productNameNorm', [...normToOrig.keys()], opts);
+    return this.toModalMap(rows, (key) => normToOrig.get(key));
   }
 
   /** Prix « de l'espace » par NOM — strictement les locations mappées à cet espace (BUG-335-02). */
@@ -429,147 +338,30 @@ export class MenuItemPricingService {
   // `ti."rawData"->>'item_id'` (indépendant du FK productId et du productName). Résout le cas où
   // le FK est absent/pointe ailleurs ET où le nom diffère.
 
-  /**
-   * Dernier prix non nul par item_id Weezevent (rawData.item_id). BUG-337-02 (docs/bugs/) : lit
-   * SalesPriceAgg (pré-agrégé) au lieu du raw JOIN — cf. getLatestSalesPricesByName pour le
-   * raisonnement complet (même repli raw si `excludeLocationIds` fourni, param sans appelant réel
-   * mais non représentable dans l'agrégat).
-   */
+  /** Dernier prix non nul par item_id Weezevent (rawData.item_id), lu sur SalesPriceAgg (BUG-337-02). */
   async getLatestSalesPricesByWeezeventId(
     tenantId: string,
     weezeventIds: string[],
-    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
+    opts: PriceAggFilter = {},
   ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
-    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) {
-      return this.getLatestSalesPricesByWeezeventIdRaw(tenantId, weezeventIds, opts);
-    }
-    const out = new Map<string, { ttc: number; vatRate: number | null }>();
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
+    if (opts.locationIds && opts.locationIds.length === 0) return new Map();
     const uniq = [...new Set(weezeventIds.filter(Boolean).map(String))];
-    if (!uniq.length) return out;
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`"tenantId" = ${tenantId}`,
-      Prisma.sql`"itemWeezeventId" IN (${Prisma.join(uniq)})`,
-    ];
-    if (opts.integrationId) conds.push(Prisma.sql`"integrationId" = ${opts.integrationId}`);
-    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`"locationId" IN (${Prisma.join(opts.locationIds)})`);
-    const rows = await this.prisma.$queryRaw<{ itemWeezeventId: string; unitPrice: any; vat: any }[]>(Prisma.sql`
-      SELECT DISTINCT ON (agg."itemWeezeventId") agg."itemWeezeventId", agg."unitPrice", agg."vat"
-      FROM (
-        SELECT "itemWeezeventId", "unitPrice", "vat", MAX("lastSoldAt") AS last_sold
-        FROM "SalesPriceAgg"
-        WHERE ${Prisma.join(conds, ' AND ')}
-        GROUP BY "itemWeezeventId", "unitPrice", "vat"
-      ) agg
-      ORDER BY agg."itemWeezeventId", agg.last_sold DESC
-    `);
-    for (const r of rows) if (r.itemWeezeventId) out.set(r.itemWeezeventId, { ttc: Number(r.unitPrice), vatRate: r.vat != null ? Number(r.vat) : null });
-    return out;
-  }
-
-  /** Ancienne implémentation raw (repli si `excludeLocationIds` fourni, cf. getLatestSalesPricesByWeezeventId). */
-  private async getLatestSalesPricesByWeezeventIdRaw(
-    tenantId: string,
-    weezeventIds: string[],
-    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
-  ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
-    const out = new Map<string, { ttc: number; vatRate: number | null }>();
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
-    const uniq = [...new Set(weezeventIds.filter(Boolean).map(String))];
-    if (!uniq.length) return out;
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`t."tenantId" = ${tenantId}`,
-      Prisma.sql`(ti."rawData"->>'item_id') IN (${Prisma.join(uniq)})`,
-      Prisma.sql`ti."unitPrice" > 0`,
-    ];
-    if (opts.integrationId) conds.push(Prisma.sql`t."integrationId" = ${opts.integrationId}`);
-    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
-    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds)}))`);
-    const rows = await this.prisma.$queryRaw<{ wid: string; unitPrice: any; vat: any }[]>(Prisma.sql`
-      SELECT DISTINCT ON ((ti."rawData"->>'item_id')) (ti."rawData"->>'item_id') AS wid, ti."unitPrice", ti."vat"
-      FROM "WeezeventTransactionItem" ti
-      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
-      WHERE ${Prisma.join(conds, ' AND ')}
-      ORDER BY (ti."rawData"->>'item_id'), t."transactionDate" DESC
-    `);
-    for (const r of rows) if (r.wid) out.set(r.wid, { ttc: Number(r.unitPrice), vatRate: r.vat != null ? Number(r.vat) : null });
-    return out;
+    if (!uniq.length) return new Map();
+    const rows = await latestPricesFromAgg(this.prisma, tenantId, 'itemWeezeventId', uniq, opts);
+    return this.toLatestMap(rows, (key) => key);
   }
 
   /** Distribution des prix par item_id Weezevent. Cf. getLatestSalesPricesByWeezeventId. */
   async getModalSalesPricesByWeezeventId(
     tenantId: string,
     weezeventIds: string[],
-    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
+    opts: PriceAggFilter = {},
   ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
-    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) {
-      return this.getModalSalesPricesByWeezeventIdRaw(tenantId, weezeventIds, opts);
-    }
-    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
+    if (opts.locationIds && opts.locationIds.length === 0) return new Map();
     const uniq = [...new Set(weezeventIds.filter(Boolean).map(String))];
-    if (!uniq.length) return out;
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`"tenantId" = ${tenantId}`,
-      Prisma.sql`"itemWeezeventId" IN (${Prisma.join(uniq)})`,
-    ];
-    if (opts.integrationId) conds.push(Prisma.sql`"integrationId" = ${opts.integrationId}`);
-    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`"locationId" IN (${Prisma.join(opts.locationIds)})`);
-    const rows = await this.prisma.$queryRaw<{ itemWeezeventId: string; unitPrice: any; vat: any; n: number }[]>(Prisma.sql`
-      SELECT "itemWeezeventId", "unitPrice", "vat", SUM("salesCount")::int AS n
-      FROM "SalesPriceAgg"
-      WHERE ${Prisma.join(conds, ' AND ')}
-      GROUP BY "itemWeezeventId", "unitPrice", "vat"
-      ORDER BY "itemWeezeventId", n DESC
-    `);
-    for (const r of rows) {
-      if (!r.itemWeezeventId) continue;
-      const ttc = Number(r.unitPrice);
-      const vatRate = r.vat != null ? Number(r.vat) : null;
-      const ht = vatRate != null ? this.round2(ttc / (1 + vatRate / 100)) : null;
-      const list = out.get(r.itemWeezeventId) ?? [];
-      list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
-      out.set(r.itemWeezeventId, list);
-    }
-    return out;
-  }
-
-  /** Ancienne implémentation raw (repli si `excludeLocationIds` fourni, cf. getModalSalesPricesByWeezeventId). */
-  private async getModalSalesPricesByWeezeventIdRaw(
-    tenantId: string,
-    weezeventIds: string[],
-    opts: { integrationId?: string; locationIds?: string[]; excludeLocationIds?: string[] } = {},
-  ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
-    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
-    const uniq = [...new Set(weezeventIds.filter(Boolean).map(String))];
-    if (!uniq.length) return out;
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`t."tenantId" = ${tenantId}`,
-      Prisma.sql`(ti."rawData"->>'item_id') IN (${Prisma.join(uniq)})`,
-      Prisma.sql`ti."unitPrice" > 0`,
-    ];
-    if (opts.integrationId) conds.push(Prisma.sql`t."integrationId" = ${opts.integrationId}`);
-    if (opts.locationIds && opts.locationIds.length > 0) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
-    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds)}))`);
-    const rows = await this.prisma.$queryRaw<{ wid: string; unitPrice: any; vat: any; n: number }[]>(Prisma.sql`
-      SELECT (ti."rawData"->>'item_id') AS wid, ti."unitPrice", ti."vat", count(*)::int AS n
-      FROM "WeezeventTransactionItem" ti
-      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
-      WHERE ${Prisma.join(conds, ' AND ')}
-      GROUP BY (ti."rawData"->>'item_id'), ti."unitPrice", ti."vat"
-      ORDER BY (ti."rawData"->>'item_id'), n DESC
-    `);
-    for (const r of rows) {
-      if (!r.wid) continue;
-      const ttc = Number(r.unitPrice);
-      const vatRate = r.vat != null ? Number(r.vat) : null;
-      const ht = vatRate != null ? this.round2(ttc / (1 + vatRate / 100)) : null;
-      const list = out.get(r.wid) ?? [];
-      list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
-      out.set(r.wid, list);
-    }
-    return out;
+    if (!uniq.length) return new Map();
+    const rows = await modalPricesFromAgg(this.prisma, tenantId, 'itemWeezeventId', uniq, opts);
+    return this.toModalMap(rows, (key) => key);
   }
 
   /** Prix « de l'espace » par item_id Weezevent — strictement les locations mappées à cet espace (BUG-335-02). */
@@ -601,104 +393,32 @@ export class MenuItemPricingService {
   }
 
   /**
-   * Dernier prix de vente NON NUL par produit (le plus récent par `transactionDate`). Spec :
-   * « le dernier prix unitaire TTC (le plus récent) ». La condition `unitPrice > 0` + le tri
-   * décroissant réalisent la règle « si le dernier est 0, on remonte jusqu'au vrai prix » : on
-   * saute les ventes à 0 (gratuités / data) et on retient la 1re vente non nulle. Un produit
-   * sans AUCUNE vente non nulle est ABSENT de la Map → l'appelant retombe sur le catalogue (on ne
-   * conclut jamais un 0 arbitraire). `opts.locationIds` scope à un espace (sinon tous espaces) ;
-   * `opts.eventIds` scope à un/des event(s) (priorité event — l'appelant gère le repli). `unitPrice`
-   * Weezevent est TTC → HT dérivé par l'appelant. Requête unique indexée
-   * (`(tenantId, locationId, transactionDate)` + `productId`).
+   * Dernier prix de vente NON NUL par produit (« si le dernier est 0, on remonte jusqu'au vrai
+   * prix »). Un produit sans vente non nulle est ABSENT de la Map : l'appelant retombe sur le
+   * catalogue, on ne conclut jamais un 0 arbitraire. `opts.locationIds` scope à un espace ([] =
+   * espace sans location mappée, Map vide) ; `opts.eventIds` scope à des events, ce que
+   * l'agrégat ne sait pas faire (lecture des transactions dans ce seul cas). `unitPrice` est TTC.
    */
   async getLatestSalesPrices(
     tenantId: string,
     productIds: string[],
-    opts: { locationIds?: string[]; excludeLocationIds?: string[]; eventIds?: string[] } = {},
+    opts: { locationIds?: string[]; eventIds?: string[] } = {},
   ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
-    // BUG-337-02 (docs/bugs/) : SalesPriceAgg n'a pas de dimension event ni "exclusion" — un
-    // appelant qui a réellement besoin de l'un des deux (menu-items.service.ts::eventIds) retombe
-    // sur l'ancienne requête raw pour ne rien casser. Le chemin agrégé (rapide) couvre 100% des
-    // appelants réels actuels (aucun `excludeLocationIds` en usage depuis BUG-336-02).
-    if ((opts.eventIds && opts.eventIds.length > 0) || (opts.excludeLocationIds && opts.excludeLocationIds.length > 0)) {
-      return this.getLatestSalesPricesRaw(tenantId, productIds, opts);
-    }
-    const out = new Map<string, { ttc: number; vatRate: number | null }>();
     const ids = [...new Set(productIds.filter(Boolean))];
-    if (ids.length === 0) return out;
-    // Espace explicitement sans location mappée → aucune vente attribuable à cet espace.
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`"tenantId" = ${tenantId}`,
-      Prisma.sql`"productId" IN (${Prisma.join(ids)})`,
-    ];
-    if (opts.locationIds && opts.locationIds.length > 0) {
-      conds.push(Prisma.sql`"locationId" IN (${Prisma.join(opts.locationIds)})`);
-    }
-    const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any }[]>(Prisma.sql`
-      SELECT DISTINCT ON (agg."productId") agg."productId", agg."unitPrice", agg."vat"
-      FROM (
-        SELECT "productId", "unitPrice", "vat", MAX("lastSoldAt") AS last_sold
-        FROM "SalesPriceAgg"
-        WHERE ${Prisma.join(conds, ' AND ')}
-        GROUP BY "productId", "unitPrice", "vat"
-      ) agg
-      ORDER BY agg."productId", agg.last_sold DESC
-    `);
-    for (const r of rows) {
-      const ttc = Number(r.unitPrice);
-      out.set(r.productId, { ttc, vatRate: r.vat != null ? Number(r.vat) : null });
-    }
-    return out;
-  }
-
-  /** Ancienne implémentation raw (repli si `eventIds`/`excludeLocationIds` fournis, cf. getLatestSalesPrices). */
-  private async getLatestSalesPricesRaw(
-    tenantId: string,
-    productIds: string[],
-    opts: { locationIds?: string[]; excludeLocationIds?: string[]; eventIds?: string[] } = {},
-  ): Promise<Map<string, { ttc: number; vatRate: number | null }>> {
-    const out = new Map<string, { ttc: number; vatRate: number | null }>();
-    const ids = [...new Set(productIds.filter(Boolean))];
-    if (ids.length === 0) return out;
-    // Espace explicitement sans location mappée → aucune vente attribuable à cet espace.
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
-    // BUG-332-02 (docs/bugs/) : le commentaire ci-dessus promettait déjà l'index
-    // (tenantId, locationId, transactionDate) — jamais engagé faute de ce filtre. Sans lui, le
-    // JOIN vers "WeezeventTransaction" force un Seq Scan de TOUTE la table (tous tenants, ~1,8M
-    // lignes mesurées) pour construire le côté hash du join → ~23s sur un tenant à gros volume,
-    // largement au-delà du timeout du proxy Render (502 côté front). Même correctif déjà en place
-    // sur getLatestSalesPricesByName/getLatestSalesPricesByWeezeventId (plus bas dans ce fichier).
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`t."tenantId" = ${tenantId}`,
-      Prisma.sql`ti."productId" IN (${Prisma.join(ids)})`,
-      Prisma.sql`ti."unitPrice" > 0`,
-    ];
-    if (opts.locationIds && opts.locationIds.length > 0) {
-      conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds)})`);
-    }
-    // Exclusion (repli « pas un autre espace ») : ventes NON attribuées aux locations d'autres
-    // espaces — inclut les ventes sans location (null) ou sur des locations non mappées.
-    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) {
-      conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds)}))`);
-    }
-    // Filtre event optionnel (priorité event) : ne s'applique que si des ids sont fournis, sinon
-    // « tous events » (le tri transactionDate DESC prend alors naturellement l'event le plus récent).
+    if (ids.length === 0) return new Map();
+    if (opts.locationIds && opts.locationIds.length === 0) return new Map();
     if (opts.eventIds && opts.eventIds.length > 0) {
-      conds.push(Prisma.sql`t."eventId" IN (${Prisma.join(opts.eventIds)})`);
+      const rows = await latestPricesForEvents(this.prisma, tenantId, ids, {
+        locationIds: opts.locationIds,
+        eventIds: opts.eventIds,
+      });
+      return this.toLatestMap(
+        rows.map((r) => ({ key: r.productId, unitPrice: r.unitPrice, vat: r.vat })),
+        (key) => key,
+      );
     }
-    const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any }[]>(Prisma.sql`
-      SELECT DISTINCT ON (ti."productId") ti."productId", ti."unitPrice", ti."vat"
-      FROM "WeezeventTransactionItem" ti
-      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
-      WHERE ${Prisma.join(conds, ' AND ')}
-      ORDER BY ti."productId", t."transactionDate" DESC
-    `);
-    for (const r of rows) {
-      const ttc = Number(r.unitPrice);
-      out.set(r.productId, { ttc, vatRate: r.vat != null ? Number(r.vat) : null });
-    }
-    return out;
+    const rows = await latestPricesFromAgg(this.prisma, tenantId, 'productId', ids, { locationIds: opts.locationIds });
+    return this.toLatestMap(rows, (key) => key);
   }
 
   // ── Weezevent / Data Integration ────────────────────────────────────────────
@@ -714,12 +434,8 @@ export class MenuItemPricingService {
   }
 
   /**
-   * Agrégats de ventes réelles par produit (depuis WeezeventTransactionItem).
-   * `opts.integrationId` / `opts.fromDate` / `opts.toDate` scopent l'agrégat : ils
-   * activent l'index `[tenantId, integrationId, transactionDate]` de WeezeventTransaction
-   * au lieu d'un seq scan sur tout l'historique (~12 s → quelques ms par intégration).
-   * ⚠️ N'utiliser `integrationId` que si les `productIds` appartiennent tous à cette
-   * intégration (sinon les ventes des autres intégrations sont exclues à tort).
+   * Agrégats de ventes réelles par produit. ⚠️ N'utiliser `integrationId` que si les
+   * `productIds` appartiennent tous à cette intégration (sinon ventes exclues à tort).
    */
   private async weezeventSalesByProduct(
     tenantId: string,
@@ -727,27 +443,8 @@ export class MenuItemPricingService {
     opts: { integrationId?: string; fromDate?: Date; toDate?: Date } = {},
   ) {
     const ids = [...new Set(productIds.filter(Boolean))];
-    if (!ids.length) return new Map<string, any>();
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`t."tenantId" = ${tenantId}`,
-      Prisma.sql`ti."productId" IN (${Prisma.join(ids)})`,
-    ];
-    if (opts.integrationId) conds.push(Prisma.sql`t."integrationId" = ${opts.integrationId}`);
-    if (opts.fromDate) conds.push(Prisma.sql`t."transactionDate" >= ${opts.fromDate}`);
-    if (opts.toDate) conds.push(Prisma.sql`t."transactionDate" <= ${opts.toDate}`);
-    const rows = await this.prisma.$queryRaw<any[]>(Prisma.sql`
-      SELECT ti."productId" AS "productId",
-        SUM(ti."quantity")::float8                                              AS qty,
-        SUM(ti."unitPrice" * ti."quantity")::float8                             AS gross_ttc,
-        SUM(ti."unitPrice" * ti."quantity" / (1 + ti."vat" / 100.0))::float8    AS gross_ht,
-        SUM(ti."reduction")::float8                                             AS reduction_ttc,
-        SUM((ti."unitPrice" * ti."quantity" - ti."reduction")
-            / (1 + ti."vat" / 100.0))::float8                                   AS net_ht
-      FROM "WeezeventTransactionItem" ti
-      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
-      WHERE ${Prisma.join(conds, ' AND ')}
-      GROUP BY ti."productId"
-    `);
+    if (!ids.length) return new Map<string, ProductSalesTotals>();
+    const rows = await salesTotalsByProduct(this.prisma, tenantId, ids, opts);
     return new Map(rows.map((r) => [r.productId, r]));
   }
 
@@ -771,94 +468,20 @@ export class MenuItemPricingService {
   }
 
   /**
-   * Prix de vente « modal » par produit Weezevent : un point par couple (unitPrice, vat),
-   * trié par fréquence DÉCROISSANTE (le premier = prix le plus pratiqué). BUG-337-02 (docs/bugs/) :
-   * lit désormais SalesPriceAgg (pré-agrégé, tenu à jour à l'écriture) au lieu du raw JOIN
-   * WeezeventTransactionItem/WeezeventTransaction — `tenantId` est maintenant TOUJOURS filtré
-   * (la table est petite, plus besoin du "fast path sans join" de l'ancienne implémentation).
-   * `opts.locationIds` scope la distribution à un espace ; `[]` = espace sans location mappée →
-   * aucune vente attribuable (Map vide). `excludeLocationIds` n'a plus d'appelant réel
-   * (BUG-336-02) et retombe sur l'ancienne requête raw si fourni malgré tout.
+   * Prix de vente « modal » par produit : un point par couple (unitPrice, vat), du plus
+   * pratiqué au moins pratiqué, lu sur SalesPriceAgg (BUG-337-02). `opts.locationIds` scope à
+   * un espace ; [] = espace sans location mappée (Map vide).
    */
   async getModalSalesPrices(
     tenantId: string,
     productIds: string[],
-    opts: { locationIds?: string[]; excludeLocationIds?: string[] } = {},
+    opts: { locationIds?: string[] } = {},
   ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
-    if (opts.excludeLocationIds && opts.excludeLocationIds.length > 0) {
-      return this.getModalSalesPricesRaw(tenantId, productIds, opts);
-    }
-    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
     const ids = [...new Set(productIds.filter(Boolean))];
-    if (ids.length === 0) return out;
-    // Espace explicitement sans location mappée → aucune vente attribuable à cet espace.
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`"tenantId" = ${tenantId}`,
-      Prisma.sql`"productId" IN (${Prisma.join(ids)})`,
-    ];
-    if (opts.locationIds && opts.locationIds.length > 0) {
-      conds.push(Prisma.sql`"locationId" IN (${Prisma.join(opts.locationIds)})`);
-    }
-    const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any; n: number }[]>(Prisma.sql`
-      SELECT "productId", "unitPrice", "vat", SUM("salesCount")::int AS n
-      FROM "SalesPriceAgg"
-      WHERE ${Prisma.join(conds, ' AND ')}
-      GROUP BY "productId", "unitPrice", "vat"
-      ORDER BY "productId", n DESC
-    `);
-    for (const r of rows) {
-      const ttc = Number(r.unitPrice);
-      const vatRate = r.vat != null ? Number(r.vat) : null;
-      const ht = vatRate != null ? this.round2(ttc / (1 + vatRate / 100)) : null;
-      const list = out.get(r.productId) ?? [];
-      list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
-      out.set(r.productId, list);
-    }
-    return out;
-  }
-
-  /** Ancienne implémentation raw (repli si `excludeLocationIds` fourni, cf. getModalSalesPrices). */
-  private async getModalSalesPricesRaw(
-    tenantId: string,
-    productIds: string[],
-    opts: { locationIds?: string[]; excludeLocationIds?: string[] } = {},
-  ): Promise<Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>> {
-    const out = new Map<string, Array<{ ttc: number; ht: number | null; vatRate: number | null; salesCount: number }>>();
-    const ids = [...new Set(productIds.filter(Boolean))];
-    if (ids.length === 0) return out;
-    // Espace explicitement sans location mappée → aucune vente attribuable à cet espace.
-    if (opts.locationIds && opts.locationIds.length === 0) return out;
-    const hasLoc = !!(opts.locationIds && opts.locationIds.length > 0);
-    const hasExcl = !!(opts.excludeLocationIds && opts.excludeLocationIds.length > 0);
-    const needsJoin = hasLoc || hasExcl;
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`ti."productId" IN (${Prisma.join(ids)})`,
-      Prisma.sql`ti."unitPrice" > 0`,
-    ];
-    // BUG-332-02 (docs/bugs/) : le filtre tenantId ne peut porter sur `t` que si le JOIN est
-    // présent — sans location filter, needsJoin=false et le chemin reste volontairement le
-    // "fast path" documenté ci-dessus (productId déjà vérifié tenant par l'appelant, pas de join).
-    if (needsJoin) conds.push(Prisma.sql`t."tenantId" = ${tenantId}`);
-    if (hasLoc) conds.push(Prisma.sql`t."locationId" IN (${Prisma.join(opts.locationIds!)})`);
-    if (hasExcl) conds.push(Prisma.sql`(t."locationId" IS NULL OR t."locationId" NOT IN (${Prisma.join(opts.excludeLocationIds!)}))`);
-    const rows = await this.prisma.$queryRaw<{ productId: string; unitPrice: any; vat: any; n: number }[]>(Prisma.sql`
-      SELECT ti."productId", ti."unitPrice", ti."vat", count(*)::int AS n
-      FROM "WeezeventTransactionItem" ti
-      ${needsJoin ? Prisma.sql`JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"` : Prisma.empty}
-      WHERE ${Prisma.join(conds, ' AND ')}
-      GROUP BY ti."productId", ti."unitPrice", ti."vat"
-      ORDER BY ti."productId", n DESC
-    `);
-    for (const r of rows) {
-      const ttc = Number(r.unitPrice);
-      const vatRate = r.vat != null ? Number(r.vat) : null;
-      const ht = vatRate != null ? this.round2(ttc / (1 + vatRate / 100)) : null;
-      const list = out.get(r.productId) ?? [];
-      list.push({ ttc, ht, vatRate, salesCount: Number(r.n) });
-      out.set(r.productId, list);
-    }
-    return out;
+    if (ids.length === 0) return new Map();
+    if (opts.locationIds && opts.locationIds.length === 0) return new Map();
+    const rows = await modalPricesFromAgg(this.prisma, tenantId, 'productId', ids, { locationIds: opts.locationIds });
+    return this.toModalMap(rows, (key) => key);
   }
 
   /**

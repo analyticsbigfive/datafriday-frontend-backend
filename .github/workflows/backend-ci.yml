@@ -1,0 +1,74 @@
+name: backend-ci
+
+on:
+  pull_request:
+    paths: ['backend/**', '.github/workflows/backend-ci.yml']
+  push:
+    branches: [develop, staging, production]
+    paths: ['backend/**', '.github/workflows/backend-ci.yml']
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: backend
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      # Base jetable : jamais la production (garde-fou jest.db-guard.js : hôte local exigé).
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: datafriday_ci
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U ci -d datafriday_ci"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+    env:
+      DATABASE_URL: postgresql://ci:ci@localhost:5432/datafriday_ci
+      DIRECT_URL: postgresql://ci:ci@localhost:5432/datafriday_ci
+      REDIS_URL: redis://localhost:6379
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: backend/package.json
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: backend/.nvmrc
+          cache: pnpm
+          cache-dependency-path: backend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec prisma generate
+      - name: Typage
+        run: pnpm exec tsc --noEmit -p tsconfig.json
+      - name: Lint
+        run: pnpm exec eslint "src/**/*.ts" --max-warnings=0
+      - name: Index (redondants, clés étrangères sans index)
+        run: node scripts/check-schema-indexes.mjs
+      - name: Code mort (knip)
+        run: pnpm exec knip
+      - name: Duplication (jscpd, seuil 3 %)
+        run: pnpm exec jscpd
+      - name: Migrations sur base vide
+        run: pnpm exec prisma migrate deploy
+      - name: Dérive schema.prisma / migrations
+        # Seule dérive tolérée : colonnes héritées en attente de décision (plan, D0).
+        run: |
+          pnpm exec prisma migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --script \
+            | grep -vE '^--|^$|DROP DEFAULT|SET DATA TYPE TIMESTAMP\(3\)|DROP COLUMN "(spaceIds|spacePrices|clientId|clientSecret|organizationId)"' \
+            > /tmp/drift.sql || true
+          if [ -s /tmp/drift.sql ]; then echo "Dérive non migrée :"; cat /tmp/drift.sql; exit 1; fi
+      - name: Tests (unitaires + intégration)
+        run: pnpm exec jest --maxWorkers=2

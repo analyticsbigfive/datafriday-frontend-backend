@@ -87,16 +87,6 @@ export class GuestPinAccessService {
     private readonly storageTypes: StorageTypesService,
   ) {}
 
-  /** STAFF/VIEWER limités à leurs espaces accordés (SpaceAccessGuard ne s'applique
-   *  pas ici : les routes directeur n'exposent spaceId que sur certaines d'entre
-   *  elles). Même règle que SpaceAccessGuard, appliquée manuellement. */
-  async assertSpaceAccess(user: CurrentUserData, spaceId: string): Promise<void> {
-    const allowed = await this.spaceAccess.canAccessSpace(user, spaceId);
-    if (!allowed) {
-      throw new ForbiddenException("Vous n'avez pas accès à cet espace.");
-    }
-  }
-
   private pinSecret(): string {
     return this.configService.getOrThrow<string>('GUEST_PIN_HMAC_SECRET');
   }
@@ -679,7 +669,7 @@ export class GuestPinAccessService {
   /** Périodes pre/post-event d'un event, pour que l'écran directeur affiche quand le
    *  PIN est générable (et désactive le bouton hors période) sans recalculer. */
   async getPeriods(spaceId: string, eventId: string, user: CurrentUserData) {
-    await this.assertSpaceAccess(user, spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, spaceId);
     const tenantId = user.tenantId!;
     const [pre, post] = await Promise.all([
       this.resolvePeriod(spaceId, eventId, tenantId, 'pre-event'),
@@ -707,7 +697,7 @@ export class GuestPinAccessService {
   }
 
   async createOrReopenWindow(dto: CreateWindowDto, user: CurrentUserData) {
-    await this.assertSpaceAccess(user, dto.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
     await this.assertPeriodOpen(dto.spaceId, dto.eventId, user.tenantId!, dto.phase);
     return this.openWindowRecord(dto, user.tenantId!, user.id);
   }
@@ -781,7 +771,7 @@ export class GuestPinAccessService {
    * l'expose). Toutes configurations confondues, comme « Voir tout l'inventaire ».
    */
   async getStorageSlugs(spaceId: string, user: CurrentUserData): Promise<Record<string, string>> {
-    await this.assertSpaceAccess(user, spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, spaceId);
     const inSpace = { spaceId, space: { tenantId: user.tenantId! } };
     const storages = await this.prisma.spaceElement.findMany({
       where: {
@@ -799,7 +789,7 @@ export class GuestPinAccessService {
   }
 
   async getStatusBoard(spaceId: string, eventId: string, user: CurrentUserData) {
-    await this.assertSpaceAccess(user, spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, spaceId);
     const windows = await this.prisma.inventoryWindow.findMany({
       where: { tenantId: user.tenantId!, spaceId, eventId, phase: { in: INVENTORY_PHASES } },
       include: { guestAccesses: true },
@@ -868,7 +858,7 @@ export class GuestPinAccessService {
     const tenantId = user.tenantId!;
     const window = await this.prisma.inventoryWindow.findFirst({ where: { id: windowId, tenantId } });
     if (!window) throw new NotFoundException('Fenêtre introuvable');
-    await this.assertSpaceAccess(user, window.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, window.spaceId);
     if (window.status !== 'open') {
       throw new BadRequestException('Fenêtre clôturée : impossible de générer un PIN.');
     }
@@ -973,7 +963,7 @@ export class GuestPinAccessService {
 
   /** ▶ du bandeau : ouvre l'accès par PIN à tous les PDV pour cette phase. */
   async startWindow(dto: WindowTargetDto, user: CurrentUserData) {
-    await this.assertSpaceAccess(user, dto.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
     const tenantId = user.tenantId!;
     await this.assertPeriodOpen(dto.spaceId, dto.eventId, tenantId, dto.phase);
     await this.startPhase(dto, tenantId, user.id);
@@ -1054,7 +1044,7 @@ export class GuestPinAccessService {
 
   /** ■ du bandeau : coupe l'accès par PIN de tous les PDV, PIN conservé. */
   async stopWindow(dto: WindowTargetDto, user: CurrentUserData) {
-    await this.assertSpaceAccess(user, dto.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
     const tenantId = user.tenantId!;
     const window = await this.findWindow(dto.spaceId, dto.eventId, tenantId, dto.phase);
     if (window) await this.stopPhaseWindow(window, user.id, 'manual-stop');
@@ -1063,7 +1053,7 @@ export class GuestPinAccessService {
 
   /** ▶ d'une ligne PDV : ouvre l'accès par PIN à ce seul PDV, même fenêtre arrêtée. */
   async startElement(dto: WindowElementDto, user: CurrentUserData) {
-    await this.assertSpaceAccess(user, dto.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
     const tenantId = user.tenantId!;
     await this.assertPeriodOpen(dto.spaceId, dto.eventId, tenantId, dto.phase);
 
@@ -1109,7 +1099,7 @@ export class GuestPinAccessService {
 
   /** ■ d'une ligne PDV : coupe l'accès par PIN de ce seul PDV. */
   async stopElement(dto: WindowElementDto, user: CurrentUserData) {
-    await this.assertSpaceAccess(user, dto.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, dto.spaceId);
     const tenantId = user.tenantId!;
     const window = await this.findWindow(dto.spaceId, dto.eventId, tenantId, dto.phase);
     if (window) {
@@ -1203,7 +1193,7 @@ export class GuestPinAccessService {
     const tenantId = user.tenantId!;
     const access = await this.prisma.guestPinAccess.findFirst({ where: { id: accessId, tenantId } });
     if (!access) throw new NotFoundException('Accès introuvable');
-    await this.assertSpaceAccess(user, access.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, access.spaceId);
 
     await this.prisma.guestPinAccess.update({
       where: { id: accessId },
@@ -1233,7 +1223,7 @@ export class GuestPinAccessService {
     const tenantId = user.tenantId!;
     const access = await this.prisma.guestPinAccess.findFirst({ where: { id: accessId, tenantId } });
     if (!access) throw new NotFoundException('Accès introuvable');
-    await this.assertSpaceAccess(user, access.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, access.spaceId);
     if (access.status === 'active') return { status: 'active' };
 
     await this.prisma.guestPinAccess.update({
@@ -1262,7 +1252,7 @@ export class GuestPinAccessService {
     const tenantId = user.tenantId!;
     const access = await this.prisma.guestPinAccess.findFirst({ where: { id: accessId, tenantId } });
     if (!access) throw new NotFoundException('Accès introuvable');
-    await this.assertSpaceAccess(user, access.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, access.spaceId);
     if (access.validatedAt) return { validatedAt: access.validatedAt };
     if (!access.submittedAt) {
       throw new ForbiddenException("Ce PDV n'a pas encore été soumis par le manager (\"J'ai terminé\").");
@@ -1295,7 +1285,7 @@ export class GuestPinAccessService {
     const tenantId = user.tenantId!;
     const access = await this.prisma.guestPinAccess.findFirst({ where: { id: accessId, tenantId } });
     if (!access) throw new NotFoundException('Accès introuvable');
-    await this.assertSpaceAccess(user, access.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, access.spaceId);
     if (!access.submittedAt && !access.validatedAt) return { submittedAt: null };
 
     await this.prisma.guestPinAccess.update({
@@ -1320,7 +1310,7 @@ export class GuestPinAccessService {
     const actorUserId = user.id;
     const window = await this.prisma.inventoryWindow.findFirst({ where: { id: windowId, tenantId } });
     if (!window) throw new NotFoundException('Fenêtre introuvable');
-    await this.assertSpaceAccess(user, window.spaceId);
+    await this.spaceAccess.assertCanAccessSpace(user, window.spaceId);
     if (window.status !== 'open') {
       throw new ForbiddenException('Fenêtre déjà clôturée');
     }

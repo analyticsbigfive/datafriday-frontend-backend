@@ -5,7 +5,6 @@ import { PrismaService } from '../../core/database/prisma.service';
 
 describe('OrganizationsService', () => {
   let service: OrganizationsService;
-  let prisma: PrismaService;
 
   const mockOrganization = {
     id: 'org-123',
@@ -38,7 +37,6 @@ describe('OrganizationsService', () => {
     }).compile();
 
     service = module.get<OrganizationsService>(OrganizationsService);
-    prisma = module.get<PrismaService>(PrismaService);
 
     jest.clearAllMocks();
   });

@@ -641,7 +641,7 @@ export class DigifoodCsvImportService {
         const placedAt = parseCsvDate(first.placed_at || first.placed_at_date, first.placed_at_time);
         if (first.placed_at || first.placed_at_date) {
             if (!placedAt) {
-                throw new Error(`placed_at invalide : "${first.placed_at || first.placed_at_date} ${first.placed_at_time}"`);
+                throw new BadRequestException(`placed_at invalide : "${first.placed_at || first.placed_at_date} ${first.placed_at_time}"`);
             }
         }
         const total = items.reduce((sum, it) => sum + it.unitPrice * it.quantity, 0);

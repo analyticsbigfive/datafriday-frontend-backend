@@ -1,9 +1,4 @@
-import {
-  Injectable,
-  ConflictException,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateOrganizationDto } from './dto/create-organization.dto';
 import { UpdateWeezeventConfigDto } from './dto/update-weezevent-config.dto';
@@ -53,7 +48,7 @@ export class OnboardingService {
   /**
    * Check if user exists in DB and get their status
    */
-  async getUserStatus(supabaseUserId: string, email: string) {
+  async getUserStatus(supabaseUserId: string, _email: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: supabaseUserId },
       include: {
@@ -419,7 +414,7 @@ export class OnboardingService {
     });
 
     if (!tenant) {
-      throw new Error('Tenant not found');
+      throw new NotFoundException('Tenant not found');
     }
 
     return {

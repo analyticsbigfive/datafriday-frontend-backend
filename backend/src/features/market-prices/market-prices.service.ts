@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateMarketPriceDto } from './dto/create-market-price.dto';
 import { UpdateMarketPriceDto } from './dto/update-market-price.dto';
@@ -8,29 +8,17 @@ import { SpaceAccessService } from '../../core/auth/space-access.service';
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
+
+const ASSERT_SPACE_ACCESS_MESSAGES = {
+  none: "Ce prix n'est rattaché à aucun espace — réservé aux comptes à accès complet.",
+  denied: "Vous n'avez pas accès à l'espace du fournisseur de ce prix.",
+};
+
 @Injectable()
 export class MarketPricesService {
   private readonly logger = new Logger(MarketPricesService.name);
 
   constructor(private prisma: PrismaService, private storage: SupabaseStorageService, private spaceAccess: SpaceAccessService) {}
-
-  /**
-   * Lève 403 si `user` n'a accès à aucun des espaces desservis par le fournisseur du prix
-   * (`Supplier.sites`). Un prix SANS fournisseur lié, ou dont le fournisseur ne déclare
-   * aucun site, ne dessert aucun espace accessible par construction : réservé aux comptes à
-   * accès complet (owner/super-admin/allSpacesAccess).
-   */
-  private async assertSpaceAccess(sites: string[] | undefined | null, user?: SpaceScopedUser) {
-    if (!user) return;
-    if (this.spaceAccess.hasFullAccess(user)) return;
-    if (!sites?.length) {
-      throw new ForbiddenException("Ce prix n'est rattaché à aucun espace — réservé aux comptes à accès complet.");
-    }
-    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
-    if (accessible === 'ALL') return;
-    if (sites.some((sid) => accessible.includes(sid))) return;
-    throw new ForbiddenException("Vous n'avez pas accès à l'espace du fournisseur de ce prix.");
-  }
 
   /** Filtre Prisma à ajouter au `where` d'une liste : restreint aux prix dont le fournisseur
    * dessert un espace accessible. Un prix sans fournisseur, ou dont le fournisseur ne
@@ -309,7 +297,7 @@ export class MarketPricesService {
       this.logger.warn(`Market price ${id} not found for tenant ${tenantId}`);
       throw new NotFoundException(`Market price with ID ${id} not found`);
     }
-    await this.assertSpaceAccess(price.supplierRel?.sites, user);
+    await this.spaceAccess.assertCanAccessAny(user, price.supplierRel?.sites, ASSERT_SPACE_ACCESS_MESSAGES);
 
     return this.serialize(price);
   }

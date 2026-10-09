@@ -15,18 +15,18 @@ import {
   ApiBearerAuth,
   ApiBody,
 } from '@nestjs/swagger';
-import { SpacesService } from './spaces.service';
 import { SetPinnedSpacesDto } from './dto/set-pinned-spaces.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
+import { SpaceAccessGrantService } from './services/space-access-grant.service';
 
 @ApiTags('Pinned Spaces')
 @ApiBearerAuth('supabase-jwt')
 @Controller('pinned-spaces')
 @UseGuards(JwtDatabaseGuard, RolesGuard)
 export class PinnedSpacesController {
-  constructor(private readonly spacesService: SpacesService) {}
+  constructor(private readonly spaceAccessGrantService: SpaceAccessGrantService) {}
 
   /**
    * Get all pinned spaces for current user
@@ -62,7 +62,7 @@ export class PinnedSpacesController {
     if (!user.tenantId) {
       throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
     }
-    return this.spacesService.getPinned(user.id, user.tenantId, user);
+    return this.spaceAccessGrantService.getPinned(user.id, user.tenantId, user);
   }
 
   /**
@@ -117,6 +117,6 @@ export class PinnedSpacesController {
     if (!user.tenantId) {
       throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
     }
-    return this.spacesService.setPinnedSpaces(user.id, user.tenantId, body.spaceIds || [], user);
+    return this.spaceAccessGrantService.setPinnedSpaces(user.id, user.tenantId, body.spaceIds || [], user);
   }
 }

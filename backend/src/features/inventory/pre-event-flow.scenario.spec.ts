@@ -1,8 +1,9 @@
-import { ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { InventoryService } from './inventory.service';
 import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
-import { InventoryLiveInitCronService } from './inventory-live-init.cron';
+import { InventoryLiveInitCronService } from './jobs/inventory-live-init.cron';
+import { passthroughTenantContext } from '../../core/tenant/tenant-context.testing';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 
 /**
  * Scénario de bout en bout du flux Pre-event Inventory (fix/pre-event-flow-robust),
@@ -142,10 +143,11 @@ class FakePrisma {
   packaging = new Table('packaging', this);
 
   /** markLogisticPushed : UPDATE ... SET "logisticPushedAt" = NOW() WHERE id IN (...) */
-  $executeRaw = async (_strings: TemplateStringsArray, joined: Prisma.Sql) => {
+  // markInventoryCountsPushed : UPDATE ... WHERE "tenantId" = ${tenantId} AND "id" IN (${ids}).
+  $executeRaw = async (_strings: TemplateStringsArray, tenantId: string, joined: Prisma.Sql) => {
     const ids: string[] = (joined as any).values;
     const now = new Date();
-    for (const r of this.inventoryCount.rows) if (ids.includes(r.id)) r.logisticPushedAt = now;
+    for (const r of this.inventoryCount.rows) if (r.tenantId === tenantId && ids.includes(r.id)) r.logisticPushedAt = now;
     return ids.length;
   };
 }
@@ -239,11 +241,9 @@ describe('Flux Pre-event Inventory, scénario de bout en bout', () => {
   beforeEach(() => {
     prisma = new FakePrisma();
     logistics = new FakeLogistics();
-    inventory = new InventoryService(prisma as any, logistics as any);
+    inventory = new InventoryService(prisma as any, logistics as any, new SpaceAccessService(prisma as any));
     flow = new PreEventInventoryFlowService(prisma as any, inventory);
-    cron = new InventoryLiveInitCronService(prisma as any, flow);
-    delete process.env.INVENTORY_LIVE_INIT_CRON_ENABLED;
-    cron.onModuleInit();
+    cron = new InventoryLiveInitCronService(prisma as any, flow, passthroughTenantContext());
 
     prisma.space.rows.push(prisma.spaceRow);
     // Match du 19/09/2026, portes à 19:00 Paris (heure d'été) = 17:00Z.

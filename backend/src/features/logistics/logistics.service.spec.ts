@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getQueueToken } from '@nestjs/bullmq';
 import { LogisticsService } from './logistics.service';
@@ -6,6 +7,7 @@ import { QueueService } from '../../core/queue/queue.service';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { spaceAccessStub } from '../../core/auth/space-access.testing';
 
 describe('LogisticsService — readyForSale display logic', () => {
   let service: any;
@@ -15,6 +17,7 @@ describe('LogisticsService — readyForSale display logic', () => {
     menuComponent: { findMany: jest.fn() },
     marketPrice: { findMany: jest.fn(), findFirst: jest.fn() },
     spaceElement: { findFirst: jest.fn() },
+    stockLevel: { findUnique: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn(),
   };
   const mockPricingService: any = {
@@ -47,7 +50,7 @@ describe('LogisticsService — readyForSale display logic', () => {
           },
         },
         { provide: MenuItemPricingService, useValue: mockPricingService },
-        { provide: SpaceAccessService, useValue: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => 'ALL' } },
+        { provide: SpaceAccessService, useValue: spaceAccessStub() },
       ],
     }).compile();
     service = module.get<LogisticsService>(LogisticsService);
@@ -71,7 +74,7 @@ describe('LogisticsService — readyForSale display logic', () => {
       const refs = service.itemRefsForMenuItem(item, emptyCtx());
 
       expect(refs).toEqual([
-        { key: 'Coca-Cola CAN', id: 'mi-1', kind: 'product', unit: null, marketPriceId: null, unitsPerPack: 24, packagingType: 'Box', picture: null },
+        { key: 'Coca-Cola CAN', id: 'mi-1', kind: 'product', refKind: 'menuItem', unit: null, marketPriceId: null, unitsPerPack: 24, packagingType: 'Box', picture: null },
       ]);
     });
 
@@ -85,26 +88,29 @@ describe('LogisticsService — readyForSale display logic', () => {
       const refs = service.itemRefsForMenuItem(item, emptyCtx());
 
       expect(refs).toEqual([
-        { key: 'Empty Product', id: 'mi-2', kind: 'product', unit: null, marketPriceId: null, unitsPerPack: 10, packagingType: 'Bag', picture: null },
+        { key: 'Empty Product', id: 'mi-2', kind: 'product', refKind: 'menuItem', unit: null, marketPriceId: null, unitsPerPack: 10, packagingType: 'Bag', picture: null },
       ]);
     });
   });
 
-  describe('componentRefsForComponent — Gap 2 (Component own readyForSale)', () => {
-    it('counts a readyForSale=Yes component as itself, using its own packedUnits/inventoryPackaging', () => {
+  // Décision Q13 (Bertrand, 2026-08-04) + BUG-260-02 : un Component n'est plus jamais
+  // décomposé (ni au stock-up, ni à l'inventaire, ni au réarmement). Il est suivi tel quel,
+  // quel que soit son readyForSale, avec son propre conditionnement.
+  describe('componentRefsForComponent — Q13 (un composant est suivi tel quel)', () => {
+    const expectedLeaf = (comp: any) => ({
+      key: comp.name, id: comp.id, kind: 'component', refKind: 'menuComponent', unit: comp.unit,
+      marketPriceId: null, unitsPerPack: comp.packedUnits, packagingType: comp.inventoryPackaging, picture: null,
+    });
+
+    it('compte un composant comme lui-même, avec son packedUnits/inventoryPackaging', () => {
       const comp = {
         id: 'comp-1', name: 'Cheddar Tranche', unit: 'Pc', readyForSale: 'Yes',
         packedUnits: 12, inventoryPackaging: 'Sac', ingredients: [], children: [],
       };
-
-      const refs = service.componentRefsForComponent(comp, emptyCtx());
-
-      expect(refs).toEqual([
-        { key: 'Cheddar Tranche', id: 'comp-1', kind: 'component', unit: 'Pc', marketPriceId: null, unitsPerPack: 12, packagingType: 'Sac', picture: null },
-      ]);
+      expect(service.componentRefsForComponent(comp, emptyCtx())).toEqual([expectedLeaf(comp)]);
     });
 
-    it('explodes a readyForSale=No component into its own ingredients', () => {
+    it('ne décompose pas un composant readyForSale=No en ses ingrédients', () => {
       const comp = {
         id: 'comp-2', name: 'Sauce Base', unit: 'L', readyForSale: 'No',
         packedUnits: null, inventoryPackaging: null,
@@ -113,66 +119,35 @@ describe('LogisticsService — readyForSale display logic', () => {
         ],
         children: [],
       };
-
-      const refs = service.componentRefsForComponent(comp, emptyCtx());
-
-      expect(refs).toEqual([
-        { key: 'Sugar', id: 'mp-1', kind: 'ingredient', unit: 'g', marketPriceId: 'mp-1', unitsPerPack: 5, packagingType: 'Bag', picture: null },
-      ]);
+      expect(service.componentRefsForComponent(comp, emptyCtx())).toEqual([expectedLeaf(comp)]);
     });
 
-    it('recurses into a sub-component (readyForSale=No) reachable via componentById, and stops recursing once a descendant is readyForSale=Yes', () => {
-      const grandchildYes = {
-        id: 'comp-4', name: 'Ready Sub', unit: 'Pc', readyForSale: 'Yes',
-        packedUnits: 6, inventoryPackaging: 'Carton', ingredients: [], children: [],
-      };
-      const child = {
-        id: 'comp-3', name: 'Sub Component', unit: 'Pc', readyForSale: 'No',
-        packedUnits: null, inventoryPackaging: null,
-        ingredients: [],
-        children: [{ quantity: 1, child: { id: 'comp-4', name: 'Ready Sub', unit: 'Pc' } }],
-      };
+    it('ne descend pas dans les sous-composants', () => {
       const parent = {
         id: 'comp-2', name: 'Parent Component', unit: 'Pc', readyForSale: 'No',
-        packedUnits: null, inventoryPackaging: null,
-        ingredients: [],
+        packedUnits: null, inventoryPackaging: null, ingredients: [],
         children: [{ quantity: 1, child: { id: 'comp-3', name: 'Sub Component', unit: 'Pc' } }],
       };
       const ctx = emptyCtx();
-      ctx.componentById.set('comp-3', child);
-      ctx.componentById.set('comp-4', grandchildYes);
-
-      const refs = service.componentRefsForComponent(parent, ctx);
-
-      expect(refs).toEqual([
-        { key: 'Ready Sub', id: 'comp-4', kind: 'component', unit: 'Pc', marketPriceId: null, unitsPerPack: 6, packagingType: 'Carton', picture: null },
-      ]);
+      ctx.componentById.set('comp-3', { id: 'comp-3', name: 'Sub Component', unit: 'Pc', ingredients: [], children: [] });
+      expect(service.componentRefsForComponent(parent, ctx)).toEqual([expectedLeaf(parent)]);
     });
 
-    it('falls back to a flat leaf on a ComponentComponent cycle instead of looping forever', () => {
+    it('termine sur un cycle ComponentComponent', () => {
       const compA: any = {
         id: 'comp-a', name: 'A', unit: 'Pc', readyForSale: 'No',
         packedUnits: 3, inventoryPackaging: 'Box', ingredients: [],
         children: [{ quantity: 1, child: { id: 'comp-b', name: 'B', unit: 'Pc' } }],
       };
-      const compB: any = {
-        id: 'comp-b', name: 'B', unit: 'Pc', readyForSale: 'No',
-        packedUnits: null, inventoryPackaging: null, ingredients: [],
-        children: [{ quantity: 1, child: { id: 'comp-a', name: 'A', unit: 'Pc' } }], // cycle back to A
-      };
       const ctx = emptyCtx();
       ctx.componentById.set('comp-a', compA);
-      ctx.componentById.set('comp-b', compB);
-
-      const refs = service.componentRefsForComponent(compA, ctx);
-
-      // Doesn't hang; A is re-encountered via the cycle and falls back to a flat leaf.
-      expect(refs.some((r: any) => r.id === 'comp-a' && r.kind === 'component')).toBe(true);
+      ctx.componentById.set('comp-b', { id: 'comp-b', name: 'B', unit: 'Pc', ingredients: [], children: [{ quantity: 1, child: { id: 'comp-a' } }] });
+      expect(service.componentRefsForComponent(compA, ctx)).toEqual([expectedLeaf(compA)]);
     });
   });
 
-  describe('itemRefsForMenuItem — Gap 2 wiring (MenuItem readyForSale=No exploding a component)', () => {
-    it('delegates to componentRefsForComponent instead of emitting a flat component leaf', () => {
+  describe('itemRefsForMenuItem — un MenuItem readyForSale=No référence ses composants tels quels', () => {
+    it('émet le composant lui-même, pas ses ingrédients', () => {
       const fullComp = {
         id: 'comp-5', name: 'Bun - Burger', unit: 'Pc', readyForSale: 'No',
         packedUnits: null, inventoryPackaging: null,
@@ -189,10 +164,8 @@ describe('LogisticsService — readyForSale display logic', () => {
       const ctx = emptyCtx();
       ctx.componentById.set('comp-5', fullComp);
 
-      const refs = service.itemRefsForMenuItem(item, ctx);
-
-      expect(refs).toEqual([
-        { key: 'Flour', id: 'mp-2', kind: 'ingredient', unit: 'kg', marketPriceId: 'mp-2', unitsPerPack: 25, packagingType: 'Sac', picture: null },
+      expect(service.itemRefsForMenuItem(item, ctx)).toEqual([
+        { key: 'Bun - Burger', id: 'comp-5', kind: 'component', refKind: 'menuComponent', unit: 'Pc', marketPriceId: null, unitsPerPack: null, packagingType: null, picture: null },
       ]);
     });
   });
@@ -212,7 +185,7 @@ describe('LogisticsService — readyForSale display logic', () => {
       const refs = service.itemRefsForMenuItem(combo, emptyCtx());
 
       expect(refs).toEqual([
-        { key: 'Bun', id: 'mp-3', kind: 'ingredient', unit: 'pc', marketPriceId: 'mp-3', unitsPerPack: 1, packagingType: null, picture: null },
+        { key: 'Bun', id: 'mp-3', kind: 'ingredient', refKind: 'marketPrice', unit: 'pc', marketPriceId: 'mp-3', unitsPerPack: 1, packagingType: null, picture: null },
       ]);
       // Ne doit PLUS être compté comme son propre produit.
       expect(refs.some((r: any) => r.key === 'Menu Burger')).toBe(false);
@@ -289,7 +262,7 @@ describe('LogisticsService — readyForSale display logic', () => {
   });
 
   describe('explodeSalesToConsumption — Path B parity with Path A', () => {
-    it('explodes sales through a readyForSale=No component into its ingredient (not a flat component key)', async () => {
+    it('compte les ventes d’un composant comme le composant lui-même (Q13), avec son identité catalogue', async () => {
       mockPrisma.menuItem.findMany.mockResolvedValueOnce([
         {
           id: 'mi-4', name: 'Burger Seul', readyForSale: 'No', comboItem: 'No', numberOfPiecesRecipe: 1,
@@ -312,7 +285,7 @@ describe('LogisticsService — readyForSale display logic', () => {
       const raw = [{ elementId: 'el-1', menuItemId: 'mi-4', eventId: null, eventName: null, qty: 3, lastAt: new Date('2026-07-15') }];
       const consumption = await service.explodeSalesToConsumption(raw, 'tenant-1');
 
-      expect(consumption).toEqual([{ elementId: 'el-1', itemKey: 'Flour', quantity: 3 }]);
+      expect(consumption).toEqual([{ elementId: 'el-1', itemKey: 'Bun - Burger', quantity: 3, itemKind: 'menuComponent', itemRefId: 'comp-6' }]);
     });
   });
 
@@ -346,6 +319,8 @@ describe('LogisticsService — readyForSale display logic', () => {
           shopName: 'Bar Nord',
           items: [{
             itemKey: 'Heineken 33cl',
+            itemKind: null,
+            itemRefId: 'mi-1',
             unit: null,
             packedUnits: 5,
             looseUnits: 3,
@@ -370,6 +345,8 @@ describe('LogisticsService — readyForSale display logic', () => {
 
       expect(result.shops[0].items[0]).toEqual({
         itemKey: 'Nouveau Cocktail',
+        itemKind: null,
+        itemRefId: 'mi-2',
         unit: null,
         packedUnits: 0,
         looseUnits: 0,
@@ -395,9 +372,11 @@ describe('LogisticsService — readyForSale display logic', () => {
       const result = await service.getLiveInventory('space-1', 'tenant-1');
 
       expect(result.items).toEqual([
-        { itemKey: 'Coca-Cola', unit: null, shops: [{ shopId: 'shop-2', shopName: 'Bar Sud', packedUnits: 0, looseUnits: 0, unitsPerPack: null, marketPriceId: null, consumedLoose: 0 }] },
+        { itemKey: 'Coca-Cola', itemKind: null, itemRefId: 'mi-3', unit: null, shops: [{ shopId: 'shop-2', shopName: 'Bar Sud', packedUnits: 0, looseUnits: 0, unitsPerPack: null, marketPriceId: null, consumedLoose: 0 }] },
         {
           itemKey: 'Heineken 33cl',
+          itemKind: null,
+          itemRefId: 'mi-1',
           unit: null,
           shops: [
             { shopId: 'shop-1', shopName: 'Bar Nord', packedUnits: 5, looseUnits: 0, unitsPerPack: 24, marketPriceId: 'mp-1', consumedLoose: 0 },
@@ -438,6 +417,12 @@ describe('LogisticsService — readyForSale display logic', () => {
 
     it('accepts a marketPriceId whose itemName matches the itemKey (case/whitespace-insensitive)', async () => {
       mockPrisma.spaceElement.findFirst.mockResolvedValueOnce(validElement);
+      // Résolution d'identité catalogue (ADR-0006) : aucun article homonyme trouvé.
+      mockPrisma.marketPrice.findMany.mockResolvedValueOnce([]);
+      mockPrisma.ingredient = { findMany: jest.fn().mockResolvedValue([]) };
+      mockPrisma.packaging = { findMany: jest.fn().mockResolvedValue([]) };
+      mockPrisma.menuComponent.findMany.mockResolvedValueOnce([]);
+      mockPrisma.menuItem.findMany.mockResolvedValueOnce([]);
       mockPrisma.marketPrice.findFirst.mockResolvedValueOnce({ packedUnits: 24, itemName: '  heineken 33cl  ' });
       const tx = {
         stockLevel: {
@@ -478,7 +463,6 @@ describe('LogisticsService — readyForSale display logic', () => {
       mockPrisma.spaceElement.findFirst.mockResolvedValueOnce({
         id: 'el-1', name: 'Bar', floor: { config: { spaceId: 'space-1' } }, forecourt: null, externalMerch: null, zone: null,
       });
-      const { Prisma } = require('@prisma/client');
       mockPrisma.$transaction = jest.fn().mockRejectedValueOnce(
         new Prisma.PrismaClientKnownRequestError('dup', { code: 'P2002', clientVersion: 'x' }),
       );

@@ -5,9 +5,9 @@ import {
   buildIntegrationClause,
   buildMatchClause,
   EventAggregationSqlInput,
-  insertMinuteBasketAggSql,
+  insertMinuteBasketAgg,
   isUnscopedRangeWindow,
-} from './event-aggregation-sql';
+} from './event-aggregation.queries';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { EventDayFields } from '../../shared/utils/event-window.util';
@@ -33,7 +33,7 @@ export class BasketAggregationService {
 
   async replaceForEvent(deleteWhere: Prisma.SpaceBasketMinuteAggWhereInput, sqlInput: EventAggregationSqlInput): Promise<number> {
     await this.prisma.spaceBasketMinuteAgg.deleteMany({ where: deleteWhere });
-    return this.prisma.$executeRaw(insertMinuteBasketAggSql(sqlInput));
+    return insertMinuteBasketAgg(this.prisma, sqlInput);
   }
 
   async backfillSpace(tenantId: string, spaceId: string): Promise<{ events: number; rows: number; skipped: string[] }> {

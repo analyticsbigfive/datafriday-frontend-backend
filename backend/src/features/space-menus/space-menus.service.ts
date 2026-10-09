@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
@@ -17,6 +17,9 @@ type MissingReason = {
   supplierName?: string;
 };
 
+
+const ASSERT_SPACE_ACCESS_DENIED = "Vous n'avez pas accès à l'espace de ce shop.";
+
 @Injectable()
 export class SpaceMenusService {
   private readonly logger = new Logger(SpaceMenusService.name);
@@ -28,21 +31,12 @@ export class SpaceMenusService {
     private spaceAccess: SpaceAccessService,
   ) {}
 
-  /** Lève 403 si `user` n'a pas accès à cet espace (cf. SpaceAccessService). */
-  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
-    if (!user || !spaceId) return;
-    if (this.spaceAccess.hasFullAccess(user)) return;
-    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
-    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
-    throw new ForbiddenException("Vous n'avez pas accès à l'espace de ce shop.");
-  }
-
   /**
    * Invalidations croisées après une écriture d'assignation menu : sans elles, le front
    * relisait des compteurs/lists périmés même avec un forceRefresh (cause racine des
    * « je dois hard-refresh » sur /space-menus).
    * ⚠️ Les motifs de clés dupliquent ceux de MenuItemsService.cacheKey et
-   * SpacesService.SPACE_SHOPS_CACHE_KEY — à garder synchronisés.
+   * SpaceCacheService.SPACE_SHOPS_CACHE_KEY — à garder synchronisés.
    */
   private async invalidateAfterAssignmentWrite(tenantId: string, spaceId: string) {
     await Promise.all([
@@ -301,7 +295,7 @@ export class SpaceMenusService {
     // exposait les prix custom de TOUS les espaces ayant un SpaceMenuItem pour l'item, pas
     // seulement celui du shop.
     const spaceId = this.resolveShopSpaceId(shopAny);
-    await this.assertSpaceAccess(spaceId, user);
+    await this.spaceAccess.assertCanAccessSpace(user, spaceId, ASSERT_SPACE_ACCESS_DENIED);
 
     // Transform the data to a cleaner format
     const menuItems = scopedAssignments.map((assignment: any) => {
@@ -739,7 +733,7 @@ export class SpaceMenusService {
 
     const shopAny = shop as any;
     const spaceId = this.resolveShopSpaceId(shopAny);
-    await this.assertSpaceAccess(spaceId, user);
+    await this.spaceAccess.assertCanAccessSpace(user, spaceId, ASSERT_SPACE_ACCESS_DENIED);
 
     // Scoping par configuration : ne considérer que les assignations de la config effective
     // (élément v2 partagé = une ligne par config ; sans filtre, l'état coché de la config A
@@ -813,7 +807,7 @@ export class SpaceMenusService {
 
     const shopAny = shop as any;
     const spaceId = this.resolveShopSpaceId(shopAny);
-    await this.assertSpaceAccess(spaceId, user);
+    await this.spaceAccess.assertCanAccessSpace(user, spaceId, ASSERT_SPACE_ACCESS_DENIED);
     const effectiveConfigId = this.resolveShopConfigId(shopAny, configId);
     const enabledIds: string[] = [
       ...new Set<string>(

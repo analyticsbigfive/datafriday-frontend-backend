@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards, Inject, Optional } from '@nestjs/common';
+import { Controller, Get, UseGuards, Optional } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { JwtDatabaseGuard } from '../core/auth/guards/jwt-db.guard';
@@ -74,7 +74,7 @@ export class HealthController {
     if (this.prisma) {
       const start = Date.now();
       try {
-        await this.prisma.$queryRaw`SELECT 1`;
+        await this.prisma.ping();
         checks.database = {
           status: 'healthy',
           latencyMs: Date.now() - start,

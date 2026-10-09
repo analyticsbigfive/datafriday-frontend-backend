@@ -40,16 +40,25 @@ services:
       - key: INVITE_REDIRECT_URL
         value: https://datafriday.fr/accept-invite
       - key: REDIS_QUEUE_URL
-        sync: false  # Upstash Redis URL for BullMQ queues (can share with REDIS_URL)
+        sync: false  # Redis des files BullMQ : MÊME valeur que sur datafriday-worker
+      - key: GUEST_PIN_JWT_SECRET
+        sync: false
+      - key: GUEST_PIN_HMAC_SECRET
+        sync: false
+      # Repli uniquement si datafriday-worker n'est pas déployé : l'API exécute alors les
+      # crons et consomme les files. Jamais "true" quand le worker tourne.
+      - key: BACKGROUND_JOBS_IN_API
+        value: "false"
       - key: LOG_LEVEL
         value: info
 
-  # BullMQ Worker (background job processor — no HTTP)
+  # BullMQ Worker (background job processor, no HTTP). Seul process qui exécute les crons
+  # et consomme les files. Render ne propose pas de background worker en plan gratuit.
   - type: worker
     name: datafriday-worker
     runtime: node
     region: frankfurt
-    plan: free
+    plan: starter
     buildCommand: npm install -g pnpm@10 && pnpm install --frozen-lockfile && npx prisma generate && npx @nestjs/cli build
     # Idem service API ci-dessus : pas de migration auto au démarrage (ADR-0002).
     startCommand: node dist/worker
@@ -71,6 +80,12 @@ services:
       - key: ENCRYPTION_KEY
         sync: false
       - key: REDIS_URL
+        sync: false
+      - key: REDIS_QUEUE_URL
+        sync: false  # MÊME valeur que sur datafriday-api, sinon le worker ne voit aucun job
+      - key: GUEST_PIN_JWT_SECRET
+        sync: false  # requis : le cron de clôture des fenêtres PIN charge GuestPinAccessModule
+      - key: GUEST_PIN_HMAC_SECRET
         sync: false
       - key: LOG_LEVEL
         value: info

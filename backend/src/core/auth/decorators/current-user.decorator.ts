@@ -6,7 +6,7 @@ import { UserRole } from '@prisma/client';
  * `systemKey` retombe sur le champ legacy `User.role` (enum) si l'utilisateur
  * n'a pas encore de `Role` dynamique assigné (roleId null).
  */
-export interface CurrentUserRole {
+interface CurrentUserRole {
   id: string | null;
   name: string | null;
   systemKey: UserRole | null;
@@ -14,7 +14,7 @@ export interface CurrentUserRole {
   permissions: string[];
 }
 
-export interface CurrentUserTenant {
+interface CurrentUserTenant {
   id: string;
   name: string;
   slug: string;

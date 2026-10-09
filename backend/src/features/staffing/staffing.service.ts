@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import {
@@ -36,7 +36,7 @@ type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; al
  */
 
 /** Types d'éléments considérés comme PDV pour le staffing (hypothèse, cf. rapport). */
-export const STAFFING_ELEMENT_TYPES = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack'];
+const STAFFING_ELEMENT_TYPES = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack'];
 
 /** front (base RZ) = rpdv + caissiers + runners + barman. */
 const FRONT_ALGO_KEYS = ['RESPONSABLE_PDV', 'CAISSIER', 'RUNNER', 'BARMAN'];
@@ -63,6 +63,9 @@ interface EventContext {
   timezone: string;
 }
 
+
+const ASSERT_SPACE_ACCESS_DENIED = "Vous n'avez pas accès à l'espace de cet événement.";
+
 @Injectable()
 export class StaffingService {
   constructor(
@@ -71,15 +74,6 @@ export class StaffingService {
     private spaceAccess: SpaceAccessService,
   ) {}
 
-  /** Lève 403 si `user` n'a pas accès à cet espace (cf. SpaceAccessService). */
-  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
-    if (!user || !spaceId) return;
-    if (this.spaceAccess.hasFullAccess(user)) return;
-    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
-    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
-    throw new ForbiddenException("Vous n'avez pas accès à l'espace de cet événement.");
-  }
-
   // ── Contexte événement ─────────────────────────────────────────────────────
 
   private async getEventContext(eventId: string, tenantId: string, user?: SpaceScopedUser): Promise<EventContext> {
@@ -87,7 +81,7 @@ export class StaffingService {
     if (!event || (event.tenantId && event.tenantId !== tenantId)) {
       throw new NotFoundException(`Événement ${eventId} introuvable`);
     }
-    await this.assertSpaceAccess(event.spaceId, user);
+    await this.spaceAccess.assertCanAccessSpace(user, event.spaceId, ASSERT_SPACE_ACCESS_DENIED);
     if (!event.configurationId) {
       throw new BadRequestException("L'événement n'a pas de configuration associée.");
     }
@@ -740,7 +734,7 @@ export class StaffingService {
       include: { event: { select: { spaceId: true } } },
     });
     if (!line) throw new NotFoundException(`Ligne de staff ${id} introuvable`);
-    await this.assertSpaceAccess(line.event?.spaceId, user);
+    await this.spaceAccess.assertCanAccessSpace(user, line.event?.spaceId, ASSERT_SPACE_ACCESS_DENIED);
     const startTime = input.startTime !== undefined ? new Date(input.startTime) : line.startTime;
     const endTime = input.endTime !== undefined ? new Date(input.endTime) : line.endTime;
     if (endTime <= startTime) {
@@ -806,7 +800,7 @@ export class StaffingService {
       include: { event: { select: { spaceId: true } } },
     });
     if (!line) throw new NotFoundException(`Ligne de staff ${id} introuvable`);
-    await this.assertSpaceAccess(line.event?.spaceId, user);
+    await this.spaceAccess.assertCanAccessSpace(user, line.event?.spaceId, ASSERT_SPACE_ACCESS_DENIED);
     if (line.source !== 'MANUAL') {
       throw new BadRequestException(
         'Seules les lignes ajoutées manuellement peuvent être supprimées — décochez la ligne pour l’exclure du coût.',

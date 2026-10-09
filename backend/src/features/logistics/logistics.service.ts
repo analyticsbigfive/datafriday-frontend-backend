@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Prisma, StockMovementReason, StockTransferStatus } from '@prisma/client';
 import { Queue } from 'bullmq';
@@ -12,6 +12,7 @@ import { CreateMovementDto, InventoryResetDto, SimulateSaleLineDto, StockItemKin
 import { StartSimulationRunDto } from './dto/simulation-run.dto';
 import { pickNextEventBeforeDoorsOpen } from '../../shared/utils/event-window.util';
 import { canAdoptStockLevelByName } from './stock-level-identity';
+import { carryStockLevels, eventSalesByElement, salesByElementSince, setCountedStockLevels } from './logistics.queries';
 
 export interface SimulationTickJobData {
   runId: string;
@@ -22,7 +23,7 @@ type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; al
 
 type ElementRef = { id: string; name: string; spaceId: string };
 
-type SalesRawRow = {
+export type SalesRawRow = {
   elementId: string;
   menuItemId: string;
   eventId: string | null;
@@ -31,7 +32,7 @@ type SalesRawRow = {
   lastAt: Date;
 };
 
-/** Types de SpaceElement considérés comme un PDV (miroir SpacesService.getSpaceShops). */
+/** Types de SpaceElement considérés comme un PDV (miroir SpaceEventTimelineService.getSpaceShops). */
 const SHOP_TYPES = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack', 'fnb_icecream', 'merchshop'];
 
 /** Nature de la ligne — sert le filtre front « Type de denrée ». */
@@ -115,15 +116,6 @@ export class LogisticsService {
     private readonly spaceAccess: SpaceAccessService,
   ) {}
 
-  /** Lève 403 si `user` n'a pas accès à cet espace (cf. SpaceAccessService). */
-  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
-    if (!user || !spaceId) return;
-    if (this.spaceAccess.hasFullAccess(user)) return;
-    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
-    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
-    throw new ForbiddenException("Vous n'avez pas accès à cet espace.");
-  }
-
   // ─── Scoping / résolution d'éléments ─────────────────────────────────────────
 
   /** Fragment where : SpaceElement appartenant au tenant (v1 floor/forecourt/externalMerch + v2 zone). */
@@ -159,7 +151,7 @@ export class LogisticsService {
       anyEl.zone?.spaceId ??
       null;
     if (!spaceId) throw new NotFoundException(`Element ${elementId} has no space`);
-    await this.assertSpaceAccess(spaceId, user);
+    await this.spaceAccess.assertCanAccessSpace(user, spaceId);
     return { id: anyEl.id, name: anyEl.name, spaceId };
   }
 
@@ -177,15 +169,6 @@ export class LogisticsService {
       select: { id: true },
     });
     return rows.map((r) => r.id);
-  }
-
-  private async assertSpace(spaceId: string, tenantId: string, user?: SpaceScopedUser) {
-    const space = await this.prisma.space.findFirst({
-      where: { id: spaceId, tenantId },
-      select: { id: true },
-    });
-    if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
-    await this.assertSpaceAccess(spaceId, user);
   }
 
   // ─── Casse de pack / normalisation ───────────────────────────────────────────
@@ -879,7 +862,7 @@ export class LogisticsService {
 
   /** Résumé : nombre de pertes + quantités perdues (packs/vrac), actives par défaut. */
   async getLossesSummary(spaceId: string, tenantId: string, includeArchived = false) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     const where = { tenantId, spaceId, ...(includeArchived ? {} : { archivedAt: null }) };
     const agg = await this.prisma.stockTransferLoss.aggregate({
       where,
@@ -895,7 +878,7 @@ export class LogisticsService {
 
   /** Liste paginée (cursor, comme getHistory) des pertes, plus récentes d'abord. */
   async getLosses(spaceId: string, tenantId: string, limit = 50, cursor?: string, includeArchived = false) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     const take = Math.min(Math.max(limit, 1), 200);
     const where = { tenantId, spaceId, ...(includeArchived ? {} : { archivedAt: null }) };
     const rows = await this.prisma.stockTransferLoss.findMany({
@@ -935,7 +918,7 @@ export class LogisticsService {
 
   /** Archive ("vide") toutes les pertes actives, jamais supprimées, juste masquées par défaut. */
   async archiveLosses(spaceId: string, tenantId: string, userId?: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     const res = await this.prisma.stockTransferLoss.updateMany({
       where: { tenantId, spaceId, archivedAt: null },
       data: { archivedAt: new Date(), archivedBy: userId ?? null },
@@ -945,7 +928,7 @@ export class LogisticsService {
 
   /** CSV de toutes les pertes (actives + archivées) d'un espace, pour "tout télécharger". */
   async exportLossesCsv(spaceId: string, tenantId: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     const rows = await this.prisma.stockTransferLoss.findMany({
       where: { tenantId, spaceId },
       orderBy: { createdAt: 'desc' },
@@ -1276,7 +1259,7 @@ export class LogisticsService {
    * n'est par construction jamais vendu directement) et explosait donc
    * systématiquement le composant en ses ingrédients bruts.
    */
-  private componentRefsForComponent(comp: any, ctx: RecipeCtx, depth = 0, visited: Set<string> = new Set()): ItemRef[] {
+  private componentRefsForComponent(comp: any, ctx: RecipeCtx, depth = 0): ItemRef[] {
     const name = comp?.name?.trim();
     if (!name) return [];
     const cacheKey = `${comp.id}:${depth}`;
@@ -1594,7 +1577,7 @@ export class LogisticsService {
 
   /** Market prices candidats pour le dropdown du popup +/− (itemKey donné, sans le catalogue complet). */
   async getMarketPricesForItem(spaceId: string, tenantId: string, itemKey: string, currentMarketPriceId?: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     const name = String(itemKey ?? '').trim();
     if (!name) return [];
     const select = {
@@ -2059,28 +2042,7 @@ export class LogisticsService {
   private async deriveSalesRaw(tenantId: string, elementIds: string[], since: Date | null): Promise<SalesRawRow[]> {
     if (!elementIds.length) return [];
     const sinceFilter = since ? Prisma.sql`AND t."transactionDate" > ${since}` : Prisma.empty;
-    const rows = await this.prisma.$queryRaw<SalesRawRow[]>(Prisma.sql`
-      SELECT m."spaceElementId"          AS "elementId",
-             pm."menuItemId"             AS "menuItemId",
-             t."eventId"                 AS "eventId",
-             MAX(t."eventName")          AS "eventName",
-             SUM(ti."quantity")::float   AS "qty",
-             MAX(t."transactionDate")    AS "lastAt"
-      FROM "WeezeventTransactionItem" ti
-      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
-      JOIN "WeezeventLocation" wl ON wl."id" = t."locationId"
-      JOIN "WeezeventLocationShopMapping" m
-        ON m."tenantId" = t."tenantId"
-        AND (m."weezeventLocationId" = wl."id" OR m."weezeventLocationId" = wl."weezeventId")
-      JOIN "WeezeventProductMapping" pm
-        ON pm."tenantId" = t."tenantId" AND pm."weezeventProductId" = ti."productId"
-      WHERE t."tenantId" = ${tenantId}
-        AND t."status" = 'V'
-        AND t."deletedAt" IS NULL
-        AND m."spaceElementId" IN (${Prisma.join(elementIds)})
-        ${sinceFilter}
-      GROUP BY 1, 2, 3
-    `);
+    const rows = await salesByElementSince(this.prisma, tenantId, elementIds, sinceFilter);
     return rows.map((r) => ({ ...r, qty: Number(r.qty ?? 0) }));
   }
 
@@ -2324,7 +2286,7 @@ export class LogisticsService {
    * préparés). Réutilise `explodeSalesToConsumption` telle quelle — le jour où Q18
    * (explosion des combos) y atterrit, la réco en hérite sans modification.
    *
-   * Sélection des transactions = MIROIR de `SpacesService.getEventTimelineBatch`
+   * Sélection des transactions = MIROIR de `SpaceEventTimelineService.getEventTimelineBatch`
    * (fenêtre `eventDate → endDate+1j`, scope intégration, status='V', deletedAt NULL)
    * — dupliqué à dessein comme deriveSalesRaw ↔ loadRecipeContext ; toute clause
    * modifiée ici doit l'être là-bas, cf. spaces.service.ts:1225-1252. Différence
@@ -2347,7 +2309,7 @@ export class LogisticsService {
       sinceByElement?: Map<string, Date>;
     } = {},
   ) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
       where: { id: eventId, spaceId, tenantId },
       select: { id: true, name: true, eventDate: true, eventEndDate: true },
@@ -2409,39 +2371,16 @@ export class LogisticsService {
     // Jointure mapping PdV en superset des deux conventions existantes
     // (timeline : mem sur t.locationId ; deriveSalesRaw : via WeezeventLocation
     // id OU weezeventId) — un mapping saisi sous l'une ou l'autre clé joint.
-    const rows = await this.prisma.$queryRaw<
-      Array<{
-        elementId: string | null;
-        menuItemId: string | null;
-        locationName: string | null;
-        productName: string | null;
-        qty: number;
-      }>
-    >(Prisma.sql`
-      SELECT mem."spaceElementId"                                   AS "elementId",
-             pm."menuItemId"                                        AS "menuItemId",
-             COALESCE(MAX(t."locationName"), MAX(t."locationId"))   AS "locationName",
-             MAX(ti."productName")                                  AS "productName",
-             SUM(ti."quantity")::float                              AS qty
-      FROM "WeezeventTransaction" t
-      INNER JOIN "WeezeventTransactionItem" ti ON ti."transactionId" = t.id
-      LEFT JOIN "WeezeventLocation" wl ON wl."id" = t."locationId"
-      LEFT JOIN "WeezeventLocationShopMapping" mem
-        ON mem."tenantId" = t."tenantId"
-       AND (mem."weezeventLocationId" = t."locationId" OR mem."weezeventLocationId" = wl."weezeventId")
-      LEFT JOIN "WeezeventProductMapping" pm
-        ON pm."tenantId" = t."tenantId" AND pm."weezeventProductId" = ti."productId"
-      WHERE t."tenantId" = ${tenantId}
-        AND t."transactionDate" >= ${windowStart}
-        AND t."transactionDate" <  ${windowEnd}
-        AND t."status" = 'V'
-        AND t."deletedAt" IS NULL
-        ${integrationClause}
-        AND ${shopScopeClause}
-        ${untilClause}
-        ${sinceClause}
-      GROUP BY 1, 2, ti."productId"
-    `);
+    const rows = await eventSalesByElement(
+      this.prisma,
+      tenantId,
+      windowStart,
+      windowEnd,
+      integrationClause,
+      shopScopeClause,
+      untilClause,
+      sinceClause,
+    );
 
     const elementIdSet = new Set(elementIds);
     const joinable: SalesRawRow[] = [];
@@ -2673,19 +2612,14 @@ export class LogisticsService {
         // séquentielle était le poste dominant du timeout 30s de la transaction
         // sur les gros espaces (cf. audit perf 2026-07-18).
         if (carryLines.length) {
-          await tx.$executeRaw(Prisma.sql`
-            UPDATE "StockLevel" AS sl
-            SET "packedUnits" = v.packed, "looseUnits" = v.loose,
-                "itemKind" = COALESCE(v.kind, sl."itemKind"), "itemRefId" = COALESCE(v.refId, sl."itemRefId"),
-                "updatedAt" = NOW()
-            FROM (VALUES ${Prisma.join(
-              carryLines.map((l) => {
-                const id = identityFor(l.itemKey);
-                return Prisma.sql`(${l.levelId}, ${Math.trunc(l.newPacked)}::int, ${l.newLoose}::float8, ${id?.itemKind ?? null}::text, ${id?.itemRefId ?? null}::text)`;
-              }),
-            )}) AS v(id, packed, loose, kind, refId)
-            WHERE sl.id = v.id AND sl."tenantId" = ${tenantId}
-          `);
+          await carryStockLevels(
+            tx,
+            tenantId,
+            carryLines.map((l) => {
+              const id = identityFor(l.itemKey);
+              return { levelId: l.levelId, packed: l.newPacked, loose: l.newLoose, itemKind: id?.itemKind ?? null, itemRefId: id?.itemRefId ?? null };
+            }),
+          );
         }
 
         // Remplace les niveaux par les valeurs comptées (SET, pas d'incrément)
@@ -2739,25 +2673,24 @@ export class LogisticsService {
           .map((l) => ({ id: resolveExistingId(l), l }))
           .filter((x): x is { id: string; l: (typeof recoLines)[number] } => !!x.id);
         if (toUpdate.length) {
-          await tx.$executeRaw(Prisma.sql`
-            UPDATE "StockLevel" AS sl
-            SET "packedUnits" = v.packed,
-                "looseUnits" = v.loose,
-                "unitsPerPack" = COALESCE(v.upp, sl."unitsPerPack"),
-                "itemKind" = COALESCE(v.kind, sl."itemKind"),
-                "itemRefId" = COALESCE(v.refId, sl."itemRefId"),
-                -- Réaligne toujours sur le nom COURANT (no-op si trouvée par nom, auto-guérison
-                -- si trouvée par itemRefId après un renommage) — même motif qu'applyLevelDelta.
-                "itemKey" = v.key,
-                "updatedAt" = NOW()
-            FROM (VALUES ${Prisma.join(
-              toUpdate.map(({ id, l }) => {
-                const identity = identityFor(l.itemKey);
-                return Prisma.sql`(${id}, ${Math.trunc(l.countedPacked)}::int, ${l.countedLoose}::float8, ${l.unitsPerPack ?? null}::float8, ${identity?.itemKind ?? null}::text, ${identity?.itemRefId ?? null}::text, ${l.itemKey}::text)`;
-              }),
-            )}) AS v(id, packed, loose, upp, kind, refId, key)
-            WHERE sl.id = v.id AND sl."tenantId" = ${tenantId}
-          `);
+          // Réaligne toujours sur le nom COURANT (no-op si trouvée par nom, auto-guérison si
+          // trouvée par itemRefId après un renommage) : même motif qu'applyLevelDelta.
+          await setCountedStockLevels(
+            tx,
+            tenantId,
+            toUpdate.map(({ id, l }) => {
+              const identity = identityFor(l.itemKey);
+              return {
+                levelId: id,
+                packed: l.countedPacked,
+                loose: l.countedLoose,
+                unitsPerPack: l.unitsPerPack ?? null,
+                itemKind: identity?.itemKind ?? null,
+                itemRefId: identity?.itemRefId ?? null,
+                itemKey: l.itemKey,
+              };
+            }),
+          );
         }
 
         return { reconciliationId: reco.id, createdAt: reco.createdAt, lines: recoLines.length };
@@ -2769,7 +2702,7 @@ export class LogisticsService {
   // ─── Réconciliations (listing + export) ──────────────────────────────────────
 
   async listReconciliations(spaceId: string, tenantId: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     const rows = await this.prisma.stockReconciliation.findMany({
       // kind:null : la vue Logistic ne liste que les archives de reset — les
       // documents 'post-event' ont leur propre liste côté Post-event Inventory
@@ -2812,7 +2745,7 @@ export class LogisticsService {
   async getReconciliation(id: string, tenantId: string, user?: SpaceScopedUser) {
     const reco = await this.prisma.stockReconciliation.findFirst({ where: { id, tenantId } });
     if (!reco) throw new NotFoundException(`Reconciliation ${id} not found`);
-    await this.assertSpaceAccess(reco.spaceId, user);
+    await this.spaceAccess.assertCanAccessSpace(user, reco.spaceId);
     // Recalage issu d'un comptage : lignes de tous les envois du même match et de la même
     // phase, la plus récente l'emporte par article (cf. listReconciliations).
     const meta = (reco.meta ?? null) as Record<string, unknown> | null;
@@ -3033,7 +2966,7 @@ export class LogisticsService {
         },
         rawData: { simulated: true },
         items: {
-          create: itemsData.map(({ menuItemId, ...data }) => data),
+          create: itemsData.map(({ menuItemId: _menuItemId, ...data }) => data),
         },
       },
       include: { items: true },
@@ -3307,7 +3240,7 @@ export class LogisticsService {
    * TOUS les PDV de l'espace au lieu d'un seul.
    */
   async listSimulatedSales(spaceId: string, tenantId: string, limit = 50, cursor?: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     const elements = await this.prisma.spaceElement.findMany({
       where: { ...this.spaceElementScopeWhere(spaceId, tenantId), type: { in: SHOP_TYPES } } as any,
       select: { id: true, name: true },
@@ -3358,7 +3291,7 @@ export class LogisticsService {
    * suppression \u2014 un id forg\u00E9 d'un autre espace/tenant ne peut rien purger.
    */
   async purgeSimulatedSalesByIds(spaceId: string, tenantId: string, transactionIds: string[]) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     if (!transactionIds?.length) return { deletedCount: 0, deletedEventCount: 0 };
     const elements = await this.prisma.spaceElement.findMany({
       where: { ...this.spaceElementScopeWhere(spaceId, tenantId), type: { in: SHOP_TYPES } } as any,
@@ -3381,7 +3314,7 @@ export class LogisticsService {
 
   /** Idempotent : un run d\u00E9j\u00E0 actif pour cet espace est renvoy\u00E9 tel quel, pas de doublon. */
   async startSimulationRun(spaceId: string, tenantId: string, userId: string, dto: StartSimulationRunDto) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     const existing = await this.prisma.simulationRun.findFirst({ where: { tenantId, spaceId, status: 'active' } });
     if (existing) return existing;
     const run = await this.prisma.simulationRun.create({
@@ -3404,7 +3337,7 @@ export class LogisticsService {
   }
 
   async stopSimulationRun(spaceId: string, runId: string, tenantId: string, userId: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     const run = await this.prisma.simulationRun.findFirst({ where: { id: runId, tenantId, spaceId } });
     if (!run) throw new NotFoundException(`Run ${runId} introuvable`);
     if (run.status === 'active') {
@@ -3418,12 +3351,12 @@ export class LogisticsService {
   }
 
   async getActiveSimulationRun(spaceId: string, tenantId: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     return this.prisma.simulationRun.findFirst({ where: { tenantId, spaceId, status: 'active' } });
   }
 
   async listSimulationRuns(spaceId: string, tenantId: string, limit = 20) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceAccessible(spaceId, tenantId);
     return this.prisma.simulationRun.findMany({
       where: { tenantId, spaceId },
       orderBy: { startedAt: 'desc' },

@@ -1,3 +1,4 @@
+import { InternalServerErrorException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { generateSlug } from './index';
 
@@ -54,5 +55,5 @@ export async function createSpaceElementWithUniqueSlug<T>(
       throw err;
     }
   }
-  throw new Error(`generateUniqueSpaceElementSlug: impossible de trouver un slug libre pour "${name}" après ${maxAttempts} tentatives`);
+  throw new InternalServerErrorException(`generateUniqueSpaceElementSlug: impossible de trouver un slug libre pour "${name}" après ${maxAttempts} tentatives`);
 }

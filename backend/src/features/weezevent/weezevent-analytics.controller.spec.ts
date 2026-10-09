@@ -4,7 +4,6 @@ import { PrismaService } from '../../core/database/prisma.service';
 
 describe('WeezeventAnalyticsController', () => {
     let controller: WeezeventAnalyticsController;
-    let prisma: PrismaService;
 
     const mockUser = {
         id: 'user-123',
@@ -30,7 +29,6 @@ describe('WeezeventAnalyticsController', () => {
         }).compile();
 
         controller = module.get<WeezeventAnalyticsController>(WeezeventAnalyticsController);
-        prisma = module.get<PrismaService>(PrismaService);
     });
 
     afterEach(() => {
@@ -82,7 +80,7 @@ describe('WeezeventAnalyticsController', () => {
 
             mockPrismaService.salesTransaction.findMany.mockResolvedValue(mockTransactions);
 
-            const result = await controller.getSalesByProduct(mockUser);
+            const result = await controller.getSalesByProduct(mockUser, {});
 
             expect(result.data).toHaveLength(2);
             expect(result.data[0]).toEqual({
@@ -105,7 +103,7 @@ describe('WeezeventAnalyticsController', () => {
         it('should filter by eventId when provided', async () => {
             mockPrismaService.salesTransaction.findMany.mockResolvedValue([]);
 
-            await controller.getSalesByProduct(mockUser, 'event-123');
+            await controller.getSalesByProduct(mockUser, { eventId: 'event-123' });
 
             expect(mockPrismaService.salesTransaction.findMany).toHaveBeenCalledWith({
                 where: {
@@ -126,7 +124,7 @@ describe('WeezeventAnalyticsController', () => {
         it('should filter by date range when provided', async () => {
             mockPrismaService.salesTransaction.findMany.mockResolvedValue([]);
 
-            await controller.getSalesByProduct(mockUser, undefined, '2026-01-01', '2026-12-31');
+            await controller.getSalesByProduct(mockUser, { fromDate: '2026-01-01', toDate: '2026-12-31' });
 
             expect(mockPrismaService.salesTransaction.findMany).toHaveBeenCalledWith({
                 where: {
@@ -150,7 +148,7 @@ describe('WeezeventAnalyticsController', () => {
         it('should handle empty transactions', async () => {
             mockPrismaService.salesTransaction.findMany.mockResolvedValue([]);
 
-            const result = await controller.getSalesByProduct(mockUser);
+            const result = await controller.getSalesByProduct(mockUser, {});
 
             expect(result.data).toEqual([]);
             expect(result.meta.total).toBe(0);
@@ -188,7 +186,7 @@ describe('WeezeventAnalyticsController', () => {
 
             mockPrismaService.salesTransaction.findMany.mockResolvedValue(mockTransactions);
 
-            const result = await controller.getSalesByEvent(mockUser);
+            const result = await controller.getSalesByEvent(mockUser, {});
 
             expect(result.data).toHaveLength(2);
             expect(result.data[0]).toEqual({
@@ -221,7 +219,7 @@ describe('WeezeventAnalyticsController', () => {
 
             mockPrismaService.salesTransaction.findMany.mockResolvedValue(mockTransactions);
 
-            const result = await controller.getSalesByEvent(mockUser);
+            const result = await controller.getSalesByEvent(mockUser, {});
 
             expect(result.data).toHaveLength(1);
             expect(result.data[0].eventId).toBe('unknown');
@@ -275,7 +273,7 @@ describe('WeezeventAnalyticsController', () => {
 
             mockPrismaService.salesTransaction.findMany.mockResolvedValue(mockTransactions);
 
-            const result = await controller.getMarginAnalysis(mockUser);
+            const result = await controller.getMarginAnalysis(mockUser, {});
 
             expect(result.summary.totalSales).toBe(25);
             expect(result.summary.totalCost).toBe(7);
@@ -321,7 +319,7 @@ describe('WeezeventAnalyticsController', () => {
 
             mockPrismaService.salesTransaction.findMany.mockResolvedValue(mockTransactions);
 
-            const result = await controller.getMarginAnalysis(mockUser);
+            const result = await controller.getMarginAnalysis(mockUser, {});
 
             expect(result.summary.totalSales).toBe(10);
             expect(result.summary.totalCost).toBe(0);
@@ -334,7 +332,7 @@ describe('WeezeventAnalyticsController', () => {
         it('should handle empty transactions', async () => {
             mockPrismaService.salesTransaction.findMany.mockResolvedValue([]);
 
-            const result = await controller.getMarginAnalysis(mockUser);
+            const result = await controller.getMarginAnalysis(mockUser, {});
 
             expect(result.summary.totalSales).toBe(0);
             expect(result.summary.totalCost).toBe(0);
@@ -379,7 +377,7 @@ describe('WeezeventAnalyticsController', () => {
 
             mockPrismaService.salesTransaction.findMany.mockResolvedValue(mockTransactions);
 
-            const result = await controller.getTopProducts(mockUser, 2);
+            const result = await controller.getTopProducts(mockUser, { limit: 2 });
 
             expect(result.data).toHaveLength(2);
             expect(result.data[0]).toEqual({
@@ -405,7 +403,7 @@ describe('WeezeventAnalyticsController', () => {
         it('should use default limit of 10', async () => {
             mockPrismaService.salesTransaction.findMany.mockResolvedValue([]);
 
-            const result = await controller.getTopProducts(mockUser);
+            const result = await controller.getTopProducts(mockUser, {});
 
             expect(result.meta.limit).toBe(10);
         });
@@ -442,7 +440,7 @@ describe('WeezeventAnalyticsController', () => {
 
             mockPrismaService.salesTransaction.findMany.mockResolvedValue(mockTransactions);
 
-            const result = await controller.getTopProducts(mockUser);
+            const result = await controller.getTopProducts(mockUser, {});
 
             expect(result.data[0].quantity).toBe(3);
             expect(result.data[0].revenue).toBe(32);

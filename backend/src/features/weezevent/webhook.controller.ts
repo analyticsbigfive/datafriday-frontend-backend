@@ -52,6 +52,8 @@ export class WebhookController {
         @Param('tenantId') tenantId: string,
         @Param('integrationId') integrationId: string,
         @Headers() headers: Record<string, string | string[] | undefined>,
+        // Webhook : signature vérifiée sur le corps brut, payload fournisseur libre.
+        // eslint-disable-next-line no-restricted-syntax
         @Body() body: unknown,
         @Req() req: RawBodyRequest<FastifyRequest>,
     ): Promise<{ received: boolean; eventId: string }> {

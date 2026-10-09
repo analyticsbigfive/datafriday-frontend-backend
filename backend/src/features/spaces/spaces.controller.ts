@@ -19,7 +19,7 @@ import {
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import type Redis from 'ioredis';
-import { REDIS_CLIENT } from '../../core/redis/redis.module';
+import { REDIS_CLIENT } from '../../core/redis/redis.constants';
 import { liveSpaceChannel } from '../../shared/live-channel.util';
 import {
   ApiTags,
@@ -30,7 +30,6 @@ import {
   ApiParam,
   ApiBody,
 } from '@nestjs/swagger';
-import { SpacesService } from './spaces.service';
 import { CreateSpaceDto } from './dto/create-space.dto';
 import { UpdateSpaceDto } from './dto/update-space.dto';
 import { QuerySpaceDto } from './dto/query-space.dto';
@@ -47,6 +46,17 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { SpaceIdParam } from '../../core/auth/decorators/space-id-param.decorator';
+import { UpdateWeezeventEventMetadataDto } from './dto/update-weezevent-event-metadata.dto';
+import { SpacesGetShopDetailsQueryDto, SpacesGetEventTimelineBatchQueryDto } from './dto/spaces.query.dto';
+import { SpaceAccessGrantService } from './services/space-access-grant.service';
+import { SpaceConfigurationService } from './services/space-configuration.service';
+import { SpaceCrudService } from './services/space-crud.service';
+import { SpaceElementService } from './services/space-element.service';
+import { SpaceEventTimelineService } from './services/space-event-timeline.service';
+import { SpaceWeezeventEventService } from './services/space-weezevent-event.service';
+import { SpaceAnalyseBatchService } from './services/space-analyse-batch.service';
+import { SpaceElementPlacementService } from './services/space-element-placement.service';
+import { SpaceShopsService } from './services/space-shops.service';
 
 @ApiTags('Spaces')
 @ApiBearerAuth('supabase-jwt')
@@ -57,7 +67,15 @@ import { SpaceIdParam } from '../../core/auth/decorators/space-id-param.decorato
 @UseGuards(JwtDatabaseGuard, RolesGuard)
 export class SpacesController {
   constructor(
-    private readonly spacesService: SpacesService,
+    private readonly spaceAccessGrantService: SpaceAccessGrantService,
+    private readonly spaceConfigurationService: SpaceConfigurationService,
+    private readonly spaceCrudService: SpaceCrudService,
+    private readonly spaceElementService: SpaceElementService,
+    private readonly spaceAnalyseBatchService: SpaceAnalyseBatchService,
+    private readonly spaceElementPlacementService: SpaceElementPlacementService,
+    private readonly spaceShopsService: SpaceShopsService,
+    private readonly spaceEventTimelineService: SpaceEventTimelineService,
+    private readonly spaceWeezeventEventService: SpaceWeezeventEventService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis,
   ) {}
 
@@ -99,7 +117,7 @@ export class SpacesController {
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   @ApiResponse({ status: 403, description: 'Accès refusé - rôle insuffisant' })
   async create(@CurrentUser() user: any, @Body() dto: CreateSpaceDto) {
-    return this.spacesService.create(user.tenantId, dto);
+    return this.spaceCrudService.create(user.tenantId, dto);
   }
 
   /**
@@ -154,7 +172,7 @@ export class SpacesController {
     if (!user.tenantId) {
       throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
     }
-    return this.spacesService.findAll(user.tenantId, query, user);
+    return this.spaceCrudService.findAll(user.tenantId, query, user);
   }
 
   /**
@@ -183,7 +201,7 @@ export class SpacesController {
     if (!user.tenantId) {
       throw new ForbiddenException('Organisation requise. Veuillez compléter l\'onboarding.');
     }
-    return this.spacesService.getSpacesLight(user.tenantId, user);
+    return this.spaceCrudService.getSpacesLight(user.tenantId, user);
   }
 
   /**
@@ -219,7 +237,7 @@ export class SpacesController {
     },
   })
   async getStatistics(@CurrentUser() user: any) {
-    return this.spacesService.getStatistics(user.tenantId);
+    return this.spaceCrudService.getStatistics(user.tenantId);
   }
 
   /**
@@ -235,7 +253,7 @@ export class SpacesController {
     description: 'Liste des espaces épinglés',
   })
   async getPinned(@CurrentUser() user: any) {
-    return this.spacesService.getPinned(user.id, user.tenantId, user);
+    return this.spaceAccessGrantService.getPinned(user.id, user.tenantId, user);
   }
 
   /**
@@ -309,11 +327,11 @@ export class SpacesController {
     @CurrentUser() user: any,
     @Query('light') light?: string,
   ) {
-    const space = await this.spacesService.findOne(id, user.tenantId, user);
+    const space = await this.spaceCrudService.findOne(id, user.tenantId, user);
     
     // In light mode, exclude heavy data like images
     if (light === 'true') {
-      const { image, ...lightSpace } = space;
+      const { image: _image, ...lightSpace } = space;
       return lightSpace;
     }
     
@@ -338,7 +356,7 @@ export class SpacesController {
     @CurrentUser() user: any,
     @Body() dto: UpdateSpaceDto,
   ) {
-    return this.spacesService.update(id, user.tenantId, dto);
+    return this.spaceCrudService.update(id, user.tenantId, dto);
   }
 
   /**
@@ -359,7 +377,7 @@ export class SpacesController {
     @CurrentUser() user: any,
     @Body() body: UpdateSpaceImageDto,
   ) {
-    return this.spacesService.updateImage(id, user.tenantId, body.image);
+    return this.spaceCrudService.updateImage(id, user.tenantId, body.image);
   }
 
   /**
@@ -399,7 +417,7 @@ export class SpacesController {
   })
   @ApiResponse({ status: 404, description: 'Espace non trouvé' })
   async getConfigurations(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.spacesService.getConfigurations(id, user.tenantId);
+    return this.spaceConfigurationService.getConfigurations(id, user.tenantId);
   }
 
   /**
@@ -455,7 +473,7 @@ export class SpacesController {
     @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.spacesService.getSpaceShops(id, user.tenantId, configId);
+    return this.spaceShopsService.getSpaceShops(id, user.tenantId, configId);
   }
 
   /**
@@ -498,14 +516,13 @@ export class SpacesController {
   async getShopDetails(
     @Param('id') id: string,
     @CurrentUser() user: any,
-    @Query('page') page = '1',
-    @Query('limit') limit = '20',
-    @Query('granular') granular = '0',
+    @Query() params: SpacesGetShopDetailsQueryDto,
   ) {
+    const { page = '1', limit = '20', granular = '0' } = params;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(200, Math.max(1, parseInt(limit, 10) || 20));
     const includeGranular = granular === '1' || granular === 'true';
-    return this.spacesService.getShopDetails(id, user.tenantId, pageNum, limitNum, includeGranular, user);
+    return this.spaceShopsService.getShopDetails(id, user.tenantId, pageNum, limitNum, includeGranular, user);
   }
 
   /**
@@ -533,12 +550,12 @@ export class SpacesController {
   })
   async getEventTimelineBatch(
     @Param('id') id: string,
-    @Query('eventIds') eventIds: string,
+    @Query() params: SpacesGetEventTimelineBatchQueryDto,
     @CurrentUser() user: any,
-    @Query('granularity') granularity?: string,
   ) {
+    const { eventIds, granularity } = params;
     const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
-    return this.spacesService.getEventTimelineBatch(id, ids, user.tenantId, {
+    return this.spaceEventTimelineService.getEventTimelineBatch(id, ids, user.tenantId, {
       granularity: granularity === 'summary' ? 'summary' : 'minute',
     });
   }
@@ -610,7 +627,7 @@ export class SpacesController {
     @CurrentUser() user: any,
   ) {
     const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
-    return this.spacesService.getTransactionBasketsBatch(id, ids, user.tenantId, user);
+    return this.spaceAnalyseBatchService.getTransactionBasketsBatch(id, ids, user.tenantId, user);
   }
 
   /**
@@ -653,7 +670,7 @@ export class SpacesController {
     @CurrentUser() user: any,
   ) {
     const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
-    return this.spacesService.getAnalyseUnmappedBatch(id, ids, user.tenantId);
+    return this.spaceAnalyseBatchService.getAnalyseUnmappedBatch(id, ids, user.tenantId);
   }
 
   /**
@@ -700,7 +717,7 @@ export class SpacesController {
     @Param('eventId') eventId: string,
     @CurrentUser() user: any,
   ) {
-    return this.spacesService.getEventTimeline(id, eventId, user.tenantId);
+    return this.spaceEventTimelineService.getEventTimeline(id, eventId, user.tenantId);
   }
 
   /**
@@ -734,7 +751,7 @@ export class SpacesController {
     @Param('id') id: string,
     @CurrentUser() user: any,
   ) {
-    return this.spacesService.getLiveStatus(id, user.tenantId);
+    return this.spaceShopsService.getLiveStatus(id, user.tenantId);
   }
 
   /**
@@ -849,7 +866,7 @@ export class SpacesController {
     @Param('id') id: string,
     @CurrentUser() user: any,
   ) {
-    return this.spacesService.getLiveInventory(id, user.tenantId);
+    return this.spaceShopsService.getLiveInventory(id, user.tenantId);
   }
 
   /**
@@ -866,7 +883,7 @@ export class SpacesController {
     @Param('id') id: string,
     @CurrentUser() user: any,
   ) {
-    return this.spacesService.getSpaceIntegrations(id, user.tenantId);
+    return this.spaceWeezeventEventService.getSpaceIntegrations(id, user.tenantId);
   }
 
   /**
@@ -883,7 +900,7 @@ export class SpacesController {
     @Query('integrationId') integrationId: string | undefined,
     @CurrentUser() user: any,
   ) {
-    return this.spacesService.getWeezeventEventsForSpace(id, user.tenantId, integrationId);
+    return this.spaceWeezeventEventService.getWeezeventEventsForSpace(id, user.tenantId, integrationId);
   }
 
   /**
@@ -915,21 +932,10 @@ export class SpacesController {
   async updateWeezeventEventMetadata(
     @Param('id') id: string,
     @Param('eventId') eventId: string,
-    @Body() body: {
-      doorsOpening?: string | null;
-      showTime?: string | null;
-      category?: string | null;
-      eventType?: string | null;
-      team?: string | null;
-      visitingTeam?: string | null;
-      hasIntermission?: boolean;
-      performer?: string | null;
-      openingAct?: string | null;
-      sponsor?: string | null;
-    },
+    @Body() body: UpdateWeezeventEventMetadataDto,
     @CurrentUser() user: any,
   ) {
-    return this.spacesService.updateWeezeventEventMetadata(id, eventId, body, user.tenantId);
+    return this.spaceWeezeventEventService.updateWeezeventEventMetadata(id, eventId, body, user.tenantId);
   }
 
   /**
@@ -947,7 +953,7 @@ export class SpacesController {
     @Param('eventId') eventId: string,
     @CurrentUser() user: any,
   ) {
-    return this.spacesService.syncEventAttendees(id, eventId, user.tenantId);
+    return this.spaceWeezeventEventService.syncEventAttendees(id, eventId, user.tenantId);
   }
 
   /**
@@ -964,7 +970,7 @@ export class SpacesController {
   @ApiResponse({ status: 404, description: 'Espace non trouvé' })
   @ApiResponse({ status: 403, description: 'Accès refusé' })
   async remove(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.spacesService.remove(id, user.tenantId);
+    return this.spaceCrudService.remove(id, user.tenantId);
   }
 
   /**
@@ -980,7 +986,7 @@ export class SpacesController {
   @ApiResponse({ status: 200, description: 'Espace épinglé' })
   @ApiResponse({ status: 404, description: 'Espace non trouvé' })
   async pin(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.spacesService.pin(id, user.id, user.tenantId);
+    return this.spaceAccessGrantService.pin(id, user.id, user.tenantId);
   }
 
   /**
@@ -995,7 +1001,7 @@ export class SpacesController {
   @ApiResponse({ status: 200, description: 'Espace désépinglé' })
   @ApiResponse({ status: 404, description: 'Espace non trouvé ou non épinglé' })
   async unpin(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.spacesService.unpin(id, user.id, user.tenantId);
+    return this.spaceAccessGrantService.unpin(id, user.id, user.tenantId);
   }
 
   /**
@@ -1018,7 +1024,7 @@ export class SpacesController {
     @Body() body: GrantSpaceAccessDto,
     @CurrentUser() user: any,
   ) {
-    return this.spacesService.grantAccess(id, body.userId, body.role, user.tenantId);
+    return this.spaceAccessGrantService.grantAccess(id, body.userId, body.role, user.tenantId);
   }
 
   /**
@@ -1039,7 +1045,7 @@ export class SpacesController {
     @Param('userId') userId: string,
     @CurrentUser() user: any,
   ) {
-    return this.spacesService.revokeAccess(id, userId, user.tenantId);
+    return this.spaceAccessGrantService.revokeAccess(id, userId, user.tenantId);
   }
 
   /**
@@ -1080,7 +1086,7 @@ export class SpacesController {
     },
   })
   async getSpaceUsers(@Param('id') id: string, @CurrentUser() user: any) {
-    return this.spacesService.getSpaceUsers(id, user.tenantId);
+    return this.spaceAccessGrantService.getSpaceUsers(id, user.tenantId);
   }
 
   /**
@@ -1119,7 +1125,7 @@ export class SpacesController {
     @CurrentUser() user: any,
     @Body() body: QuickCreateElementDto,
   ) {
-    return this.spacesService.quickCreateElement(spaceId, user.tenantId, body, user);
+    return this.spaceElementService.quickCreateElement(spaceId, user.tenantId, body, user);
   }
 
   /**
@@ -1162,7 +1168,7 @@ export class SpacesController {
     @CurrentUser() user: any,
     @Body() body: BulkQuickElementsDto,
   ) {
-    return this.spacesService.bulkQuickCreateAndMap(spaceId, user.tenantId, body);
+    return this.spaceElementService.bulkQuickCreateAndMap(spaceId, user.tenantId, body);
   }
 
   /**
@@ -1180,7 +1186,7 @@ export class SpacesController {
     @CurrentTenant() tenantId: string,
     @Body() body: AssignElementsToFloorDto,
   ) {
-    return this.spacesService.assignElementsToFloorLevel(spaceId, tenantId, body.elementIds, body.level, {
+    return this.spaceElementPlacementService.assignElementsToFloorLevel(spaceId, tenantId, body.elementIds, body.level, {
       configId: body.configId,
       width: body.width,
       length: body.length,
@@ -1223,7 +1229,7 @@ export class SpacesController {
     @CurrentTenant() tenantId: string,
     @Query('configId') configId?: string,
   ) {
-    return this.spacesService.getFloorOptions(spaceId, tenantId, configId);
+    return this.spaceElementService.getFloorOptions(spaceId, tenantId, configId);
   }
 }
 
@@ -1236,7 +1242,10 @@ export class SpacesController {
 export class ConfigurationsController {
   private readonly logger = new Logger(ConfigurationsController.name);
   
-  constructor(private readonly spacesService: SpacesService) {}
+  constructor(
+    private readonly spaceConfigurationService: SpaceConfigurationService,
+    private readonly spaceElementService: SpaceElementService,
+  ) {}
 
   /**
    * Create or update a configuration
@@ -1278,7 +1287,7 @@ export class ConfigurationsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`POST /configurations - Tenant: ${tenantId}, SpaceId: ${dto.spaceId}, ConfigName: ${dto.name}`);
-    return this.spacesService.saveConfiguration(dto, tenantId);
+    return this.spaceConfigurationService.saveConfiguration(dto, tenantId);
   }
 
   /**
@@ -1312,7 +1321,7 @@ export class ConfigurationsController {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: any,
   ) {
-    return this.spacesService.getConfiguration(id, tenantId, user);
+    return this.spaceConfigurationService.getConfiguration(id, tenantId, user);
   }
 
   /**
@@ -1351,46 +1360,6 @@ export class ConfigurationsController {
     @Body() dto: UpdateSpaceElementDto,
     @CurrentUser() user: any,
   ) {
-    return this.spacesService.updateSpaceElement(elementId, tenantId, dto, user);
-  }
-
-  /**
-   * Quick-create a shop element for a space (from Weezevent import flow)
-   */
-  @Post(':id/quick-element')
-  @RequirePermissions('space.edit')
-  @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({
-    summary: 'Créer rapidement un shop dans un espace (import Weezevent)',
-    description:
-      'Crée un SpaceElement dans la configuration utilisateur de l\'espace (celle de l\'étape 1 / du 3D Builder, la plus ancienne non-système). ' +
-      'Aucune configuration "Weezevent Import" n\'est créée tant qu\'une config utilisateur existe. ' +
-      'Dimensions par défaut : floor 200m × 200m × 4m si aucun floor n\'existe encore, shop 2m × 2m × 2m. ' +
-      'Pour un `type` F&B (fnb-food, fnb-beverages, fnb-bar, fnb-snack, fnb-icecream), `shopTypes` est ' +
-      'automatiquement renseigné (food/beverages/beer) pour le filtre du 3D Builder.',
-  })
-  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
-  @ApiBody({ schema: { type: 'object', properties: { name: { type: 'string' }, type: { type: 'string', example: 'fnb-beverages', enum: ['shop', 'fnb-food', 'fnb-beverages', 'fnb-bar', 'fnb-snack', 'fnb-icecream', 'merchshop'] } }, required: ['name'] } })
-  @ApiResponse({
-    status: 201,
-    description: 'Shop créé',
-    schema: {
-      type: 'object',
-      properties: {
-        id: { type: 'string' },
-        name: { type: 'string' },
-        type: { type: 'string' },
-        configName: { type: 'string' },
-        areaName: { type: 'string' },
-      },
-    },
-  })
-  async quickCreateElement(
-    @CurrentTenant() tenantId: string,
-    @Param('id') spaceId: string,
-    @Body() body: { name: string; type?: string },
-    @CurrentUser() user: any,
-  ) {
-    return this.spacesService.quickCreateElement(spaceId, tenantId, body, user);
+    return this.spaceElementService.updateSpaceElement(elementId, tenantId, dto, user);
   }
 }

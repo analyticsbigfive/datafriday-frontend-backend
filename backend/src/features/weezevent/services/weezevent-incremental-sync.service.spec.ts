@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WeezeventIncrementalSyncService } from './weezevent-incremental-sync.service';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventClientService } from './weezevent-client.service';
+import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
 
 describe('WeezeventIncrementalSyncService', () => {
     let service: WeezeventIncrementalSyncService;
@@ -46,6 +47,8 @@ describe('WeezeventIncrementalSyncService', () => {
                 WeezeventIncrementalSyncService,
                 { provide: PrismaService, useValue: mockPrismaService },
                 { provide: WeezeventClientService, useValue: mockWeezeventClient },
+                // Agrégat de prix incrémental (chantier perf 2026-09) : effets de bord hors périmètre ici.
+                { provide: SalesPriceAggService, useValue: { applyDeltaSafe: jest.fn().mockResolvedValue(undefined), refreshForIntegrationSafe: jest.fn().mockResolvedValue(undefined) } },
             ],
         }).compile();
 

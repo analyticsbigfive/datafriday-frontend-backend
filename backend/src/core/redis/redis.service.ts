@@ -1,6 +1,6 @@
 import { Injectable, Inject, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
-import { REDIS_CLIENT } from './redis.module';
+import { REDIS_CLIENT } from './redis.constants';
 
 export interface CacheOptions {
   ttl?: number; // Time to live in seconds (default: 300)

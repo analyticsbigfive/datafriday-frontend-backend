@@ -6,7 +6,6 @@ import { EncryptionService } from '../../core/encryption/encryption.service';
 
 describe('OnboardingService', () => {
   let service: OnboardingService;
-  let prisma: PrismaService;
 
   const mockPrismaService = {
     user: {
@@ -49,7 +48,6 @@ describe('OnboardingService', () => {
     }).compile();
 
     service = module.get<OnboardingService>(OnboardingService);
-    prisma = module.get<PrismaService>(PrismaService);
   });
 
   afterEach(() => {
@@ -114,6 +112,8 @@ describe('OnboardingService', () => {
           userTenant: { create: jest.fn().mockResolvedValue({}) },
           permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }), findFirst: jest.fn().mockResolvedValue(null), update: jest.fn().mockResolvedValue({}), create: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
           role: {
+            // Propagation des nouveaux codes du catalogue aux rôles système existants.
+            findMany: jest.fn().mockResolvedValue([]),
             findFirst: jest.fn().mockResolvedValue(null),
             create: jest.fn().mockResolvedValue({ id: 'role-id' }),
             update: jest.fn(),
@@ -176,6 +176,8 @@ describe('OnboardingService', () => {
           userTenant: { create: jest.fn().mockResolvedValue({}) },
           permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }), findFirst: jest.fn().mockResolvedValue(null), update: jest.fn().mockResolvedValue({}), create: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
           role: {
+            // Propagation des nouveaux codes du catalogue aux rôles système existants.
+            findMany: jest.fn().mockResolvedValue([]),
             findFirst: jest.fn().mockResolvedValue(null),
             create: jest.fn().mockResolvedValue({ id: 'role-id' }),
             update: jest.fn(),
@@ -213,6 +215,8 @@ describe('OnboardingService', () => {
           userTenant: { create: jest.fn().mockResolvedValue({}) },
           permission: { upsert: jest.fn().mockResolvedValue({ id: 'perm-id' }), findFirst: jest.fn().mockResolvedValue(null), update: jest.fn().mockResolvedValue({}), create: jest.fn().mockResolvedValue({ id: 'perm-id' }) },
           role: {
+            // Propagation des nouveaux codes du catalogue aux rôles système existants.
+            findMany: jest.fn().mockResolvedValue([]),
             findFirst: jest.fn().mockResolvedValue(null),
             create: jest.fn().mockResolvedValue({ id: 'role-id' }),
             update: jest.fn(),

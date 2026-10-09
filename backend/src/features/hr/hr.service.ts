@@ -21,30 +21,17 @@ export const HR_CONTRACT_TYPES = ['CDD', 'FREELANCE', 'CDI', 'AGENCY', 'OTHER'] 
 export const HR_RATE_TYPES = ['HOURLY', 'DAILY', 'MONTHLY'] as const;
 export const HR_PERSON_CONTRACTS = ['CDI', 'CDD'] as const;
 /** Contract types pour lesquels rateType + rate sont requis (spec §2.1). */
-export const HR_RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE'] as const;
+const HR_RATE_REQUIRED_CONTRACTS = ['CDD', 'AGENCY', 'FREELANCE'] as const;
+
+
+const ASSERT_SPACE_WRITE_ACCESS_MESSAGES = {
+  none: "Cette ressource ne dessert aucun espace — réservée aux comptes à accès complet.",
+  denied: "Vous n'avez pas accès à l'espace de cette ressource.",
+};
 
 @Injectable()
 export class HrService {
   constructor(private prisma: PrismaService, private spaceAccess: SpaceAccessService) {}
-
-  /**
-   * Lève 403 si `user` n'a accès à aucun des espaces listés. Une ressource SANS espace
-   * déclaré ne dessert aucun espace accessible par construction : réservée aux comptes à
-   * accès complet (owner/super-admin/allSpacesAccess), jamais « portée tenant » implicite.
-   */
-  private async assertSpaceWriteAccess(spaceIds: string[] | undefined, user?: SpaceScopedUser) {
-    if (!user) return;
-    if (this.spaceAccess.hasFullAccess(user)) return;
-    if (!spaceIds?.length) {
-      throw new ForbiddenException("Cette ressource ne dessert aucun espace — réservée aux comptes à accès complet.");
-    }
-    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
-    if (accessible === 'ALL') return;
-    const allowed = spaceIds.some((sid) => accessible.includes(sid));
-    if (!allowed) {
-      throw new ForbiddenException("Vous n'avez pas accès à l'espace de cette ressource.");
-    }
-  }
 
   // ── Mapping ────────────────────────────────────────────────────────────────
 
@@ -232,7 +219,7 @@ export class HrService {
   async updateSupplier(id: string, input: any, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrSupplier.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrSupplier ${id} introuvable`);
-    await this.assertSpaceWriteAccess(existing.spaceIds, user);
+    await this.spaceAccess.assertCanAccessAny(user, existing.spaceIds, ASSERT_SPACE_WRITE_ACCESS_MESSAGES);
     const departments = await this.normalizeSupplierDepartments(input.departments);
     try {
       const row = await this.prisma.hrSupplier.update({
@@ -259,7 +246,7 @@ export class HrService {
   async removeSupplier(id: string, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrSupplier.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrSupplier ${id} introuvable`);
-    await this.assertSpaceWriteAccess(existing.spaceIds, user);
+    await this.spaceAccess.assertCanAccessAny(user, existing.spaceIds, ASSERT_SPACE_WRITE_ACCESS_MESSAGES);
     await this.prisma.hrSupplier.delete({ where: { id } }); // cascade jointures
     return { deleted: true };
   }
@@ -643,7 +630,7 @@ export class HrService {
   async updateRoleMenuItemRatio(id: string, input: any, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrRoleMenuItemRatio.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrRoleMenuItemRatio ${id} introuvable`);
-    await this.assertSpaceWriteAccess([existing.spaceId], user);
+    await this.spaceAccess.assertCanAccessAny(user, [existing.spaceId], ASSERT_SPACE_WRITE_ACCESS_MESSAGES);
     const n = await this.assertValidRoleMenuItemRatio(input, tenantId, existing);
     const row = await this.prisma.hrRoleMenuItemRatio.update({
       where: { id },
@@ -661,7 +648,7 @@ export class HrService {
   async removeRoleMenuItemRatio(id: string, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.prisma.hrRoleMenuItemRatio.findFirst({ where: { id, tenantId } });
     if (!existing) throw new NotFoundException(`HrRoleMenuItemRatio ${id} introuvable`);
-    await this.assertSpaceWriteAccess([existing.spaceId], user);
+    await this.spaceAccess.assertCanAccessAny(user, [existing.spaceId], ASSERT_SPACE_WRITE_ACCESS_MESSAGES);
     await this.prisma.hrRoleMenuItemRatio.delete({ where: { id } });
     return { deleted: true };
   }

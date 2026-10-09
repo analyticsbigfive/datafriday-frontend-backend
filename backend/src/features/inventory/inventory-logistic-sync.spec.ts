@@ -137,9 +137,9 @@ describe('Logistique depuis les comptages (D1)', () => {
       service = new LogisticsService(prisma, {} as any, {} as any, {} as any, {
         hasFullAccess: () => true,
         getAccessibleSpaceIds: async () => 'ALL',
+        assertSpaceAccessible: jest.fn().mockResolvedValue({ id: 'space-1', name: 'Space' }),
+        assertCanAccessSpace: jest.fn().mockResolvedValue(undefined),
       } as any);
-      jest.spyOn(service as any, 'assertSpace').mockResolvedValue(undefined);
-      jest.spyOn(service as any, 'assertSpaceAccess').mockResolvedValue(undefined);
     });
 
     it('regroupe les envois automatiques, garde les resets manuels à part', async () => {

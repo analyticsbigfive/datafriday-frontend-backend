@@ -56,6 +56,8 @@ export class DigifoodWebhookController {
         @Param('integrationId') integrationId: string,
         @Headers('digifood-wh-signature') signatureHeader: string | undefined,
         @Headers('digifood-wh-key-version') keyVersionHeader: string | undefined,
+        // Webhook : signature vérifiée sur le corps brut, payload fournisseur libre.
+        // eslint-disable-next-line no-restricted-syntax
         @Body() body: Record<string, unknown>,
     ): Promise<{ received: boolean; eventId?: string; duplicate?: boolean }> {
         // 1. Intégration : existe, appartient au tenant, provider DIGIFOOD, active, configurée

@@ -5,7 +5,6 @@ import { TenantPlan, TenantStatus } from '@prisma/client';
 
 describe('TenantsController', () => {
   let controller: TenantsController;
-  let service: TenantsService;
 
   const mockTenant = {
     id: 'tenant-123',
@@ -42,7 +41,6 @@ describe('TenantsController', () => {
     }).compile();
 
     controller = module.get<TenantsController>(TenantsController);
-    service = module.get<TenantsService>(TenantsService);
 
     jest.clearAllMocks();
   });

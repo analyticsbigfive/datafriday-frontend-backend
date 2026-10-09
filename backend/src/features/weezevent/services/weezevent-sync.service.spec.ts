@@ -8,8 +8,6 @@ import { WeezeventQueuedEntitySyncService } from './sync/queued-entity-sync.serv
 
 describe('WeezeventSyncService', () => {
     let service: WeezeventSyncService;
-    let prisma: PrismaService;
-    let weezeventClient: WeezeventClientService;
     let mockTransactionSync: any;
     let mockCatalogSync: any;
     let mockQueuedEntitySync: any;
@@ -122,8 +120,6 @@ describe('WeezeventSyncService', () => {
         }).compile();
 
         service = module.get<WeezeventSyncService>(WeezeventSyncService);
-        prisma = module.get<PrismaService>(PrismaService);
-        weezeventClient = module.get<WeezeventClientService>(WeezeventClientService);
         mockTransactionSync = module.get(WeezeventTransactionSyncService);
         mockCatalogSync = module.get(WeezeventCatalogSyncService);
         mockQueuedEntitySync = module.get(WeezeventQueuedEntitySyncService);
@@ -167,9 +163,9 @@ describe('WeezeventSyncService', () => {
 
     describe('syncTransactions', () => {
         const tenantId = 'tenant-123';
-        const organizationId = 'org-456';
+        const _organizationId = 'org-456';
 
-        const mockApiTransaction = {
+        const _mockApiTransaction = {
             id: 789,
             status: 'V',
             created: '2024-01-15T10:00:00Z',

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
 import { CurrentUserData } from './decorators/current-user.decorator';
 
@@ -46,5 +46,52 @@ export class SpaceAccessService {
       select: { spaceId: true },
     });
     return !!row;
+  }
+
+  /**
+   * L'espace existe dans ce tenant, sinon 404 (on ne révèle pas l'existence d'un espace
+   * d'un autre tenant). Renvoie son id et son nom.
+   */
+  async assertSpaceInTenant(spaceId: string, tenantId: string): Promise<{ id: string; name: string }> {
+    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true, name: true } });
+    if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
+    return space;
+  }
+
+  /**
+   * L'utilisateur peut accéder à cet espace, sinon 403. Sans utilisateur (appel système) ou
+   * sans espace, aucun contrôle : le contrôle d'existence relève d'assertSpaceInTenant.
+   */
+  async assertCanAccessSpace(
+    user: SpaceUser | undefined,
+    spaceId: string | null | undefined,
+    deniedMessage = "Vous n'avez pas accès à cet espace.",
+  ): Promise<void> {
+    if (!user || !spaceId) return;
+    if (!(await this.canAccessSpace(user, spaceId))) throw new ForbiddenException(deniedMessage);
+  }
+
+  /** Existence dans le tenant (404) puis accès de l'utilisateur (403). */
+  async assertSpaceAccessible(spaceId: string, tenantId: string, user?: SpaceUser): Promise<{ id: string; name: string }> {
+    const space = await this.assertSpaceInTenant(spaceId, tenantId);
+    await this.assertCanAccessSpace(user, spaceId);
+    return space;
+  }
+
+  /**
+   * Ressource rattachée à plusieurs espaces (article, fournisseur, prix...) : l'utilisateur doit
+   * accéder à au moins l'un d'eux. Une ressource sans espace est réservée aux comptes à accès
+   * complet. Sans utilisateur (appel système), aucun contrôle.
+   */
+  async assertCanAccessAny(
+    user: SpaceUser | undefined,
+    spaceIds: ReadonlyArray<string> | null | undefined,
+    messages: { none: string; denied: string },
+  ): Promise<void> {
+    if (!user || this.hasFullAccess(user)) return;
+    if (!spaceIds?.length) throw new ForbiddenException(messages.none);
+    const accessible = await this.getAccessibleSpaceIds(user);
+    if (accessible === 'ALL' || spaceIds.some((id) => accessible.includes(id))) return;
+    throw new ForbiddenException(messages.denied);
   }
 }

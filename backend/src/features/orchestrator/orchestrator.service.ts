@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../../core/redis/redis.service';
-import { QueueService, DataSyncJobData, AnalyticsJobData } from '../../core/queue/queue.service';
+import { QueueService } from '../../core/queue/queue.service';
 
 /**
  * HEOS - Hybrid Event-driven Orchestrated System
@@ -34,15 +34,6 @@ export interface ProcessingDecision {
   cacheKey?: string;
 }
 
-export interface ProcessingResult<T = any> {
-  success: boolean;
-  data?: T;
-  jobId?: string;
-  cached?: boolean;
-  processingTime: number;
-  strategy: ProcessingDecision['strategy'];
-}
-
 @Injectable()
 export class OrchestratorService {
   private readonly logger = new Logger(OrchestratorService.name);
@@ -50,8 +41,6 @@ export class OrchestratorService {
   // Thresholds for routing decisions
   private readonly SYNC_THRESHOLD = 1000; // Items below this: sync
   private readonly QUEUE_THRESHOLD = 50000; // Items below this: queue, above: edge
-  private readonly CACHE_TTL_DASHBOARD = 60; // 1 minute for dashboard data
-  private readonly CACHE_TTL_ANALYTICS = 300; // 5 minutes for analytics
   
   // Supabase Edge Function URL
   private readonly edgeFunctionUrl: string;
@@ -69,7 +58,7 @@ export class OrchestratorService {
    * Decide the best processing strategy based on context
    */
   decideStrategy(context: ProcessingContext): ProcessingDecision {
-    const { estimatedItems = 0, operation, priority } = context;
+    const { estimatedItems = 0, priority } = context;
 
     // High priority always goes sync if possible
     if (priority === 'high' && estimatedItems < this.SYNC_THRESHOLD) {
@@ -107,146 +96,6 @@ export class OrchestratorService {
   }
 
   /**
-   * Process a data sync request with intelligent routing
-   */
-  async processSync(
-    context: ProcessingContext,
-    syncFn: () => Promise<any>,
-  ): Promise<ProcessingResult> {
-    const startTime = Date.now();
-    const decision = this.decideStrategy(context);
-
-    this.logger.log(
-      `[HEOS] Processing sync for tenant ${context.tenantId} - Strategy: ${decision.strategy} (${decision.reason})`,
-    );
-
-    try {
-      switch (decision.strategy) {
-        case 'sync':
-          return this.processSynchronously(context, syncFn, decision, startTime);
-
-        case 'queue':
-          return this.processViaQueue(context, startTime);
-
-        case 'edge':
-          // BUG-43: la route Edge Function ('heavy-processing') a été supprimée —
-          // elle référençait une table Supabase inexistante et était du code mort
-          // (aucun appelant). En attendant une éventuelle réécriture, les décisions
-          // 'edge' sont traitées via la queue, qui était déjà le fallback historique
-          // en cas d'échec de l'Edge Function.
-          return this.processViaQueue(context, startTime);
-
-        default:
-          throw new Error(`Unknown strategy: ${decision.strategy}`);
-      }
-    } catch (error) {
-      this.logger.error(`[HEOS] Processing failed: ${error.message}`);
-      return {
-        success: false,
-        processingTime: Date.now() - startTime,
-        strategy: decision.strategy,
-      };
-    }
-  }
-
-  /**
-   * Process analytics request
-   */
-  async processAnalytics(
-    context: ProcessingContext,
-    computeFn: () => Promise<any>,
-  ): Promise<ProcessingResult> {
-    const startTime = Date.now();
-    const cacheKey = this.buildCacheKey(context);
-
-    // Check cache first
-    const cached = await this.redisService.get<any>(cacheKey);
-    if (cached) {
-      this.logger.debug(`[HEOS] Cache HIT for analytics: ${cacheKey}`);
-      return {
-        success: true,
-        data: cached,
-        cached: true,
-        processingTime: Date.now() - startTime,
-        strategy: 'sync',
-      };
-    }
-
-    const decision = this.decideStrategy(context);
-
-    if (decision.strategy === 'sync') {
-      const data = await computeFn();
-      
-      // Cache the result
-      await this.redisService.set(cacheKey, data, { ttl: this.CACHE_TTL_ANALYTICS });
-
-      return {
-        success: true,
-        data,
-        cached: false,
-        processingTime: Date.now() - startTime,
-        strategy: 'sync',
-      };
-    }
-
-    // Queue for background processing
-    const job = await this.queueService.queueAnalytics(
-      context.tenantId,
-      'aggregation',
-      {
-        startDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-        endDate: new Date().toISOString(),
-      },
-    );
-
-    return {
-      success: true,
-      jobId: job.id,
-      processingTime: Date.now() - startTime,
-      strategy: 'queue',
-    };
-  }
-
-  /**
-   * Get dashboard data with caching
-   */
-  async getDashboardData(
-    tenantId: string,
-    spaceId: string,
-    fetchFn: () => Promise<any>,
-  ): Promise<ProcessingResult> {
-    const startTime = Date.now();
-    const cacheKey = `dashboard:${tenantId}:${spaceId}`;
-
-    // Check cache
-    const cached = await this.redisService.get<any>(cacheKey);
-    if (cached) {
-      this.logger.debug(`[HEOS] Dashboard cache HIT: ${cacheKey}`);
-      return {
-        success: true,
-        data: cached,
-        cached: true,
-        processingTime: Date.now() - startTime,
-        strategy: 'sync',
-      };
-    }
-
-    // Fetch fresh data
-    const data = await fetchFn();
-
-    // Cache with short TTL
-    await this.redisService.set(cacheKey, data, { ttl: this.CACHE_TTL_DASHBOARD });
-
-    return {
-      success: true,
-      data,
-      cached: false,
-      processingTime: Date.now() - startTime,
-      strategy: 'sync',
-    };
-  }
-
-  /**
    * Invalidate cache for a tenant/space
    */
   async invalidateCache(tenantId: string, spaceId?: string): Promise<void> {
@@ -264,59 +113,6 @@ export class OrchestratorService {
     const parts = [context.operation, context.tenantId];
     if (context.spaceId) parts.push(context.spaceId);
     return parts.join(':');
-  }
-
-  private async processSynchronously(
-    context: ProcessingContext,
-    syncFn: () => Promise<any>,
-    decision: ProcessingDecision,
-    startTime: number,
-  ): Promise<ProcessingResult> {
-    // Check cache if available
-    if (decision.cacheKey) {
-      const cached = await this.redisService.get<any>(decision.cacheKey);
-      if (cached) {
-        return {
-          success: true,
-          data: cached,
-          cached: true,
-          processingTime: Date.now() - startTime,
-          strategy: 'sync',
-        };
-      }
-    }
-
-    // Execute synchronously
-    const data = await syncFn();
-
-    // Cache result
-    if (decision.cacheKey) {
-      await this.redisService.set(decision.cacheKey, data, { ttl: 300 });
-    }
-
-    return {
-      success: true,
-      data,
-      cached: false,
-      processingTime: Date.now() - startTime,
-      strategy: 'sync',
-    };
-  }
-
-  private async processViaQueue(
-    context: ProcessingContext,
-    startTime: number,
-  ): Promise<ProcessingResult> {
-    const job = await this.queueService.queueWeezeventSync(context.tenantId, {
-      fullSync: context.operation === 'sync',
-    });
-
-    return {
-      success: true,
-      jobId: job.id,
-      processingTime: Date.now() - startTime,
-      strategy: 'queue',
-    };
   }
 
   /**

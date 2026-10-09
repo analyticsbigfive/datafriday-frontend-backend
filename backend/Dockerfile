@@ -1,54 +1,37 @@
 # Build stage
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 
-# Install OpenSSL for Prisma
-RUN apk add --no-cache openssl
+# OpenSSL pour Prisma, pnpm via corepack (version figée par "packageManager")
+RUN apk add --no-cache openssl && corepack enable
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+COPY package.json pnpm-lock.yaml ./
 COPY prisma ./prisma/
 
-# Install dependencies
-RUN npm ci
+RUN pnpm install --frozen-lockfile
 
-# Copy source code ..
 COPY . .
 
-# Generate Prisma Client
-RUN npx prisma generate
-
-# Build application
-RUN npm run build
+# Client Prisma généré puis dépendances de dev retirées : le client généré est conservé.
+RUN pnpm exec prisma generate && pnpm build && pnpm prune --prod
 
 # Production stage
-FROM node:20-alpine AS production
+FROM node:22-alpine AS production
 
-# Install OpenSSL for Prisma
 RUN apk add --no-cache openssl
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-
-# Install production dependencies only
-RUN npm ci --only=production
-
-# Copy Prisma schema and generate client
-COPY prisma ./prisma/
-RUN npx prisma generate
-
-# Copy built application from builder
+COPY --from=builder /app/package.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/dist ./dist
 
-# Expose port
 EXPOSE 3000
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/api/v1/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Start application
+# Le worker utilise la même image : `node dist/worker`.
 CMD ["node", "dist/main"]

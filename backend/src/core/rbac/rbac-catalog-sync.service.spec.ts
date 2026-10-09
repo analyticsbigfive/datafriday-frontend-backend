@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { RbacCatalogSyncService } from './rbac-catalog-sync.service';
 import { PrismaService } from '../database/prisma.service';
 import * as catalog from './permission-catalog';
+import { TenantContextService } from '../tenant/tenant-context.service';
+import { passthroughTenantContext } from '../tenant/tenant-context.testing';
 
 // Sync du catalogue RBAC au boot (BUG-132-01) : une permission ajoutée au
 // catalogue doit atteindre les tenants EXISTANTS au déploiement suivant, sans
@@ -23,7 +25,11 @@ describe('RbacCatalogSyncService', () => {
     tx.$executeRaw.mockResolvedValue(1);
     mockPrisma.$transaction.mockImplementation(async (fn: any) => fn(tx));
     const module: TestingModule = await Test.createTestingModule({
-      providers: [RbacCatalogSyncService, { provide: PrismaService, useValue: mockPrisma }],
+      providers: [
+        RbacCatalogSyncService,
+        { provide: PrismaService, useValue: mockPrisma },
+        { provide: TenantContextService, useValue: passthroughTenantContext() },
+      ],
     }).compile();
     service = module.get(RbacCatalogSyncService);
   });

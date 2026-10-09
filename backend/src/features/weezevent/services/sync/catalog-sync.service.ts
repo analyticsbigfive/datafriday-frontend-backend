@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent-client.service';
 import { SyncResult } from '../weezevent-sync.service';
@@ -44,10 +44,10 @@ export class WeezeventCatalogSyncService {
                 select: { id: true, enabled: true, tenantId: true, weezevent: { select: { organizationId: true } } },
             });
             if (!integration || integration.tenantId !== tenantId) {
-                throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
+                throw new NotFoundException(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
             }
             if (!integration.weezevent?.organizationId) {
-                throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
+                throw new BadRequestException(`Weezevent organization ID not configured for integration ${integrationId}`);
             }
             const organizationId = integration.weezevent.organizationId;
 
@@ -185,10 +185,10 @@ export class WeezeventCatalogSyncService {
                 select: { id: true, enabled: true, tenantId: true, weezevent: { select: { organizationId: true } } },
             });
             if (!integration || integration.tenantId !== tenantId) {
-                throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
+                throw new NotFoundException(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
             }
             if (!integration.weezevent?.organizationId) {
-                throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
+                throw new BadRequestException(`Weezevent organization ID not configured for integration ${integrationId}`);
             }
             const organizationId = integration.weezevent.organizationId;
 

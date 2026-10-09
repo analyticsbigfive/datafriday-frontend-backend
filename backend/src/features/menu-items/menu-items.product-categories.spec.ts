@@ -7,6 +7,8 @@ describe('MenuItemsService product categories', () => {
       findFirst: jest.fn(),
     },
     productCategory: {
+      // Contrôle d'unicité insensible à la casse avant création : aucun doublon ici.
+      findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
     },
   } as any;

@@ -14,6 +14,7 @@ import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { EventsFindAllQueryDto, TeamsFindAllQueryDto } from './dto/events.query.dto';
 
 @ApiTags('Events')
 @ApiBearerAuth('supabase-jwt')
@@ -47,11 +48,9 @@ export class EventsController {
   @ApiResponse({ status: 200, description: 'Liste paginée des événements' })
   findAll(
     @Req() req,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('spaceId') spaceId?: string,
-    @Query('excludeSimulated') excludeSimulated?: string,
+    @Query() params: EventsFindAllQueryDto,
   ) {
+    const { page, limit, spaceId, excludeSimulated } = params;
     return this.eventsService.findAll(
       req.user.tenantId,
       +page || 1,
@@ -213,9 +212,9 @@ export class TeamsController {
   @ApiResponse({ status: 200, description: 'Liste des équipes (compétition demandée + équipes génériques)' })
   findAll(
     @Req() req,
-    @Query('eventCategoryId') eventCategoryId?: string,
-    @Query('eventSubcategoryId') eventSubcategoryId?: string,
+    @Query() params: TeamsFindAllQueryDto,
   ) {
+    const { eventCategoryId, eventSubcategoryId } = params;
     return this.eventsService.getTeams(req.user.tenantId, eventCategoryId, eventSubcategoryId);
   }
 

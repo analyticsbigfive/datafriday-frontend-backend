@@ -14,6 +14,7 @@ import {
   DashboardGranularity,
 } from '../dto';
 import { createHash } from 'crypto';
+import { dailySpaceRevenue, dailySpaceRevenueByElement } from './space-dashboard.queries';
 
 @Injectable()
 export class SpaceDashboardService {
@@ -455,40 +456,18 @@ export class SpaceDashboardService {
     tenantId: string,
     from: string,
     to: string,
-    granularity: DashboardGranularity,
+    // Non appliquée : le graphique est toujours agrégé à la journée, quelle que soit la
+    // granularité demandée (la clé de cache, elle, en tient compte).
+    _granularity: DashboardGranularity,
   ): Promise<ChartsDto> {
     // Get revenue over time — agrégé à la journée depuis SpaceRevenueMinuteAgg
-    const revenueData = await this.prisma.$queryRaw<Array<{ day: string; revenue: any }>>`
-      SELECT
-        DATE_TRUNC('day', minute AT TIME ZONE 'UTC')::date::text as day,
-        SUM("revenueHt") as revenue
-      FROM "SpaceRevenueMinuteAgg"
-      WHERE "tenantId" = ${tenantId}
-        AND "spaceId" = ${spaceId}
-        AND minute >= ${new Date(from)}
-        AND minute <= ${new Date(to)}
-      GROUP BY 1
-      ORDER BY 1
-    `;
+    const revenueData = await dailySpaceRevenue(this.prisma, tenantId, spaceId, new Date(from), new Date(to));
 
     const labels = revenueData.map((d) => d.day);
     const values = revenueData.map((d) => Number(d.revenue || 0));
 
     // Get revenue by shop — agrégé à la journée depuis SpaceRevenueMinuteAgg
-    const shopData = await this.prisma.$queryRaw<Array<{ day: string; spaceElementId: string | null; revenue: any }>>`
-      SELECT
-        DATE_TRUNC('day', minute AT TIME ZONE 'UTC')::date::text as day,
-        "spaceElementId",
-        SUM("revenueHt") as revenue
-      FROM "SpaceRevenueMinuteAgg"
-      WHERE "tenantId" = ${tenantId}
-        AND "spaceId" = ${spaceId}
-        AND minute >= ${new Date(from)}
-        AND minute <= ${new Date(to)}
-        AND "spaceElementId" IS NOT NULL
-      GROUP BY 1, 2
-      ORDER BY 1
-    `;
+    const shopData = await dailySpaceRevenueByElement(this.prisma, tenantId, spaceId, new Date(from), new Date(to));
 
     // Group by shop
     const shopSeries = new Map<string, { label: string; values: number[] }>();

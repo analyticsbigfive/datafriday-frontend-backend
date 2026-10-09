@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { Prisma, StockMovementReason } from '@prisma/client';
+import { StockMovementReason } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { LogisticsService } from '../logistics/logistics.service';
 import { StockItemKind } from '../logistics/dto/logistics.dto';
@@ -8,6 +8,8 @@ import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
 import { closeInventoryWindows } from './inventory-window-closure';
 import { subtractSalesSinceCount } from './sales-since-count';
+import { markInventoryCountsPushed } from './inventory.queries';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 
 /** État de push Logistic des lignes d'un match, clé `elementId::itemId` (cf. pushCountToLogistic). */
 type LogisticPushState = Map<string, { id: string; updatedAt: Date; logisticPushedAt: Date | null }>;
@@ -19,6 +21,7 @@ export class InventoryService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly logistics: LogisticsService,
+    private readonly spaceAccess: SpaceAccessService,
   ) {}
 
   // ── GET /inventory/:spaceId/:eventId ────────────────────────────────────────
@@ -241,14 +244,6 @@ export class InventoryService {
   // l'ancre des ventes dérivées (exclue par kind:null côté logistics.service).
   // Doc : frontend/docs/modules/10_POST_EVENT_INVENTORY.md §7.
 
-  /** Garde d'appartenance : le space doit exister pour ce tenant (miroir de
-   *  logistics.assertSpace — le scoping where:{tenantId} seul renverrait des
-   *  listes vides silencieuses sur un spaceId d'un autre tenant). */
-  private async assertSpace(spaceId: string, tenantId: string) {
-    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true } });
-    if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
-  }
-
   // ── POST /inventory/:spaceId/reconciliations ─────────────────────────────────
   /**
    * UNE feuille post-event par match (même système que le pre-event, demande Bertrand
@@ -269,7 +264,7 @@ export class InventoryService {
     this.logger.log(
       `POST /inventory/${spaceId}/reconciliations eventId=${dto.eventId} lines=${dto.lines?.length ?? 0}`,
     );
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     // L'event doit appartenir au même tenant/space (pas de réconciliation
     // cross-space via un eventId arbitraire — même famille de failles que les
     // fiches cross-tenant du backend).
@@ -370,7 +365,7 @@ export class InventoryService {
   // `canSeeExpected=false` (BUG-233) : les lignes des documents pre-event sont
   // EXPURGÉES de leurs attendus avant envoi — le document en base reste complet.
   async listInventoryReconciliations(spaceId: string, tenantId: string, canSeeExpected = true) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const docs = await this.prisma.stockReconciliation.findMany({
       where: { tenantId, spaceId, kind: { in: ['post-event', 'pre-event'] } },
       orderBy: { createdAt: 'desc' },
@@ -388,7 +383,7 @@ export class InventoryService {
   // régénération). Périmètre STRICT kind pre/post-event : les resets logistiques
   // (kind null, ancre temporelle des ventes dérivées) sont hors d'atteinte.
   async deleteInventoryReconciliation(spaceId: string, id: string, tenantId: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const doc = await this.prisma.stockReconciliation.findFirst({
       where: { id, tenantId, spaceId, kind: { in: ['post-event', 'pre-event'] } },
       select: { id: true },
@@ -409,17 +404,17 @@ export class InventoryService {
       lines: doc.lines.map((l: any) => {
         if (l == null || typeof l !== 'object') return l;
         const {
-          expectedPacked,
-          expectedLoose,
-          expectedUnits,
-          deltaPacked,
-          deltaLoose,
-          deltaUnits,
+          expectedPacked: _expectedPacked,
+          expectedLoose: _expectedLoose,
+          expectedUnits: _expectedUnits,
+          deltaPacked: _deltaPacked,
+          deltaLoose: _deltaLoose,
+          deltaUnits: _deltaUnits,
           // `deltaVsPredicted` part aussi : counted − predicted redonnerait le
           // besoin prédit, qui relève de la même permission que l'attendu.
           // `predictedUnits` idem — c'est une donnée de pilotage, pas de comptage.
           predictedUnits: _predictedUnits,
-          deltaVsPredicted,
+          deltaVsPredicted: _deltaVsPredicted,
           ...rest
         } = l;
         return rest;
@@ -445,7 +440,7 @@ export class InventoryService {
   // strictement antérieur au JOUR de l'event. Renvoie null (200) si aucun — le
   // front laisse alors leftFromSales/missing à null (« — »), jamais 0.
   async getPreEventInventory(spaceId: string, eventId: string, tenantId: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
       where: { id: eventId, spaceId, tenantId },
       select: { id: true, eventDate: true },
@@ -912,7 +907,7 @@ export class InventoryService {
   // contrôleur) : un compteur sans le droit ne REÇOIT jamais les attendus — un
   // masquage client seul serait contournable et biaiserait le comptage.
   async getPreEventBaseline(spaceId: string, eventId: string, tenantId: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
       where: { id: eventId, spaceId, tenantId },
       select: { id: true },
@@ -967,7 +962,7 @@ export class InventoryService {
   // (netMovementUnitsForEventWindow) : c'est le terme « mouvements » des lignes
   // de réconciliation post-event (BUG-343-01/346-01), pas l'attendu affiché.
   async getPostEventBaseline(spaceId: string, eventId: string, tenantId: string) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
       where: { id: eventId, spaceId, tenantId },
       select: { id: true, name: true, eventDate: true, eventEndDate: true },
@@ -1064,7 +1059,7 @@ export class InventoryService {
     pushElementIds?: string[],
   ) {
     this.logger.log(`POST /inventory/${spaceId}/pre-event-reconciliations eventId=${eventId}`);
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
       where: { id: eventId, spaceId, tenantId },
       select: { id: true, name: true },
@@ -1410,6 +1405,7 @@ export class InventoryService {
       return { ok: false, reason: 'reset-failed' };
     }
     await this.markLogisticPushed(
+      tenantId,
       lines.map((l) => state.get(`${l.elementId}::${l.itemRefId}`)?.id).filter((id): id is string => !!id),
     );
     return { ok: true, lineCount: lines.length };
@@ -1447,13 +1443,12 @@ export class InventoryService {
     return row.updatedAt.getTime() > row.logisticPushedAt.getTime();
   }
 
-  /** SQL brut : `update()` Prisma bumperait `updatedAt` (@updatedAt), et la ligne
-   *  repasserait aussitôt « modifiée depuis le push ». Hors transaction du reset :
-   *  un échec ici ne fait que repousser ces lignes au prochain push (delta 0). */
-  private async markLogisticPushed(ids: string[]): Promise<void> {
+  /** Hors transaction du reset : un échec ici ne fait que repousser ces lignes au prochain
+   *  push (delta 0). */
+  private async markLogisticPushed(tenantId: string, ids: string[]): Promise<void> {
     if (!ids.length) return;
     try {
-      await this.prisma.$executeRaw`UPDATE "InventoryCount" SET "logisticPushedAt" = NOW() WHERE "id" IN (${Prisma.join(ids)})`;
+      await markInventoryCountsPushed(this.prisma, tenantId, ids);
     } catch (error: any) {
       this.logger.warn(`Marquage logisticPushedAt échoué (${ids.length} ligne(s)) : ${error?.message}`);
     }
@@ -1477,7 +1472,7 @@ export class InventoryService {
     // Un seul PDV (mise à jour manuelle par PDV, règle Bertrand 2026-09-29) ; sinon tous.
     elementId?: string | null,
   ) {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
       where: { id: eventId, spaceId, tenantId },
       select: { id: true, name: true },
@@ -1559,7 +1554,7 @@ export class InventoryService {
     tenantId: string,
     userId?: string,
   ): Promise<{ resetCount: number }> {
-    await this.assertSpace(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     const event = await this.prisma.event.findFirst({
       where: { id: eventId, spaceId, tenantId },
       select: { id: true },

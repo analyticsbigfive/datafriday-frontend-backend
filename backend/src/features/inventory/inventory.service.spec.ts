@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { InventoryService } from './inventory.service';
 import { LogisticsService } from '../logistics/logistics.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -61,7 +62,10 @@ const mockSimulationQueue = {
 
 const mockPrisma = {
   // Clôture du post-event à la création de la réconciliation (règle Bertrand 2026-09-29).
-  inventoryWindow: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+  inventoryWindow: {
+    findMany: jest.fn().mockResolvedValue([]),
+    updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+  },
   inventorySnapshot: {
     findFirst: jest.fn(),
     create: jest.fn(),
@@ -170,6 +174,8 @@ describe('InventoryService', () => {
           } as any),
         },
         { provide: PrismaService, useValue: mockPrisma },
+        // Vrai contrôle d'accès espace, branché sur le Prisma simulé du test.
+        { provide: SpaceAccessService, useFactory: (p: any) => new SpaceAccessService(p), inject: [PrismaService] },
       ],
     }).compile();
     service = module.get<InventoryService>(InventoryService);
@@ -780,9 +786,10 @@ describe('InventoryService', () => {
       expect(dto.lines.map((l: any) => l.itemRefId).sort()).toEqual(['item-beer', 'item-water']);
       // Seules les lignes poussées sont marquées, en SQL brut (pas d'update() Prisma).
       expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1);
-      const [strings, joined] = mockPrisma.$executeRaw.mock.calls[0];
+      const [strings, tenantId, joined] = mockPrisma.$executeRaw.mock.calls[0];
       expect(strings.join('?')).toContain('"logisticPushedAt" = NOW()');
-      // Prisma.join(ids) : les ids sont les valeurs paramétrées du fragment.
+      // Restreint au tenant, puis Prisma.join(ids) : les ids sont les valeurs du fragment.
+      expect(tenantId).toBe('tenant-1');
       expect([...joined.values].sort()).toEqual(['c-beer', 'c-water']);
       expect(mockPrisma.inventoryCount.update).not.toHaveBeenCalled();
       // Résultat du push archivé sur le document.

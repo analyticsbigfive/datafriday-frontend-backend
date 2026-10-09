@@ -3,6 +3,7 @@ import { NotFoundException } from '@nestjs/common';
 import { AnalyseService } from './analyse.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { spaceAccessStub } from '../../core/auth/space-access.testing';
 
 describe('AnalyseService', () => {
   let service: AnalyseService;
@@ -29,7 +30,7 @@ describe('AnalyseService', () => {
       providers: [
         AnalyseService,
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: SpaceAccessService, useValue: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => 'ALL' } },
+        { provide: SpaceAccessService, useValue: spaceAccessStub() },
       ],
     }).compile();
 

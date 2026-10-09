@@ -2,16 +2,29 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { RedisService } from '../../core/redis/redis.service';
 import { MappingsService } from './mappings.service';
 import { PrismaService } from '../../core/database/prisma.service';
-import { SpacesService } from '../spaces/spaces.service';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { spaceAccessStub } from '../../core/auth/space-access.testing';
+import { SpaceCacheService } from '../spaces/services/space-cache.service';
+import { SpaceZoneElementsService } from '../spaces/services/space-zone-elements.service';
+import { SpaceCrudService } from '../spaces/services/space-crud.service';
+import { SpaceAccessGrantService } from '../spaces/services/space-access-grant.service';
+import { SpaceConfigurationService } from '../spaces/services/space-configuration.service';
+import { SpaceElementService } from '../spaces/services/space-element.service';
+import { SpaceEventTimelineService } from '../spaces/services/space-event-timeline.service';
+import { SpaceWeezeventEventService } from '../spaces/services/space-weezevent-event.service';
+import { SpaceAnalyseBatchService } from '../spaces/services/space-analyse-batch.service';
+import { SpaceElementPlacementService } from '../spaces/services/space-element-placement.service';
+import { SpaceShopsService } from '../spaces/services/space-shops.service';
+import { SpaceElementLayoutService } from '../spaces/services/space-element-layout.service';
+import { SpaceSalesScopeService } from '../spaces/services/space-sales-scope.service';
 
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
 const mockPrisma: any = {
   locationSpaceMapping: { findUnique: jest.fn(), findMany: jest.fn() },
   locationShopMapping: { findMany: jest.fn(), count: jest.fn() },
   salesLocation: { findMany: jest.fn() },
-  // Couples (merchantId, integrationId) distincts : SELECT DISTINCT SQL (distinct-merchant-ids.query.ts)
+  // Couples (merchantId, integrationId) distincts : SELECT DISTINCT SQL (distinct-merchants.queries.ts)
   $queryRaw: jest.fn(),
   productMapping: { count: jest.fn() },
   aggregationJobLog: { count: jest.fn(), groupBy: jest.fn() },
@@ -37,9 +50,21 @@ describe('MappingsService', () => {
       providers: [
         MappingsService,
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: SpacesService, useValue: mockSpacesService },
+        { provide: SpaceCacheService, useValue: mockSpacesService },
+        { provide: SpaceZoneElementsService, useValue: mockSpacesService },
+        { provide: SpaceCrudService, useValue: mockSpacesService },
+        { provide: SpaceAccessGrantService, useValue: mockSpacesService },
+        { provide: SpaceConfigurationService, useValue: mockSpacesService },
+        { provide: SpaceElementService, useValue: mockSpacesService },
+        { provide: SpaceEventTimelineService, useValue: mockSpacesService },
+        { provide: SpaceWeezeventEventService, useValue: mockSpacesService },
+        { provide: SpaceAnalyseBatchService, useValue: mockSpacesService },
+        { provide: SpaceElementPlacementService, useValue: mockSpacesService },
+        { provide: SpaceShopsService, useValue: mockSpacesService },
+        { provide: SpaceElementLayoutService, useValue: mockSpacesService },
+        { provide: SpaceSalesScopeService, useValue: mockSpacesService },
         { provide: MenuItemPricingService, useValue: mockPricingService },
-        { provide: SpaceAccessService, useValue: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => 'ALL' } },
+        { provide: SpaceAccessService, useValue: spaceAccessStub() },
         // BUG-144-01 : purge du cache spaces:unmapped:* à l'écriture de mapping.
         { provide: RedisService, useValue: { deletePattern: jest.fn().mockResolvedValue(undefined) } },
       ],

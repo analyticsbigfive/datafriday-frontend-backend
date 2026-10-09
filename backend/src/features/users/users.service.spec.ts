@@ -9,7 +9,6 @@ import { UserRole } from '@prisma/client';
 
 describe('UsersService', () => {
   let service: UsersService;
-  let prisma: PrismaService;
 
   const mockPrismaService = {
     user: {
@@ -102,7 +101,6 @@ describe('UsersService', () => {
     }).compile();
 
     service = module.get<UsersService>(UsersService);
-    prisma = module.get<PrismaService>(PrismaService);
 
     // Reset all mocks
     jest.clearAllMocks();
