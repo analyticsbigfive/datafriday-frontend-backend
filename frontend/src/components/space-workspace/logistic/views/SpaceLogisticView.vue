@@ -1194,6 +1194,10 @@ export default {
         const tasks = [
           this.store.dispatch('logistics/loadStock', { spaceId, configId, eventId }),
           this.eventSelection.load(spaceId),
+          // Noms des fournisseurs du filtre de la Ventilation (best-effort).
+          Promise.resolve(this.store.dispatch('suppliers/fetchSuppliers')).catch((e) =>
+            console.warn('[logistics] fournisseurs indisponibles :', e?.message),
+          ),
           this.loadLatestInventory(spaceId),
           this.loadMarketPriceImages(),
         ]

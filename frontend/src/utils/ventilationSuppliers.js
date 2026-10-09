@@ -5,7 +5,8 @@
 // (étape 3, `shoppingGroups`), c'est-à-dire celui qui livre réellement ce match.
 // Repli : le fournisseur de la fiche article (MarketPrice), pour un article déposé
 // sans passer par la feuille de course. Un article peut venir de plusieurs
-// fournisseurs. Fonctions PURES.
+// fournisseurs. Les noms viennent de la liste des fournisseurs quand la source n'a
+// que l'id (cas des fiches articles) : un id n'est jamais affiché. Fonctions PURES.
 
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 
@@ -18,12 +19,21 @@ function supplierKey(id, name) {
   return n ? `name:${n}` : null
 }
 
-function addSupplier(map, itemName, id, name) {
+/** Groupe technique de la feuille de course (`__finished__`, « ingrédients
+ *  manquants ») : pas un fournisseur, l'article compte comme sans fournisseur. */
+function isTechnicalSupplierId(id) {
+  return String(id ?? '').startsWith('__')
+}
+
+function addSupplier(map, itemName, id, name, supplierNames) {
+  if (isTechnicalSupplierId(id)) return
   const item = normalizeStr(itemName)
-  const key = supplierKey(id, name)
-  if (!item || !key) return
+  const label = String(name || '').trim() || (id != null ? supplierNames?.get(String(id)) : '') || ''
+  // Ni nom ni fournisseur connu : jamais l'id brut à l'écran, l'article reste « sans fournisseur ».
+  if (!item || !label) return
+  const key = supplierKey(id, label)
   const list = map.get(item) || []
-  if (!list.some((s) => s.id === key)) list.push({ id: key, name: String(name || '').trim() || key })
+  if (!list.some((s) => s.id === key)) list.push({ id: key, name: label })
   map.set(item, list)
 }
 
@@ -31,18 +41,23 @@ function addSupplier(map, itemName, id, name) {
  * Index nom d'article normalisé → fournisseurs.
  * @param {object|null} plan feuille de réarmement (`shoppingGroups`)
  * @param {Array<{itemName:string, supplier?:string, supplierId?:string}>} [marketPrices]
+ * @param {Map<string, string>} [supplierNames] id → nom (liste des fournisseurs)
  * @returns {Map<string, Array<{id:string, name:string}>>}
  */
-export function buildSupplierIndex(plan, marketPrices = []) {
+export function buildSupplierIndex(plan, marketPrices = [], supplierNames = new Map()) {
   const fromPlan = new Map()
+  const planItems = new Set()
   for (const group of plan?.shoppingGroups || []) {
-    for (const item of group?.items || []) addSupplier(fromPlan, item?.itemName, group.supplierId, group.supplierName)
+    for (const item of group?.items || []) {
+      planItems.add(normalizeStr(item?.itemName))
+      addSupplier(fromPlan, item?.itemName, group.supplierId, group.supplierName, supplierNames)
+    }
   }
   const index = new Map(fromPlan)
   for (const mp of marketPrices || []) {
-    // La feuille fait foi pour les articles qu'elle achète.
-    if (fromPlan.has(normalizeStr(mp?.itemName))) continue
-    addSupplier(index, mp?.itemName, mp?.supplierId, mp?.supplier)
+    // La feuille fait foi pour les articles qu'elle achète (même sans fournisseur).
+    if (planItems.has(normalizeStr(mp?.itemName))) continue
+    addSupplier(index, mp?.itemName, mp?.supplierId, mp?.supplier, supplierNames)
   }
   return index
 }
