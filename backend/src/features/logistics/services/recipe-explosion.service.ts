@@ -149,8 +149,10 @@ export class RecipeExplosionService {
    * impossible en base.
    */
   private async expandComboChildrenById(items: any[], tenantId: string, select: any): Promise<Map<string, any>> {
-    const byId = new Map<string, any>();
-    const visited = new Set<string>(items.map((i: any) => i.id));
+    // Les items déjà chargés servent d'enfants tels quels : un croque, des chips ou un Coca
+    // vendus aussi seuls sont souvent dans la même liste que le combo qui les contient.
+    const byId = new Map<string, any>(items.filter((i: any) => i?.id).map((i: any) => [i.id, i]));
+    const visited = new Set<string>(byId.keys());
     let frontier = items;
     for (let depth = 0; depth < 4 && frontier.length; depth++) {
       const wanted = new Set<string>();
@@ -229,7 +231,7 @@ export class RecipeExplosionService {
     const select = this.recipeSelect();
     const comboByName = await this.expandCombosByName(seedItems, tenantId, select);
     const comboChildById = await this.expandComboChildrenById([...seedItems, ...comboByName.values()], tenantId, select);
-    const recipeItems = [...seedItems, ...comboByName.values(), ...comboChildById.values()];
+    const recipeItems = [...new Map([...seedItems, ...comboByName.values(), ...comboChildById.values()].map((i: any) => [i.id, i])).values()];
 
     // BUG-133-02 : la boucle des ingrédients d'itemRefsForMenuItem (résolution mp
     // par nom, `ctx.mpByName.get(...)`) n'est atteinte QUE pour les items qui ne
