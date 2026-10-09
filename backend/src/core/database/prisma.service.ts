@@ -1,7 +1,8 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger, InternalServerErrorException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
+import { buildPgPool } from './pg-pool';
 import { ClsService, CLS_REQ } from 'nestjs-cls';
 import { AppConfigService } from '../../config/app-config.service';
 import {
@@ -35,18 +36,8 @@ export class PrismaService
    * `pgbouncer=true`/`connection_limit` peuvent rester dans DATABASE_URL : pg les
    * ignore (et le CLI prisma, qui n'utilise pas l'adapter, passe par DIRECT_URL
    * pour les migrations). La taille du pool reprend `connection_limit` de l'URL.
+   * Construction, attente maximale et gestion des erreurs : ./pg-pool.ts.
    */
-  private static buildPool(url: string): Pool {
-    let max = 10;
-    try {
-      const limit = new URL(url).searchParams.get('connection_limit');
-      if (limit && Number(limit) > 0) max = Number(limit);
-    } catch {
-      /* URL absente/invalide : $connect échouera avec un vrai message d'erreur */
-    }
-    return new Pool({ connectionString: url, max });
-  }
-
   private readonly pool: Pool;
 
   /** Tenant et route de la requête HTTP en cours (vide hors requête), pour le journal des requêtes lentes. */
@@ -82,7 +73,11 @@ export class PrismaService
     private readonly cls: ClsService,
     private readonly appConfig: AppConfigService,
   ) {
-    const pool = PrismaService.buildPool(appConfig.databaseUrl);
+    // `this` n'existe pas avant super() : le logger de l'erreur est créé ici.
+    const poolLogger = new Logger(PrismaService.name);
+    const pool = buildPgPool(appConfig.databaseUrl, (err) =>
+      poolLogger.warn(`Connexion inactive perdue (retirée du pool) : ${err?.message ?? err}`),
+    );
     super({
       adapter: new PrismaPg(pool),
       log: [
