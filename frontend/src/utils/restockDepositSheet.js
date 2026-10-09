@@ -157,13 +157,22 @@ export function groupDepositLinesByItem(lines) {
   return [...map.values()]
     .map((group) => {
       const rows = [...group.rows].sort((a, b) => a.shopName.localeCompare(b.shopName, 'fr'))
-      const totalQuantity = rows.reduce((sum, r) => sum + r.quantity, 0)
-      // Total en packs seulement si TOUTES les lignes ont un nombre de packs :
-      // additionner des packs et des lignes sans conditionnement mentirait.
-      const totalPacks = rows.every((r) => r.packs != null) ? rows.reduce((sum, r) => sum + r.packs, 0) : null
-      return { ...group, rows, totalQuantity, totalPacks }
+      return { ...group, rows, ...summarizeDepositRows(rows) }
     })
     .sort((a, b) => a.itemName.localeCompare(b.itemName, 'fr'))
+}
+
+/**
+ * Totaux d'un groupe d'article à partir de ses lignes.
+ * @param {Array<{quantity:number, packs:number|null}>} rows
+ * @returns {{totalQuantity:number, totalPacks:number|null}}
+ */
+export function summarizeDepositRows(rows) {
+  const totalQuantity = rows.reduce((sum, r) => sum + r.quantity, 0)
+  // Total en packs seulement si TOUTES les lignes ont un nombre de packs :
+  // additionner des packs et des lignes sans conditionnement mentirait.
+  const totalPacks = rows.every((r) => r.packs != null) ? rows.reduce((sum, r) => sum + r.packs, 0) : null
+  return { totalQuantity, totalPacks }
 }
 
 /**
