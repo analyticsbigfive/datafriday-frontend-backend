@@ -131,14 +131,27 @@ export function groupDepositLinesByItem(lines) {
     }
     if (!group.packagingType && line.packaging?.packagingType) group.packagingType = line.packaging.packagingType
     if (!group.unitsPerPack && line.packaging?.packagingUnitNumber) group.unitsPerPack = Number(line.packaging.packagingUnitNumber) || null
-    const packs = line.packaging?.packedCount
+    const rawPacks = line.packaging?.packedCount
+    const packs = Number.isFinite(Number(rawPacks)) && rawPacks != null ? Number(rawPacks) : null
+    const quantity = Number(line.restockQuantity) || 0
+    const part = { rowKey: line.rowKey, planId: line.planId ?? null, quantity }
+    // Même destination sur plusieurs feuilles (plusieurs matchs choisis) : une seule
+    // ligne, dont les parts gardent chaque feuille pour répartir le dépôt.
+    const existing = group.rows.find((r) => r.shopId === String(line.shopId))
+    if (existing) {
+      existing.quantity += quantity
+      existing.packs = existing.packs != null && packs != null ? existing.packs + packs : null
+      existing.parts.push(part)
+      continue
+    }
     group.rows.push({
       rowKey: line.rowKey,
       elementType: line.elementType || null,
       shopId: String(line.shopId),
       shopName: line.shopName || '',
-      quantity: Number(line.restockQuantity) || 0,
-      packs: Number.isFinite(Number(packs)) && packs != null ? Number(packs) : null,
+      quantity,
+      packs,
+      parts: [part],
     })
   }
   return [...map.values()]

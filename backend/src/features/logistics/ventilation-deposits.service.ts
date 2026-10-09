@@ -11,6 +11,11 @@ export function normalizeItemName(v: string | null | undefined): string {
   return String(v ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').trim().toLowerCase();
 }
 
+/** Ids non vides, sans doublon. */
+export function uniqueIds(ids: Array<string | null | undefined>): string[] {
+  return [...new Set((ids || []).map((v) => String(v ?? '').trim()).filter(Boolean))];
+}
+
 /**
  * Dépôts « Ventilation » (chantier logistic_ventilation ; réponse #74 de Bertrand :
  * raison « Ventilation »). Lecture des dépôts d'un match, annulation par mouvement
@@ -27,15 +32,17 @@ export class VentilationDepositsService {
   ) {}
 
   /**
-   * Cumul des dépôts d'un match par élément × article (annulations comprises : un
-   * mouvement inverse est négatif). Le front retranche ces quantités des lignes de la
-   * feuille (`utils/restockDepositSheet.js`).
+   * Cumul des dépôts de plusieurs matchs par élément × article (annulations comprises :
+   * un mouvement inverse est négatif). Le front retranche ces quantités des lignes de
+   * la feuille (`utils/restockDepositSheet.js`). L'appelant passe tous les matchs des
+   * feuilles affichées : un dépôt compte pour sa feuille quel que soit le match choisi.
    */
-  async sumByEvent(spaceId: string, eventId: string, tenantId: string) {
-    if (!eventId) return [];
+  async sumByEvents(spaceId: string, eventIds: string[], tenantId: string) {
+    const ids = uniqueIds(eventIds);
+    if (!ids.length) return [];
     const rows = await this.prisma.stockMovement.groupBy({
       by: ['elementId', 'itemKey'],
-      where: { tenantId, spaceId, eventId, reason: StockMovementReason.VENTILATION },
+      where: { tenantId, spaceId, eventId: { in: ids }, reason: StockMovementReason.VENTILATION },
       _sum: { packedDelta: true, looseDelta: true },
     });
     return rows.map((r) => ({
@@ -47,14 +54,15 @@ export class VentilationDepositsService {
   }
 
   /**
-   * Dépôts d'un match un par un (les plus récents d'abord), avec leur annulation :
-   * liste « Déjà déposé ». Les mouvements inverses ne sont pas listés ; l'état
-   * « annulé » est lu pour chaque dépôt affiché, sans dépendre du plafond de la liste.
+   * Dépôts de plusieurs matchs un par un (les plus récents d'abord), avec leur
+   * annulation : liste « Déjà déposé ». Les mouvements inverses ne sont pas listés ;
+   * l'état « annulé » est lu pour chaque dépôt affiché, sans dépendre du plafond de la liste.
    */
-  async listByEvent(spaceId: string, eventId: string, tenantId: string) {
-    if (!eventId) return [];
+  async listByEvents(spaceId: string, eventIds: string[], tenantId: string) {
+    const events = uniqueIds(eventIds);
+    if (!events.length) return [];
     const deposits = await this.prisma.stockMovement.findMany({
-      where: { tenantId, spaceId, eventId, reason: StockMovementReason.VENTILATION, reversesMovementId: null },
+      where: { tenantId, spaceId, eventId: { in: events }, reason: StockMovementReason.VENTILATION, reversesMovementId: null },
       orderBy: { createdAt: 'desc' },
       take: 500,
       select: {
@@ -152,5 +160,40 @@ export class VentilationDepositsService {
       out.set(`${l.elementId}::${normalizeItemName(l.itemKey)}`, { elementId: l.elementId, itemName: l.itemKey, unitsPerPack: l.unitsPerPack });
     }
     return [...out.values()].filter((r) => r.unitsPerPack);
+  }
+
+  /**
+   * Espaces de stockage des configurations données (section « Espaces de stockage »
+   * de la Ventilation, maquette Bertrand du 2026-10-09) : membres v2 de la config
+   * (ConfigurationElement) ou posés sur un étage / parvis / zone externe v1 de la config.
+   */
+  async storagesOfConfigs(spaceId: string, tenantId: string, configIds: string[]) {
+    const ids = [...new Set(configIds.filter(Boolean))];
+    if (!ids.length) return [];
+    return this.prisma.spaceElement.findMany({
+      where: {
+        type: 'storage',
+        AND: [
+          {
+            OR: [
+              { floor: { config: { space: { id: spaceId, tenantId } } } },
+              { forecourt: { config: { space: { id: spaceId, tenantId } } } },
+              { externalMerch: { config: { space: { id: spaceId, tenantId } } } },
+              { zone: { space: { id: spaceId, tenantId } } },
+            ],
+          },
+          {
+            OR: [
+              { configurationElements: { some: { configId: { in: ids } } } },
+              { floor: { configId: { in: ids } } },
+              { forecourt: { configId: { in: ids } } },
+              { externalMerch: { configId: { in: ids } } },
+            ],
+          },
+        ],
+      } as any,
+      select: { id: true, name: true },
+      orderBy: { name: 'asc' },
+    });
   }
 }

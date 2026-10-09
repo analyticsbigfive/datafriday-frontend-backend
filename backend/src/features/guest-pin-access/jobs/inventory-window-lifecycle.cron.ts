@@ -59,7 +59,8 @@ export class InventoryWindowLifecycleCronService {
     if (!windows.length) return 0;
 
     const events = await this.prisma.event.findMany({
-      where: { id: { in: [...new Set(windows.map((w) => w.eventId))] } },
+      // Ventilation : les matchs rattachés comptent (fermeture à la fin du dernier).
+      where: { id: { in: [...new Set(windows.flatMap((w) => [w.eventId, ...(w.linkedEventIds ?? [])]))] } },
       select: {
         id: true,
         eventDate: true,
@@ -74,12 +75,17 @@ export class InventoryWindowLifecycleCronService {
 
     let closedCount = 0;
     for (const window of windows) {
-      const event = eventById.get(window.eventId);
-      // Event supprimé : fenêtre orpheline, clôturée elle aussi.
-      if (event) {
+      // Ventilation : accès d'une sélection de matchs, ouvert jusqu'à la fin du dernier
+      // (maquettes Bertrand 2026-10-09). Event supprimé : ignoré ; tous supprimés :
+      // fenêtre orpheline, clôturée elle aussi.
+      const windowEvents = (window.phase === VENTILATION_PHASE ? [window.eventId, ...(window.linkedEventIds ?? [])] : [window.eventId])
+        .map((id) => eventById.get(id))
+        .filter((e): e is NonNullable<typeof e> => !!e);
+      const stillRunning = windowEvents.some((event) => {
         const period = inventoryWindowPeriod(event, 'pre-event', event.space?.timezone || 'Europe/Paris');
-        if (inventoryWindowPeriodState(period, now) !== 'over') continue;
-      }
+        return inventoryWindowPeriodState(period, now) !== 'over';
+      });
+      if (stillRunning) continue;
       try {
         if (window.status !== 'open') {
           // Fenêtre déjà arrêtée : seuls des PDV rouverts un par un restaient joignables.

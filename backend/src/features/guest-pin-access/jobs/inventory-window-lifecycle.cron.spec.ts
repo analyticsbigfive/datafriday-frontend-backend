@@ -68,6 +68,17 @@ describe('InventoryWindowLifecycleCronService', () => {
     expect(guestPin.closeWindowRecord.mock.calls[0][2]).toEqual({ pushToLogistic: false, reason: 'period-end' });
   });
 
+  it('ventilation sur plusieurs matchs : ouverte jusqu’à la fin du dernier match rattaché', async () => {
+    const ventilation = { ...window('w-vent', 'sfp-lyon', 'ventilation'), linkedEventIds: ['sfp-montpellier'] };
+    const { cron, guestPin, prisma } = setup([ventilation], events);
+    // Fin de sfp-lyon passée, sfp-montpellier à venir : l'accès reste ouvert.
+    await expect(cron.closeExpiredWindows(new Date('2026-09-26T21:30:00Z'))).resolves.toBe(0);
+    expect(guestPin.closeWindowRecord).not.toHaveBeenCalled();
+    expect(prisma.event.findMany.mock.calls[0][0].where).toEqual({ id: { in: ['sfp-lyon', 'sfp-montpellier'] } });
+    // Après la fin de sfp-montpellier (23:50 Paris le 10/10 = 21:50Z).
+    await expect(cron.closeExpiredWindows(new Date('2026-10-10T21:50:00Z'))).resolves.toBe(1);
+  });
+
   it("fin de l'event : les PDV rouverts un par un sur une fenêtre arrêtée sont coupés", async () => {
     const closed = { ...window('w-pre-26', 'sfp-lyon', 'pre-event'), status: 'closed' };
     const { cron, guestPin, prisma } = setup([closed], events);

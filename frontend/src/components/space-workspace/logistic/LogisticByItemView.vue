@@ -2,15 +2,16 @@
   <div class="lgbi-root">
     <div class="lgbi-toolbar">
       <span class="lgbi-count">{{ groupedItems.length }} {{ t('logiByItemCountSuffix') }}</span>
-      <div class="lgbi-search">
-        <v-icon size="14">mdi-magnify</v-icon>
-        <input
-          v-model="search"
-          type="text"
-          :placeholder="t('logiByItemSearchPlaceholder')"
-          class="lgbi-search-input"
-        />
-      </div>
+      <!-- Recherche : barre collée sous le bandeau de l'écran (prop `search`). -->
+      <button
+        type="button"
+        class="lgbi-icon-btn"
+        :title="t('logiPrintTitle')"
+        :aria-label="t('logiPrintTitle')"
+        @click="$emit('print')"
+      >
+        <v-icon size="20">mdi-printer-outline</v-icon>
+      </button>
     </div>
 
     <div v-if="!groupedItems.length" class="lgbi-empty">{{ t('logiAggEmpty') }}</div>
@@ -98,7 +99,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { computed, reactive } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
@@ -159,10 +160,11 @@ const props = defineProps({
   unitsPerPackFor: { type: Function, default: () => null },
   /** 'restock' (feuille de réarmement, « à déposer ») | 'forecast' | null. */
   needSource: { type: String, default: null },
+  /** Recherche de la barre sous le bandeau : nom d'article ou d'emplacement. */
+  search: { type: String, default: '' },
 })
-defineEmits(['go', 'add', 'remove'])
+defineEmits(['go', 'add', 'remove', 'print'])
 
-const search = ref('')
 const expanded = reactive({})
 const failedPictures = new Set()
 
@@ -224,9 +226,9 @@ const groupedItems = computed(() => {
       if (!group.unitsPerPack && unitsPerPack) group.unitsPerPack = unitsPerPack
     }
   }
-  const q = search.value.trim().toLowerCase()
+  const q = props.search.trim().toLowerCase()
   return [...map.values()]
-    .filter((g) => !q || g.itemName.toLowerCase().includes(q))
+    .filter((g) => !q || g.itemName.toLowerCase().includes(q) || g.rows.some((r) => r.elementName.toLowerCase().includes(q)))
     .map((g) => {
       const severity = (s) => ({ bad: 3, warn: 2, uncounted: 1, ok: 0 }[s] || 0)
       const rows = [...g.rows].sort((a, b) => severity(b.status) - severity(a.status) || a.elementName.localeCompare(b.elementName, 'fr'))
@@ -244,8 +246,8 @@ const groupedItems = computed(() => {
 .lgbi-root { display: flex; flex-direction: column; gap: 12px; }
 .lgbi-toolbar { display: flex; align-items: center; justify-content: space-between; margin: 0 2px; }
 .lgbi-count { font-size: 0.76rem; font-weight: 700; color: var(--fb-muted, #6b7280); text-transform: uppercase; letter-spacing: 0.03em; }
-.lgbi-search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--fb-border, #e5e7eb); background: var(--fb-surface, #fff); border-radius: 999px; padding: 7px 14px; width: 240px; color: var(--fb-faint, #9ca3af); }
-.lgbi-search-input { border: 0; outline: none; background: transparent; font-size: 0.8rem; color: var(--fb-text, #212121); width: 100%; }
+.lgbi-icon-btn { width: 34px; height: 34px; border: 0; border-radius: 10px; background: transparent; color: var(--fb-text, #212121); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.lgbi-icon-btn:hover { background: var(--fb-subtle, #f3f4f6); }
 .lgbi-empty { color: var(--fb-faint, #9ca3af); font-size: 0.85rem; padding: 24px 8px; text-align: center; }
 
 .lgbi-list { display: flex; flex-direction: column; gap: 10px; }

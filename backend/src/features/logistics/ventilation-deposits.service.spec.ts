@@ -21,9 +21,9 @@ describe('VentilationDepositsService', () => {
       { elementId: 'el-1', itemKey: 'Heineken 33cl', _sum: { packedDelta: 2, looseDelta: 3 } },
       { elementId: 'el-2', itemKey: 'Coca 33cl', _sum: { packedDelta: null, looseDelta: 10 } },
     ]);
-    const rows = await service.sumByEvent('space-1', 'ev-1', 'tenant-1');
+    const rows = await service.sumByEvents('space-1', ['ev-1'], 'tenant-1');
     expect(prisma.stockMovement.groupBy.mock.calls[0][0].where).toEqual({
-      tenantId: 'tenant-1', spaceId: 'space-1', eventId: 'ev-1', reason: 'VENTILATION',
+      tenantId: 'tenant-1', spaceId: 'space-1', eventId: { in: ['ev-1'] }, reason: 'VENTILATION',
     });
     expect(rows).toEqual([
       { elementId: 'el-1', itemKey: 'Heineken 33cl', packed: 2, loose: 3 },
@@ -32,8 +32,8 @@ describe('VentilationDepositsService', () => {
   });
 
   it("ne lit rien sans match", async () => {
-    await expect(service.sumByEvent('space-1', '', 'tenant-1')).resolves.toEqual([]);
-    await expect(service.listByEvent('space-1', '', 'tenant-1')).resolves.toEqual([]);
+    await expect(service.sumByEvents('space-1', [''], 'tenant-1')).resolves.toEqual([]);
+    await expect(service.listByEvents('space-1', [], 'tenant-1')).resolves.toEqual([]);
   });
 
   it("lit l'annulation de chaque dépôt affiché, sans dépendre du plafond de la liste", async () => {
@@ -43,7 +43,7 @@ describe('VentilationDepositsService', () => {
         { id: 'mv-2', elementId: 'el-1', itemKey: 'Eau', packedDelta: 1, looseDelta: 0, note: null, createdBy: 'u', createdAt: new Date() },
       ])
       .mockResolvedValueOnce([{ reversesMovementId: 'mv-2' }]);
-    const rows = await service.listByEvent('space-1', 'ev-1', 'tenant-1');
+    const rows = await service.listByEvents('space-1', ['ev-1'], 'tenant-1');
     expect(prisma.stockMovement.findMany.mock.calls[1][0].where).toEqual({ tenantId: 'tenant-1', reversesMovementId: { in: ['mv-1', 'mv-2'] } });
     expect(rows.map((r) => [r.id, r.cancelled, r.elementName, r.depositorName])).toEqual([
       ['mv-1', false, 'Océane 11', 'Awa'],
