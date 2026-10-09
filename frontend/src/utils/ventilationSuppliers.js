@@ -4,7 +4,10 @@
 // Source : le fournisseur retenu pour l'achat dans la feuille de réarmement
 // (étape 3, `shoppingGroups`), c'est-à-dire celui qui livre réellement ce match.
 // Repli : le fournisseur de la fiche article (MarketPrice), pour un article déposé
-// sans passer par la feuille de course. Un article peut venir de plusieurs
+// sans passer par la feuille de course. Le repli prend la fiche exacte de la ligne
+// (celle de la recette), sinon les seules fiches des fournisseurs de l'espace
+// (retour Bertrand du 2026-10-09 : un même article a plusieurs fournisseurs selon
+// l'espace, seul celui de l'espace compte). Un article peut venir de plusieurs
 // fournisseurs. Les noms viennent de la liste des fournisseurs quand la source n'a
 // que l'id (cas des fiches articles) : un id n'est jamais affiché. Fonctions PURES.
 
@@ -37,14 +40,34 @@ function addSupplier(map, itemName, id, name, supplierNames) {
   map.set(item, list)
 }
 
+/** Id de fiche article d'une ligne de dépôt (`itemKey` = « id|||unité »). */
+function lineMarketPriceId(line) {
+  const key = String(line?.itemKey ?? '')
+  return key.includes('|||') ? key.split('|||')[0] : null
+}
+
+/**
+ * Fiches du repli pour un article : la fiche exacte d'une ligne de dépôt, sinon
+ * celles des fournisseurs de l'espace (toutes si l'espace est inconnu).
+ */
+function fallbackMarketPrices(candidates, lineMpIds, spaceSupplierIds) {
+  const exact = candidates.filter((mp) => mp?.id != null && lineMpIds.has(String(mp.id)))
+  if (exact.length) return exact
+  if (!spaceSupplierIds) return candidates
+  return candidates.filter((mp) => mp?.supplierId != null && spaceSupplierIds.has(String(mp.supplierId)))
+}
+
 /**
  * Index nom d'article normalisé → fournisseurs.
  * @param {object|null} plan feuille de réarmement (`shoppingGroups`)
- * @param {Array<{itemName:string, supplier?:string, supplierId?:string}>} [marketPrices]
+ * @param {Array<{id?:string, itemName:string, supplier?:string, supplierId?:string}>} [marketPrices]
  * @param {Map<string, string>} [supplierNames] id → nom (liste des fournisseurs)
+ * @param {object} [scope]
+ * @param {Array<{itemKey?:string}>} [scope.lines] lignes de dépôt (fiche exacte de la recette)
+ * @param {Set<string>|null} [scope.spaceSupplierIds] fournisseurs de l'espace (null = inconnu)
  * @returns {Map<string, Array<{id:string, name:string}>>}
  */
-export function buildSupplierIndex(plan, marketPrices = [], supplierNames = new Map()) {
+export function buildSupplierIndex(plan, marketPrices = [], supplierNames = new Map(), { lines = [], spaceSupplierIds = null } = {}) {
   const fromPlan = new Map()
   const planItems = new Set()
   for (const group of plan?.shoppingGroups || []) {
@@ -54,10 +77,18 @@ export function buildSupplierIndex(plan, marketPrices = [], supplierNames = new 
     }
   }
   const index = new Map(fromPlan)
+  const lineMpIds = new Set((lines || []).map(lineMarketPriceId).filter(Boolean))
+  const byName = new Map()
   for (const mp of marketPrices || []) {
+    const name = normalizeStr(mp?.itemName)
     // La feuille fait foi pour les articles qu'elle achète (même sans fournisseur).
-    if (planItems.has(normalizeStr(mp?.itemName))) continue
-    addSupplier(index, mp?.itemName, mp?.supplierId, mp?.supplier, supplierNames)
+    if (!name || planItems.has(name)) continue
+    byName.set(name, [...(byName.get(name) || []), mp])
+  }
+  for (const candidates of byName.values()) {
+    for (const mp of fallbackMarketPrices(candidates, lineMpIds, spaceSupplierIds)) {
+      addSupplier(index, mp?.itemName, mp?.supplierId, mp?.supplier, supplierNames)
+    }
   }
   return index
 }

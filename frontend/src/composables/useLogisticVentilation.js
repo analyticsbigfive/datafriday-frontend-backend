@@ -59,16 +59,23 @@ export function useLogisticVentilation({ store, t }) {
   // Filtre Fournisseur : fiches articles (repli) et fournisseurs choisis.
   const marketPrices = shallowRef([])
   const supplierFilter = ref([])
+  // Espace affiché : le repli du filtre ne garde que ses fournisseurs.
+  const shownSpaceId = ref(null)
   // Dernière sélection demandée : la réponse lente d'une ancienne sélection est ignorée.
   let loadSeq = 0
 
   const groups = computed(() => groupDepositLinesByItem(lines.value))
+  const supplierList = computed(() => (store.getters['suppliers/suppliers'] || []).filter((x) => x?.id))
   // Noms des fournisseurs (les fiches articles n'ont souvent que l'id).
-  const supplierNames = computed(() => {
-    const list = store.getters['suppliers/suppliers'] || []
-    return new Map(list.filter((x) => x?.id).map((x) => [String(x.id), x.name || x.supplierName || '']))
+  const supplierNames = computed(() => new Map(supplierList.value.map((x) => [String(x.id), x.name || x.supplierName || ''])))
+  // Fournisseurs rattachés à l'espace (`sites`) ; null tant que la liste ou l'espace manque.
+  const spaceSupplierIds = computed(() => {
+    if (!shownSpaceId.value || !supplierList.value.length) return null
+    return new Set(supplierList.value.filter((x) => (x.sites || []).map(String).includes(String(shownSpaceId.value))).map((x) => String(x.id)))
   })
-  const supplierIndex = computed(() => buildSupplierIndex(plan.value, marketPrices.value, supplierNames.value))
+  const supplierIndex = computed(() =>
+    buildSupplierIndex(plan.value, marketPrices.value, supplierNames.value, { lines: lines.value, spaceSupplierIds: spaceSupplierIds.value }),
+  )
   const supplierOptions = computed(() => buildSupplierOptions(groups.value, supplierIndex.value))
   /** Groupes affichés : filtre Fournisseur appliqué (la recherche reste à la vue). */
   const visibleGroups = computed(() => filterGroupsBySupplier(groups.value, supplierIndex.value, supplierFilter.value))
@@ -80,7 +87,7 @@ export function useLogisticVentilation({ store, t }) {
     writeViewMode(viewMode.value)
   }
 
-  /** Fiches articles `{ itemName, supplier, supplierId }` (repli du fournisseur). */
+  /** Fiches articles `{ id, itemName, supplier, supplierId }` (repli du fournisseur). */
   function setMarketPrices(list) {
     marketPrices.value = Array.isArray(list) ? list : []
   }
@@ -105,6 +112,7 @@ export function useLogisticVentilation({ store, t }) {
   async function loadForEvents(spaceId, orderedEventIds) {
     const seq = ++loadSeq
     reset(orderedEventIds)
+    shownSpaceId.value = spaceId || null
     if (!spaceId || !eventIds.value.length) return false
     loading.value = true
     // Indépendant des feuilles : la section s'affiche dès qu'il y a quelque chose à déposer.
