@@ -8,10 +8,12 @@
 // (celle de la recette), sinon les seules fiches des fournisseurs de l'espace
 // (retour Bertrand du 2026-10-09 : un même article a plusieurs fournisseurs selon
 // l'espace, seul celui de l'espace compte). Un article peut venir de plusieurs
-// fournisseurs. Les noms viennent de la liste des fournisseurs quand la source n'a
+// fournisseurs : le filtre travaille alors ligne par ligne (PDV ou stockage), d'après
+// les destinations (`shopNames`) de chaque achat de la feuille. Les noms viennent de la liste des fournisseurs quand la source n'a
 // que l'id (cas des fiches articles) : un id n'est jamais affiché. Fonctions PURES.
 
 import { normalizeStr } from '@/utils/predictiveAnalytics'
+import { summarizeDepositRows } from '@/utils/restockDepositSheet'
 
 /** Valeur du filtre pour les articles sans fournisseur connu. */
 export const NO_SUPPLIER = '__none__'
@@ -28,7 +30,11 @@ function isTechnicalSupplierId(id) {
   return String(id ?? '').startsWith('__')
 }
 
-function addSupplier(map, itemName, id, name, supplierNames) {
+/**
+ * @param {string[]} [shopNames] destinations de l'achat (feuille) ; absent ou vide =
+ *   le fournisseur vaut pour toutes les lignes de l'article (`shops` non posé).
+ */
+function addSupplier(map, itemName, id, name, supplierNames, shopNames) {
   if (isTechnicalSupplierId(id)) return
   const item = normalizeStr(itemName)
   const label = String(name || '').trim() || (id != null ? supplierNames?.get(String(id)) : '') || ''
@@ -36,7 +42,17 @@ function addSupplier(map, itemName, id, name, supplierNames) {
   if (!item || !label) return
   const key = supplierKey(id, label)
   const list = map.get(item) || []
-  if (!list.some((s) => s.id === key)) list.push({ id: key, name: label })
+  const shops = (shopNames || []).map(normalizeStr).filter(Boolean)
+  const existing = list.find((s) => s.id === key)
+  if (!existing) {
+    const entry = { id: key, name: label }
+    if (shops.length) entry.shops = new Set(shops)
+    list.push(entry)
+  } else if (existing.shops) {
+    // Un achat sans destination connue vaut pour toutes les lignes.
+    if (shops.length) shops.forEach((n) => existing.shops.add(n))
+    else delete existing.shops
+  }
   map.set(item, list)
 }
 
@@ -73,7 +89,7 @@ export function buildSupplierIndex(plan, marketPrices = [], supplierNames = new 
   for (const group of plan?.shoppingGroups || []) {
     for (const item of group?.items || []) {
       planItems.add(normalizeStr(item?.itemName))
-      addSupplier(fromPlan, item?.itemName, group.supplierId, group.supplierName, supplierNames)
+      addSupplier(fromPlan, item?.itemName, group.supplierId, group.supplierName, supplierNames, item?.shopNames)
     }
   }
   const index = new Map(fromPlan)
@@ -99,6 +115,17 @@ export function suppliersOf(index, itemName) {
 }
 
 /**
+ * Fournisseurs d'UNE ligne (PDV ou stockage) : ceux dont l'achat vise cette
+ * destination ; à défaut, tous ceux de l'article.
+ */
+export function suppliersOfRow(index, itemName, shopName) {
+  const list = suppliersOf(index, itemName)
+  const shop = normalizeStr(shopName)
+  const matched = list.filter((s) => !s.shops || s.shops.has(shop))
+  return matched.length ? matched : list
+}
+
+/**
  * Options du filtre : fournisseurs des articles affichés, triés par nom, puis
  * « Sans fournisseur » s'il y a des articles sans fournisseur.
  * @param {Array<{itemName:string}>} groups
@@ -121,17 +148,29 @@ export function supplierOptions(groups, index) {
 }
 
 /**
- * Garde les articles d'au moins un des fournisseurs choisis (aucun choix = tout).
- * @param {Array<{itemName:string}>} groups
+ * Garde les articles d'au moins un des fournisseurs choisis (aucun choix = tout) et,
+ * dans chaque article, les seules lignes livrées par ces fournisseurs (totaux recalculés).
+ * @param {Array<{itemName:string, rows?:Array<{shopName:string}>}>} groups
  * @param {Map} index
  * @param {string[]} selected valeurs de supplierOptions
  */
 export function filterGroupsBySupplier(groups, index, selected) {
   if (!selected?.length) return groups || []
   const wanted = new Set(selected)
-  return (groups || []).filter((g) => {
+  const out = []
+  for (const g of groups || []) {
     const list = suppliersOf(index, g.itemName)
-    if (!list.length) return wanted.has(NO_SUPPLIER)
-    return list.some((s) => wanted.has(s.id))
-  })
+    if (!list.length) {
+      if (wanted.has(NO_SUPPLIER)) out.push(g)
+      continue
+    }
+    if (!Array.isArray(g.rows)) {
+      if (list.some((s) => wanted.has(s.id))) out.push(g)
+      continue
+    }
+    const rows = g.rows.filter((r) => suppliersOfRow(index, g.itemName, r.shopName).some((s) => wanted.has(s.id)))
+    if (!rows.length) continue
+    out.push(rows.length === g.rows.length ? g : { ...g, rows, ...summarizeDepositRows(rows) })
+  }
+  return out
 }

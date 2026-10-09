@@ -1763,6 +1763,7 @@ import { getShopElementMappings } from '@/utils/api'
 // nom (mêmes utilitaires qu'EventPredict, clé = nom de shop normalisé).
 import { runWithConcurrency } from '@/utils/asyncPool'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
+import { findPurchaseFor, pickSpaceHomonym } from '@/utils/storageRefillSupplier'
 import { findBestMatch } from '@/utils/menuItemMatching'
 // Formule de restant compté partagée avec useShoppingList (Règle 3) — source unique.
 import { countedRemaining } from '@/utils/shoppingList'
@@ -2520,10 +2521,29 @@ export default {
      * stockage), fournisseur résolu par la même cascade que le mode ingrédients
      * (resolveIngredientSupplier). Consommé par nettedShopping.
      */
+    /** Fournisseurs qui livrent l'espace (`sites`) ; null tant que la liste manque. */
+    spaceSupplierIds() {
+      const spaceId = this.route.params?.spaceId
+      if (!spaceId || !this.bomSuppliers.length) return null
+      return new Set(
+        this.bomSuppliers
+          .filter((s) => (s?.sites || []).map(String).includes(String(spaceId)))
+          .map((s) => String(s.id)),
+      )
+    },
     storageRefillLines() {
       return this.liveStorageRestockRows.map((row) => {
+        // Ligne connue par son seul nom : l'homonyme livré dans l'espace, pas le premier venu.
+        const homonymId = row.itemId
+          ? null
+          : pickSpaceHomonym({
+              itemName: row.itemName,
+              ingredients: this.ingredients,
+              marketPrices: this.marketPrices,
+              spaceSupplierIds: this.spaceSupplierIds,
+            })
         const ref = findStockReference(
-          { itemId: row.itemId || undefined, itemName: row.itemName },
+          { itemId: row.itemId || homonymId || undefined, itemName: row.itemName },
           this.ingredients,
           this.components,
           this.menuItems,
@@ -3361,7 +3381,8 @@ export default {
         const bySupplier = new Map(groups.map((g) => [g.supplierId, g]))
         refills.forEach((line) => {
           const sup = line.supplier || {}
-          let group = bySupplier.get(sup.supplierId)
+          // Article déjà acheté pour les PDV : le stockage suit le même fournisseur.
+          let group = findPurchaseFor(groups, line)?.group || bySupplier.get(sup.supplierId)
           if (!group) {
             group = {
               supplierId: sup.supplierId,
@@ -3387,6 +3408,9 @@ export default {
             existing.buyQuantity = existing.quantity
             existing.storageRefill = (existing.storageRefill || 0) + line.storageRefill
             existing.fromStorage = true
+            if (line.storageName && !(existing.shopNames || []).includes(line.storageName)) {
+              existing.shopNames = [...(existing.shopNames || []), line.storageName]
+            }
             existing.packaging = this.packagingForItem(existing, existing.quantity)
             refillTargets[line.itemKey] = existing.itemKey
           } else {
@@ -4077,6 +4101,7 @@ export default {
       const spaceId = this.route.params?.spaceId
       // La photo fige la feuille de course : jamais avec des recettes absentes.
       if (this.shoppingMode === 'ingredients') await this.ensureRecipesLoaded()
+      await this.ensureBomSuppliers()
       const payload = { name, ...this.buildPlanPayload() }
       if (estimateSnapshotBytes(payload) > PLAN_MAX_BYTES) {
         this.showSnackbar(this.t('srSnackPlanTooLarge'), 'error')
@@ -5436,6 +5461,8 @@ export default {
       if (!this.canGenerate) return
       if (!(await this.guardPlanEdit())) return
       if (!this.restockGenerated) await this.generateRestockTable()
+      // Fournisseurs de l'espace : départagent les homonymes des lignes de stockage.
+      await this.ensureBomSuppliers()
       this.shoppingGenerated = true
       // Mode ingrédients : hydrate les recettes (détail /menu-items/:id) avant
       // d'afficher l'explosion BOM.
