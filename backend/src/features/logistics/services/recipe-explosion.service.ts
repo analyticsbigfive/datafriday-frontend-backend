@@ -70,6 +70,8 @@ export class RecipeExplosionService {
           packaging: { select: { id: true, name: true, recipeUnit: true } },
         },
       },
+      // Combo composé d'autres menu items vendables (« Combo Croque/Chips/Coca »).
+      comboChildren: { select: { childId: true } },
     } as const;
   }
 
@@ -142,6 +144,37 @@ export class RecipeExplosionService {
   }
 
   /**
+   * Enfants de combo (MenuItemCombo, relation par id) chargés niveau par niveau, profondeur ≤ 4,
+   * avec leur recette complète. Ensemble visité : un cycle parent/enfant n'est jamais garanti
+   * impossible en base.
+   */
+  private async expandComboChildrenById(items: any[], tenantId: string, select: any): Promise<Map<string, any>> {
+    const byId = new Map<string, any>();
+    const visited = new Set<string>(items.map((i: any) => i.id));
+    let frontier = items;
+    for (let depth = 0; depth < 4 && frontier.length; depth++) {
+      const wanted = new Set<string>();
+      for (const item of frontier) {
+        for (const line of item.comboChildren ?? []) {
+          if (line?.childId && !visited.has(line.childId)) wanted.add(line.childId);
+        }
+      }
+      if (!wanted.size) break;
+      // eslint-disable-next-line no-await-in-loop -- parcours en largeur : une requête par niveau de combo
+      const rows: any[] = await this.prisma.menuItem.findMany({
+        where: { id: { in: [...wanted] }, tenantId, deletedAt: null },
+        select,
+      });
+      for (const r of rows) {
+        byId.set(r.id, r);
+        visited.add(r.id);
+      }
+      frontier = rows;
+    }
+    return byId;
+  }
+
+  /**
    * Components (readyForSale=No à déplier) : élargissement itératif du graphe ComponentComponent
    * PAR ID (relation réelle, contrairement au combo matché par nom), profondeur ≤ 4 et ensemble
    * visité : un cycle parent/enfant n'est jamais garanti impossible en base.
@@ -195,6 +228,8 @@ export class RecipeExplosionService {
     }
     const select = this.recipeSelect();
     const comboByName = await this.expandCombosByName(seedItems, tenantId, select);
+    const comboChildById = await this.expandComboChildrenById([...seedItems, ...comboByName.values()], tenantId, select);
+    const recipeItems = [...seedItems, ...comboByName.values(), ...comboChildById.values()];
 
     // BUG-133-02 : la boucle des ingrédients d'itemRefsForMenuItem (résolution mp
     // par nom, `ctx.mpByName.get(...)`) n'est atteinte QUE pour les items qui ne
@@ -208,7 +243,7 @@ export class RecipeExplosionService {
     // packagingType/unitsPerPack silencieusement null malgré une Market Price au
     // nom identique dans le catalogue.
     const unresolvedNames = new Set<string>();
-    for (const item of [...seedItems, ...comboByName.values()]) {
+    for (const item of recipeItems) {
       const isCombo = this.normYesNo(item.comboItem) === 'Yes';
       if (!isCombo && this.normYesNo(item.readyForSale) === 'Yes') continue;
       for (const line of item.ingredients ?? []) {
@@ -226,9 +261,9 @@ export class RecipeExplosionService {
       for (const mp of resolved.values()) mpByName.set(mp.itemName.trim().toLowerCase(), mp);
     }
 
-    const componentById = await this.expandComponentsById([...seedItems, ...comboByName.values()], tenantId, this.componentSelect());
+    const componentById = await this.expandComponentsById(recipeItems, tenantId, this.componentSelect());
 
-    return { comboByName, mpByName, componentById, itemRefsCache: new Map(), componentRefsCache: new Map() };
+    return { comboByName, mpByName, componentById, comboChildById, itemRefsCache: new Map(), componentRefsCache: new Map() };
   }
 
   /** Lignes de stock (référentiel) contribuées par UN menu item, recette dépliée. */
@@ -245,7 +280,13 @@ export class RecipeExplosionService {
     }
 
     const isCombo = this.normYesNo(item.comboItem) === 'Yes';
-    if (!isCombo && this.normYesNo(item.readyForSale) === 'Yes') {
+    // Combo composé d'autres menu items (MenuItemCombo) : un panier, jamais un article de
+    // stock. On l'ouvre toujours, même readyForSale=Yes (même règle que l'inventaire,
+    // menuItemExpansion.js) ; chaque enfant suit sa propre règle.
+    const comboChildren = (item.comboChildren ?? [])
+      .map((line: any) => (depth < 4 ? ctx.comboChildById?.get(line?.childId) : null))
+      .filter(Boolean);
+    if (!isCombo && !comboChildren.length && this.normYesNo(item.readyForSale) === 'Yes') {
       // readyForSale=Yes prime toujours sur lui-même, sans exception pour le cas
       // mono-ingrédient (BUG-048) : un item readyForSale=Yes n'est JAMAIS fondu
       // dans la Market Price de son ingrédient, même si sa recette n'en a qu'un
@@ -268,6 +309,10 @@ export class RecipeExplosionService {
     // BUG-002/Q18) : ingrédients directs + composants (combo récursif par nom,
     // packaging déjà traité au-dessus, non récursif).
     let leafCount = 0;
+    for (const child of comboChildren) {
+      refs.push(...this.itemRefsForMenuItem(child, ctx, depth + 1));
+      leafCount++;
+    }
     for (const line of item.ingredients ?? []) {
       const ing = line.ingredient;
       const name = ing?.name?.trim();
