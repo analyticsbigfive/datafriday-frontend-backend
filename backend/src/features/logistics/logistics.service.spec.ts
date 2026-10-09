@@ -216,6 +216,50 @@ describe('LogisticsService — readyForSale display logic', () => {
     });
   });
 
+  describe('itemRefsForMenuItem — combo composé de menu items (MenuItemCombo, retour Bertrand 2026-10-09)', () => {
+    const coca = {
+      id: 'mi-coca', name: 'Coca-Cola CAN 33cl', picture: null, readyForSale: 'No', comboItem: 'No',
+      ingredients: [
+        { numberOfUnits: 1, ingredient: { id: 'ing-coca', name: 'Coca-Cola Original - CAN 33CL', recipeUnit: 'Pc', marketPrice: { id: 'mp-coca', itemName: 'Coca-Cola Original - CAN 33CL', packedUnits: 24, inventoryPackaging: 'Pack' } } },
+      ],
+      components: [], packagings: [], comboChildren: [],
+    };
+    const chips = {
+      id: 'mi-chips', name: 'Chips', picture: null, readyForSale: 'Yes', comboItem: 'No',
+      ingredients: [], components: [], packagings: [], comboChildren: [],
+      inventoryPackagingType: 'Carton', inventoryNumberOfUnits: 30,
+    };
+    const ctxWithChildren = () => ({ ...emptyCtx(), comboChildById: new Map<string, any>([['mi-coca', coca], ['mi-chips', chips]]) });
+
+    it('remplace le combo par ses enfants, chacun selon sa propre règle', () => {
+      const combo = {
+        id: 'mi-combo', name: 'Combo Croque/Chips/Coca', picture: null, readyForSale: 'No', comboItem: 'No',
+        ingredients: [], components: [], packagings: [],
+        comboChildren: [{ childId: 'mi-coca' }, { childId: 'mi-chips' }],
+      };
+      const keys = recipeExplosionService.itemRefsForMenuItem(combo, ctxWithChildren()).map((r: any) => r.key);
+      expect(keys).toEqual(['Coca-Cola Original - CAN 33CL', 'Chips']);
+    });
+
+    it('ouvre le combo même marqué readyForSale=Yes', () => {
+      const combo = {
+        id: 'mi-combo-yes', name: 'Combo Yes', picture: null, readyForSale: 'Yes', comboItem: 'No',
+        ingredients: [], components: [], packagings: [], comboChildren: [{ childId: 'mi-coca' }],
+      };
+      const keys = recipeExplosionService.itemRefsForMenuItem(combo, ctxWithChildren()).map((r: any) => r.key);
+      expect(keys).toEqual(['Coca-Cola Original - CAN 33CL']);
+    });
+
+    it('enfant introuvable (supprimé) : le combo reste compté comme lui-même', () => {
+      const combo = {
+        id: 'mi-combo-orphan', name: 'Combo vide', picture: null, readyForSale: 'No', comboItem: 'No',
+        ingredients: [], components: [], packagings: [], comboChildren: [{ childId: 'mi-absent' }],
+      };
+      const keys = recipeExplosionService.itemRefsForMenuItem(combo, ctxWithChildren()).map((r: any) => r.key);
+      expect(keys).toEqual(['Combo vide']);
+    });
+  });
+
   describe('explodeSalesToConsumption — BUG-002/Q18 (comboItem=Yes always explodes)', () => {
     it('explodes a sold comboItem=Yes/readyForSale=Yes item into its constituents instead of counting it as itself', async () => {
       mockPrisma.menuItem.findMany.mockResolvedValueOnce([
