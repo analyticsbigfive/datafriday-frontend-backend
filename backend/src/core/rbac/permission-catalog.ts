@@ -286,51 +286,59 @@ type RbacClient = Pick<Prisma.TransactionClient, 'permission' | 'role' | 'rolePe
  * Retourne une map `code -> permissionId` pour faciliter le clonage des rôles.
  */
 export async function ensureSystemPermissionCatalog(prisma: RbacClient): Promise<Record<string, string>> {
-  const permissionIdByCode: Record<string, string> = {};
-  const newlyCreatedCodes: string[] = [];
+  // Lectures et écritures GROUPÉES : la version code par code faisait ~80 allers-retours, plus
+  // une écriture par rôle système (174 en production), et dépassait les 5 s de la transaction
+  // interactive du démarrage (« Transaction not found ») : rien n'était jamais écrit.
+  const codes = SYSTEM_PERMISSIONS.map((perm) => perm.code);
+  const existing = await prisma.permission.findMany({
+    where: { tenantId: null, code: { in: codes } },
+    select: { id: true, code: true, name: true, description: true, category: true },
+  });
+  const existingByCode = new Map(existing.map((row) => [row.code, row]));
 
-  for (const perm of SYSTEM_PERMISSIONS) {
-    // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
-    const existing = await prisma.permission.findFirst({
-      where: { tenantId: null, code: perm.code },
-      select: { id: true },
+  const missing = SYSTEM_PERMISSIONS.filter((perm) => !existingByCode.has(perm.code));
+  if (missing.length) {
+    await prisma.permission.createMany({
+      data: missing.map((perm) => ({
+        tenantId: null,
+        code: perm.code,
+        name: perm.name,
+        description: perm.description,
+        category: perm.category,
+        scope: PermissionScope.SYSTEM,
+        isSystem: true,
+      })),
     });
-
-    let permissionId: string;
-
-    if (existing) {
-      // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
-      await prisma.permission.update({
-        where: { id: existing.id },
-        data: {
-          name: perm.name,
-          description: perm.description,
-          category: perm.category,
-        },
-      });
-      permissionId = existing.id;
-    } else {
-      // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
-      const created = await prisma.permission.create({
-        data: {
-          tenantId: null,
-          code: perm.code,
-          name: perm.name,
-          description: perm.description,
-          category: perm.category,
-          scope: PermissionScope.SYSTEM,
-          isSystem: true,
-        },
-      });
-      permissionId = created.id;
-      newlyCreatedCodes.push(perm.code);
-    }
-
-    permissionIdByCode[perm.code] = permissionId;
   }
 
-  if (newlyCreatedCodes.length > 0) {
-    await grantNewPermissionsToExistingRoles(prisma, newlyCreatedCodes, permissionIdByCode);
+  // Métadonnées modifiées dans le code depuis la dernière synchronisation (rare) : mises à jour.
+  // Description ou catégorie absente dans le code = null en base (sinon tout serait « modifié »).
+  const same = (a: string | null | undefined, b: string | null | undefined) => (a ?? null) === (b ?? null);
+  const changed = SYSTEM_PERMISSIONS.filter((perm) => {
+    const row = existingByCode.get(perm.code);
+    return row && !(same(row.name, perm.name) && same(row.description, perm.description) && same(row.category, perm.category));
+  });
+  await Promise.all(
+    changed.map((perm) =>
+      prisma.permission.update({
+        where: { id: existingByCode.get(perm.code)!.id },
+        data: { name: perm.name, description: perm.description, category: perm.category },
+      }),
+    ),
+  );
+
+  const created = missing.length
+    ? await prisma.permission.findMany({
+        where: { tenantId: null, code: { in: missing.map((perm) => perm.code) } },
+        select: { id: true, code: true },
+      })
+    : [];
+  const permissionIdByCode: Record<string, string> = Object.fromEntries(
+    [...existing, ...created].map((row) => [row.code, row.id]),
+  );
+
+  if (created.length > 0) {
+    await grantNewPermissionsToExistingRoles(prisma, created.map((row) => row.code), permissionIdByCode);
   }
 
   return permissionIdByCode;
@@ -340,6 +348,7 @@ export async function ensureSystemPermissionCatalog(prisma: RbacClient): Promise
  * Accorde chaque code neuf aux rôles métier déjà existants (tous tenants confondus) qui
  * l'incluent par défaut dans `SYSTEM_ROLES`. Additif et idempotent (`skipDuplicates`) — ne
  * touche jamais aux permissions retirées ou ajoutées manuellement par un admin sur d'autres codes.
+ * Une lecture des rôles et une écriture pour tous les tenants.
  */
 async function grantNewPermissionsToExistingRoles(
   prisma: RbacClient,
@@ -347,29 +356,26 @@ async function grantNewPermissionsToExistingRoles(
   permissionIdByCode: Record<string, string>,
 ): Promise<void> {
   const newlyCreatedSet = new Set(newlyCreatedCodes);
+  const newIdsByRoleName = new Map(
+    SYSTEM_ROLES.map((roleDef) => [
+      roleDef.name,
+      roleDef.permissions
+        .filter((code) => newlyCreatedSet.has(code))
+        .map((code) => permissionIdByCode[code])
+        .filter((id): id is string => Boolean(id)),
+    ]),
+  );
+  const roleNames = [...newIdsByRoleName].filter(([, ids]) => ids.length).map(([name]) => name);
+  if (!roleNames.length) return;
 
-  for (const roleDef of SYSTEM_ROLES) {
-    const permissionIds = roleDef.permissions
-      .filter((code) => newlyCreatedSet.has(code))
-      .map((code) => permissionIdByCode[code])
-      .filter((id): id is string => Boolean(id));
-
-    if (!permissionIds.length) continue;
-
-    // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
-    const existingRoles = await prisma.role.findMany({
-      where: { name: roleDef.name, isSystem: true },
-      select: { id: true },
-    });
-
-    for (const role of existingRoles) {
-      // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
-      await prisma.rolePermission.createMany({
-        data: permissionIds.map((permissionId) => ({ roleId: role.id, permissionId })),
-        skipDuplicates: true,
-      });
-    }
-  }
+  const roles = await prisma.role.findMany({
+    where: { name: { in: roleNames }, isSystem: true },
+    select: { id: true, name: true },
+  });
+  const data = roles.flatMap((role) =>
+    (newIdsByRoleName.get(role.name) ?? []).map((permissionId) => ({ roleId: role.id, permissionId })),
+  );
+  if (data.length) await prisma.rolePermission.createMany({ data, skipDuplicates: true });
 }
 
 /**
