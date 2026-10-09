@@ -97,8 +97,8 @@ export class InventoryCycleCronService {
       // Events et fenêtres de tous les tenants : transverse, chaque requête porte son tenantId.
       const count = await this.tenantContext.runWithoutTenantScope(job);
       if (count) this.logger.log(`${label} : ${count}`);
-    } catch (error: any) {
-      this.logger.warn(`${label} en échec : ${error?.message}`);
+    } catch (error) {
+      this.logger.warn(`${label} en échec : ${(error as Error)?.message}`);
     }
   }
 
@@ -290,8 +290,8 @@ export class InventoryCycleCronService {
     try {
       await this.prisma.kvStore.create({ data: { tenantId, key, value: { at: now.toISOString() } } });
       return true;
-    } catch (error: any) {
-      if (error?.code === 'P2002') return false;
+    } catch (error) {
+      if ((error as { code?: string } | null)?.code === 'P2002') return false;
       throw error;
     }
   }

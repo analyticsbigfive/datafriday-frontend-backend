@@ -217,7 +217,7 @@ export class VentilationAccessService {
       this.deposits.sumByEvent(user.spaceId, user.eventId, user.tenantId),
       this.deposits.listByEvent(user.spaceId, user.eventId, user.tenantId),
     ]);
-    const restockLines = (Array.isArray(plan?.restockLines) ? (plan!.restockLines as any[]) : []).map(pickSheetLine);
+    const restockLines = (Array.isArray(plan?.restockLines) ? (plan!.restockLines as RestockLine[]) : []).map(pickSheetLine);
     const elementIds = [...new Set([...restockLines.map((l) => String(l.shopId)), ...sums.map((d) => d.elementId)])];
     const packSizes = await this.deposits.packSizes(user.spaceId, user.tenantId, elementIds);
     const uppByKey = new Map(packSizes.map((p) => [`${p.elementId}::${normalizeItemName(p.itemName)}`, p.unitsPerPack]));
@@ -242,7 +242,7 @@ export class VentilationAccessService {
   async deposit(user: GuestPinUser, dto: GuestVentilationDepositDto, deviceId: string | undefined) {
     this.assertVentilationSession(user);
     const plan = await this.findPlan(user.tenantId, user.spaceId, user.eventId);
-    const lines = Array.isArray(plan?.restockLines) ? (plan!.restockLines as any[]) : [];
+    const lines = Array.isArray(plan?.restockLines) ? (plan!.restockLines as RestockLine[]) : [];
     const line = lines.find((l) => l?.rowKey === dto.rowKey);
     if (!line?.shopId) throw new NotFoundException('Cette ligne ne figure pas sur la feuille de ventilation du match');
     // Ligne retirée de la feuille depuis (cochée « réarmé » ou corrigée à 0) : plus rien à y déposer.
@@ -363,7 +363,10 @@ export class VentilationAccessService {
   }
 }
 
-function pickSheetLine(line: any) {
+/** Ligne de la feuille de réarmement telle que stockée (JSON du RestockPlan). */
+type RestockLine = Record<string, unknown> & { rowKey?: string; shopId?: string };
+
+function pickSheetLine(line: RestockLine) {
   const out: Record<string, unknown> = {};
   for (const field of SHEET_LINE_FIELDS) if (line?.[field] !== undefined) out[field] = line[field];
   return out;

@@ -17,7 +17,7 @@ import type { FastifyReply } from 'fastify';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { NotInProductionGuard } from '../../core/auth/guards/not-in-production.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
-import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
+import { CurrentUser, CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { VentilationDepositsService } from './ventilation-deposits.service';
 import { ConfirmTransferDto, CreateMovementDto, InventoryResetDto, SimulateSaleDto } from './dto/logistics.dto';
 import { PurgeSimulatedSalesDto, StartSimulationRunDto } from './dto/simulation-run.dto';
@@ -82,9 +82,9 @@ export class LogisticsController {
   async getVentilationDeposits(
     @Param('spaceId') spaceId: string,
     @Query('eventId') eventId: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.ventilation.sumByEvent(spaceId, eventId, user.tenantId);
+    return this.ventilation.sumByEvent(spaceId, eventId, user.tenantId!);
   }
 
   @Get(':spaceId/ventilation-movements')
@@ -94,18 +94,18 @@ export class LogisticsController {
   async listVentilationDeposits(
     @Param('spaceId') spaceId: string,
     @Query('eventId') eventId: string,
-    @CurrentUser() user: any,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.ventilation.listByEvent(spaceId, eventId, user.tenantId);
+    return this.ventilation.listByEvent(spaceId, eventId, user.tenantId!);
   }
 
   @Post('movements/:id/cancel-ventilation')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Annule un dépôt « Ventilation » par un mouvement inverse (registre conservé)' })
   @ApiParam({ name: 'id', description: 'ID du mouvement de dépôt' })
-  async cancelVentilationDeposit(@Param('id') id: string, @CurrentUser() user: any) {
+  async cancelVentilationDeposit(@Param('id') id: string, @CurrentUser() user: CurrentUserData) {
     this.logger.log(`POST /logistics/movements/${id}/cancel-ventilation`);
-    return this.ventilation.cancel(id, user.tenantId, user.id, { user });
+    return this.ventilation.cancel(id, user.tenantId!, user.id, { user });
   }
 
   @Get(':spaceId/market-prices')

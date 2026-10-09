@@ -77,8 +77,8 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
   private readonly logisticFlush = new LogisticFlushThrottle(async (key) => {
     try {
       await this.flushLogisticDirty(key);
-    } catch (error: any) {
-      this.logger.warn(`Envoi Logistic immédiat en échec (le cron rattrapera) : ${key} : ${error?.message}`);
+    } catch (error) {
+      this.logger.warn(`Envoi Logistic immédiat en échec (le cron rattrapera) : ${key} : ${(error as Error)?.message}`);
     }
   });
 
@@ -567,9 +567,9 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
       // Réconciliation post-event tenue à jour par le serveur (lot 4b).
       await this.postEventDraft?.rebuild(v.spaceId, v.eventId, tenantId);
       return result.ok;
-    } catch (error: any) {
+    } catch (error) {
       this.logger.warn(
-        `Envoi Logistic du comptage ${v.phase} en échec (réessai au tick suivant) : space ${v.spaceId} / event ${v.eventId} : ${error?.message}`,
+        `Envoi Logistic du comptage ${v.phase} en échec (réessai au tick suivant) : space ${v.spaceId} / event ${v.eventId} : ${(error as Error)?.message}`,
       );
       await this.markLogisticDirty(v.spaceId, v.eventId, tenantId, v.phase);
       return false;

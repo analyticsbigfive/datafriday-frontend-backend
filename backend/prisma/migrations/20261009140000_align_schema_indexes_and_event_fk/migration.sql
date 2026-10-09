@@ -8,7 +8,7 @@
 -- Production : créer les index CONCURRENTLY à la main, puis marquer la migration appliquée :
 --   CREATE INDEX CONCURRENTLY IF NOT EXISTS ... (les 3 ci-dessous)
 --   puis exécuter la contrainte et le renommage tels quels (Event : ~800 lignes, 0 orphelin vérifié)
---   npx prisma migrate resolve --applied 20261002120000_align_schema_indexes_and_event_fk
+--   npx prisma migrate resolve --applied 20261009140000_align_schema_indexes_and_event_fk
 
 CREATE INDEX IF NOT EXISTS "Ingredient_tenantId_deletedAt_idx" ON "Ingredient"("tenantId", "deletedAt");
 CREATE INDEX IF NOT EXISTS "MenuItem_tenantId_deletedAt_idx" ON "MenuItem"("tenantId", "deletedAt");

@@ -1,3 +1,6 @@
+import type { PostEventDraftService } from '../../inventory/post-event-draft.service';
+import type { SpaceMenuConfigurationService } from '../../space-menus/services/space-menu-configuration.service';
+import type { StorageTypesService } from '../../storage-types/storage-types.service';
 import { GuestPinCountingService } from './guest-pin-counting.service';
 import { GuestPinCredentialService } from './guest-pin-credential.service';
 import { GuestPinPhaseService } from './guest-pin-phase.service';
@@ -5,7 +8,7 @@ import { GuestPinSessionService } from './guest-pin-session.service';
 import { GuestPinWindowService } from './guest-pin-window.service';
 
 /** Instancie les services du dossier pour les tests unitaires (dépendances externes fournies par le test). */
-export function createGuestPinAccessServices(deps: { prisma?: any; inventoryCountService?: any; preEventFlow?: any; menuItemRecipeService?: any; marketPrices?: any; menuComponents?: any; spaceMenus?: any; storageTypes?: any; configService?: any; redis?: any; jwt?: any; audit?: any; inventoryLogisticPushService?: any; spaceAccess?: any; postEventDraft?: any }) {
+export function createGuestPinAccessServices(deps: { prisma?: any; inventoryCountService?: any; preEventFlow?: any; menuItemRecipeService?: any; marketPrices?: any; menuComponents?: any; spaceMenus?: SpaceMenuConfigurationService; storageTypes?: StorageTypesService; configService?: any; redis?: any; jwt?: any; audit?: any; inventoryLogisticPushService?: any; spaceAccess?: any; postEventDraft?: PostEventDraftService }) {
   const guestPinCountingService = new GuestPinCountingService(deps.prisma, deps.inventoryCountService, deps.preEventFlow, deps.menuItemRecipeService, deps.marketPrices, deps.menuComponents, deps.spaceMenus, deps.storageTypes);
   const guestPinCredentialService = new GuestPinCredentialService(deps.prisma, deps.configService);
   const guestPinSessionService = new GuestPinSessionService(deps.prisma, deps.redis, deps.configService, deps.jwt, guestPinCredentialService);

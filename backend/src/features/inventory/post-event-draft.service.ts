@@ -1,5 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
+import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
 import { StockLevelService } from '../logistics/services/stock-level.service';
 import { InventoryBaselineService } from './services/inventory-baseline.service';
 import { InventoryCountService } from './services/inventory-count.service';
@@ -66,8 +68,8 @@ export class PostEventDraftService {
     };
     await this.prisma.kvStore.upsert({
       where: { uniq_kv_store: { tenantId, key } },
-      create: { tenantId, key, value: value as any },
-      update: { value: value as any },
+      create: { tenantId, key, value: value as Prisma.InputJsonValue },
+      update: { value: value as Prisma.InputJsonValue },
     });
     return this.rebuild(spaceId, dto.eventId, tenantId, userId);
   }
@@ -99,7 +101,10 @@ export class PostEventDraftService {
     // ── Compté : articles MARQUÉS comptés seulement (BUG-237 : les reprises d'avant-match
     //    sont requalifiées « à compter » par getBySpaceAndEvent).
     const merged = await this.inventoryCountService.getBySpaceAndEvent(spaceId, eventId, tenantId, 'post-event');
-    const blob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
+    const blob = (merged?.inventoryCounts ?? {}) as Record<
+      string,
+      Record<string, { isCounted?: boolean; packedUnits?: unknown; looseUnits?: unknown } | null>
+    >;
     const countedRaw: Array<{ elementId: string; itemId: string; packed: number; loose: number }> = [];
     for (const [elementId, byItem] of Object.entries(blob)) {
       for (const [itemId, c] of Object.entries(byItem ?? {})) {
@@ -111,7 +116,10 @@ export class PostEventDraftService {
 
     // ── Avant-match du même event (repli : post-event du match précédent).
     const pre = await this.inventoryBaselineService.getPreEventInventory(spaceId, eventId, tenantId);
-    const preBlob = (pre?.inventoryCounts ?? null) as Record<string, Record<string, any>> | null;
+    const preBlob = (pre?.inventoryCounts ?? null) as Record<
+      string,
+      Record<string, { packedUnits?: unknown; looseUnits?: unknown } | null>
+    > | null;
 
     const itemIds = new Set(countedRaw.map((c) => c.itemId));
     for (const byItem of Object.values(preBlob ?? {})) for (const id of Object.keys(byItem ?? {})) itemIds.add(id);
@@ -230,7 +238,7 @@ export class PostEventDraftService {
     // Contexte de l'écran d'abord ; à défaut, colonnes du dernier document.
     const previousByKey = previousLineInfo(context?.lines ?? lastDoc?.lines ?? null);
     const predictedSource =
-      context?.predictedSource ?? ((lastDoc?.meta as any)?.predictedSource as string | undefined) ?? null;
+      context?.predictedSource ?? ((lastDoc?.meta as { predictedSource?: string } | null)?.predictedSource) ?? null;
 
     const lines = buildPostEventLines({
       counted,
@@ -258,7 +266,7 @@ export class PostEventDraftService {
             ? { shopNames: (consumption.unjoined?.shopNames ?? []).slice(0, 50), itemNames: [...unjoinedItems].slice(0, 50), units: Math.round(unjoinedUnits * 100) / 100 }
             : undefined,
         predictedSource: predictedSource ?? undefined,
-      } as any,
+      } as CreatePostEventReconciliationDto,
       tenantId,
       userId,
       {

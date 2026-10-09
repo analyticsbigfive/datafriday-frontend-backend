@@ -7,10 +7,10 @@
 --      lectures, l'index couvrant est 3,4 fois plus gros) et
 --      WeezeventTransaction_tenantId_integrationId_status_transactionD (à mesurer d'abord).
 --      Les trois index [tenantId] d'Ingredient, MenuItem et Packaging ne sont redondants qu'après
---      la migration 20261002120000 (qui crée les index [tenantId, deletedAt]) : ordre à respecter.
+--      la migration 20261009140000 (qui crée les index [tenantId, deletedAt]) : ordre à respecter.
 --
 -- Production : jouer ces ordres à la main en CONCURRENTLY (hors transaction, hors match), puis
---   npx prisma migrate resolve --applied 20261002130000_fk_indexes_and_drop_redundant
+--   npx prisma migrate resolve --applied 20261009150000_fk_indexes_and_drop_redundant
 -- Sinon, le DROP INDEX simple prend un verrou exclusif bref sur chaque table.
 
 CREATE INDEX IF NOT EXISTS "UserPinnedSpace_spaceId_idx" ON "UserPinnedSpace"("spaceId");

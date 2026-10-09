@@ -196,7 +196,7 @@ export class GuestPinCountingService {
     }));
 
     // storageShopIds (builder v2) prime sur selectedShops (v1), même lecture que le staff.
-    const attrs = (element.attributes ?? {}) as any;
+    const attrs = (element.attributes ?? {}) as { storageShopIds?: unknown; selectedShops?: unknown };
     const selectedShopIds: string[] = (
       Array.isArray(attrs.storageShopIds) ? attrs.storageShopIds : Array.isArray(attrs.selectedShops) ? attrs.selectedShops : []
     ).map(String);

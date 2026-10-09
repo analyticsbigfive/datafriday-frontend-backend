@@ -28,8 +28,8 @@ export class InventoryLogisticSyncCronService {
       // Marqueurs de tous les tenants : transverse, chaque envoi porte son tenantId.
       const pushed = await this.tenantContext.runWithoutTenantScope(() => this.flow.flushLogisticDirty());
       if (pushed) this.logger.log(`Comptages envoyés vers Logistic : ${pushed} match(s)`);
-    } catch (error: any) {
-      this.logger.warn(`Envoi des comptages vers Logistic en échec : ${error?.message}`);
+    } catch (error) {
+      this.logger.warn(`Envoi des comptages vers Logistic en échec : ${(error as Error)?.message}`);
     } finally {
       this.running = false;
     }

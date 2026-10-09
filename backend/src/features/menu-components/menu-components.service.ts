@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
@@ -309,7 +310,7 @@ export class MenuComponentsService {
       // périmètre fait partie de la clé de cache (même réflexe que menu-items.service.ts).
       const visible = await this.visibleSpaces(user);
       const scope = visible === 'ALL' ? 'all' : `s:${[...visible].sort().join(',')}`;
-      const where: any = { tenantId, deletedAt: null };
+      const where: Prisma.MenuComponentWhereInput = { tenantId, deletedAt: null };
       if (visible !== 'ALL') {
         where.OR = [{ spaceIds: { isEmpty: true } }, { spaceIds: { hasSome: visible } }];
       }

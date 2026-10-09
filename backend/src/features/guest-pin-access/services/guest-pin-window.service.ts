@@ -341,9 +341,9 @@ export class GuestPinWindowService {
             closedBy: actorId,
           },
         });
-      } catch (error: any) {
+      } catch (error) {
         // Créée entre-temps (▶ d'un PDV, autre tick) : rien à faire.
-        if (error?.code === 'P2002') return 'exists';
+        if ((error as { code?: string } | null)?.code === 'P2002') return 'exists';
         throw error;
       }
     }

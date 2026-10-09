@@ -239,7 +239,7 @@ export class InventoryCountService {
     const blob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, unknown>>;
     const hasCounts = Object.values(blob).some((byItem) => Object.keys(byItem ?? {}).length > 0);
     if (!hasCounts) return null;
-    return this.upsertInventory({ spaceId, eventId, kind: 'post-event', inventoryCounts: blob } as any, tenantId, userId);
+    return this.upsertInventory({ spaceId, eventId, kind: 'post-event', inventoryCounts: blob }, tenantId, userId);
   }
 
   /**

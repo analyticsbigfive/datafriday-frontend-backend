@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { StockMovementReason } from '@prisma/client';
+import { Prisma, StockMovementReason } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { SpaceAccessService } from '../../../core/auth/space-access.service';
 import { InventoryResetDto } from '../dto/logistics.dto';
@@ -301,7 +301,7 @@ export class StockReconciliationService {
     const out: Array<Record<string, unknown>> = [];
     const groups = new Map<string, { row: Record<string, unknown>; keys: Set<string>; count: number }>();
     for (const r of rows) {
-      const lines = (Array.isArray(r.lines) ? r.lines : []) as any[];
+      const lines = (Array.isArray(r.lines) ? r.lines : []) as ReconciliationLineKey[];
       const groupKey = inventoryCountGroupKey(r.meta, r.eventId);
       if (!groupKey) {
         out.push({ id: r.id, eventId: r.eventId, eventName: r.eventName, createdAt: r.createdAt, createdBy: r.createdBy, lineCount: lines.length });
@@ -344,14 +344,14 @@ export class StockReconciliationService {
         orderBy: { createdAt: 'desc' },
         select: { id: true, lines: true },
       });
-      const merged = new Map<string, unknown>();
+      const merged = new Map<string, ReconciliationLineKey>();
       for (const sibling of siblings) {
-        for (const l of (Array.isArray(sibling.lines) ? sibling.lines : []) as any[]) {
+        for (const l of (Array.isArray(sibling.lines) ? sibling.lines : []) as ReconciliationLineKey[]) {
           const key = `${l?.elementId}::${l?.itemKey}`;
           if (!merged.has(key)) merged.set(key, l);
         }
       }
-      return { ...reco, lines: [...merged.values()] as any, groupedIds: siblings.map((x) => x.id) };
+      return { ...reco, lines: [...merged.values()] as Prisma.JsonArray, groupedIds: siblings.map((x) => x.id) };
     }
     return reco;
   }
@@ -397,6 +397,9 @@ export class StockReconciliationService {
     return { reco, csv };
   }
 }
+
+/** Ligne d'un document de réconciliation (JSON), réduite à sa clé élément × article. */
+type ReconciliationLineKey = { elementId?: string; itemKey?: string } | null;
 
 /** Clé de regroupement d'un recalage issu d'un comptage d'inventaire (event + phase),
  *  null pour tout autre document (reset manuel de l'écran Logistique). */

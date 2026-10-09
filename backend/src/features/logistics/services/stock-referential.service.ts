@@ -180,6 +180,15 @@ export class StockReferentialService {
     return elements;
   }
 
+  /** Articles du référentiel Logistic d'un élément (toutes configs) : nom et taille de pack. */
+  async getElementItems(spaceId: string, tenantId: string, elementIds: string[]) {
+    const wanted = new Set(elementIds);
+    const elements = await this.getSpaceElementsWithItems(spaceId, tenantId, undefined, { aggregateAllConfigs: true });
+    return elements
+      .filter((e) => wanted.has(e.id))
+      .map((e) => ({ elementId: e.id, items: e.items.map((it) => ({ name: it.name, unitsPerPack: it.unitsPerPack ?? null })) }));
+  }
+
   /**
    * PDV simulables (≥1 menu item vendable, à prix réel, ET mappé à une intégration réelle)
    * — miroir server-side de `LiveSaleSimulatorWidget.vue::menuItemsForShop`/`pickRandom`,
@@ -195,15 +204,6 @@ export class StockReferentialService {
    * l'auto-run ; le picker manuel du widget QA n'est pas concerné (utile pour tester la
    * déduction de stock indépendamment du prix).
    */
-  /** Articles du référentiel Logistic d'un élément (toutes configs) : nom et taille de pack. */
-  async getElementItems(spaceId: string, tenantId: string, elementIds: string[]) {
-    const wanted = new Set(elementIds);
-    const elements = await this.getSpaceElementsWithItems(spaceId, tenantId, undefined, { aggregateAllConfigs: true });
-    return elements
-      .filter((e) => wanted.has(e.id))
-      .map((e) => ({ elementId: e.id, items: e.items.map((it: any) => ({ name: it.name, unitsPerPack: it.unitsPerPack ?? null })) }));
-  }
-
   async getSimulableShops(spaceId: string, tenantId: string, configId?: string) {
     const elements = await this.getSpaceElementsWithItems(spaceId, tenantId, configId);
     const shops = elements

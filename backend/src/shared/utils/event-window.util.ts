@@ -109,7 +109,7 @@ export function resolveDoorsOpenAt(e: EventDayFields, timeZone: string): Date | 
  * du space) posée sur le jour de début. `null` si aucune heure de show n'est renseignée (même
  * règle que `resolveDoorsOpenAt` : jamais de repli sur minuit).
  */
-export function resolveShowTimeAt(e: EventDayFields, timeZone: string): Date | null {
+function resolveShowTimeAt(e: EventDayFields, timeZone: string): Date | null {
   const day = startDayOf(e);
   if (Number.isNaN(day.getTime())) return null;
   let earliest: Date | null = null;

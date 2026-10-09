@@ -115,8 +115,8 @@ export class GuestPinPhaseService {
         // Réconciliation post-event à jour à l'arrêt : c'est le document final (D2).
         await this.postEventDraft.rebuild(window.spaceId, window.eventId, window.tenantId);
       }
-    } catch (error: any) {
-      this.logger.warn(`Fin de phase ${window.phase} (fenêtre ${window.id}) : figement en échec : ${error?.message}`);
+    } catch (error) {
+      this.logger.warn(`Fin de phase ${window.phase} (fenêtre ${window.id}) : figement en échec : ${(error as Error)?.message}`);
     }
   }
 

@@ -137,9 +137,9 @@ export class InventoryLogisticPushService {
       );
       pushLines = corrected.lines;
       salesSinceCount = { adjusted: corrected.adjusted, soldUnits: corrected.soldUnits };
-    } catch (error: any) {
+    } catch (error) {
       // Jamais bloquant : sans correction, le recalage part comme avant.
-      this.logger.warn(`Ventes depuis le comptage non retirées (envoi non corrigé) : ${error?.message}`);
+      this.logger.warn(`Ventes depuis le comptage non retirées (envoi non corrigé) : ${(error as Error)?.message}`);
     }
 
     try {

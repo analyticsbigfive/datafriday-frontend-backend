@@ -2075,6 +2075,7 @@ model MenuComponent {
   @@index([componentTypeId])
   @@index([componentCategoryId])
   @@index([readyForSale])
+  @@index([kitchenId])
 }
 
 // ==================== COMPONENT TAXONOMY ====================
@@ -2403,6 +2404,7 @@ model MenuItem {
   @@index([seasonId])
   @@index([readyForSale])
   @@index([tenantId, deletedAt])
+  @@index([kitchenId])
 }
 
 /// Type de promotion (référentiel de configuration, comme DisplayName) — alimente le select

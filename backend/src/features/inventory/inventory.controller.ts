@@ -16,7 +16,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
-import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
+import { CurrentUser, CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
@@ -351,10 +351,10 @@ export class InventoryController {
   async savePostEventContext(
     @Param('spaceId') spaceId: string,
     @Body() dto: PostEventContextDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: CurrentUserData,
   ) {
     this.logger.log(`POST /inventory/${spaceId}/post-event-context eventId=${dto.eventId} lines=${dto.lines?.length ?? 0}`);
-    return this.postEventDraft.saveContext(spaceId, dto, user.tenantId, user.id);
+    return this.postEventDraft.saveContext(spaceId, dto, user.tenantId!, user.id);
   }
 
   @Post(':spaceId/recount-element')
