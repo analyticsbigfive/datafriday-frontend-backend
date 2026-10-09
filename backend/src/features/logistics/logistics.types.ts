@@ -58,6 +58,8 @@ export type RecipeCtx = {
   mpByName: Map<string, { id: string; itemName: string; packedUnits: number | null; inventoryPackaging: string | null }>;
   /** Component (MenuComponent) par id, recette complète — pour le dépliage récursif readyForSale=No. */
   componentById: Map<string, any>;
+  /** Enfants de combo (MenuItemCombo) par id de menu item, recette complète. Absent = aucun. */
+  comboChildById?: Map<string, any>;
   /** Cache de dépliage recette, clé `${id}:${depth}` — même schéma que perUnitCache/
    * componentPerUnitCache dans explodeSalesToConsumption. Sans lui, un menu item/component
    * partagé par plusieurs plats ou plusieurs shops est ré-expansé depuis zéro à chaque
