@@ -83,8 +83,10 @@ export async function getGuestVentilationSheet() {
 }
 
 /** Confirme un dépôt sur une ligne de la feuille (raison « Ventilation »). */
-export async function createGuestVentilationDeposit({ rowKey, packed, loose, depositorName }) {
-  const response = await api.post('/guest-pin/ventilation/deposits', { rowKey, packed, loose, depositorName }, { headers: guestDeviceHeaders() })
+export async function createGuestVentilationDeposit({ rowKey, storageId, itemName, packed, loose, depositorName }) {
+  // Ligne de la feuille (`rowKey`) ou stockage sans ligne prévue (`storageId` + `itemName`).
+  const target = rowKey ? { rowKey } : { storageId, itemName }
+  const response = await api.post('/guest-pin/ventilation/deposits', { ...target, packed, loose, depositorName }, { headers: guestDeviceHeaders() })
   return response.data
 }
 

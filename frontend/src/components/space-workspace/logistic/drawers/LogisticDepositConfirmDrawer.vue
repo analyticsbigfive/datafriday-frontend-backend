@@ -16,7 +16,9 @@
           <v-divider />
 
           <div class="lgdc-body">
-            <div class="lgdc-expected">
+            <!-- Stockage sans rien de prévu (section « Espaces de stockage ») : pas de
+                 « À déposer : 0 », seulement la saisie. -->
+            <div v-if="hasExpected" class="lgdc-expected">
               {{ t('logiColToDeposit') }} : <strong>{{ expectedLabel }}</strong>
             </div>
 
@@ -110,6 +112,9 @@ export default {
     /** Stand-in d'article pour les libellés partagés (unit/packagingType). */
     itemLike() {
       return { unit: this.deposit?.unit || null, packagingType: this.deposit?.packagingType || null }
+    },
+    hasExpected() {
+      return Number(this.deposit?.quantity) > 0 || Number(this.deposit?.packs) > 0
     },
     hasPacks() {
       return this.deposit?.packs != null || !!this.deposit?.unitsPerPack

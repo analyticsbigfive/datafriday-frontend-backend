@@ -23,10 +23,14 @@
 
       <LogisticVentilationView
         :groups="groups"
+        :storages="storages"
+        :mode="viewMode"
         :plan-name="plan?.name || null"
         :source="plan ? 'restock' : null"
         :loading="loading && !sheet"
         :can-confirm="!!plan"
+        show-search
+        @update:mode="setViewMode"
         @confirm="openDeposit"
       />
       <LogisticVentilationDeposits
@@ -143,7 +147,9 @@ export default {
       const logisticUpp = packSizeLookup(this.sheet?.packSizes)(row.shopId, group.itemName)
       const prefill = depositPrefill(row, logisticUpp, group.unitsPerPack)
       this.depositTarget = {
-        rowKey: row.rowKey,
+        // Feuilles concernées (plusieurs matchs) ; aucune pour un stockage sans ligne prévue.
+        parts: row.parts || [],
+        storageId: row.parts?.length ? null : row.shopId,
         itemName: group.itemName,
         shopName: row.shopName,
         unit: group.unit,
@@ -160,11 +166,19 @@ export default {
       this.depositSaving = true
       this.depositError = null
       try {
-        await this.deposit({ rowKey: this.depositTarget.rowKey, packed, loose, depositorName: this.depositorName })
+        const { parts, unitsPerPack, storageId, itemName } = this.depositTarget
+        await this.deposit({ parts, unitsPerPack, storageId, itemName, packed, loose, depositorName: this.depositorName })
         this.depositDialog = false
         this.notify(this.t('logiDepositSaved'))
       } catch (e) {
-        this.depositError = e?.response?.data?.message || e?.message || this.t('logiMovementError')
+        const message = e?.response?.data?.message || e?.message || this.t('logiMovementError')
+        if (e?.partialDeposit) {
+          // Une part est déjà enregistrée (feuille relue) : fermer plutôt que laisser réessayer.
+          this.depositDialog = false
+          this.notify(message, 'error')
+        } else {
+          this.depositError = message
+        }
       } finally {
         this.depositSaving = false
       }

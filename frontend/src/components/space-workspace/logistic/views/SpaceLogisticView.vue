@@ -50,23 +50,16 @@
 
             <!-- Filtres — carte accordéon calquée sur Space Inventory
                  (InventoryFilterPanel) : carte blanche, titre .lg-fp-section,
-                 badges #ff3131, bouton reset tonal. Facettes RÉELLES Logistic
-                 seulement (recherche PdV + type de denrée) — pas de section vide. -->
-            <SidebarPanel :title="t('logiFilters')" storage-key="logistic-filters">
+                 badges #ff3131, bouton reset tonal. Facette RÉELLE Logistic : type de
+                 denrée (la recherche est sous le bandeau). Masqué en Ventilation, où
+                 il ne filtre rien (le filtre Fournisseur est dans sa barre). -->
+            <SidebarPanel v-if="activeTab !== 'ventilation'" :title="t('logiFilters')" storage-key="logistic-filters">
               <template v-if="itemKindFilter.length || elementSearch" #meta>
                 <button type="button" class="lg-fp-reset-inline" @click="resetLogisticFilters">
                   <v-icon size="14" class="mr-1">mdi-refresh</v-icon>
                   {{ t('invResetFilters') }}
                 </button>
               </template>
-
-              <AppSearchBar
-                v-model="elementSearch"
-                dense
-                :placeholder="t('logiFilterElements')"
-                :clear-label="t('logiClear') || 'Clear'"
-                class="lg-panel-search mb-3"
-              />
 
               <div class="lg-fp-accordion">
                 <button
@@ -194,19 +187,36 @@
                     <p v-if="drillElement" class="lg-header__subtitle">
                       {{ t('logiPageTitle') }}<span v-if="spaceLabel"> · {{ spaceLabel }}</span>
                     </p>
-                    <!-- Desktop uniquement : masqué < 560px (.lg-header__config-wrap),
-                         toutes les configurations sont actives par défaut sur mobile. -->
-                    <div v-else class="lg-header__config-wrap">
-                      <LogisticConfigSelect
-                        :configurations="configurations"
-                        :model-value="selectedConfigId || 'all'"
-                        @update:model-value="onConfigSelect"
+                    <!-- Puce de configuration : desktop uniquement, masquée < 560px
+                         (.lg-header__config-wrap), toutes les configurations sont actives
+                         par défaut sur mobile. Sélecteur d'events : partout. -->
+                    <div v-else class="lg-header__selects">
+                      <!-- Pas de configuration en Ventilation (Ulrich 2026-10-09) : le
+                           périmètre vient des matchs choisis. -->
+                      <div v-if="activeTab !== 'ventilation'" class="lg-header__config-wrap">
+                        <LogisticConfigSelect
+                          :configurations="configurations"
+                          :model-value="selectedConfigId || 'all'"
+                          @update:model-value="onConfigSelect"
+                        />
+                      </div>
+                      <LogisticEventSelect
+                        :events="eventSelection.events"
+                        :model-value="eventSelection.selectedIds"
+                        :label="eventSelection.label"
+                        @update:model-value="eventSelection.select"
                       />
                     </div>
                   </div>
                 </div>
 
                 <div class="lg-header__right">
+                  <!-- PIN d'accès des logisticiens, en Ventilation seulement (maquette
+                       Bertrand 2026-10-09) : celui du premier match de la sélection. -->
+                  <span v-if="!drillElement && activeTab === 'ventilation' && ventilationAccess.status?.window" class="lg-band-pin">
+                    <template v-if="ventilationAccess.pin">{{ t('logiBandPin') }} : <strong>{{ ventilationAccess.pin }}</strong></template>
+                    <template v-else>{{ t('logiBandPinStopped') }}</template>
+                  </span>
                   <v-btn
                     v-if="drillElement"
                     variant="outlined"
@@ -218,26 +228,6 @@
                     <v-icon size="15" class="mr-1">mdi-history</v-icon>
                     <span class="lg-hbtn-label">{{ t('logiHistoryBtn') }}</span>
                   </v-btn>
-                  <!-- Reset inventory : niveau liste, permission logisticReconcile.
-                       Desktop uniquement (pilule pleine avec libellé) — retiré du
-                       header mobile (retour utilisateur), reste accessible sur
-                       desktop. -->
-                  <span
-                    v-if="!drillElement && canReconcile"
-                    class="lg-reset-btn--desktop"
-                    :title="isAggregateView ? t('logiQaDisabledAggregate') : undefined"
-                  >
-                    <v-btn
-                      variant="flat"
-                      class="lg-reset-btn"
-                      :loading="resetting"
-                      :disabled="isAggregateView || !hasCountedValues"
-                      @click="resetDialog = true"
-                    >
-                      <v-icon size="16" class="mr-1">mdi-restore</v-icon>
-                      {{ t('logiResetBtn') }}
-                    </v-btn>
-                  </span>
                   <!-- Mobile uniquement (< 900px) : ouvre .lg-right-col (alertes restock +
                        tâches) en panneau droit — sinon elle atterrit tout en bas de page,
                        après une liste PDV parfois longue (cf. .lg-right-col--open). -->
@@ -255,23 +245,23 @@
               </div>
             </header>
 
-            <!-- Recherche drill-in — sous le bandeau, largeur colonne. -->
-            <AppSearchBar
-              v-if="drillElement"
-              v-model="search"
-              :placeholder="t('logiSearchPlaceholder')"
-              :clear-label="t('logiClear') || 'Clear'"
-            />
-
-            <!-- Recherche niveau liste, mobile uniquement (< 560px) : PDV + articles,
-                 remplace la recherche PDV de l'aside filtres (masquée sur mobile). -->
-            <AppSearchBar
-              v-if="!drillElement"
-              v-model="elementSearch"
-              class="lg-mobile-search"
-              :placeholder="t('logiSearchAllPlaceholder')"
-              :clear-label="t('logiClear') || 'Clear'"
-            />
+            <!-- Recherche collée sous le bandeau rouge, même largeur (design de
+                 l'Inventaire pré-événement) : articles du PDV en drill-in, sinon
+                 PDV + articles. -->
+            <div class="lg-search-wrap">
+              <AppSearchBar
+                v-if="drillElement"
+                v-model="search"
+                :placeholder="t('logiSearchPlaceholder')"
+                :clear-label="t('logiClear') || 'Clear'"
+              />
+              <AppSearchBar
+                v-else
+                v-model="elementSearch"
+                :placeholder="t('logiSearchAllPlaceholder')"
+                :clear-label="t('logiClear') || 'Clear'"
+              />
+            </div>
 
             <!-- Onglets : uniquement niveau liste -->
             <div v-if="!drillElement" class="lg-tabs">
@@ -292,7 +282,7 @@
                    réarmement du match (demande Bertrand 2026-10-08). -->
               <button
                 type="button"
-                class="lg-tab lg-tab--mode"
+                class="lg-tab"
                 :class="{ 'lg-tab-active': activeTab === 'ventilation' }"
                 :aria-pressed="activeTab === 'ventilation'"
                 @click="activeTab = 'ventilation'"
@@ -345,13 +335,22 @@
             <!-- ── NIVEAU 1 ter : mode Ventilation (à déposer, par article) ────── -->
             <template v-else-if="!drillElement && activeTab === 'ventilation'">
               <LogisticVentilationView
-                :groups="ventilation.groups"
+                :groups="ventilation.visibleGroups"
+                :storages="ventilation.storages"
+                :mode="ventilation.viewMode"
                 :plan-name="ventilation.planName"
                 :source="needSource"
                 :loading="ventilation.loading"
                 :event-predict-route="eventPredictRoute"
                 :can-confirm="!!ventilation.eventId"
+                :search="elementSearch"
+                show-print
+                :supplier-options="ventilation.supplierOptions"
+                :supplier-filter="ventilation.supplierFilter"
+                @update:supplier-filter="ventilation.supplierFilter = $event"
+                @update:mode="ventilation.setViewMode"
                 @confirm="openDepositConfirm"
+                @print="printDialog = true"
               />
               <LogisticVentilationDeposits
                 class="mt-3"
@@ -376,6 +375,15 @@
                     {{ t(opt.labelKey) }}
                   </button>
                 </div>
+                <button
+                  type="button"
+                  class="lg-icon-btn lg-sort-bar__print"
+                  :title="t('logiPrintTitle')"
+                  :aria-label="t('logiPrintTitle')"
+                  @click="printDialog = true"
+                >
+                  <v-icon size="20">mdi-printer-outline</v-icon>
+                </button>
               </div>
               <v-alert
                 v-if="!currentEntries.length"
@@ -417,6 +425,8 @@
                 :predicted-need-packs-for="predictedNeedPacksFor"
                 :need-source="needSource"
                 :units-per-pack-for="unitsPerPackFor"
+                :search="elementSearch"
+                @print="printDialog = true"
                 @go="goToItem"
                 @add="openMovement($event.element, $event.item, 'add')"
                 @remove="openMovement($event.element, $event.item, 'remove')"
@@ -516,12 +526,16 @@
           @submit="submitMovement"
         />
 
-        <!-- BUG-259-02 : confirmation d'un transfert en attente -->
+        <LogisticPrintDialog v-model="printDialog" :build-table="buildPrintTable" />
         <LogisticVentilationAccessDialog
           v-model="ventilation.accessDialog"
-          :space-id="currentSpaceId"
-          :event-id="ventilation.eventId"
+          :status="ventilationAccess.status"
+          :loading="ventilationAccess.loading"
+          :busy="ventilationAccess.busy"
+          :error="ventilationAccess.error"
+          :has-event="eventSelection.selectedIds.length > 0"
           :space-name="currentSpace?.name || ''"
+          @action="ventilationAccess.run($event, currentSpaceId)"
         />
         <LogisticDepositConfirmDrawer
           v-model="ventilation.dialog"
@@ -563,29 +577,6 @@
           @select="onToolboxSelect"
         />
 
-        <!-- Confirmation Inventory Reset -->
-        <v-dialog v-model="resetDialog" max-width="440">
-          <v-card class="lg-dialog">
-            <v-card-title class="lg-reset-title">
-              <v-icon size="20" color="#ff3131" class="mr-2">mdi-restore</v-icon>
-              {{ t('logiResetBtn') }}
-            </v-card-title>
-            <v-card-text>
-              {{ t('logiResetConfirm') }}
-              <div v-if="latestInventoryEventName" class="lg-reset-event">
-                {{ t('logiResetEvent') }} : <strong>{{ latestInventoryEventName }}</strong>
-              </div>
-            </v-card-text>
-            <v-card-actions class="px-4 pb-4">
-              <v-spacer />
-              <v-btn variant="text" @click="resetDialog = false">{{ t('logiCancel') }}</v-btn>
-              <v-btn color="#ff3131" variant="flat" :loading="resetting" @click="confirmReset">
-                {{ t('logiResetGo') }}
-              </v-btn>
-            </v-card-actions>
-          </v-card>
-        </v-dialog>
-
         <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="3500">
           {{ snackbarText }}
         </v-snackbar>
@@ -619,6 +610,8 @@ import LogisticByItemView from '@/components/space-workspace/logistic/LogisticBy
 import LogisticVentilationView from '@/components/space-workspace/logistic/LogisticVentilationView.vue'
 import LogisticVentilationDeposits from '@/components/space-workspace/logistic/LogisticVentilationDeposits.vue'
 import LogisticVentilationAccessDialog from '@/components/space-workspace/logistic/dialogs/LogisticVentilationAccessDialog.vue'
+import LogisticPrintDialog from '@/components/space-workspace/logistic/dialogs/LogisticPrintDialog.vue'
+import LogisticEventSelect from '@/components/space-workspace/logistic/LogisticEventSelect.vue'
 import { getLatestInventory } from '@/api/endpoints/inventory.api'
 import { downloadReconciliationCsv, downloadLossesCsv } from '@/api/endpoints/logistics.api'
 import { getMarketPrices } from '@/api/endpoints/market.price.api'
@@ -628,6 +621,12 @@ import WorkspaceMobileToolDrawer from '@/components/WorkspaceMobileToolDrawer.vu
 import { loadPredictedNeed, lookupPredictedNeed, lookupPredictedNeedPacks } from '@/composables/usePredictedNeed'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { useLogisticVentilation } from '@/composables/useLogisticVentilation'
+import { useVentilationLabels } from '@/composables/useVentilationLabels'
+import { useLogisticEventSelection } from '@/composables/useLogisticEventSelection'
+import { useVentilationAccess } from '@/composables/useVentilationAccess'
+import { filterGroupsBySearch } from '@/utils/ventilationViews'
+import { suppliersOf } from '@/utils/ventilationSuppliers'
+import { ventilationExportTable, stockExportTable } from '@/utils/logisticExportTables'
 
 const TABS = [
   { value: 'shops', labelKey: 'logiTabShops', labelKeyShort: 'logiTabShopsShort', icon: 'mdi-store' },
@@ -701,6 +700,8 @@ export default {
     LogisticVentilationView,
     LogisticVentilationDeposits,
     LogisticVentilationAccessDialog,
+    LogisticPrintDialog,
+    LogisticEventSelect,
   },
   setup() {
     const store = useStore()
@@ -719,7 +720,12 @@ export default {
     // Mode Ventilation (feuille de réarmement, dépôts) : reactive() déballe les refs
     // du composable pour le template et `this.ventilation.*`.
     const ventilation = reactive(useLogisticVentilation({ store, t }))
-    return { store, router, route, t, liveRefresh, ventilation }
+    const ventilationLabels = useVentilationLabels()
+    // Sélecteur d'events du bandeau (un ou plusieurs matchs, `?events=`).
+    const eventSelection = reactive(useLogisticEventSelection({ route, router, t }))
+    // PIN des logisticiens pour cette sélection (bandeau en Ventilation + fenêtre QR).
+    const ventilationAccess = reactive(useVentilationAccess())
+    return { store, router, route, t, liveRefresh, ventilation, ventilationLabels, eventSelection, ventilationAccess }
   },
   data() {
     return {
@@ -774,12 +780,9 @@ export default {
       transferConfirmError: null,
       // BUG-259-02 : section "Pertes" (drawer liste complète)
       lossesDrawer: false,
-      // Reset
-      resetDialog: false,
-      // Dernier inventaire (valeurs grisées + source du reset)
+      printDialog: false,
+      // Dernier inventaire (valeurs grisées)
       latestCounts: {},
-      latestInventoryEventId: null,
-      latestInventoryEventName: null,
       snackbar: false,
       snackbarText: '',
       snackbarColor: 'success',
@@ -797,8 +800,6 @@ export default {
     spaceLabel() { return this.currentSpace?.name || this.route?.params?.spaceId || null },
     configurations() { return this.store.state.logistics?.configurations || [] },
     selectedConfigId() { return this.store.state.logistics?.resolvedConfigId || null },
-    /** Vue agrégée toutes configs (chantier 341) — désactive les actions QA scopées à une config. */
-    isAggregateView() { return this.selectedConfigId === 'all' || !this.selectedConfigId },
     can() { return this.store.getters['auth/can'] },
     canReconcile() { return this.can('front.fb.logisticReconcile') },
     /** « À déposer » (feuille de réarmement, composable Ventilation) ou prévision brute. */
@@ -830,7 +831,6 @@ export default {
         .map((tool) => ({ ...tool, label: this.t(tool.labelKey) }))
     },
     stockLoading() { return !!this.store.state.logistics?.loading },
-    resetting() { return !!this.store.state.logistics?.resetting },
     reconciliations() { return this.store.state.logistics?.reconciliations || [] },
     lossesSummary() { return this.store.state.logistics?.lossesSummary || { count: 0, totalLostPacked: 0, totalLostLoose: 0 } },
     anchorLabel() {
@@ -881,12 +881,6 @@ export default {
         for (const item of this.itemsOf(entry)) seen.add(item.name)
       }
       return seen.size
-    },
-    hasCountedValues() {
-      // Au moins UN comptage réel (une map de shops vides ne compte pas).
-      return Object.values(this.latestCounts).some(
-        (shopCounts) => shopCounts && Object.keys(shopCounts).length > 0,
-      )
     },
     /** 3e colonne : agrégat transversal (rupture/stock bas/jamais compté) sur TOUT l'espace. */
     aggregateStats() {
@@ -949,6 +943,17 @@ export default {
     },
     activeTab() {
       this.closeDrill()
+      this.ensureVentilationAccess()
+    },
+    'ventilation.accessDialog'(open) {
+      if (open) this.ensureVentilationAccess({ force: true })
+    },
+    /** Sélection d'events changée dans le bandeau : seule la Ventilation est relue. */
+    'eventSelection.selectedIds'(next, prev) {
+      if (this.route?.name !== 'space-logistic') return
+      if ((next || []).join(',') === (prev || []).join(',')) return
+      this.ensureVentilationAccess()
+      if (!this.loading) this.fetchPredictedNeed()
     },
     /** BUG-259-02 : transferts en attente chargés à l'entrée dans le drill-in d'un élément. */
     'drillElement.element.id': {
@@ -976,9 +981,8 @@ export default {
       return date.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
     },
     filterEntries(entries) {
-      // Recherche unifiée PDV + articles (barre mobile .lg-mobile-search, aussi
-      // utilisée par la recherche desktop de l'aside filtres) : matche le nom du
-      // PDV OU le nom d'au moins un article qu'il suit.
+      // Recherche unifiée PDV + articles (barre collée sous le bandeau) : matche
+      // le nom du PDV OU le nom d'au moins un article qu'il suit.
       const q = String(this.elementSearch || '').trim().toLowerCase()
       return entries.filter((e) => {
         if (q) {
@@ -1014,10 +1018,55 @@ export default {
       if (i === -1) this.itemKindFilter.push(value)
       else this.itemKindFilter.splice(i, 1)
     },
-    /** Réinitialise les filtres du panneau gauche (recherche PdV + type de denrée). */
+    /** PIN de la sélection : lu (et créé au besoin, PIN prédéfini) quand la
+     *  Ventilation est affichée ou la fenêtre QR ouverte. */
+    ensureVentilationAccess({ force = false } = {}) {
+      if (!force && this.activeTab !== 'ventilation') return
+      this.ventilationAccess.ensure(this.currentSpaceId, this.eventSelection.selectedIds)
+    },
+    /** Réinitialise les filtres (recherche, type de denrée, fournisseur). */
     resetLogisticFilters() {
       this.itemKindFilter = []
       this.elementSearch = ''
+      this.ventilation.supplierFilter = []
+    },
+    /** Tableau de la liste affichée pour la fenêtre Imprimer (Excel / PDF / Impression). */
+    buildPrintTable() {
+      const tab = [...this.tabs, { value: 'ventilation', labelKey: 'logiVentilationBtn' }].find((x) => x.value === this.activeTab)
+      const title = `${this.t('logiPageTitle')} · ${tab ? this.t(tab.labelKey) : ''}`
+      const subtitle = [this.spaceLabel, this.ventilation.planName].filter(Boolean).join(' · ')
+      if (this.activeTab === 'ventilation') {
+        return ventilationExportTable({
+          groups: filterGroupsBySearch(this.ventilation.visibleGroups, this.elementSearch),
+          storages: this.ventilation.storages,
+          mode: this.ventilation.viewMode,
+          t: this.t,
+          quantityLabel: this.ventilationLabels.quantityLabel,
+          packSizeLabel: this.ventilationLabels.packSizeLabel,
+          suppliersOf: (name) => suppliersOf(this.ventilation.supplierIndex, name),
+          title,
+          subtitle,
+        })
+      }
+      const byItem = this.activeTab === 'byItem'
+      const q = String(this.elementSearch || '').trim().toLowerCase()
+      return stockExportTable({
+        entries: byItem ? [...this.shopEntries, ...this.storageEntries] : this.currentEntries,
+        byItem,
+        // Onglet By Item : même recherche que sa liste (article OU emplacement).
+        itemsFor: (entry) =>
+          this.itemsOf(entry).filter(
+            (item) =>
+              this.itemMatchesFilters(item) &&
+              (!byItem || !q || String(item.name || '').toLowerCase().includes(q) || String(entry.element.name || '').toLowerCase().includes(q)),
+          ),
+        expectedFor: this.expectedDisplay,
+        statusFor: this.itemStatus,
+        needFor: this.needIndex ? this.predictedNeedFor : null,
+        t: this.t,
+        title,
+        subtitle,
+      })
     },
     /** Nb affiché sur chaque tab — shops/storage comptent les entrées filtrées, byItem
      *  compte les denrées distinctes de tout l'espace (indépendant du tab actif). */
@@ -1144,6 +1193,7 @@ export default {
         const configId = this.route?.query?.configuration || this.route?.query?.config || (eventId ? null : 'all')
         const tasks = [
           this.store.dispatch('logistics/loadStock', { spaceId, configId, eventId }),
+          this.eventSelection.load(spaceId),
           this.loadLatestInventory(spaceId),
           this.loadMarketPriceImages(),
         ]
@@ -1153,28 +1203,27 @@ export default {
         }
         await Promise.all(tasks)
         // Après loadStock : le périmètre des éléments vient du stock chargé.
-        this.fetchPredictedNeed(eventId)
+        this.fetchPredictedNeed()
       } finally {
         this.loading = false
       }
     },
-    /** Besoin prédit du match ciblé par `?event=`, ou à défaut le prochain event de
-     *  l'espace (`nextEventId`, résolu serveur — retour PO 2026-08-19 : Logistic doit
-     *  être calibré par défaut, pas seulement via un deep-link explicite). Priorité à
-     *  la feuille de réarmement sauvegardée (RestockPlan.restockLines, décision
-     *  opérationnelle) sur la prévision brute Event Predict (repli). Hors tout contexte
-     *  event, la colonne reste absente : un besoin sans match n'a pas de sens. */
-    async fetchPredictedNeed(eventId) {
+    /** « À déposer » des matchs choisis dans le bandeau (`?events=`, sinon `?event=`,
+     *  sinon le prochain match jusqu'à sa fin réelle). Priorité aux feuilles de
+     *  réarmement sauvegardées (décision opérationnelle) sur la prévision brute Event
+     *  Predict (repli, premier match seulement). Sans match, la colonne reste absente. */
+    async fetchPredictedNeed() {
       this.predictedNeed = null
       this.needSource = null
-      const effectiveEventId = eventId || this.store.state.logistics?.nextEventId || null
-      this.ventilation.reset(effectiveEventId)
-      if (!effectiveEventId) return
+      const eventIds = this.eventSelection.selectedIds
+      this.ventilation.reset(eventIds)
+      if (!eventIds.length) return
+      const effectiveEventId = eventIds[0]
 
       try {
-        // Feuille de réarmement du match : « À déposer » (composable Ventilation).
+        // Feuilles de réarmement des matchs : « À déposer » (composable Ventilation).
         // Une feuille entièrement déposée ne retombe PAS sur la prévision brute.
-        if (await this.ventilation.loadForEvent(this.currentSpaceId, effectiveEventId)) {
+        if (await this.ventilation.loadForEvents(this.currentSpaceId, eventIds)) {
           this.needSource = 'restock'
           return
         }
@@ -1233,18 +1282,14 @@ export default {
     predictedNeedPacksFor(elementId, item) {
       return lookupPredictedNeedPacks(this.needIndex, elementId, item)
     },
-    /** Dernier inventaire (tous events) → valeurs grisées + source du reset. */
+    /** Dernier inventaire (tous events) → valeurs grisées. */
     async loadLatestInventory(spaceId) {
       try {
         const latest = await getLatestInventory(spaceId)
         this.latestCounts = latest?.inventoryCounts || {}
-        this.latestInventoryEventId = latest?.eventId || null
-        this.latestInventoryEventName = latest?.eventName || null
       } catch (e) {
         console.warn('[SpaceLogistic] latest inventory indisponible:', e?.message)
         this.latestCounts = {}
-        this.latestInventoryEventId = null
-        this.latestInventoryEventName = null
       }
     },
     /** Charge une fois l'index MarketPrice.image (id → data-URI) : source réelle
@@ -1260,6 +1305,8 @@ export default {
           if (mp?.id && mp?.image) map[String(mp.id)] = mp.image
         }
         this.marketPriceImages = map
+        // Repli du filtre Fournisseur de la Ventilation (la feuille de réarmement prime).
+        this.ventilation.setMarketPrices(arr.map((mp) => ({ itemName: mp?.itemName, supplier: mp?.supplier, supplierId: mp?.supplierId })))
       } catch (e) {
         console.warn('[SpaceLogistic] market prices images indisponibles:', e?.message)
       }
@@ -1383,67 +1430,6 @@ export default {
       this.historyElement = { id: element.id, name: element.name }
       this.historyDrawer = true
     },
-    /**
-     * Inventory Reset : construit les lignes depuis le référentiel courant ×
-     * comptages du dernier inventaire. Toute ligne suivie (niveau existant) ou
-     * comptée est remplacée par sa valeur comptée (0 si non comptée) — spec :
-     * « remplacer toutes les valeurs par les valeurs comptées ».
-     */
-    async confirmReset() {
-      const spaceId = this.currentSpaceId
-      if (!spaceId) return
-      const lines = []
-      const seen = new Set()
-      const pushLine = (elementId, item) => {
-        const key = `${elementId}::${item.name}`
-        if (seen.has(key)) return
-        const counted = this.countedFor(elementId, item)
-        const level = this.store.getters['logistics/levelFor'](elementId, item.name)
-        if (!counted && !level) return // jamais suivi ni compté → rien à reseter
-        seen.add(key)
-        const line = {
-          elementId,
-          itemKey: item.name,
-          // ADR-0006 (chantier 377) : identité stable déjà résolue par le référentiel — absente
-          // pour les niveaux orphelins synthétisés ci-dessous (item quitté du référentiel).
-          itemKind: item.refKind ?? undefined,
-          itemRefId: item.refKind ? item.id : undefined,
-          countedPacked: counted?.packedUnits ?? 0,
-          countedLoose: counted?.looseUnits ?? 0,
-        }
-        const upp = this.unitsPerPackFor(elementId, item)
-        if (upp) line.unitsPerPack = Number(upp)
-        lines.push(line)
-      }
-      for (const entry of this.shopEntries) {
-        for (const item of this.itemsOf(entry)) pushLine(entry.element.id, item)
-      }
-      for (const entry of this.storageEntries) {
-        for (const item of this.itemsOf(entry)) pushLine(entry.element.id, item)
-      }
-      // Niveaux suivis dont l'item a quitté le référentiel (menu changé, renommage) :
-      // inclus à 0 compté — « toutes les valeurs remplacées par les valeurs comptées »,
-      // sinon ils survivraient au reset avec une valeur périmée.
-      for (const level of Object.values(this.store.state.logistics?.levels || {})) {
-        pushLine(level.elementId, { name: level.itemKey, id: null, marketPriceId: level.marketPriceId })
-      }
-      if (!lines.length) {
-        this.toast(this.t('logiResetNothing'), 'warning')
-        return
-      }
-      try {
-        await this.store.dispatch('logistics/reset', {
-          spaceId,
-          eventId: this.latestInventoryEventId,
-          eventName: this.latestInventoryEventName,
-          lines,
-        })
-        this.resetDialog = false
-        this.toast(this.t('logiResetDone'), 'success')
-      } catch (e) {
-        this.toast(e?.response?.data?.message || this.t('logiResetError'), 'error')
-      }
-    },
     async downloadReco(reco) {
       const day = this.formatDate(reco.createdAt).replace(/\s/g, '-')
       try {
@@ -1510,6 +1496,7 @@ export default {
   --lg-border: var(--fb-border, #e5e7eb);
   --lg-text: var(--fb-text, #212121);
   --lg-muted: var(--fb-muted, #6b7280);
+  --lg-faint: var(--fb-faint, #9ca3af);
   --lg-primary: var(--fb-primary, #ff3131);
   height: calc(100vh - 64px);
   display: flex;
@@ -1520,13 +1507,13 @@ export default {
 }
 
 /* ── Header : bandeau rouge (style MarketPriceListView) ── */
-/* Bandeau rouge en carte arrondie détachée (marge tout autour). */
+/* Bandeau rouge à bas carré, recherche collée dessous (parité .si-segrow--band
+   de l'Inventaire pré-événement). */
 .lg-header {
   /* 1er enfant de la colonne centre : gutters fournis par .lg-layout. */
-  margin: 0 0 16px;
-  border-radius: 18px;
+  margin: 0;
+  border-radius: 12px 12px 0 0;
   background: #ff3131;
-  box-shadow: 0 8px 24px rgba(255, 49, 49, .28);
   flex-shrink: 0;
   /* Épinglé au scroll sous le header blanc (miroir .ede-summary EventPredict). */
   position: sticky;
@@ -1537,8 +1524,8 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 14px 22px;
+  gap: 12px;
+  padding: 15px;
   flex-wrap: wrap;
 }
 .lg-header__left { display: flex; align-items: center; gap: 12px; min-width: 0; }
@@ -1562,14 +1549,17 @@ export default {
 .lg-header__toggle:active { transform: scale(.94); }
 .lg-header__toggle:focus-visible { outline: 2px solid rgba(255, 255, 255, .85); outline-offset: 2px; }
 .lg-header__text { min-width: 0; }
+.lg-header__selects { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+/* « PIN d'accès : 123456 » à droite du bandeau (maquette Bertrand 2026-10-09). */
+.lg-band-pin { color: #fff; font-size: var(--fs-md); font-weight: var(--fw-semibold); white-space: nowrap; }
+.lg-band-pin strong { font-weight: var(--fw-bold); letter-spacing: 0.06em; font-variant-numeric: tabular-nums; }
 .lg-header__title { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; }
 .lg-header__space { color: rgba(255, 255, 255, .78); font-weight: 700; }
 .lg-header__subtitle { margin: 3px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, .75); min-height: 15px; }
 .lg-header__right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
-/* Équivalents mobile (< 560px) du toggle filtres / bouton reset — masqués par
-   défaut, activés dans le bloc @media plus bas. Desktop garde WorkspacePanelToggle
-   + .lg-reset-btn (libellé complet, ouvre l'aside filtres). */
+/* Équivalent mobile (< 560px) du toggle filtres, masqué par défaut, activé dans
+   le bloc @media plus bas. Desktop garde WorkspacePanelToggle (ouvre l'aside). */
 .lg-mobile-tools-trigger {
   display: none;
   width: 40px;
@@ -1584,8 +1574,13 @@ export default {
   color: #fff;
 }
 .lg-mobile-tools-trigger:active { transform: scale(.94); }
-/* Recherche unifiée PDV + articles, mobile uniquement. */
-.lg-mobile-search { display: none; }
+/* Recherche collée sous le bandeau, même largeur (parité .si-search-wrap). */
+.lg-search-wrap { margin: 0 0 16px; }
+.lg-search-wrap :deep(.appsb) {
+  border-bottom: 0;
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
+}
 
 /* Déclenche .lg-right-col en overlay < 900px (alertes restock + tâches). */
 .lg-mobile-right-trigger {
@@ -1629,39 +1624,33 @@ export default {
 /* Retour + actions : pilule blanche translucide bordée, alignée sur
    Space Inventory (.si-back / .si-actions :deep(.v-btn:not(.si-save-btn))). */
 .lg-back,
-.lg-hbtn,
-.lg-reset-btn {
+.lg-hbtn {
   border: 1.5px solid rgba(255, 255, 255, 0.62) !important;
   border-radius: 100px !important;
   background: rgba(255, 255, 255, 0.1) !important;
   color: #fff !important;
 }
 .lg-back :deep(.v-icon),
-.lg-hbtn :deep(.v-icon),
-.lg-reset-btn :deep(.v-icon) {
+.lg-hbtn :deep(.v-icon) {
   color: #fff !important;
 }
 .lg-back:hover,
-.lg-hbtn:hover,
-.lg-reset-btn:hover {
+.lg-hbtn:hover {
   border-color: #fff !important;
   background: #fff !important;
   color: var(--lg-primary) !important;
 }
 .lg-back:hover :deep(.v-icon),
-.lg-hbtn:hover :deep(.v-icon),
-.lg-reset-btn:hover :deep(.v-icon) {
+.lg-hbtn:hover :deep(.v-icon) {
   color: var(--lg-primary) !important;
 }
-.lg-hbtn,
-.lg-reset-btn {
+.lg-hbtn {
   text-transform: none;
   font-weight: 700;
   white-space: nowrap;
 }
 
 /* Recherche (blanc translucide sur rouge) */
-.lg-search-field { min-width: 180px; max-width: 240px; }
 /* Boutons harmonisés Market Price List : pilules, une ligne, taille contenue. */
 .lg-header__right :deep(.v-btn) {
   border-radius: 100px !important;
@@ -1670,17 +1659,14 @@ export default {
   white-space: nowrap;
   font-size: 12.5px;
 }
-/* Barre de recherche du panneau latéral : alignée sur le contenu du panneau. */
-.lg-panel-search :deep(.appsb__inner) {
-  padding-left: 0;
-  padding-right: 0;
-}
 
+/* Onglets soulignés (parité .si-subnav de l'Inventaire pré-événement). */
 .lg-tabs {
   display: flex;
+  align-items: center;
   gap: 4px;
-  /* Dans la colonne centre : gutters fournis par .lg-layout. */
-  padding: 0 0 10px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--lg-border);
   flex-shrink: 0;
 }
 .lg-tab {
@@ -1688,18 +1674,19 @@ export default {
   align-items: center;
   padding: 8px 14px;
   border: 0;
-  border-radius: 10px 10px 0 0;
+  border-radius: 0 !important;
   background: transparent;
   color: var(--lg-muted);
   font-weight: 600;
   font-size: 0.85rem;
   cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
 }
-.lg-tab-active { background: var(--lg-surface); color: var(--lg-primary); }
-/* Bouton de mode, séparé des onglets de liste. */
-.lg-tab--mode { margin-left: auto; border-radius: 10px; }
-.lg-tab--qr { border-radius: 10px; padding: 8px 10px; }
-.lg-tab-count { margin-left: 4px; font-weight: 500; }
+.lg-tab-active { color: var(--lg-primary); border-bottom-color: var(--lg-primary); }
+/* QR code des logisticiens : icône calée à droite de la barre d'onglets. */
+.lg-tab--qr { margin-left: auto; padding: 8px 10px; }
+.lg-tab-count { color: var(--lg-faint); font-weight: 500; margin-left: 4px; }
 /* Libellé court, mobile uniquement (cf. @media plus bas) : masqué par défaut. */
 .lg-tab-label-short { display: none; }
 
@@ -1722,6 +1709,9 @@ export default {
 .lg-layout--no-aside { grid-template-columns: 1fr 280px; }
 
 .lg-sort-bar { display: flex; align-items: center; gap: 10px; margin: 0 2px 12px; }
+.lg-sort-bar__print { margin-left: auto; }
+.lg-icon-btn { width: 34px; height: 34px; border: 0; border-radius: 10px; background: transparent; color: var(--lg-text); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; }
+.lg-icon-btn:hover { background: var(--fb-subtle, #f3f4f6); }
 .lg-sort-label { font-size: 0.76rem; font-weight: 700; color: var(--lg-muted); text-transform: uppercase; letter-spacing: 0.03em; }
 .lg-aside {
   display: flex;
@@ -1949,8 +1939,6 @@ export default {
 }
 .lg-card-empty { color: var(--fb-faint, #9ca3af); font-size: 0.85rem; padding: 24px 8px; text-align: center; }
 
-.lg-reset-title { display: flex; align-items: center; font-weight: 700; padding: 16px 20px 8px; }
-.lg-reset-event { margin-top: 10px; font-size: 0.88rem; }
 .lg-dialog { border-radius: 16px; }
 
 @media (max-width: 900px) {
@@ -1976,7 +1964,9 @@ export default {
     margin-right: -16px;
     border-radius: 0;
   }
-  .lg-search-field { max-width: none; flex: 1 1 auto; }
+  /* Pleine largeur comme le bandeau, pour rester collée dessous. */
+  .lg-search-wrap { margin: 0 -16px 12px; }
+  .lg-search-wrap :deep(.appsb) { border-radius: 0; }
 
   /* .lg-right-col (alertes restock + tâches) : au lieu de rester dans le flux
      empilé (order: 3, systématiquement après une liste PDV parfois longue —
@@ -2025,6 +2015,9 @@ export default {
 
 @media (max-width: 560px) {
   .lg-header__text { min-width: 0; }
+  /* Téléphone : pilule d'events plus courte et PIN plus petit, pas de débordement. */
+  .lg-header__selects :deep(.les-trigger-label) { max-width: 130px; }
+  .lg-band-pin { font-size: var(--fs-sm); }
   .lg-header__title {
     font-size: 17px;
     white-space: nowrap;
@@ -2066,9 +2059,6 @@ export default {
   .lg-mobile-tools-trigger { display: flex; }
   /* Toutes les configurations actives par défaut sur mobile, pas de choix. */
   .lg-header__config-wrap { display: none; }
-  .lg-reset-btn--desktop { display: none; }
-
-  .lg-mobile-search { display: block; margin: 0 0 10px; }
 
   .lg-tabs { gap: 6px; }
   .lg-tab { padding: 8px 10px; font-size: 0.8rem; }

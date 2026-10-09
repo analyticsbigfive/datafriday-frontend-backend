@@ -11,6 +11,7 @@ import { StockLevelService } from './services/stock-level.service';
 import { StockReconciliationService } from './services/stock-reconciliation.service';
 import { SalesSimulationService } from './services/sales-simulation.service';
 import { VentilationDepositsService } from './ventilation-deposits.service';
+import { VentilationEventsService } from './ventilation-events.service';
 import { PrismaModule } from '../../core/database/prisma.module';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { PricingModule } from '../../shared/pricing/pricing.module';
@@ -39,10 +40,11 @@ import { PricingModule } from '../../shared/pricing/pricing.module';
     StockReconciliationService,
     SalesSimulationService,
     VentilationDepositsService,
+    VentilationEventsService,
   ],
   // Utilisés par l'inventaire, les tâches logistiques, les espaces (inventaire live) et le worker
   // (simulation). Aucun cycle : ni ce module ni ses dépendances n'importent SpacesModule.
-  // VentilationDepositsService : accès PIN des logisticiens (GuestPinAccessModule).
+  // VentilationDepositsService / VentilationEventsService : accès PIN des logisticiens (GuestPinAccessModule).
   exports: [
     StockItemIdentityService,
     StockMovementService,
@@ -51,6 +53,7 @@ import { PricingModule } from '../../shared/pricing/pricing.module';
     StockReferentialService,
     SalesSimulationService,
     VentilationDepositsService,
+    VentilationEventsService,
   ],
 })
 export class LogisticsModule {}
