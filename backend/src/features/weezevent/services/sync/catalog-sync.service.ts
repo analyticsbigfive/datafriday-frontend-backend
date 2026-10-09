@@ -1,8 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent-client.service';
 import { SyncResult } from '../weezevent-sync.service';
-import { EventWeezeventLinkService } from '../../../events/services/event-weezevent-link.service';
 
 /**
  * WeezeventCatalogSyncService
@@ -19,149 +18,7 @@ export class WeezeventCatalogSyncService {
     constructor(
         private readonly prisma: PrismaService,
         private readonly weezeventClient: WeezeventClientService,
-        private readonly eventWeezeventLinkService: EventWeezeventLinkService,
     ) {}
-
-    // ─────────────────────────────────────────────────────────────
-    // Events
-    // ─────────────────────────────────────────────────────────────
-
-    async syncEvents(tenantId: string, integrationId: string): Promise<SyncResult> {
-        const startTime = Date.now();
-        const result: SyncResult = {
-            type: 'events',
-            success: false,
-            itemsSynced: 0,
-            itemsCreated: 0,
-            itemsUpdated: 0,
-            errors: 0,
-            duration: 0,
-        };
-
-        try {
-            const integration = await this.prisma.integration.findUnique({
-                where: { id: integrationId },
-                select: { id: true, enabled: true, tenantId: true, weezevent: { select: { organizationId: true } } },
-            });
-            if (!integration || integration.tenantId !== tenantId) {
-                throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
-            }
-            if (!integration.weezevent?.organizationId) {
-                throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
-            }
-            const organizationId = integration.weezevent.organizationId;
-
-            this.logger.log(`Syncing events for tenant ${tenantId}, organization ${organizationId}`);
-
-            const response = await this.weezeventClient.getEvents(tenantId, integrationId, organizationId, { perPage: 100 });
-
-            const parseDate = (dateStr: string | undefined): Date | null => {
-                if (!dateStr) return null;
-                const parsed = new Date(dateStr);
-                return isNaN(parsed.getTime()) ? null : parsed;
-            };
-
-            const weezeventIds = response.data.map(e => e.id.toString());
-            const existingEvents = await this.prisma.salesEvent.findMany({
-                where: { tenantId, integrationId, externalId: { in: weezeventIds } },
-                select: { externalId: true },
-            });
-            const existingIds = new Set(existingEvents.map(e => e.externalId));
-
-            const eventsToCreate: any[] = [];
-            const eventsToUpdate: { weezeventId: string; data: any }[] = [];
-
-            for (const apiEvent of response.data) {
-                try {
-                    const weezeventId = apiEvent.id.toString();
-                    const startDateStr = apiEvent.live_start || apiEvent.start_date;
-                    const endDateStr = apiEvent.live_end || apiEvent.end_date;
-                    const locationStr = apiEvent.location || apiEvent.venue || null;
-                    const eventStatus = apiEvent.status as any;
-                    const statusValue = typeof eventStatus === 'object' && eventStatus?.name
-                        ? eventStatus.name
-                        : (typeof eventStatus === 'string' ? eventStatus : 'unknown');
-
-                    const eventData = {
-                        name: apiEvent.name || `Event ${apiEvent.id}`,
-                        organizationId,
-                        startDate: parseDate(startDateStr),
-                        endDate: parseDate(endDateStr),
-                        description: apiEvent.description || apiEvent.name || null,
-                        location: locationStr,
-                        capacity: apiEvent.capacity || null,
-                        status: statusValue,
-                        metadata: apiEvent.metadata || null,
-                        rawData: apiEvent as any,
-                        syncedAt: new Date(),
-                    };
-
-                    if (existingIds.has(weezeventId)) {
-                        eventsToUpdate.push({ weezeventId, data: eventData });
-                    } else {
-                        eventsToCreate.push({ externalId: weezeventId, tenantId, integrationId, ...eventData });
-                    }
-                } catch (error) {
-                    this.logger.error(`Failed to prepare event ${apiEvent.id}`, (error as Error).stack);
-                    result.errors++;
-                }
-            }
-
-            if (eventsToCreate.length > 0) {
-                await this.prisma.salesEvent.createMany({ data: eventsToCreate, skipDuplicates: true });
-                result.itemsCreated = eventsToCreate.length;
-            }
-
-            if (eventsToUpdate.length > 0) {
-                await this.prisma.$transaction(
-                    eventsToUpdate.map(({ weezeventId, data }) =>
-                        this.prisma.salesEvent.update({
-                            where: { tenantId_integrationId_externalId: { tenantId, integrationId, externalId: weezeventId } },
-                            data,
-                        })
-                    )
-                );
-                result.itemsUpdated = eventsToUpdate.length;
-            }
-
-            result.itemsSynced = eventsToCreate.length + eventsToUpdate.length;
-            result.success = result.errors === 0;
-            result.duration = Date.now() - startTime;
-
-            // BUG-021 : tente le rapprochement automatique Event <-> WeezeventEvent (par
-            // date, sans ambiguïté) pour chaque jour touché par ce sync — no-op silencieux
-            // si aucun Event DataFriday n'existe encore, ou si le jour reste ambigu.
-            const touchedDates = new Set<string>(
-                [...eventsToCreate, ...eventsToUpdate.map((e) => e.data)]
-                    .map((e) => e.startDate as Date | null)
-                    .filter((d): d is Date => d !== null)
-                    .map((d) => d.toISOString().slice(0, 10)),
-            );
-            for (const dateStr of touchedDates) {
-                await this.eventWeezeventLinkService.relinkForTenantDate(tenantId, new Date(dateStr));
-            }
-
-            await this.prisma.weezeventSyncState.upsert({
-                where: { tenantId_integrationId_syncType: { tenantId, integrationId, syncType: 'events' } },
-                create: {
-                    tenantId, integrationId, syncType: 'events',
-                    lastSyncedAt: new Date(), lastSyncCount: result.itemsSynced,
-                    lastSyncDuration: result.duration, totalSynced: result.itemsSynced,
-                },
-                update: {
-                    lastSyncedAt: new Date(), lastSyncCount: result.itemsSynced,
-                    lastSyncDuration: result.duration, totalSynced: { increment: result.itemsSynced },
-                },
-            });
-
-            return result;
-        } catch (error) {
-            this.logger.error('Events sync failed', (error as Error).stack);
-            result.success = false;
-            result.duration = Date.now() - startTime;
-            throw error;
-        }
-    }
 
     // ─────────────────────────────────────────────────────────────
     // Products
@@ -185,10 +42,10 @@ export class WeezeventCatalogSyncService {
                 select: { id: true, enabled: true, tenantId: true, weezevent: { select: { organizationId: true } } },
             });
             if (!integration || integration.tenantId !== tenantId) {
-                throw new Error(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
+                throw new NotFoundException(`Weezevent integration ${integrationId} not found for tenant ${tenantId}`);
             }
             if (!integration.weezevent?.organizationId) {
-                throw new Error(`Weezevent organization ID not configured for integration ${integrationId}`);
+                throw new BadRequestException(`Weezevent organization ID not configured for integration ${integrationId}`);
             }
             const organizationId = integration.weezevent.organizationId;
 
@@ -271,6 +128,7 @@ export class WeezeventCatalogSyncService {
             const CONCURRENCY = 5;
             for (let i = 0; i < productIdsNeedingDetailSync.length; i += CONCURRENCY) {
                 const chunk = productIdsNeedingDetailSync.slice(i, i + CONCURRENCY);
+                // eslint-disable-next-line no-await-in-loop -- concurrence bornée à 5 appels API par vague
                 await Promise.allSettled(
                     chunk.map(productId =>
                         this.syncProductDetails(tenantId, integrationId, organizationId, productId)

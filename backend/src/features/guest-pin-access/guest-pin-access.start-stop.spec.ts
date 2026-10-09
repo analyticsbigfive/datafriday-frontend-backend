@@ -1,4 +1,6 @@
-import { GuestPinAccessService } from './guest-pin-access.service';
+import { createGuestPinAccessServices } from './services/guest-pin-access-services.testing';
+import { GuestPinPhaseService } from './services/guest-pin-phase.service';
+import { GuestPinWindowService } from './services/guest-pin-window.service';
 
 /**
  * Bandeau et lignes PDV, Démarrage / Reprise et Arrêt (document Bertrand « Pre et Post
@@ -6,11 +8,12 @@ import { GuestPinAccessService } from './guest-pin-access.service';
  * l'autre, l'Arrêt ne pousse rien vers la Logistique et garde le PIN, un PDV peut être
  * rouvert seul alors que sa fenêtre est arrêtée.
  */
-describe('GuestPinAccessService : Démarrage / Reprise et Arrêt', () => {
+describe('GuestPinPhaseService : Démarrage / Reprise et Arrêt', () => {
   const user = { id: 'user-1', tenantId: 'tenant-1' } as any;
   const target = { spaceId: 'space-1', eventId: 'event-2', phase: 'pre-event' as const };
   let prisma: any;
-  let service: GuestPinAccessService;
+  let service: GuestPinPhaseService;
+  let windows: GuestPinWindowService;
   let closeSpy: jest.SpyInstance;
   let assignPin: jest.SpyInstance;
 
@@ -41,27 +44,16 @@ describe('GuestPinAccessService : Démarrage / Reprise et Arrêt', () => {
       kvStore: { upsert: jest.fn().mockResolvedValue({}) },
     };
     const audit = { log: jest.fn().mockResolvedValue(undefined) };
-    service = new GuestPinAccessService(
+    const spaceAccess = { assertCanAccessSpace: jest.fn().mockResolvedValue(undefined) };
+    ({ guestPinPhaseService: service, guestPinWindowService: windows } = createGuestPinAccessServices({
       prisma,
-      {} as any,
-      audit as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any,
-      {} as any, // postEventDraft
-      {} as any, // spaceMenus
-      {} as any, // storageTypes
-    );
-    jest.spyOn(service as any, 'assertSpaceAccess').mockResolvedValue(undefined);
-    jest.spyOn(service as any, 'assertPeriodOpen').mockResolvedValue(undefined);
-    jest.spyOn(service, 'getStatusBoard').mockResolvedValue([] as any);
-    closeSpy = jest.spyOn(service, 'closeWindowRecord').mockResolvedValue({ ok: false, reason: 'not-attempted' });
-    assignPin = jest.spyOn(service as any, 'assignPin').mockResolvedValue('123456');
+      audit,
+      spaceAccess,
+    }));
+    jest.spyOn(windows, 'assertPeriodOpen').mockResolvedValue(undefined);
+    jest.spyOn(windows, 'getStatusBoard').mockResolvedValue([] as any);
+    closeSpy = jest.spyOn(windows, 'closeWindowRecord').mockResolvedValue({ ok: false, reason: 'not-attempted' });
+    assignPin = jest.spyOn(windows as any, 'assignPin').mockResolvedValue('123456');
   });
 
   it("▶ du bandeau : arrête l'autre phase sans push, rouvre la fenêtre et tous ses PDV", async () => {

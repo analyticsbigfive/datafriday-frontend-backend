@@ -17,6 +17,7 @@ import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { SuppliersFindAllQueryDto } from './dto/suppliers.query.dto';
 
 @ApiTags('Suppliers')
 @ApiBearerAuth('supabase-jwt')
@@ -48,10 +49,10 @@ export class SuppliersController {
   @ApiResponse({ status: 200, description: 'Liste paginée des fournisseurs' })
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   findAll(
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
+    @Query() params: SuppliersFindAllQueryDto,
     @CurrentUser() user?: any,
   ) {
+    const { page, limit } = params;
     this.logger.log(`GET /suppliers - User: ${user?.id}, Tenant: ${user?.tenantId}`);
     return this.suppliersService.findAll(
       user.tenantId,

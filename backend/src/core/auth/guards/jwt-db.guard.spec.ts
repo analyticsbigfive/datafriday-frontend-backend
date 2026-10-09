@@ -19,7 +19,7 @@ describe('JwtDatabaseGuard', () => {
 
   describe('canActivate', () => {
     it('should call parent canActivate', () => {
-      const mockContext = {
+      const _mockContext = {
         switchToHttp: jest.fn().mockReturnValue({
           getRequest: jest.fn().mockReturnValue({
             headers: { authorization: 'Bearer valid-token' },

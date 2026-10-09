@@ -1,6 +1,5 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, Optional } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
-import { InventoryService } from './inventory.service';
 import { PostEventDraftService } from './post-event-draft.service';
 import { LogisticFlushThrottle } from './logistic-flush-throttle';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
@@ -8,51 +7,17 @@ import {
   resolveDoorsOpenAt,
   resolveEventTransactionWindow,
 } from '../../shared/utils/event-window.util';
-
-/** Événement tel que lu pour le flux (sélection minimale, partagée cron/service). */
-export interface FlowEvent {
-  id: string;
-  tenantId: string;
-  spaceId: string;
-  name: string | null;
-  eventDate: Date;
-  eventStartDate: Date | null;
-  eventEndDate?: Date | null;
-  eventEndTime?: string | null;
-  /** `Event.sessions` brut : porte l'heure d'ouverture des portes (`doorsOpening`). */
-  sessions?: unknown;
-  /** Fuseau du space (`Space.timezone`), dans lequel `doorsOpening` est saisi. */
-  timezone: string;
-}
-
-export type PreEventRegenerateTrigger =
-  | 'pdv-complete'
-  | 'doors-open'
-  | 'post-doors-open-edit'
-  | 'phase-stop'
-  | 'count'
-  | 'manual';
-
-export interface PreEventRegenerateResult {
-  ok: boolean;
-  reason?: string;
-  reconciliationId?: string;
-  lineCount?: number;
-  /** Document créé (expurgé selon `canSeeExpected`), pour l'appel manuel. */
-  document?: unknown;
-  /** Résultat du push vers Logistic archivé sur la feuille (meta.logisticPush). */
-  logisticPush?: { ok: boolean; reason: string | null; lineCount: number } | null;
-}
-
-export type PreEventWindowPhase = 'no-doors-open' | 'before' | 'editing' | 'locked';
-
-/** État de la fenêtre d'édition pre-event, exposé au front (instants UTC). */
-export interface PreEventWindowState {
-  phase: PreEventWindowPhase;
-  doorsOpenAt: Date | null;
-  editDeadline: Date | null;
-  doorsOpenDone: boolean;
-}
+import { InventoryCountService } from './services/inventory-count.service';
+import { InventoryReconciliationService } from './services/inventory-reconciliation.service';
+import { InventoryLogisticPushService } from './services/inventory-logistic-push.service';
+import type {
+  FlowEvent,
+  PreEventRegenerateResult,
+  PreEventRegenerateTrigger,
+  PreEventWindowPhase,
+  PreEventWindowState,
+} from './pre-event-inventory-flow.types';
+import { extractPredictedUnits } from './pre-event-predicted-units';
 
 /**
  * Flux Pre-event Inventory autour de l'ouverture des portes (critères
@@ -112,14 +77,16 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
   private readonly logisticFlush = new LogisticFlushThrottle(async (key) => {
     try {
       await this.flushLogisticDirty(key);
-    } catch (error: any) {
-      this.logger.warn(`Envoi Logistic immédiat en échec (le cron rattrapera) : ${key} : ${error?.message}`);
+    } catch (error) {
+      this.logger.warn(`Envoi Logistic immédiat en échec (le cron rattrapera) : ${key} : ${(error as Error)?.message}`);
     }
   });
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly inventoryService: InventoryService,
+    private readonly inventoryCountService: InventoryCountService,
+    private readonly inventoryReconciliationService: InventoryReconciliationService,
+    private readonly inventoryLogisticPushService: InventoryLogisticPushService,
     // Optionnel : les tests unitaires du flux pre-event ne le fournissent pas.
     @Optional() private readonly postEventDraft?: PostEventDraftService,
   ) {}
@@ -210,14 +177,14 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
 
   private async saveCountGuarded(dto: CreateInventoryCountDto, tenantId: string, userId?: string) {
     if (dto.phase !== 'pre-event' || !dto.eventId) {
-      return this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
+      return this.inventoryCountService.saveInventoryCounts(dto, tenantId, userId);
     }
     const event = await this.findEvent(dto.spaceId, dto.eventId, tenantId);
     const now = new Date();
     const doorsOpen = event ? this.doorsOpenAt(event) : null;
     const deadline = event ? this.editDeadline(event) : null;
     if (!event || !doorsOpen || !deadline) {
-      return this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
+      return this.inventoryCountService.saveInventoryCounts(dto, tenantId, userId);
     }
     if (now > deadline) {
       throw new ForbiddenException(
@@ -225,7 +192,7 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
       );
     }
     const afterDoorsOpen = now >= doorsOpen;
-    const saved = await this.inventoryService.saveInventoryCounts(dto, tenantId, userId);
+    const saved = await this.inventoryCountService.saveInventoryCounts(dto, tenantId, userId);
     if (afterDoorsOpen) {
       await this.markDirty(dto.spaceId, dto.eventId, tenantId);
     }
@@ -293,7 +260,7 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
     const event = await this.findEvent(spaceId, eventId, tenantId);
     if (!event) throw new NotFoundException(`Event ${eventId} not found in space ${spaceId}`);
 
-    const merged = await this.inventoryService.getBySpaceAndEvent(
+    const merged = await this.inventoryCountService.getBySpaceAndEvent(
       spaceId,
       eventId,
       tenantId,
@@ -309,9 +276,9 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
       select: { id: true, lines: true },
     });
     const previousLines = previous[0]?.lines ?? null;
-    const predictedUnits = options.predictedUnits ?? this.extractPredictedUnits(previousLines);
+    const predictedUnits = options.predictedUnits ?? extractPredictedUnits(previousLines);
 
-    const created = await this.inventoryService.createPreEventReconciliation(
+    const created = await this.inventoryReconciliationService.createPreEventReconciliation(
       spaceId,
       eventId,
       tenantId,
@@ -330,7 +297,7 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
     }
 
     if (options.snapshot !== false) {
-      await this.inventoryService.upsertInventory(
+      await this.inventoryCountService.upsertInventory(
         { spaceId, eventId, kind: 'pre-event', inventoryCounts: blob },
         tenantId,
         actor,
@@ -350,29 +317,6 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
       document: created,
       logisticPush: (created as any)?.meta?.logisticPush ?? null,
     };
-  }
-
-  /** Besoin prédit archivé sur une feuille existante → blob attendu par
-   *  createPreEventReconciliation ({ elementId: { itemId: unités } }). null si
-   *  aucune ligne n'en porte (colonnes prédit vides, comme aujourd'hui). */
-  private extractPredictedUnits(lines: unknown): Record<string, Record<string, number>> | null {
-    if (!Array.isArray(lines)) return null;
-    const out: Record<string, Record<string, number>> = {};
-    let found = false;
-    for (const l of lines as Array<Record<string, unknown>>) {
-      const elementId = l?.elementId;
-      const itemKey = l?.itemKey;
-      const predicted = Number(l?.predictedUnits);
-      if (
-        typeof elementId !== 'string' ||
-        typeof itemKey !== 'string' ||
-        !Number.isFinite(predicted)
-      )
-        continue;
-      (out[elementId] ??= {})[itemKey] = predicted;
-      found = true;
-    }
-    return found ? out : null;
   }
 
   /**
@@ -590,41 +534,46 @@ export class PreEventInventoryFlowService implements OnModuleDestroy {
     });
     let pushed = 0;
     for (const marker of markers) {
-      const v = (marker.value ?? {}) as { spaceId?: string; eventId?: string; phase?: string };
-      const tenantId = marker.tenantId;
-      if (!tenantId || !v.spaceId || !v.eventId || (v.phase !== 'pre-event' && v.phase !== 'post-event')) {
-        await this.prisma.kvStore.delete({ where: { id: marker.id } }).catch(() => undefined);
-        continue;
-      }
-      // Le retrait du marqueur vaut prise en charge : l'envoi immédiat et le cron (ou une
-      // autre instance) peuvent lire le même marqueur, un seul l'envoie.
-      const claimed = await this.prisma.kvStore.deleteMany({ where: { id: marker.id } });
-      if (!claimed.count) continue;
-      try {
-        if (v.phase === 'pre-event') {
-          // Feuille pre-event à jour + Logistic (push incrémental inclus), sans snapshot.
-          const result = await this.regenerate(v.spaceId, v.eventId, tenantId, 'system-inventory-count', 'count', {}, { snapshot: false });
-          if (result.ok) pushed++;
-        } else {
-          const result = await this.inventoryService.pushPendingCountToLogistic(
-            v.spaceId,
-            v.eventId,
-            tenantId,
-            v.phase,
-            'system-inventory-count',
-          );
-          if (result.ok) pushed++;
-          // Réconciliation post-event tenue à jour par le serveur (lot 4b).
-          await this.postEventDraft?.rebuild(v.spaceId, v.eventId, tenantId);
-        }
-      } catch (error: any) {
-        this.logger.warn(
-          `Envoi Logistic du comptage ${v.phase} en échec (réessai au tick suivant) : space ${v.spaceId} / event ${v.eventId} : ${error?.message}`,
-        );
-        await this.markLogisticDirty(v.spaceId, v.eventId, tenantId, v.phase);
-      }
+      // eslint-disable-next-line no-await-in-loop -- un match à la fois : marqueur réclamé puis envoi, régénérations sérialisées
+      if (await this.flushLogisticMarker(marker)) pushed++;
     }
     return pushed;
+  }
+
+  private async flushLogisticMarker(marker: { id: string; tenantId: string | null; value: unknown }): Promise<boolean> {
+    const v = (marker.value ?? {}) as { spaceId?: string; eventId?: string; phase?: string };
+    const tenantId = marker.tenantId;
+    if (!tenantId || !v.spaceId || !v.eventId || (v.phase !== 'pre-event' && v.phase !== 'post-event')) {
+      await this.prisma.kvStore.delete({ where: { id: marker.id } }).catch(() => undefined);
+      return false;
+    }
+    // Le retrait du marqueur vaut prise en charge : l'envoi immédiat et le cron (ou une
+    // autre instance) peuvent lire le même marqueur, un seul l'envoie.
+    const claimed = await this.prisma.kvStore.deleteMany({ where: { id: marker.id } });
+    if (!claimed.count) return false;
+    try {
+      if (v.phase === 'pre-event') {
+        // Feuille pre-event à jour + Logistic (push incrémental inclus), sans snapshot.
+        const result = await this.regenerate(v.spaceId, v.eventId, tenantId, 'system-inventory-count', 'count', {}, { snapshot: false });
+        return result.ok;
+      }
+      const result = await this.inventoryLogisticPushService.pushPendingCountToLogistic(
+        v.spaceId,
+        v.eventId,
+        tenantId,
+        v.phase,
+        'system-inventory-count',
+      );
+      // Réconciliation post-event tenue à jour par le serveur (lot 4b).
+      await this.postEventDraft?.rebuild(v.spaceId, v.eventId, tenantId);
+      return result.ok;
+    } catch (error) {
+      this.logger.warn(
+        `Envoi Logistic du comptage ${v.phase} en échec (réessai au tick suivant) : space ${v.spaceId} / event ${v.eventId} : ${(error as Error)?.message}`,
+      );
+      await this.markLogisticDirty(v.spaceId, v.eventId, tenantId, v.phase);
+      return false;
+    }
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────────

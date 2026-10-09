@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateSupplierDto } from './dto/create-supplier.dto';
 import { UpdateSupplierDto } from './dto/update-supplier.dto';
@@ -7,6 +7,12 @@ import { SpaceAccessService } from '../../core/auth/space-access.service';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
+
+
+const ASSERT_SPACE_ACCESS_MESSAGES = {
+  none: "Ce fournisseur ne dessert aucun espace — réservé aux comptes à accès complet.",
+  denied: "Vous n'avez pas accès à l'espace de ce fournisseur.",
+};
 
 @Injectable()
 export class SuppliersService {
@@ -17,26 +23,6 @@ export class SuppliersService {
     private storage: SupabaseStorageService,
     private spaceAccess: SpaceAccessService,
   ) {}
-
-  /**
-   * Lève 403 si `user` n'a accès à aucun des espaces desservis par ce fournisseur (`sites`) —
-   * que ce soit pour le LIRE (findOne) ou le modifier. Un fournisseur SANS site déclaré ne
-   * dessert aucun espace accessible par construction : il n'est visible/modifiable que par
-   * les comptes à accès complet (owner/super-admin/allSpacesAccess).
-   */
-  private async assertSpaceAccess(sites: string[] | undefined, user?: SpaceScopedUser) {
-    if (!user) return;
-    if (this.spaceAccess.hasFullAccess(user)) return;
-    if (!sites?.length) {
-      throw new ForbiddenException("Ce fournisseur ne dessert aucun espace — réservé aux comptes à accès complet.");
-    }
-    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
-    if (accessible === 'ALL') return;
-    const allowed = sites.some((sid) => accessible.includes(sid));
-    if (!allowed) {
-      throw new ForbiddenException("Vous n'avez pas accès à l'espace de ce fournisseur.");
-    }
-  }
 
   async create(createSupplierDto: CreateSupplierDto, tenantId: string) {
     this.logger.log(`Creating supplier "${createSupplierDto.name}" for tenant ${tenantId}`);
@@ -121,7 +107,7 @@ export class SuppliersService {
       throw new NotFoundException(`Supplier with ID ${id} not found`);
     }
 
-    await this.assertSpaceAccess(supplier.sites, user);
+    await this.spaceAccess.assertCanAccessAny(user, supplier.sites, ASSERT_SPACE_ACCESS_MESSAGES);
     return supplier;
   }
 

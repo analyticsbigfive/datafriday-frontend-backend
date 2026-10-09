@@ -1,7 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 
-export const WEEZEVENT_WEBHOOK_TYPES = ['transaction', 'wallet', 'refill', 'scan', 'transfer', 'order', 'product'] as const;
-export const WEEZEVENT_WEBHOOK_METHODS = ['create', 'update', 'delete'] as const;
+const WEEZEVENT_WEBHOOK_TYPES = ['transaction', 'wallet', 'refill', 'scan', 'transfer', 'order', 'product'] as const;
+const WEEZEVENT_WEBHOOK_METHODS = ['create', 'update', 'delete'] as const;
 
 export interface WeezeventWebhookPayload {
     type: (typeof WEEZEVENT_WEBHOOK_TYPES)[number];

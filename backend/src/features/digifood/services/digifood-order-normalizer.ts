@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 /**
  * Normalisation des payloads Digifood → NormalizedOrder (PLAN_INTEGRATION_DIGIFOOD §5.1/§5.3).
  * Unifie les trois formes d'entrée en un ordre plat unique consommé par l'ingestion
@@ -178,14 +179,14 @@ export function normalizeOrder(payload: Record<string, unknown>): NormalizedOrde
     const event = String(payload.event ?? '');
     const data = payload.data as Record<string, unknown> | undefined;
     if (!data || typeof data !== 'object' || data.id == null) {
-        throw new Error(`Payload Digifood invalide : data.id manquant (event=${event})`);
+        throw new BadRequestException(`Payload Digifood invalide : data.id manquant (event=${event})`);
     }
 
     if (event === 'order.refunded') {
         // POS v24 : remboursement séparé, payload minimal, référence à l'ordre d'origine
         const refundedItems = Array.isArray(data.refunded_items) ? data.refunded_items : [];
         if (refundedItems.length === 0) {
-            throw new Error(`order.refunded ${data.id} sans refunded_items[]`);
+            throw new BadRequestException(`order.refunded ${data.id} sans refunded_items[]`);
         }
         const common = extractCommon(data);
         const order = data.order as Record<string, unknown> | undefined;
@@ -210,7 +211,7 @@ export function normalizeOrder(payload: Record<string, unknown>): NormalizedOrde
     }
 
     if (event !== 'order.completed') {
-        throw new Error(`Événement Digifood non supporté : ${event}`);
+        throw new BadRequestException(`Événement Digifood non supporté : ${event}`);
     }
 
     const type = String(data.type ?? 'sale');
@@ -218,7 +219,7 @@ export function normalizeOrder(payload: Record<string, unknown>): NormalizedOrde
     const sign: 1 | -1 = isRefund ? -1 : 1;
     const items = Array.isArray(data.items) ? data.items : [];
     if (items.length === 0) {
-        throw new Error(`order.completed ${data.id} sans items[]`);
+        throw new BadRequestException(`order.completed ${data.id} sans items[]`);
     }
     const common = extractCommon(data);
     const flattened = flattenItems(items as Array<Record<string, unknown>>, sign);

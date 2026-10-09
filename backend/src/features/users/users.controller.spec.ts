@@ -2,10 +2,11 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { UserRole } from '@prisma/client';
+import { UserAccessService } from './services/user-access.service';
+import { UserInvitationService } from './services/user-invitation.service';
 
 describe('UsersController', () => {
   let controller: UsersController;
-  let service: UsersService;
 
   const mockTenantId = 'tenant-123';
   const mockCurrentUser = {
@@ -41,15 +42,13 @@ describe('UsersController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [UsersController],
       providers: [
-        {
-          provide: UsersService,
-          useValue: mockUsersService,
-        },
+        { provide: UsersService, useValue: mockUsersService },
+        { provide: UserInvitationService, useValue: mockUsersService },
+        { provide: UserAccessService, useValue: mockUsersService },
       ],
     }).compile();
 
     controller = module.get<UsersController>(UsersController);
-    service = module.get<UsersService>(UsersService);
 
     jest.clearAllMocks();
   });
@@ -119,7 +118,7 @@ describe('UsersController', () => {
     it('should return current user profile', async () => {
       mockUsersService.findOne.mockResolvedValue(mockCurrentUser);
 
-      const result = await controller.getMe(mockCurrentUser, mockTenantId);
+      await controller.getMe(mockCurrentUser, mockTenantId);
 
       expect(mockUsersService.findOne).toHaveBeenCalledWith(
         mockCurrentUser.id,
@@ -160,7 +159,7 @@ describe('UsersController', () => {
     it('should remove a user', async () => {
       mockUsersService.remove.mockResolvedValue({ deleted: true });
 
-      const result = await controller.remove('user-456', mockTenantId, mockCurrentUser);
+      await controller.remove('user-456', mockTenantId, mockCurrentUser);
 
       expect(mockUsersService.remove).toHaveBeenCalledWith(
         'user-456',

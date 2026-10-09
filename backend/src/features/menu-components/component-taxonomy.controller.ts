@@ -20,6 +20,7 @@ import { CreateComponentTypeDto } from './dto/create-component-type.dto';
 import { UpdateComponentTypeDto } from './dto/update-component-type.dto';
 import { CreateComponentCategoryDto } from './dto/create-component-category.dto';
 import { UpdateComponentCategoryDto } from './dto/update-component-category.dto';
+import { ComponentTypesFindAllQueryDto, ComponentCategoriesFindAllQueryDto } from './dto/component-taxonomy.query.dto';
 
 @ApiTags('Component Types')
 @ApiBearerAuth('supabase-jwt')
@@ -39,10 +40,9 @@ export class ComponentTypesController {
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
+    @Query() params: ComponentTypesFindAllQueryDto,
   ) {
+    const { page, limit, search } = params;
     this.logger.log(`GET /component-types - User: ${user?.id}`);
     return this.taxonomyService.getTypes(tenantId, page ? +page : 1, limit ? +limit : 200, search);
   }
@@ -99,13 +99,11 @@ export class ComponentCategoriesController {
   @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre sur le nom (contains, insensible à la casse)' })
   @ApiResponse({ status: 200, description: 'Liste paginée des Component Categories' })
   findAll(
-    @Query('typeId') typeId: string,
+    @Query() params: ComponentCategoriesFindAllQueryDto,
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
   ) {
+    const { typeId, page, limit, search } = params;
     this.logger.log(`GET /component-categories - User: ${user?.id}`);
     return this.taxonomyService.getCategories(tenantId, typeId, page ? +page : 1, limit ? +limit : 200, search);
   }

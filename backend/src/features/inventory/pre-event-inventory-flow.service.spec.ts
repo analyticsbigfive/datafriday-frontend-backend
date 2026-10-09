@@ -1,8 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
-import { FlowEvent, PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
-import { InventoryService } from './inventory.service';
+import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
+import type { FlowEvent } from './pre-event-inventory-flow.types';
 import { PrismaService } from '../../core/database/prisma.service';
+import { InventoryBaselineService } from './services/inventory-baseline.service';
+import { InventoryCountService } from './services/inventory-count.service';
+import { InventoryLogisticPushService } from './services/inventory-logistic-push.service';
+import { InventoryReconciliationService } from './services/inventory-reconciliation.service';
+import { InventoryUnitResolverService } from './services/inventory-unit-resolver.service';
 
 const MIN = 60 * 1000;
 
@@ -115,7 +120,11 @@ describe('PreEventInventoryFlowService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         PreEventInventoryFlowService,
-        { provide: InventoryService, useValue: mockInventory },
+        { provide: InventoryUnitResolverService, useValue: mockInventory },
+        { provide: InventoryCountService, useValue: mockInventory },
+        { provide: InventoryBaselineService, useValue: mockInventory },
+        { provide: InventoryLogisticPushService, useValue: mockInventory },
+        { provide: InventoryReconciliationService, useValue: mockInventory },
         { provide: PrismaService, useValue: mockPrisma },
       ],
     }).compile();

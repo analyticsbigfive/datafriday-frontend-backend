@@ -5,7 +5,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
-import { HrService } from './hr.service';
+import { HrSupplierService } from './services/hr-supplier.service';
 
 class CreateHrSupplierDto {
   @IsString()
@@ -57,30 +57,30 @@ class HrImportDto {
 @RequirePermissions('menu.hr.manage')
 @Controller('hr/suppliers')
 export class HrSuppliersController {
-  constructor(private readonly service: HrService) {}
+  constructor(private readonly hrSupplierService: HrSupplierService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lister les fournisseurs RH (agences) du tenant' })
   findAll(@CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.service.findAllSuppliers(tenantId, user);
+    return this.hrSupplierService.findAllSuppliers(tenantId, user);
   }
 
   @Post()
   @ApiOperation({ summary: 'Créer un fournisseur RH' })
   create(@Body() dto: CreateHrSupplierDto, @CurrentTenant() tenantId: string) {
-    return this.service.createSupplier(dto, tenantId);
+    return this.hrSupplierService.createSupplier(dto, tenantId);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour un fournisseur RH' })
   update(@Param('id') id: string, @Body() dto: UpdateHrSupplierDto, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.service.updateSupplier(id, dto, tenantId, user);
+    return this.hrSupplierService.updateSupplier(id, dto, tenantId, user);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer un fournisseur RH' })
   remove(@Param('id') id: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.service.removeSupplier(id, tenantId, user);
+    return this.hrSupplierService.removeSupplier(id, tenantId, user);
   }
 }
 
@@ -90,7 +90,7 @@ export class HrSuppliersController {
 @RequirePermissions('menu.hr.manage')
 @Controller('hr/import')
 export class HrImportController {
-  constructor(private readonly service: HrService) {}
+  constructor(private readonly hrSupplierService: HrSupplierService) {}
 
   @Post()
   @ApiOperation({
@@ -98,6 +98,6 @@ export class HrImportController {
     description: 'Refusé si des données RH existent déjà en base pour ce tenant (spec §1.4).',
   })
   import(@Body() dto: HrImportDto, @CurrentTenant() tenantId: string) {
-    return this.service.importFromLocalStorage(dto, tenantId);
+    return this.hrSupplierService.importFromLocalStorage(dto, tenantId);
   }
 }

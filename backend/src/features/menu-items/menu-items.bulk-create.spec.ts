@@ -1,10 +1,10 @@
-import { MenuItemsService } from './menu-items.service';
+import { createMenuItemsServices } from './services/menu-items-services.testing';
 
 // BUG-006 (partie dédup forward, même famille que BUG-052) : bulkCreate() n'avait aucun
 // garde-fou par nom — chaque ligne du payload était insérée même si un MenuItem du même nom
 // existait déjà pour le tenant. Ces tests couvrent le dédoublonnage ajouté : réutilisation d'un
 // item existant au lieu d'un doublon, scope par tenant, et insensibilité à la casse.
-describe('MenuItemsService.bulkCreate — dédoublonnage par nom', () => {
+describe('MenuItemBulkCreateService.bulkCreate — dédoublonnage par nom', () => {
   const mockPrisma = {
     menuItem: {
       findMany: jest.fn(),
@@ -16,11 +16,10 @@ describe('MenuItemsService.bulkCreate — dédoublonnage par nom', () => {
   const mockPricing = {} as any;
   const mockStorage = { resolveImage: jest.fn((value) => Promise.resolve(value ?? null)) } as any;
   const mockSpaceAccess = {} as any;
-
-  let service: MenuItemsService;
+  let menuItemBulkCreateService: any;
 
   beforeEach(() => {
-    service = new MenuItemsService(mockPrisma, mockRedis, mockPricing, mockStorage, mockSpaceAccess);
+    ({ menuItemBulkCreateService } = createMenuItemsServices({ prisma: mockPrisma, redis: mockRedis, pricing: mockPricing, storage: mockStorage, spaceAccess: mockSpaceAccess }));
     jest.clearAllMocks();
     mockStorage.resolveImage.mockImplementation((value: any) => Promise.resolve(value ?? null));
     mockPrisma.menuItem.createMany.mockResolvedValue({ count: 0 });
@@ -42,7 +41,7 @@ describe('MenuItemsService.bulkCreate — dédoublonnage par nom', () => {
       { id: 'existing-1', name: 'Coca', typeId: null, categoryId: null, basePrice: 10 },
     ]);
 
-    const result = await service.bulkCreate([dto('Coca')] as any, 'tenant-a');
+    const result = await menuItemBulkCreateService.bulkCreate([dto('Coca')] as any, 'tenant-a');
 
     expect(mockPrisma.menuItem.createMany).not.toHaveBeenCalled();
     expect(result.count).toBe(0);
@@ -63,7 +62,7 @@ describe('MenuItemsService.bulkCreate — dédoublonnage par nom', () => {
       return Promise.resolve([]);
     });
 
-    const result = await service.bulkCreate([dto('Coca')] as any, 'tenant-b');
+    const result = await menuItemBulkCreateService.bulkCreate([dto('Coca')] as any, 'tenant-b');
 
     expect(mockPrisma.menuItem.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { tenantId: 'tenant-b', deletedAt: null } }),
@@ -82,7 +81,7 @@ describe('MenuItemsService.bulkCreate — dédoublonnage par nom', () => {
       { id: 'existing-1', name: 'Coca', typeId: null, categoryId: null, basePrice: 10 },
     ]);
 
-    const result = await service.bulkCreate([dto('  COCA  ')] as any, 'tenant-a');
+    const result = await menuItemBulkCreateService.bulkCreate([dto('  COCA  ')] as any, 'tenant-a');
 
     expect(mockPrisma.menuItem.createMany).not.toHaveBeenCalled();
     expect(result.duplicatesCount).toBe(1);
@@ -92,7 +91,7 @@ describe('MenuItemsService.bulkCreate — dédoublonnage par nom', () => {
   it('dedupes duplicate names within the same payload batch (neither pre-existing)', async () => {
     mockPrisma.menuItem.findMany.mockResolvedValue([]);
 
-    const result = await service.bulkCreate([dto('Fanta'), dto('fanta'), dto('Sprite')] as any, 'tenant-a');
+    const result = await menuItemBulkCreateService.bulkCreate([dto('Fanta'), dto('fanta'), dto('Sprite')] as any, 'tenant-a');
 
     expect(mockPrisma.menuItem.createMany).toHaveBeenCalledTimes(1);
     const inserted = mockPrisma.menuItem.createMany.mock.calls[0][0].data;
@@ -110,7 +109,7 @@ describe('MenuItemsService.bulkCreate — dédoublonnage par nom', () => {
   it('inserts all rows normally when no duplicates exist', async () => {
     mockPrisma.menuItem.findMany.mockResolvedValue([]);
 
-    const result = await service.bulkCreate([dto('Pizza'), dto('Burger')] as any, 'tenant-a');
+    const result = await menuItemBulkCreateService.bulkCreate([dto('Pizza'), dto('Burger')] as any, 'tenant-a');
 
     expect(mockPrisma.menuItem.createMany).toHaveBeenCalledTimes(1);
     expect(result.count).toBe(2);

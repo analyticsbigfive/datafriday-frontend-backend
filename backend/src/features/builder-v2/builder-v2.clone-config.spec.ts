@@ -1,11 +1,12 @@
-import { BuilderV2Service } from './builder-v2.service';
+import { createBuilderV2Services } from './services/builder-v2-services.testing';
 
 // Clonage d'une configuration : les PdV (adhésions) ET leurs menus Space Menu, scopés par
 // configuration (MenuAssignment.configId), doivent suivre. Constaté Aix Arena 2026-09-23/24 :
 // 10 configs clonées sans aucun article, Event Predict « No items available ».
-describe('BuilderV2Service.createConfiguration (clonage)', () => {
+describe('BuilderV2ConfigurationService.createConfiguration (clonage)', () => {
   let prisma: any;
-  let service: BuilderV2Service;
+  let builderV2SupportService: any;
+  let builderV2ConfigurationService: any;
 
   beforeEach(() => {
     prisma = {
@@ -22,14 +23,14 @@ describe('BuilderV2Service.createConfiguration (clonage)', () => {
         createMany: jest.fn().mockResolvedValue({ count: 2 }),
       },
     };
-    service = new BuilderV2Service(prisma, {} as any, {} as any, {} as any, {} as any);
-    jest.spyOn(service as any, 'getSpaceOrThrow').mockResolvedValue({ id: 'space-1' });
-    jest.spyOn(service as any, 'getConfigOrThrow').mockResolvedValue({ id: 'cfg-src', spaceId: 'space-1', capacity: 2000 });
-    jest.spyOn(service as any, 'invalidate').mockResolvedValue(undefined);
+    ({ builderV2SupportService, builderV2ConfigurationService } = createBuilderV2Services({ prisma: prisma, spaceCacheService: {} as any, storage: {} as any, staffingCalculator: {} as any, spaceAccess: {} as any }));
+    jest.spyOn(builderV2SupportService as any, 'getSpaceOrThrow').mockResolvedValue({ id: 'space-1' });
+    jest.spyOn(builderV2SupportService as any, 'getConfigOrThrow').mockResolvedValue({ id: 'cfg-src', spaceId: 'space-1', capacity: 2000 });
+    jest.spyOn(builderV2SupportService as any, 'invalidate').mockResolvedValue(undefined);
   });
 
   it('recopie les menus des PdV de la config source, cochés comme décochés', async () => {
-    await service.createConfiguration('space-1', 'tenant-1', { name: 'Concert 1000/2000 pax', cloneFromConfigId: 'cfg-src' } as any);
+    await builderV2ConfigurationService.createConfiguration('space-1', 'tenant-1', { name: 'Concert 1000/2000 pax', cloneFromConfigId: 'cfg-src' } as any);
     expect(prisma.menuAssignment.findMany).toHaveBeenCalledWith({
       where: { configId: 'cfg-src', elementId: { not: null } },
       select: { elementId: true, menuItemId: true, enabled: true },
@@ -44,7 +45,7 @@ describe('BuilderV2Service.createConfiguration (clonage)', () => {
   });
 
   it('config créée de zéro : aucune copie', async () => {
-    await service.createConfiguration('space-1', 'tenant-1', { name: 'Vide' } as any);
+    await builderV2ConfigurationService.createConfiguration('space-1', 'tenant-1', { name: 'Vide' } as any);
     expect(prisma.configurationElement.findMany).not.toHaveBeenCalled();
     expect(prisma.menuAssignment.findMany).not.toHaveBeenCalled();
   });

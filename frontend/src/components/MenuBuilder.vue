@@ -602,7 +602,6 @@ export default {
 
     async loadComponents() {
       try {
-        // optionnel : repairMenuComponents
         const comps = await api.getAllMenuComponents()
         this.components = comps
       } catch (error) {

@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
@@ -74,7 +75,7 @@ export class KitchensService {
   }
 
   async findAll(tenantId: string, page = 1, limit = 100, user?: SpaceScopedUser) {
-    const where: any = { tenantId };
+    const where: Prisma.KitchenWhereInput = { tenantId };
     if (user && !this.spaceAccess.hasFullAccess(user)) {
       const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
       if (accessible !== 'ALL') where.sites = { hasSome: accessible };
@@ -95,7 +96,7 @@ export class KitchensService {
 
   async update(id: string, dto: UpdateKitchenDto, tenantId: string, user?: SpaceScopedUser) {
     const existing = await this.findOne(id, tenantId, user);
-    const data: any = {};
+    const data: Prisma.KitchenUpdateInput = {};
     if (dto.name !== undefined) data.name = dto.name;
     if (dto.picture !== undefined) data.picture = await this.storage.resolveImage(dto.picture, 'kitchens');
     if (dto.contactName !== undefined) data.contactName = dto.contactName;

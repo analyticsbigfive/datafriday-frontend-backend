@@ -1,17 +1,34 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { RedisService } from '../../core/redis/redis.service';
-import { MappingsService } from './mappings.service';
 import { PrismaService } from '../../core/database/prisma.service';
-import { SpacesService } from '../spaces/spaces.service';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
+import { spaceAccessStub } from '../../core/auth/space-access.testing';
+import { SpaceCacheService } from '../spaces/services/space-cache.service';
+import { SpaceZoneElementsService } from '../spaces/services/space-zone-elements.service';
+import { SpaceCrudService } from '../spaces/services/space-crud.service';
+import { SpaceAccessGrantService } from '../spaces/services/space-access-grant.service';
+import { SpaceConfigurationService } from '../spaces/services/space-configuration.service';
+import { SpaceElementService } from '../spaces/services/space-element.service';
+import { SpaceEventTimelineService } from '../spaces/services/space-event-timeline.service';
+import { SpaceWeezeventEventService } from '../spaces/services/space-weezevent-event.service';
+import { SpaceAnalyseBatchService } from '../spaces/services/space-analyse-batch.service';
+import { SpaceElementPlacementService } from '../spaces/services/space-element-placement.service';
+import { SpaceShopsService } from '../spaces/services/space-shops.service';
+import { SpaceElementLayoutService } from '../spaces/services/space-element-layout.service';
+import { SpaceSalesScopeService } from '../spaces/services/space-sales-scope.service';
+import { LocationMappingService } from './services/location-mapping.service';
+import { MappingProgressService } from './services/mapping-progress.service';
+import { MappingSupportService } from './services/mapping-support.service';
+import { MerchantMappingService } from './services/merchant-mapping.service';
+import { ProductMappingService } from './services/product-mapping.service';
 
 // ─── Mock Prisma ────────────────────────────────────────────────────────────
 const mockPrisma: any = {
   locationSpaceMapping: { findUnique: jest.fn(), findMany: jest.fn() },
   locationShopMapping: { findMany: jest.fn(), count: jest.fn() },
   salesLocation: { findMany: jest.fn() },
-  // Couples (merchantId, integrationId) distincts : SELECT DISTINCT SQL (distinct-merchant-ids.query.ts)
+  // Couples (merchantId, integrationId) distincts : SELECT DISTINCT SQL (distinct-merchants.queries.ts)
   $queryRaw: jest.fn(),
   productMapping: { count: jest.fn() },
   aggregationJobLog: { count: jest.fn(), groupBy: jest.fn() },
@@ -30,22 +47,34 @@ const LOCATION_CUID_1 = 'location-cuid-1';
 const MERCHANT_ID_1 = 'merchant-1';
 
 describe('MappingsService', () => {
-  let service: MappingsService;
+  let mappingProgressService: MappingProgressService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        MappingsService,
+        MappingSupportService, LocationMappingService, MerchantMappingService, ProductMappingService, MappingProgressService, 
         { provide: PrismaService, useValue: mockPrisma },
-        { provide: SpacesService, useValue: mockSpacesService },
+        { provide: SpaceCacheService, useValue: mockSpacesService },
+        { provide: SpaceZoneElementsService, useValue: mockSpacesService },
+        { provide: SpaceCrudService, useValue: mockSpacesService },
+        { provide: SpaceAccessGrantService, useValue: mockSpacesService },
+        { provide: SpaceConfigurationService, useValue: mockSpacesService },
+        { provide: SpaceElementService, useValue: mockSpacesService },
+        { provide: SpaceEventTimelineService, useValue: mockSpacesService },
+        { provide: SpaceWeezeventEventService, useValue: mockSpacesService },
+        { provide: SpaceAnalyseBatchService, useValue: mockSpacesService },
+        { provide: SpaceElementPlacementService, useValue: mockSpacesService },
+        { provide: SpaceShopsService, useValue: mockSpacesService },
+        { provide: SpaceElementLayoutService, useValue: mockSpacesService },
+        { provide: SpaceSalesScopeService, useValue: mockSpacesService },
         { provide: MenuItemPricingService, useValue: mockPricingService },
-        { provide: SpaceAccessService, useValue: { hasFullAccess: () => true, getAccessibleSpaceIds: async () => 'ALL' } },
+        { provide: SpaceAccessService, useValue: spaceAccessStub() },
         // BUG-144-01 : purge du cache spaces:unmapped:* à l'écriture de mapping.
         { provide: RedisService, useValue: { deletePattern: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
-    service = module.get<MappingsService>(MappingsService);
+    mappingProgressService = module.get(MappingProgressService);
     jest.clearAllMocks();
   });
 
@@ -60,7 +89,7 @@ describe('MappingsService', () => {
         { salesLocationId: LOCATION_CUID_1 },
       ]);
 
-      await expect(service.hasShopMappingForIntegration(TENANT, INT_A)).resolves.toBe(true);
+      await expect(mappingProgressService.hasShopMappingForIntegration(TENANT, INT_A)).resolves.toBe(true);
     });
 
     it('détecte un mapping fait via la convention merchant id', async () => {
@@ -72,7 +101,7 @@ describe('MappingsService', () => {
         { salesLocationId: MERCHANT_ID_1 },
       ]);
 
-      await expect(service.hasShopMappingForIntegration(TENANT, INT_A)).resolves.toBe(true);
+      await expect(mappingProgressService.hasShopMappingForIntegration(TENANT, INT_A)).resolves.toBe(true);
     });
 
     it('renvoie false si aucun mapping ne correspond, dans aucune des deux conventions', async () => {
@@ -86,7 +115,7 @@ describe('MappingsService', () => {
         { salesLocationId: 'some-other-id-not-mapped-here' },
       ]);
 
-      await expect(service.hasShopMappingForIntegration(TENANT, INT_A)).resolves.toBe(false);
+      await expect(mappingProgressService.hasShopMappingForIntegration(TENANT, INT_A)).resolves.toBe(false);
     });
 
     it("ne fait fuiter aucun mapping d'une autre intégration (isolation multi-intégration)", async () => {
@@ -97,13 +126,13 @@ describe('MappingsService', () => {
       mockPrisma.$queryRaw.mockResolvedValue([]);
       mockPrisma.locationShopMapping.findMany.mockResolvedValue([{ salesLocationId: 'loc-b' }]);
 
-      await expect(service.hasShopMappingForIntegration(TENANT, INT_A)).resolves.toBe(false);
+      await expect(mappingProgressService.hasShopMappingForIntegration(TENANT, INT_A)).resolves.toBe(false);
     });
 
     it('court-circuite sans requête si integrationIds est vide (via getAllIntegrationProgress)', async () => {
       mockPrisma.integration.findMany.mockResolvedValue([]);
 
-      const result = await service.getAllIntegrationProgress(TENANT);
+      const result = await mappingProgressService.getAllIntegrationProgress(TENANT);
 
       expect(result).toEqual({ data: [], meta: { total: 0 } });
       expect(mockPrisma.salesLocation.findMany).not.toHaveBeenCalled();
@@ -131,7 +160,7 @@ describe('MappingsService', () => {
       mockPrisma.event.findMany.mockResolvedValue([]);
       mockPrisma.spaceRevenueMinuteAgg.count.mockResolvedValue(0);
 
-      const result = await service.getIntegrationProgress(TENANT, INT_A);
+      const result = await mappingProgressService.getIntegrationProgress(TENANT, INT_A);
 
       expect(result.steps.step2_shops_mapped).toBe(true);
     });
@@ -139,7 +168,7 @@ describe('MappingsService', () => {
     it('step2 reste false quand locationMapping (step1) est absent', async () => {
       mockPrisma.locationSpaceMapping.findUnique.mockResolvedValue(null);
 
-      const result = await service.getIntegrationProgress(TENANT, INT_A);
+      const result = await mappingProgressService.getIntegrationProgress(TENANT, INT_A);
 
       expect(result.steps.step1_space_mapped).toBe(false);
       expect(result.steps.step2_shops_mapped).toBe(false);
@@ -175,7 +204,7 @@ describe('MappingsService', () => {
       mockPrisma.event.findMany.mockResolvedValue([]);
       mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([]);
 
-      const result = await service.getAllIntegrationProgress(TENANT);
+      const result = await mappingProgressService.getAllIntegrationProgress(TENANT);
 
       const byId = new Map(result.data.map((d: any): [string, any] => [d.weezeventLocationId, d]));
       expect(byId.get(INT_A).steps.step2_shops_mapped).toBe(true);
@@ -201,7 +230,7 @@ describe('MappingsService', () => {
       mockPrisma.event.findMany.mockResolvedValue([]);
       mockPrisma.spaceRevenueMinuteAgg.groupBy.mockResolvedValue([]);
 
-      const result = await service.getAllIntegrationProgress(TENANT);
+      const result = await mappingProgressService.getAllIntegrationProgress(TENANT);
       const byId = new Map(result.data.map((d: any): [string, any] => [d.weezeventLocationId, d]));
 
       expect(byId.get(INT_B).steps.step2_shops_mapped).toBe(false);

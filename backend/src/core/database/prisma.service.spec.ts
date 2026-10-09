@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ClsService } from 'nestjs-cls';
 import { PrismaService } from './prisma.service';
+import { AppConfigService } from '../../config/app-config.service';
+import { testAppConfig } from '../../config/app-config.testing';
 
 // No-op CLS context: isActive() === false → tenant auto-scoping is bypassed,
 // preserving the raw integration behavior exercised by these tests.
@@ -25,6 +27,7 @@ const hasDatabase = !!process.env.DATABASE_URL;
       providers: [
         PrismaService,
         { provide: ClsService, useValue: mockClsService },
+        { provide: AppConfigService, useValue: testAppConfig({ DATABASE_URL: process.env.DATABASE_URL }) },
       ],
     }).compile();
 
@@ -32,7 +35,7 @@ const hasDatabase = !!process.env.DATABASE_URL;
   });
 
   afterEach(async () => {
-    await service.$disconnect();
+    await service.onModuleDestroy();
   });
 
   describe('Connection', () => {
@@ -47,7 +50,7 @@ const hasDatabase = !!process.env.DATABASE_URL;
 
   describe('Transaction', () => {
     it('should execute transaction successfully', async () => {
-      const result = await service.executeTransaction(async (prisma) => {
+      const result = await service.executeTransaction(async (_prisma) => {
         return { success: true };
       });
 

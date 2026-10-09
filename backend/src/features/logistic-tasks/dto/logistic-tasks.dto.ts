@@ -3,7 +3,7 @@ import { Type } from 'class-transformer';
 import { IsArray, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator';
 import { STOCK_ITEM_KINDS, StockItemKind } from '../../logistics/dto/logistics.dto';
 
-export const LOGISTIC_TASK_PRIORITIES = ['VERY_URGENT', 'URGENT', 'TODO', 'NOT_PRIORITY'] as const;
+const LOGISTIC_TASK_PRIORITIES = ['VERY_URGENT', 'URGENT', 'TODO', 'NOT_PRIORITY'] as const;
 export type LogisticTaskPriorityValue = (typeof LOGISTIC_TASK_PRIORITIES)[number];
 
 export class CreateLogisticTaskLineDto {

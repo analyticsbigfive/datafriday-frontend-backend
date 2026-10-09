@@ -17,6 +17,7 @@
 | [0004](0004_prisma_driver_adapter_pg.md) | Adopter @prisma/adapter-pg (retire le double-wrapping pgbouncer) | Accepté | Base de données / Perf |
 | [0005](0005_restockplan_document_fige_vs_restockstate_session.md) | Séparer le plan de réarmement (document figé `RestockPlan`) de l'état de session (`RestockState`) | Accepté | Stock / Réarmement |
 | [0006](0006_stock_identite_produit_polymorphe.md) | Identité produit polymorphe `(itemKind, itemRefId)` pour Logistic, en remplacement progressif d'`itemKey` (nom) | Accepté | Stock / Logistic |
+| [0007](0007_configurations_v1_migration_relationnel.md) | Migrer les configurations v1 vers le modèle relationnel v2, puis retirer `Config.data` | Proposé | Espaces & builder |
 
 ## Comment ajouter une ADR
 

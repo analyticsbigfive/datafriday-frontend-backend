@@ -219,6 +219,7 @@ export class SupabaseAdminService implements OnModuleInit {
     const maxPages = 50; // safety bound (~10k users)
 
     for (let page = 1; page <= maxPages; page++) {
+      // eslint-disable-next-line no-await-in-loop -- pagination de l'API d'administration Supabase
       const { data, error } = await this.getClient().auth.admin.listUsers({
         page,
         perPage,

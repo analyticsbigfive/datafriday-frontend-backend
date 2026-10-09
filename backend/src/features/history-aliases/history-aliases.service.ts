@@ -1,11 +1,7 @@
-import {
-  Injectable,
-  ForbiddenException,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateHistoryAliasDto } from './dto/history-alias.dto';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 
 /**
  * Alias « historique emprunté » Event Predict (maquettes 08/2026).
@@ -15,15 +11,9 @@ import { CreateHistoryAliasDto } from './dto/history-alias.dto';
  */
 @Injectable()
 export class HistoryAliasesService {
-  constructor(private readonly prisma: PrismaService) {}
-
-  private async assertSpaceOwnership(spaceId: string, tenantId: string): Promise<void> {
-    const space = await this.prisma.space.findFirst({
-      where: { id: spaceId, tenantId },
-      select: { id: true },
-    });
-    if (!space) throw new ForbiddenException(`Space ${spaceId} not found for tenant`);
-  }
+  constructor(private readonly prisma: PrismaService,
+    private readonly spaceAccess: SpaceAccessService,
+  ) {}
 
   async list(spaceId: string, tenantId: string) {
     // Query déjà scopée (tenantId, spaceId) : un space étranger → liste vide,
@@ -39,7 +29,7 @@ export class HistoryAliasesService {
     if (!sourceName) {
       throw new BadRequestException('sourceName is required');
     }
-    await this.assertSpaceOwnership(dto.spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(dto.spaceId, tenantId);
     // La cible doit être un article du tenant (même contrôle que
     // predict-versions : findFirst id + tenantId).
     const target = await this.prisma.menuItem.findFirst({

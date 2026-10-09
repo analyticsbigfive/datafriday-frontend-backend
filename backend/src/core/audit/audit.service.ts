@@ -31,7 +31,7 @@ export class AuditService {
         },
       });
     } catch (error) {
-      this.logger.error(`Failed to write audit log: ${error.message}`, error.stack);
+      this.logger.error(`Failed to write audit log: ${(error as Error).message}`, (error as Error).stack);
     }
   }
 

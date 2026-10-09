@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { SyncTrackerService, SyncJob } from './sync-tracker.service';
+import { SyncTrackerService } from './sync-tracker.service';
 
 describe('SyncTrackerService', () => {
   let service: SyncTrackerService;

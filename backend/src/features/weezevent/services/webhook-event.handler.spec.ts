@@ -8,8 +8,6 @@ import { WebhookHealthService } from './live/webhook-health.service';
 
 describe('WebhookEventHandler', () => {
   let handler: WebhookEventHandler;
-  let prisma: PrismaService;
-  let syncService: WeezeventSyncService;
 
   const mockWebhookEvent = {
     id: 'event-123',
@@ -83,8 +81,6 @@ describe('WebhookEventHandler', () => {
     }).compile();
 
     handler = module.get<WebhookEventHandler>(WebhookEventHandler);
-    prisma = module.get<PrismaService>(PrismaService);
-    syncService = module.get<WeezeventSyncService>(WeezeventSyncService);
 
     jest.clearAllMocks();
     // Défaut : aucun event en direct → pas d'agrégation déclenchée (BUG-109 / BUG-379-02).

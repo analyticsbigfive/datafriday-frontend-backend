@@ -7,7 +7,7 @@
  * global Department/Subtype (département `shop`) — plus de vocabulaire UPPERCASE_SNAKE séparé
  * (HR_FNB_CATEGORIES) ni de table de correspondance à maintenir à la main : un sous-type F&B
  * créé par le super-admin est utilisable immédiatement, sans changement de code. La validation
- * d'existence vit dans HrService (contre Subtype, department.code='shop'), même idiome que
+ * d'existence vit dans HrRoleService (contre Subtype, department.code='shop'), même idiome que
  * Department pour HrRole.department.
  *
  * Extrait de staffing.service.ts (2026-07-30) pour être partagé avec builder-v2.service.ts

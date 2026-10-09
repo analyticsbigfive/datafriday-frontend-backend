@@ -1,5 +1,5 @@
 import { Prisma } from '@prisma/client';
-import { BASKET_UNRESOLVED_PREFIX } from '../aggregation/event-aggregation-sql';
+import { BASKET_UNRESOLVED_PREFIX } from '../aggregation/event-aggregation.queries';
 
 /**
  * Lecture des paniers pré-agrégés (SpaceBasketMinuteAgg) pour getTransactionBasketsBatch.

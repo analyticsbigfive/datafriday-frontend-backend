@@ -1,597 +1,34 @@
-import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
-import {
-  StaffingCalculatorService,
-  StaffingWarning,
-  AlgoKey,
-  SinkingRuleInput,
-  DEFAULT_TX_PAR_SECONDE,
-  DEFAULT_OFFSET_OPEN_MINUTES,
-  DEFAULT_OFFSET_CLOSE_MINUTES,
-} from './staffing-calculator.service';
-import { detectFnbTags } from './fnb-tags.util';
-import {
-  parseEventSessions,
-  combineDayAndLocalTime,
-  DEFAULT_EVENT_DURATION_HOURS,
-} from '../../shared/utils/event-window.util';
+import { StaffingCalculatorService, StaffingWarning } from './staffing-calculator.service';
+import { StaffingContextService } from './services/staffing-context.service';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
-/**
- * Orchestration du staffing par événement (spec §1.3) :
- * charge event + PDV (SpaceElement de la config) + CA prédictif par PDV
- * (BUG-391-02 : en priorité le CA affiché à l'écran Event Predict, envoyé dans le corps
- * du POST generate ; sinon EventPredictVersion.predictedRecords de la version par défaut, agrégé par
- * shopId — #43/11_RH_STAFFING.md §11.15 option b ; repli sur
- * ElementPerformance.revenue si aucune version par défaut n'existe) + tx/min
- * (ElementPerformance) + settings RH résolus (HrGoal/HrStaffRatio) + rôles RH →
- * appelle le calculateur pur → upsert des EventStaffLine source='ALGO'.
- * Une ligne MANUAL ou userModified n'est JAMAIS écrasée par une régénération
- * (elle compte dans le quota de son rôle).
- * Le coût PRÉDIT (figé) est stocké dans ElementPerformance.staffCost ; le coût
- * AJUSTÉ se recalcule depuis les lignes enabled (§5).
- */
-
-/** Types d'éléments considérés comme PDV pour le staffing (hypothèse, cf. rapport). */
-export const STAFFING_ELEMENT_TYPES = ['shop', 'fnb_food', 'fnb_beverages', 'fnb_bar', 'fnb_snack'];
-
 /** front (base RZ) = rpdv + caissiers + runners + barman. */
 const FRONT_ALGO_KEYS = ['RESPONSABLE_PDV', 'CAISSIER', 'RUNNER', 'BARMAN'];
 
-const ALGO_COUNT_FIELDS: Array<{ key: AlgoKey; field: string }> = [
-  { key: 'RESPONSABLE_PDV', field: 'rpdv' },
-  { key: 'CAISSIER', field: 'caissiers' },
-  { key: 'RUNNER', field: 'runners' },
-  { key: 'BARMAN', field: 'barman' },
-  { key: 'CHEF_DE_PARTIE', field: 'chefDePartie' },
-  { key: 'COMMIS', field: 'commis' },
-  { key: 'EPR', field: 'epr' },
-];
+const ASSERT_SPACE_ACCESS_DENIED = "Vous n'avez pas accès à l'espace de cet événement.";
 
-interface EventContext {
-  event: any;
-  configId: string;
-  spaceId: string;
-  /** Fenêtre suggérée des lignes : portes ± offsets (−2 h / +2 h par défaut). */
-  lineStart: Date;
-  lineEnd: Date;
-  /** `Space.timezone` (défaut Europe/Paris) — le frontend en a besoin pour afficher les
-   * horaires en heure LOCALE DU LIEU plutôt qu'en heure locale du navigateur (BUG-270). */
-  timezone: string;
-}
-
+/**
+ * Staffing d'un événement : lecture, lignes ajoutées, modifiées ou retirées, coûts par espace.
+ */
 @Injectable()
 export class StaffingService {
   constructor(
     private prisma: PrismaService,
     private calculator: StaffingCalculatorService,
     private spaceAccess: SpaceAccessService,
+    private readonly staffingContextService: StaffingContextService,
   ) {}
-
-  /** Lève 403 si `user` n'a pas accès à cet espace (cf. SpaceAccessService). */
-  private async assertSpaceAccess(spaceId: string | null | undefined, user?: SpaceScopedUser) {
-    if (!user || !spaceId) return;
-    if (this.spaceAccess.hasFullAccess(user)) return;
-    const accessible = await this.spaceAccess.getAccessibleSpaceIds(user);
-    if (accessible === 'ALL' || accessible.includes(spaceId)) return;
-    throw new ForbiddenException("Vous n'avez pas accès à l'espace de cet événement.");
-  }
-
-  // ── Contexte événement ─────────────────────────────────────────────────────
-
-  private async getEventContext(eventId: string, tenantId: string, user?: SpaceScopedUser): Promise<EventContext> {
-    const event = await this.prisma.event.findFirst({ where: { id: eventId } });
-    if (!event || (event.tenantId && event.tenantId !== tenantId)) {
-      throw new NotFoundException(`Événement ${eventId} introuvable`);
-    }
-    await this.assertSpaceAccess(event.spaceId, user);
-    if (!event.configurationId) {
-      throw new BadRequestException("L'événement n'a pas de configuration associée.");
-    }
-    if (!event.spaceId) {
-      throw new BadRequestException("L'événement n'a pas d'espace associé.");
-    }
-    const space = await this.prisma.space.findFirst({ where: { id: event.spaceId }, select: { timezone: true } });
-    const timezone = space?.timezone || 'Europe/Paris';
-
-    // `eventStartDate`/`eventEndDate`/`eventDate` ne portent qu'un jour calendaire (minuit,
-    // sans heure) — la vraie heure de « portes » vient de `sessions[0].doorsOpening` (retour
-    // utilisateur 2026-08-04 : Session 1 → dernière session, une seule fenêtre de staff pour
-    // tout l'event) et la vraie heure de fin de `eventEndTime`, repli sur le `showTime` de la
-    // dernière session si absent. Repli final sur le jour calendaire brut si aucune heure
-    // n'est renseignée (comportement historique, préférable à une exception bloquante).
-    const startDay: Date = event.eventStartDate ?? event.eventDate;
-    const endDay: Date = event.eventEndDate ?? startDay;
-    const sessions = parseEventSessions(event.sessions);
-    const doorsOpen = combineDayAndLocalTime(startDay, sessions[0]?.doorsOpening, timezone) ?? startDay;
-    const doorsClose =
-      combineDayAndLocalTime(endDay, event.eventEndTime ?? sessions[sessions.length - 1]?.showTime, timezone) ??
-      new Date(doorsOpen.getTime() + DEFAULT_EVENT_DURATION_HOURS * 3_600_000);
-    return {
-      event,
-      configId: event.configurationId,
-      spaceId: event.spaceId,
-      lineStart: new Date(doorsOpen.getTime() + DEFAULT_OFFSET_OPEN_MINUTES * 60_000),
-      lineEnd: new Date(doorsClose.getTime() + DEFAULT_OFFSET_CLOSE_MINUTES * 60_000),
-      timezone,
-    };
-  }
-
-  // ── Résolution des settings RH (miroir de frontend utils/hrSettings.js) ────
-  // Règle : ligne rattachée à l'espace > ligne « TOUS » (allSpaces) ; en cas de
-  // doublon, la plus récente (createdAt) gagne.
-
-  private async resolveSettings(spaceId: string, tenantId: string) {
-    const [goals, ratios] = await this.prisma.$transaction([
-      this.prisma.hrGoal.findMany({
-        where: { tenantId },
-        orderBy: { createdAt: 'desc' },
-        include: { spaces: { select: { spaceId: true } } },
-      }),
-      this.prisma.hrStaffRatio.findMany({
-        where: { tenantId },
-        orderBy: { createdAt: 'desc' },
-        include: { spaces: { select: { spaceId: true } } },
-      }),
-    ]);
-    const pick = <T extends { allSpaces: boolean; spaces: { spaceId: string }[] }>(rows: T[]) =>
-      rows.find((r) => r.spaces.some((s) => s.spaceId === spaceId)) ?? rows.find((r) => r.allSpaces) ?? null;
-    const goal = pick(goals);
-    const ratio = pick(ratios);
-    return {
-      goalTpe: goal ? (goal as any).goalPerTpe : null,
-      staffPerZoneManager: ratio ? (ratio as any).staffPerZoneManager : null,
-    };
-  }
-
-  /**
-   * CA prédictif par PDV (#43, 11_RH_STAFFING.md §11.15 option b) : agrège
-   * `EventPredictVersion.predictedRecords` (grain shopId × menuItem, déjà ajusté par les
-   * sliders du scénario — cf. `buildPredictedRecords` frontend) par `shopId`, pour la version
-   * marquée `isDefault` de l'event. Map vide si l'event n'a pas de version par défaut —
-   * l'appelant se replie alors sur `ElementPerformance.revenue`.
-   */
-  private async resolvePredictedRevenueByElement(
-    eventId: string,
-    tenantId: string,
-  ): Promise<Map<string, number>> {
-    const version = await this.prisma.eventPredictVersion.findFirst({
-      where: { eventId, tenantId, isDefault: true },
-      select: { predictedRecords: true },
-    });
-    const records = Array.isArray(version?.predictedRecords) ? (version!.predictedRecords as any[]) : [];
-    const byElement = new Map<string, number>();
-    for (const rec of records) {
-      const shopId = rec?.shopId;
-      const revenue = Number(rec?.totalRevenue);
-      if (!shopId || !Number.isFinite(revenue)) continue;
-      byElement.set(shopId, (byElement.get(shopId) ?? 0) + revenue);
-    }
-    return byElement;
-  }
-
-  /**
-   * BUG-391-02 : CA prédit par PDV envoyé par l'écran Event Predict (celui que l'utilisateur
-   * voit). Ne garde que les nombres finis ≥ 0 ; le reste est ignoré sans erreur. Map vide si
-   * rien d'exploitable : l'appelant retombe alors sur la version par défaut.
-   */
-  private sanitizeRevenueOverride(override?: Record<string, unknown> | null): Map<string, number> {
-    const byElement = new Map<string, number>();
-    if (!override || typeof override !== 'object' || Array.isArray(override)) return byElement;
-    for (const [elementId, raw] of Object.entries(override)) {
-      if (!elementId || raw === null || raw === '' || typeof raw === 'boolean') continue;
-      const revenue = Number(raw);
-      if (!Number.isFinite(revenue) || revenue < 0) continue;
-      byElement.set(elementId, revenue);
-    }
-    return byElement;
-  }
-
-  /**
-   * Montant en euros au format français, 2 décimales au plus (ex. « 1 000 », « 999,6 »),
-   * espaces insécables normalisés. Pas d'arrondi à l'entier : 999,6 ne doit pas s'afficher 1 000.
-   */
-  private formatEuros(value: number): string {
-    return new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 }).format(value).replace(/\s/g, ' ');
-  }
-
-  // ── Chargement du référentiel RH ───────────────────────────────────────────
-
-  private async loadHrContext(tenantId: string, spaceId: string) {
-    const [roles, persons, defaults, suppliers, sinkingRules, menuItemRatios] = await this.prisma.$transaction([
-      this.prisma.hrRole.findMany({
-        where: { tenantId },
-        include: {
-          suppliers: { select: { supplierId: true, supplier: { select: { spaceIds: true } } } },
-        },
-      }),
-      this.prisma.hrPerson.findMany({ where: { tenantId, active: true } }),
-      this.prisma.hrRoleSpaceDefault.findMany({ where: { spaceId } }),
-      this.prisma.hrSupplier.findMany({ where: { tenantId } }),
-      this.prisma.hrSinkingRule.findMany({ where: { tenantId } }),
-      // Associations Rôle↔MenuItem (11_RH_STAFFING.md §11.16), scopées par espace (contrairement
-      // aux Sinking Rules qui sont tenant-wide/tag-scopées).
-      this.prisma.hrRoleMenuItemRatio.findMany({ where: { tenantId, spaceId } }),
-    ]);
-    const rolesByAlgo = new Map<string, any>();
-    const rolesById = new Map<string, any>();
-    for (const r of roles) {
-      rolesById.set(r.id, r);
-      if (r.algoKey) rolesByAlgo.set(r.algoKey, r);
-    }
-    const personsByRole = new Map<string, { CDI: any[]; CDD: any[] }>();
-    for (const p of persons) {
-      const bucket = personsByRole.get(p.roleId) ?? { CDI: [], CDD: [] };
-      if (p.contractType === 'CDI') bucket.CDI.push(p);
-      else if (p.contractType === 'CDD') bucket.CDD.push(p);
-      personsByRole.set(p.roleId, bucket);
-    }
-    const defaultSupplierByRole = new Map<string, string>();
-    for (const d of defaults) defaultSupplierByRole.set(d.roleId, d.supplierId);
-    const suppliersById = new Map<string, any>(suppliers.map((s) => [s.id, s]));
-    return {
-      rolesByAlgo,
-      rolesById,
-      personsByRole,
-      defaultSupplierByRole,
-      suppliersById,
-      sinkingRules: sinkingRules as SinkingRuleInput[],
-      menuItemRatios,
-    };
-  }
-
-  /**
-   * Présélection fournisseur d'une ligne (ordre STRICT spec §3.3) :
-   * HrPerson active CDI → CDD → agence par défaut de l'espace pour ce rôle →
-   * première agence du rôle. `index` distribue les personnes disponibles
-   * (une personne = une ligne, Q7 : « disponible » contrôlé par event).
-   */
-  private pickAssignment(
-    role: any | null,
-    index: number,
-    hr: Awaited<ReturnType<StaffingService['loadHrContext']>>,
-    spaceId: string,
-  ): {
-    supplierType: string | null;
-    supplierId: string | null;
-    personId: string | null;
-    personLabel: string | null;
-    rateOverride: number | null;
-  } {
-    const none = { supplierType: null, supplierId: null, personId: null, personLabel: null, rateOverride: null };
-    if (!role) return none;
-    const pool = hr.personsByRole.get(role.id) ?? { CDI: [], CDD: [] };
-    if (index < pool.CDI.length) {
-      const p = pool.CDI[index];
-      return {
-        supplierType: 'CDI',
-        supplierId: null,
-        personId: p.id,
-        personLabel: `${p.firstName} ${p.lastName}`,
-        rateOverride: p.hourlyRate ?? null,
-      };
-    }
-    const cddIndex = index - pool.CDI.length;
-    if (cddIndex < pool.CDD.length) {
-      const p = pool.CDD[cddIndex];
-      return {
-        supplierType: 'CDD',
-        supplierId: null,
-        personId: p.id,
-        personLabel: `${p.firstName} ${p.lastName}`,
-        rateOverride: p.hourlyRate ?? null,
-      };
-    }
-    // Aucune Personne dispo pour ce rôle : la Position (HrRole.contractType) devient le
-    // défaut de la ligne plutôt qu'un repli silencieux sur Agence (retour utilisateur
-    // 2026-08-04) — seul contractType='AGENCY' déclenche la résolution d'agence ci-dessous.
-    if (role.contractType && role.contractType !== 'AGENCY') {
-      return { ...none, supplierType: role.contractType };
-    }
-    // "Espaces" de l'Agence (HrSupplier.spaceIds, 2026-08-04) : n'est éligible au repli
-    // automatique qu'une agence sans restriction déclarée (liste vide) ou couvrant CET
-    // espace — évite de proposer une agence configurée pour un autre espace. Liste vide =
-    // pas de restriction déclarée par le tenant, éligible partout (ce champ était jusque-là
-    // purement décoratif, aucune agence existante ne l'avait renseigné).
-    const eligibleSupplierId = (role.suppliers ?? []).find(
-      (rs: any) => !rs.supplier?.spaceIds?.length || rs.supplier.spaceIds.includes(spaceId),
-    )?.supplierId as string | undefined;
-    const defaultSupplierId = hr.defaultSupplierByRole.get(role.id) ?? eligibleSupplierId;
-    if (defaultSupplierId) {
-      const supplier = hr.suppliersById.get(defaultSupplierId);
-      return {
-        supplierType: 'AGENCY',
-        supplierId: defaultSupplierId,
-        personId: null,
-        personLabel: supplier?.name ?? null,
-        rateOverride: null,
-      };
-    }
-    return { ...none, supplierType: 'AGENCY' };
-  }
-
-  // ── Génération (POST /events/:eventId/staffing/generate) ──────────────────
-
-  async generate(
-    eventId: string,
-    tenantId: string,
-    user?: SpaceScopedUser,
-    predictedRevenueOverride?: Record<string, unknown> | null,
-  ) {
-    const ctx = await this.getEventContext(eventId, tenantId, user);
-    const settings = await this.resolveSettings(ctx.spaceId, tenantId);
-    if (settings.goalTpe === null) {
-      throw new BadRequestException('Aucun goal TPE configuré (Settings RH) pour cet espace.');
-    }
-    if (settings.staffPerZoneManager === null) {
-      throw new BadRequestException(
-        'Aucun ratio staff par Responsable de zone configuré (Settings RH) pour cet espace.',
-      );
-    }
-    const hr = await this.loadHrContext(tenantId, ctx.spaceId);
-    // Source du CA prédictif (BUG-391-02) : corps de la requête (CA affiché à l'écran) >
-    // version par défaut > ElementPerformance.revenue (repli par élément dans la boucle).
-    // Les clés hors configuration ne sont jamais lues : la boucle parcourt les éléments de la config.
-    const override = this.sanitizeRevenueOverride(predictedRevenueOverride);
-    const predictedRevenueByElement =
-      override.size > 0 ? override : await this.resolvePredictedRevenueByElement(eventId, tenantId);
-
-    const elements = await this.prisma.spaceElement.findMany({
-      where: {
-        type: { in: STAFFING_ELEMENT_TYPES as any },
-        configurationElements: { some: { configId: ctx.configId } },
-      },
-      include: {
-        performances: { where: { configId: ctx.configId } },
-        // Saisie manuelle "vendu/prévu" par Menu Item (11_RH_STAFFING.md §11.16), source des
-        // associations Rôle↔MenuItem (hr.menuItemRatios) évaluées plus bas dans la boucle.
-        menuItemSalesInputs: { where: { configId: ctx.configId } },
-      },
-    });
-
-    const existing = await this.prisma.eventStaffLine.findMany({ where: { eventId } });
-    const suggestedHours = (ctx.lineEnd.getTime() - ctx.lineStart.getTime()) / 3_600_000;
-    const warnedRoles = new Set<string>();
-    const globalWarnings: StaffingWarning[] = [];
-
-    // Génération « silencieuse » (BUG-258-01 frontend) : un 201 avec elements: [] est
-    // indiscernable d'un no-op côté UI — on explique pourquoi rien n'a été créé.
-    if (elements.length === 0) {
-      globalWarnings.push({
-        code: 'AUCUN_ELEMENT_STAFFABLE',
-        message:
-          'Aucun point de vente staffable (shop/F&B) rattaché à la configuration de cet event — rien à générer.',
-      });
-    }
-    let totalCreated = 0;
-    let totalKept = 0;
-    // CA prédit maximum vu sur un PDV : distingue « aucun CA » de « CA sous l'objectif TPE ».
-    let maxCaPredictif = 0;
-
-    for (const el of elements) {
-      const perf = el.performances[0];
-      const caPredictif = predictedRevenueByElement.get(el.id) ?? perf?.revenue ?? 0;
-      if (Number.isFinite(caPredictif) && caPredictif > maxCaPredictif) maxCaPredictif = caPredictif;
-      const attrs = ((el as any).attributes ?? {}) as Record<string, any>;
-      // BUG-122 : sous-types Builder v2 en minuscules (beverages, front_food…) — voir
-      // fnb-tags.util.ts. CFG-2 Étape 4.5 : ce sont désormais aussi les valeurs stockées dans
-      // HrRole.fnbCategories/HrSinkingRule.fnbCategory (Subtype.code, plus d'UPPERCASE_SNAKE).
-      const fnbTags = detectFnbTags((el as any).subtypes);
-      const num = (v: any) => (Number.isFinite(Number(v)) ? Number(v) : null);
-
-      const result = this.calculator.calculate({
-        caPredictif,
-        goalTpe: settings.goalTpe,
-        // 2026-08-02, retour utilisateur : la donnée existe déjà sur l'élément (Position >
-        // Largeur) — plus de champ « Mètres linéaires » dédié dans le Builder (StaffingInputsSection).
-        metresLineaires: num((el as any).width),
-        ouvertureObligatoire: attrs.ouvertureObligatoire === true,
-        peakTxParMin: perf?.transactionsPerMinute ?? 0,
-        txParSeconde: num(attrs.txParSeconde) ?? DEFAULT_TX_PAR_SECONDE,
-        hasResponsablePdv: attrs.hasResponsablePdv === true,
-        // BEER/DRINKEE regroupés ici avec BEVERAGE pour préserver le comportement déjà
-        // testé de la formule (2026-07-30) — seul le tagging de rôle RH distingue
-        // désormais les 3 catégories finement (cf. fnb-tags.util.ts).
-        hasBeverage:
-          el.type === 'fnb_beverages' ||
-          fnbTags.has('beverages') ||
-          fnbTags.has('beer') ||
-          fnbTags.has('drinkee'),
-        nbTireuses: num(attrs.nbTireuses) ?? 0,
-        hasFrontFood: el.type === 'fnb_food' || el.type === 'fnb_snack' || fnbTags.has('front_food'),
-        nbFriteuses: num(attrs.nbFriteuses) ?? 0,
-        nbDinettes: num(attrs.nbDinettes) ?? 0,
-        // 2026-08-02, retour utilisateur : quantités PRÉVUES POUR UN EVENT (pas un attribut fixe
-        // du PDV) — plus de champ Builder dédié. Restent à 0 tant qu'un branchement réel sur les
-        // quantités prédites par Event Predict n'est pas fait ; cela nécessite une classification
-        // burger/hot-dog des MenuItem qui n'existe pas encore dans le modèle (question ouverte,
-        // cf. QUESTIONS_A_BERTRAND.md). SpaceElement.attributes.nbHotdogsPrevus reste néanmoins lu
-        // tel quel comme condition Sinking Rule (cf. applySinkingRules ci-dessous) — indépendant
-        // de ce calcul par paliers.
-        nbBurgersPrevus: 0,
-        nbHotdogsPrevus: 0,
-        hasMixology: el.type === 'fnb_bar' || fnbTags.has('mixology'),
-        hasKitchenFood: fnbTags.has('kitchen_food'),
-      });
-
-      const existingForEl = existing.filter((l) => l.elementId === el.id);
-      const kept = existingForEl.filter((l) => l.source === 'MANUAL' || l.userModified);
-      const deletableIds = existingForEl
-        .filter((l) => l.source === 'ALGO' && !l.userModified)
-        .map((l) => l.id);
-
-      const creations: any[] = [];
-      let predictedCost = 0;
-
-      for (const { key, field } of ALGO_COUNT_FIELDS) {
-        const count = (result as any)[field] as number;
-        if (count <= 0) continue;
-        const role = hr.rolesByAlgo.get(key) ?? null;
-        const defaultRate = role
-          ? (this.calculator.hourlyRateFrom(role.rateType, role.rate) ?? 0)
-          : 0;
-        // Coût prédit figé : taux DÉFAUT du rôle × durée suggérée, pour l'effectif complet (§5).
-        predictedCost += count * defaultRate * suggestedHours;
-        if (!role && !warnedRoles.has(key)) {
-          warnedRoles.add(key);
-          globalWarnings.push({
-            code: 'ROLE_A_CONFIGURER',
-            message: `Aucun rôle RH ne porte l'algoKey ${key} — rôle à configurer dans Settings RH.`,
-          });
-        }
-        const keptCount = kept.filter((l) => l.source === 'ALGO' && l.algoKey === key).length;
-        for (let i = keptCount; i < count; i++) {
-          const assignment = this.pickAssignment(role, i, hr, ctx.spaceId);
-          creations.push({
-            tenantId,
-            eventId,
-            elementId: el.id,
-            roleId: role?.id ?? null,
-            algoKey: key,
-            enabled: true,
-            source: 'ALGO',
-            userModified: false,
-            supplierType: assignment.supplierType,
-            supplierId: assignment.supplierId,
-            personId: assignment.personId,
-            personLabel: assignment.personLabel,
-            hourlyRate: assignment.rateOverride ?? defaultRate,
-            startTime: ctx.lineStart,
-            endTime: ctx.lineEnd,
-          });
-        }
-      }
-
-      // Règles Sinking RH (STF-2) : quota minimal forcé par rôle, en SUPPLÉMENT
-      // du calcul par paliers ci-dessus. Lignes ALGO, algoKey=null, roleId renseigné.
-      const sinkingOutcomes = this.calculator.applySinkingRules(fnbTags, attrs, hr.sinkingRules);
-      for (const { roleId, qty } of sinkingOutcomes) {
-        if (qty <= 0) continue;
-        const role = hr.rolesById.get(roleId) ?? null;
-        const defaultRate = role ? (this.calculator.hourlyRateFrom(role.rateType, role.rate) ?? 0) : 0;
-        predictedCost += qty * defaultRate * suggestedHours;
-        const keptCount = kept.filter(
-          (l) => l.source === 'ALGO' && l.algoKey === null && l.roleId === roleId,
-        ).length;
-        for (let i = keptCount; i < qty; i++) {
-          const assignment = this.pickAssignment(role, i, hr, ctx.spaceId);
-          creations.push({
-            tenantId,
-            eventId,
-            elementId: el.id,
-            roleId,
-            algoKey: null,
-            enabled: true,
-            source: 'ALGO',
-            userModified: false,
-            supplierType: assignment.supplierType,
-            supplierId: assignment.supplierId,
-            personId: assignment.personId,
-            personLabel: assignment.personLabel,
-            hourlyRate: assignment.rateOverride ?? defaultRate,
-            startTime: ctx.lineStart,
-            endTime: ctx.lineEnd,
-          });
-        }
-      }
-
-      // Associations Rôle↔MenuItem (11_RH_STAFFING.md §11.16) : même principe que les Sinking
-      // Rules ci-dessus (lignes ALGO, algoKey=null, roleId renseigné), mais SOMMÉES entre elles
-      // par applyMenuItemRatios (pas de max) — scopées par espace, pas par tag F&B, donc évaluées
-      // même si fnbTags est vide pour cet élément (une saisie manuelle nulle donne naturellement
-      // qty=0, pas besoin d'un garde-fou supplémentaire).
-      const sales = ((el as any).menuItemSalesInputs ?? []).map((s: any) => ({
-        menuItemId: s.menuItemId,
-        quantity: s.quantity ?? 0,
-        revenueHt: s.revenueHt ?? 0,
-      }));
-      const ratioInputs = (hr.menuItemRatios ?? []).map((r: any) => ({
-        roleId: r.roleId,
-        ratioBasis: r.ratioBasis,
-        ratioValue: r.ratioValue,
-        unitQty: r.unitQty,
-        targetMenuItemIds: r.allMenuItems ? sales.map((s: any) => s.menuItemId) : r.menuItemIds,
-      }));
-      const ratioOutcomes = this.calculator.applyMenuItemRatios(ratioInputs, sales);
-      for (const { roleId, qty } of ratioOutcomes) {
-        if (qty <= 0) continue;
-        const role = hr.rolesById.get(roleId) ?? null;
-        const defaultRate = role ? (this.calculator.hourlyRateFrom(role.rateType, role.rate) ?? 0) : 0;
-        predictedCost += qty * defaultRate * suggestedHours;
-        const keptCount = kept.filter(
-          (l) => l.source === 'ALGO' && l.algoKey === null && l.roleId === roleId,
-        ).length;
-        for (let i = keptCount; i < qty; i++) {
-          const assignment = this.pickAssignment(role, i, hr, ctx.spaceId);
-          creations.push({
-            tenantId,
-            eventId,
-            elementId: el.id,
-            roleId,
-            algoKey: null,
-            enabled: true,
-            source: 'ALGO',
-            userModified: false,
-            supplierType: assignment.supplierType,
-            supplierId: assignment.supplierId,
-            personId: assignment.personId,
-            personLabel: assignment.personLabel,
-            hourlyRate: assignment.rateOverride ?? defaultRate,
-            startTime: ctx.lineStart,
-            endTime: ctx.lineEnd,
-          });
-        }
-      }
-
-      totalCreated += creations.length;
-      totalKept += kept.length;
-
-      await this.prisma.$transaction([
-        this.prisma.eventStaffLine.deleteMany({ where: { id: { in: deletableIds } } }),
-        ...(creations.length ? [this.prisma.eventStaffLine.createMany({ data: creations })] : []),
-        // Coût prédit figé dans ElementPerformance.staffCost (champ existant, §5).
-        this.prisma.elementPerformance.upsert({
-          where: { elementId_configId: { elementId: el.id, configId: ctx.configId } },
-          update: { staffCost: this.calculator.round2(predictedCost) },
-          create: {
-            elementId: el.id,
-            configId: ctx.configId,
-            staffCost: this.calculator.round2(predictedCost),
-          },
-        }),
-      ]);
-    }
-
-    if (elements.length > 0 && totalCreated === 0 && totalKept === 0) {
-      if (maxCaPredictif > 0 && maxCaPredictif < settings.goalTpe) {
-        // BUG-391-02 : du CA existe, mais aucun PDV n'atteint le palier n = floor(CA / goalTpe) ≥ 1.
-        globalWarnings.push({
-          code: 'CA_SOUS_OBJECTIF_TPE',
-          message:
-            `Aucun PDV n'atteint l'objectif de ${this.formatEuros(settings.goalTpe)} € par TPE ` +
-            `(CA prédit max : ${this.formatEuros(maxCaPredictif)} €).`,
-        });
-      } else {
-        globalWarnings.push({
-          code: 'AUCUNE_LIGNE_GENEREE',
-          message:
-            "La génération n'a produit aucune ligne : les effectifs calculés sont tous à 0 " +
-            '(CA prédictif / pic de transactions absents pour les PDV de cette configuration).',
-        });
-      }
-    }
-
-    return this.getStaffing(eventId, tenantId, globalWarnings, user);
-  }
 
   // ── Lecture groupée (GET /events/:eventId/staffing) ───────────────────────
 
   async getStaffing(eventId: string, tenantId: string, extraWarnings: StaffingWarning[] = [], user?: SpaceScopedUser) {
-    const ctx = await this.getEventContext(eventId, tenantId, user);
-    const settings = await this.resolveSettings(ctx.spaceId, tenantId);
+    const ctx = await this.staffingContextService.getEventContext(eventId, tenantId, user);
+    const settings = await this.staffingContextService.resolveSettings(ctx.spaceId, tenantId);
     const warnings: StaffingWarning[] = [...extraWarnings];
 
     let lines = await this.prisma.eventStaffLine.findMany({
@@ -740,7 +177,7 @@ export class StaffingService {
       include: { event: { select: { spaceId: true } } },
     });
     if (!line) throw new NotFoundException(`Ligne de staff ${id} introuvable`);
-    await this.assertSpaceAccess(line.event?.spaceId, user);
+    await this.spaceAccess.assertCanAccessSpace(user, line.event?.spaceId, ASSERT_SPACE_ACCESS_DENIED);
     const startTime = input.startTime !== undefined ? new Date(input.startTime) : line.startTime;
     const endTime = input.endTime !== undefined ? new Date(input.endTime) : line.endTime;
     if (endTime <= startTime) {
@@ -765,7 +202,7 @@ export class StaffingService {
   }
 
   async addLine(eventId: string, input: any, tenantId: string, user?: SpaceScopedUser) {
-    const ctx = await this.getEventContext(eventId, tenantId, user);
+    const ctx = await this.staffingContextService.getEventContext(eventId, tenantId, user);
     const element = await this.prisma.spaceElement.findFirst({ where: { id: input.elementId } });
     if (!element) throw new BadRequestException(`PDV ${input.elementId} introuvable`);
     let hourlyRate = input.hourlyRate;
@@ -777,8 +214,8 @@ export class StaffingService {
         hourlyRate = this.calculator.hourlyRateFrom(role.rateType, role.rate) ?? 0;
       }
     }
-    const hr = await this.loadHrContext(tenantId, ctx.spaceId);
-    const assignment = this.pickAssignment(role, 0, hr, ctx.spaceId);
+    const hr = await this.staffingContextService.loadHrContext(tenantId, ctx.spaceId);
+    const assignment = this.staffingContextService.pickAssignment(role, 0, hr, ctx.spaceId);
     return this.prisma.eventStaffLine.create({
       data: {
         tenantId,
@@ -806,7 +243,7 @@ export class StaffingService {
       include: { event: { select: { spaceId: true } } },
     });
     if (!line) throw new NotFoundException(`Ligne de staff ${id} introuvable`);
-    await this.assertSpaceAccess(line.event?.spaceId, user);
+    await this.spaceAccess.assertCanAccessSpace(user, line.event?.spaceId, ASSERT_SPACE_ACCESS_DENIED);
     if (line.source !== 'MANUAL') {
       throw new BadRequestException(
         'Seules les lignes ajoutées manuellement peuvent être supprimées — décochez la ligne pour l’exclure du coût.',

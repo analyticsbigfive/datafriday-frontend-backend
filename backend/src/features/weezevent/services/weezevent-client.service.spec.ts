@@ -4,7 +4,6 @@ import { WeezeventApiService } from './weezevent-api.service';
 
 describe('WeezeventClientService', () => {
     let service: WeezeventClientService;
-    let apiService: WeezeventApiService;
 
     const mockApiService = {
         get: jest.fn(),
@@ -25,7 +24,6 @@ describe('WeezeventClientService', () => {
         }).compile();
 
         service = module.get<WeezeventClientService>(WeezeventClientService);
-        apiService = module.get<WeezeventApiService>(WeezeventApiService);
     });
 
     afterEach(() => {

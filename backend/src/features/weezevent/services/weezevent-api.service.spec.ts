@@ -4,11 +4,11 @@ import { WeezeventApiService } from './weezevent-api.service';
 import { WeezeventAuthService } from './weezevent-auth.service';
 import { WeezeventApiException } from '../exceptions/weezevent-api.exception';
 import { WeezeventAuthException } from '../exceptions/weezevent-auth.exception';
+import { AppConfigService } from '../../../config/app-config.service';
+import { testAppConfig } from '../../../config/app-config.testing';
 
 describe('WeezeventApiService', () => {
     let service: WeezeventApiService;
-    let httpService: HttpService;
-    let authService: WeezeventAuthService;
 
     const mockHttpService = {
         axiosRef: {
@@ -25,6 +25,7 @@ describe('WeezeventApiService', () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 WeezeventApiService,
+                { provide: AppConfigService, useValue: testAppConfig() },
                 {
                     provide: HttpService,
                     useValue: mockHttpService,
@@ -37,8 +38,6 @@ describe('WeezeventApiService', () => {
         }).compile();
 
         service = module.get<WeezeventApiService>(WeezeventApiService);
-        httpService = module.get<HttpService>(HttpService);
-        authService = module.get<WeezeventAuthService>(WeezeventAuthService);
     });
 
     afterEach(() => {

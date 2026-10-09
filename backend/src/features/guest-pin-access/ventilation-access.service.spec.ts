@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import { VentilationAccessService } from './ventilation-access.service';
 
 /** Accès PIN « Ventilation » des logisticiens (chantier logistic_ventilation, partie 3). */
@@ -11,7 +12,7 @@ describe('VentilationAccessService', () => {
   let service: VentilationAccessService;
   const DEVICE = 'device-abc';
   // Auteur attendu : accès + empreinte de l'appareil (sha256 tronqué).
-  const actor = `guest-pin:acc-1:${require('crypto').createHash('sha256').update(DEVICE).digest('hex').slice(0, 16)}`;
+  const actor = `guest-pin:acc-1:${createHash('sha256').update(DEVICE).digest('hex').slice(0, 16)}`;
 
   beforeEach(() => {
     prisma = {
@@ -28,7 +29,6 @@ describe('VentilationAccessService', () => {
       recordPinLoginFailure: jest.fn().mockResolvedValue(7),
       findWindowByPin: jest.fn(),
       issueGuestToken: jest.fn().mockResolvedValue('jwt'),
-      assertSpaceAccess: jest.fn(),
       closeWindowRecord: jest.fn(),
       ensureWindowPin: jest.fn(),
       readWindowPin: jest.fn().mockReturnValue('123456'),
@@ -43,7 +43,9 @@ describe('VentilationAccessService', () => {
       resolveElementItemKey: jest.fn().mockResolvedValue('Coca-Cola CAN 33cl'),
       cancel: jest.fn().mockResolvedValue({}),
     };
-    service = new VentilationAccessService(prisma, guestPin, logistics, deposits);
+    service = new VentilationAccessService(prisma, guestPin, guestPin, guestPin, logistics, deposits, {
+      assertCanAccessSpace: jest.fn(),
+    } as any);
   });
 
   describe('login', () => {

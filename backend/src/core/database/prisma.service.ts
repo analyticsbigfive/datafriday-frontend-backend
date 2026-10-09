@@ -1,13 +1,9 @@
-import {
-  Injectable,
-  OnModuleInit,
-  OnModuleDestroy,
-  Logger,
-} from '@nestjs/common';
+import { Injectable, OnModuleInit, OnModuleDestroy, Logger, InternalServerErrorException } from '@nestjs/common';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
-import { ClsService } from 'nestjs-cls';
+import { ClsService, CLS_REQ } from 'nestjs-cls';
+import { AppConfigService } from '../../config/app-config.service';
 import {
   BYPASS_TENANT_KEY,
   TENANT_ID_KEY,
@@ -15,6 +11,7 @@ import {
 import {
   applyTenantScope,
   buildTenantScopedModelSet,
+  decideTenantScope,
 } from './tenant-scope.util';
 
 @Injectable()
@@ -39,8 +36,7 @@ export class PrismaService
    * ignore (et le CLI prisma, qui n'utilise pas l'adapter, passe par DIRECT_URL
    * pour les migrations). La taille du pool reprend `connection_limit` de l'URL.
    */
-  private static buildPool(): Pool {
-    const url = process.env.DATABASE_URL || '';
+  private static buildPool(url: string): Pool {
     let max = 10;
     try {
       const limit = new URL(url).searchParams.get('connection_limit');
@@ -53,6 +49,25 @@ export class PrismaService
 
   private readonly pool: Pool;
 
+  /** Tenant et route de la requête HTTP en cours (vide hors requête), pour le journal des requêtes lentes. */
+  private queryContext(): string {
+    if (!this.cls.isActive()) return '';
+    const tenantId = this.cls.get<string | undefined>(TENANT_ID_KEY);
+    const req = this.cls.get<{ method?: string; url?: string } | undefined>(CLS_REQ);
+    const parts = [tenantId && `tenant=${tenantId}`, req?.url && `${req.method ?? ''} ${req.url.split('?')[0]}`.trim()].filter(Boolean);
+    return parts.length ? ` [${parts.join(' ')}]` : '';
+  }
+
+  /** État du pool pg (connexions ouvertes, libres, requêtes en attente), exposé par les métriques. */
+  poolStats(): { total: number; idle: number; waiting: number; max: number | undefined } {
+    return {
+      total: this.pool.totalCount,
+      idle: this.pool.idleCount,
+      waiting: this.pool.waitingCount,
+      max: this.pool.options.max,
+    };
+  }
+
   /**
    * Models that carry a REQUIRED `tenantId` scalar — the ones eligible for
    * automatic tenant scoping. Derived from the Prisma DMMF so it stays in sync
@@ -63,8 +78,11 @@ export class PrismaService
     Prisma.dmmf.datamodel.models as any,
   );
 
-  constructor(private readonly cls: ClsService) {
-    const pool = PrismaService.buildPool();
+  constructor(
+    private readonly cls: ClsService,
+    private readonly appConfig: AppConfigService,
+  ) {
+    const pool = PrismaService.buildPool(appConfig.databaseUrl);
     super({
       adapter: new PrismaPg(pool),
       log: [
@@ -77,66 +95,71 @@ export class PrismaService
     });
     this.pool = pool;
 
-    const slowQueryThresholdMs = Number(
-      process.env.PRISMA_SLOW_QUERY_MS ||
-        (process.env.NODE_ENV === 'production' ? 500 : 0),
-    );
+    const slowQueryThresholdMs = appConfig.prismaSlowQueryMs;
+    const isProduction = appConfig.isProduction;
 
     // Log queries:
     //  - en développement: tout (debug)
     //  - en production: uniquement les requêtes lentes (> seuil) en warn
     this.$on('query' as never, (e: any) => {
-      if (process.env.NODE_ENV !== 'production') {
+      if (!isProduction) {
         this.logger.debug(`Query: ${e.query} | Params: ${e.params} | ${e.duration}ms`);
         return;
       }
       if (slowQueryThresholdMs > 0 && e.duration >= slowQueryThresholdMs) {
-        this.logger.warn(`SLOW QUERY (${e.duration}ms): ${e.query}`);
+        this.logger.warn(`SLOW QUERY (${e.duration}ms)${this.queryContext()}: ${e.query}`);
       }
     });
 
-    // Log errors
-    this.$on('error' as never, (e: any) => {
-      this.logger.error(`Prisma Error: ${e.message}`, e.target);
+    // L'erreur est aussi relancée à l'appelant, qui décide (un P2002 d'idempotence est normal) :
+    // ici on garde une trace lisible. Le message Prisma commence par un saut de ligne et
+    // embarque un extrait de code ; seule sa dernière ligne décrit l'erreur.
+    this.$on('error' as never, (e: { message?: string; target?: string }) => {
+      const summary = String(e.message ?? '').trim().split('\n').pop() || 'erreur sans message';
+      this.logger.warn(`Prisma ${e.target ?? 'query'} : ${summary}`);
     });
 
     this.registerTenantScopeMiddleware();
   }
 
   /**
-   * Automatic multi-tenant isolation.
+   * Isolation multi-tenant automatique (décision : decideTenantScope).
    *
-   * Injects `tenantId` into the WHERE clause (reads/updates/deletes) and into
-   * `data` (creates) for every tenant-scoped model, using the tenant resolved
-   * for the current request (CLS).
+   * Injecte `tenantId` dans le WHERE (lectures, mises à jour, suppressions) et dans
+   * `data` (créations) pour chaque modèle tenant-scopé, à partir du tenant du contexte
+   * CLS. Hors de tout contexte (job, cron, script), une requête sur un modèle
+   * tenant-scopé est refusée (TENANT_SCOPE_MODE=strict) ou signalée (warn).
    *
-   * No-ops when:
-   *  - there is no active request context (background jobs, seeds, webhooks);
-   *  - scoping is explicitly bypassed (TenantContextService.runWithoutTenantScope);
-   *  - the model is not tenant-scoped;
-   *  - the caller already constrained `tenantId` (we never override it).
-   *
-   * Relies on Prisma 5 "extended where unique": adding a `tenantId` scalar
-   * filter alongside a unique selector is valid for findUnique/update/delete,
-   * so we never need to rewrite the query action.
+   * Prisma 5 « extended where unique » : ajouter `tenantId` à côté d'un sélecteur
+   * unique est valide pour findUnique/update/delete, l'action n'est jamais réécrite.
    */
   private registerTenantScopeMiddleware(): void {
+    const strict = this.appConfig.tenantScopeMode === 'strict';
+    const warned = new Set<string>();
+
     this.$use(async (params, next) => {
-      const model = params.model;
-
       const hasContext = this.cls?.isActive?.() ?? false;
-      const bypass = hasContext
-        ? this.cls.get<boolean>(BYPASS_TENANT_KEY) === true
-        : true;
-      const tenantId = hasContext
-        ? this.cls.get<string | undefined>(TENANT_ID_KEY)
-        : undefined;
+      const decision = decideTenantScope({
+        model: params.model,
+        scopedModels: this.tenantScopedModels,
+        hasContext,
+        bypass: hasContext && this.cls.get<boolean>(BYPASS_TENANT_KEY) === true,
+        tenantId: hasContext ? this.cls.get<string | undefined>(TENANT_ID_KEY) : undefined,
+      });
 
-      if (!model || bypass || !tenantId || !this.tenantScopedModels.has(model)) {
+      if (decision.kind === 'reject') {
+        const where = `${params.model}.${params.action}`;
+        const message =
+          `[tenant-scope] ${where} hors contexte tenant : ouvrir un contexte avec ` +
+          `TenantContextService.runForTenant() ou runWithoutTenantScope().`;
+        if (strict) throw new InternalServerErrorException(message);
+        if (!warned.has(where)) {
+          warned.add(where);
+          this.logger.warn(message);
+        }
         return next(params);
       }
-
-      applyTenantScope(params, tenantId);
+      if (decision.kind === 'scope') applyTenantScope(params, decision.tenantId);
       return next(params);
     });
   }
@@ -146,14 +169,14 @@ export class PrismaService
       await this.$connect();
       // Avec le driver adapter, $connect est paresseux : un vrai ping est requis
       // pour conserver la sémantique fail-fast (prod) / démarrage sans DB (dev).
-      await this.$queryRaw`SELECT 1`;
+      await this.ping();
       this.logger.log('✅ Database connected successfully');
     } catch (error) {
       this.logger.error('❌ Database connection failed', error);
       
       // En développement, on permet à l'API de démarrer sans DB
       // Les endpoints qui nécessitent Prisma échoueront, mais le health check fonctionnera
-      if (process.env.NODE_ENV === 'development') {
+      if (this.appConfig.isDevelopment) {
         this.logger.warn('⚠️  Continuing in development mode without database connection');
         this.logger.warn('⚠️  Check your DATABASE_URL in envFiles/.env.development');
         return;
@@ -162,6 +185,11 @@ export class PrismaService
       // En production, on bloque le démarrage si la DB est inaccessible
       throw error;
     }
+  }
+
+  /** Aller-retour minimal vers la base (sondes de santé). */
+  async ping(): Promise<void> {
+    await this.$queryRaw`SELECT 1`;
   }
 
   async onModuleDestroy() {
@@ -181,15 +209,17 @@ export class PrismaService
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
+        // eslint-disable-next-line no-await-in-loop -- nouvelle tentative après échec, avec attente exponentielle
         return await this.$transaction(async (tx) => callback(tx as PrismaClient));
       } catch (error) {
         lastError = error as Error;
         this.logger.warn(
-          `Transaction attempt ${attempt}/${maxRetries} failed: ${error.message}`,
+          `Transaction attempt ${attempt}/${maxRetries} failed: ${(error as Error).message}`,
         );
 
         if (attempt < maxRetries) {
           // Exponential backoff
+          // eslint-disable-next-line no-await-in-loop -- nouvelle tentative après échec, avec attente exponentielle
           await this.sleep(Math.pow(2, attempt) * 100);
         }
       }
@@ -206,8 +236,8 @@ export class PrismaService
    * Clean database (for testing)
    */
   async cleanDatabase() {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('Cannot clean database in production!');
+    if (this.appConfig.isProduction) {
+      throw new InternalServerErrorException('Cannot clean database in production!');
     }
 
     const models = Reflect.ownKeys(this).filter(

@@ -1,61 +1,89 @@
-import { MenuComponentsService } from './menu-components.service';
+import { createMenuComponentsServices } from './services/menu-components-services.testing';
 
 describe('MenuComponentsService computeComponentUnitCost', () => {
   const mockPrisma = {
     menuComponent: {
-      findFirst: jest.fn(),
+      findMany: jest.fn(),
     },
     ingredient: {
-      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
     },
   } as any;
 
   const mockRedis = {} as any;
-
-  let service: MenuComponentsService;
+  let menuComponentCostService: any;
 
   beforeEach(() => {
-    service = new MenuComponentsService(mockPrisma, mockRedis, {} as any, { resolveImage: async (v: any) => v } as any);
+    ({ menuComponentCostService } = createMenuComponentsServices({ prisma: mockPrisma, redis: mockRedis }));
     jest.clearAllMocks();
   });
 
   // BUG-001: une recette dont `numberOfUnitsRecipe` produit plusieurs unités doit voir son coût
   // divisé par ce nombre pour obtenir le coût unitaire, pas le coût de la fournée entière.
   it('divides the total recipe cost by numberOfUnitsRecipe when it is greater than 1', async () => {
-    mockPrisma.menuComponent.findFirst.mockResolvedValue({
+    mockPrisma.menuComponent.findMany.mockResolvedValue([{
       id: 'comp-1',
       numberOfUnitsRecipe: 20,
       ingredients: [{ ingredientId: 'ing-1', unitCost: 10, quantity: 2 }], // batch cost = 20
       children: [],
-    });
+    }]);
 
-    const unitCost = await (service as any).computeComponentUnitCost('comp-1', 'tenant-1');
+    const unitCost = await (menuComponentCostService as any).computeComponentUnitCost('comp-1', 'tenant-1');
 
     expect(unitCost).toBe(1); // 20 / 20
   });
 
   it('treats a falsy numberOfUnitsRecipe (null/undefined/0) as 1 to avoid dividing by zero', async () => {
-    mockPrisma.menuComponent.findFirst.mockResolvedValue({
+    mockPrisma.menuComponent.findMany.mockResolvedValue([{
       id: 'comp-2',
       numberOfUnitsRecipe: null,
       ingredients: [{ ingredientId: 'ing-1', unitCost: 10, quantity: 2 }], // batch cost = 20
       children: [],
-    });
+    }]);
 
-    const unitCost = await (service as any).computeComponentUnitCost('comp-2', 'tenant-1');
+    const unitCost = await (menuComponentCostService as any).computeComponentUnitCost('comp-2', 'tenant-1');
 
     expect(unitCost).toBe(20); // unchanged, divided by 1
 
-    mockPrisma.menuComponent.findFirst.mockResolvedValue({
+    mockPrisma.menuComponent.findMany.mockResolvedValue([{
       id: 'comp-3',
       numberOfUnitsRecipe: 0,
       ingredients: [{ ingredientId: 'ing-1', unitCost: 10, quantity: 2 }],
       children: [],
-    });
+    }]);
 
-    const unitCostZero = await (service as any).computeComponentUnitCost('comp-3', 'tenant-1');
+    const unitCostZero = await (menuComponentCostService as any).computeComponentUnitCost('comp-3', 'tenant-1');
 
     expect(unitCostZero).toBe(20);
+  });
+
+  it('additionne les sous-composants chargés niveau par niveau et le coût des ingrédients sans coût de ligne', async () => {
+    mockPrisma.menuComponent.findMany
+      .mockResolvedValueOnce([{ id: 'parent', numberOfUnitsRecipe: 1, ingredients: [{ ingredientId: 'ing-1', unitCost: 0, quantity: 3 }], children: [{ childId: 'child', quantity: 2 }] }])
+      .mockResolvedValueOnce([{ id: 'child', numberOfUnitsRecipe: 4, ingredients: [{ ingredientId: 'ing-2', unitCost: 8, quantity: 1 }], children: [] }]);
+    mockPrisma.ingredient.findMany.mockResolvedValue([{ id: 'ing-1', costPerRecipeUnit: 1.5 }]);
+
+    const unitCost = await (menuComponentCostService as any).computeComponentUnitCost('parent', 'tenant-1');
+
+    // 3 × 1,5 (ingrédient) + 2 × (8 / 4) (sous-composant) = 8,5
+    expect(unitCost).toBe(8.5);
+    expect(mockPrisma.menuComponent.findMany).toHaveBeenCalledTimes(2);
+    expect(mockPrisma.ingredient.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuse un cycle entre composants', async () => {
+    mockPrisma.menuComponent.findMany
+      .mockResolvedValueOnce([{ id: 'a', ingredients: [], children: [{ childId: 'b', quantity: 1 }] }])
+      .mockResolvedValueOnce([{ id: 'b', ingredients: [], children: [{ childId: 'a', quantity: 1 }] }]);
+
+    await expect((menuComponentCostService as any).computeComponentUnitCost('a', 'tenant-1')).rejects.toThrow('Cycle detected in components: a -> b -> a');
+  });
+
+  it("signale un ingrédient introuvable quand la ligne n'a pas de coût propre", async () => {
+    mockPrisma.menuComponent.findMany.mockResolvedValueOnce([{ id: 'c', ingredients: [{ ingredientId: 'absent', unitCost: null, quantity: 1 }], children: [] }]);
+    mockPrisma.ingredient.findMany.mockResolvedValue([]);
+
+    await expect((menuComponentCostService as any).computeComponentUnitCost('c', 'tenant-1')).rejects.toThrow('Ingredient absent not found');
   });
 });
 
@@ -63,7 +91,9 @@ describe('MenuComponentsService.create : purge du cache liste', () => {
   const created = { id: 'mc-new', name: 'Sauce maison' };
   let prisma: any;
   let redis: any;
-  let service: MenuComponentsService;
+  let menuComponentValidationService: any;
+  let menuComponentCostService: any;
+  let menuComponentsService: any;
 
   beforeEach(() => {
     prisma = {
@@ -73,28 +103,28 @@ describe('MenuComponentsService.create : purge du cache liste', () => {
       },
     };
     redis = { deletePattern: jest.fn().mockResolvedValue(1) };
-    service = new MenuComponentsService(prisma, redis, {} as any, { resolveImage: async (v: any) => v } as any);
+    ({ menuComponentValidationService, menuComponentCostService, menuComponentsService } = createMenuComponentsServices({ prisma, redis }));
     // Validations de références et recalcul des coûts hors sujet ici.
-    jest.spyOn(service as any, 'assertIngredientsExist').mockResolvedValue(undefined);
-    jest.spyOn(service as any, 'assertChildrenExist').mockResolvedValue(undefined);
-    jest.spyOn(service as any, 'assertComponentTypeAccessible').mockResolvedValue(undefined);
-    jest.spyOn(service as any, 'assertComponentCategoryAccessible').mockResolvedValue(undefined);
-    jest.spyOn(service, 'refreshCosts').mockResolvedValue(undefined as any);
+    jest.spyOn(menuComponentValidationService as any, 'assertIngredientsExist').mockResolvedValue(undefined);
+    jest.spyOn(menuComponentValidationService as any, 'assertChildrenExist').mockResolvedValue(undefined);
+    jest.spyOn(menuComponentValidationService as any, 'assertComponentTypeAccessible').mockResolvedValue(undefined);
+    jest.spyOn(menuComponentValidationService as any, 'assertComponentCategoryAccessible').mockResolvedValue(undefined);
+    jest.spyOn(menuComponentCostService, 'refreshCosts').mockResolvedValue(undefined as any);
   });
 
   // Bug liste Composants (2026-09-24) : créé avec des ingrédients, le composant sortait par le
   // retour anticipé sans purger le cache `findAll` (TTL 1 h) et restait absent de la liste.
   it('purge le cache quand le composant est créé avec des ingrédients', async () => {
-    await service.create(
+    await menuComponentsService.create(
       { name: 'Sauce maison', ingredients: [{ ingredientId: 'ing-1', quantity: 2, unit: 'g' }] } as any,
       'tenant-1',
     );
-    expect(service.refreshCosts).toHaveBeenCalled();
+    expect(menuComponentCostService.refreshCosts).toHaveBeenCalled();
     expect(redis.deletePattern).toHaveBeenCalledWith('menu-components:tenant-1:*');
   });
 
   it('purge le cache quand le composant est créé sans ligne', async () => {
-    await service.create({ name: 'Sauce maison' } as any, 'tenant-1');
+    await menuComponentsService.create({ name: 'Sauce maison' } as any, 'tenant-1');
     expect(redis.deletePattern).toHaveBeenCalledWith('menu-components:tenant-1:*');
   });
 });

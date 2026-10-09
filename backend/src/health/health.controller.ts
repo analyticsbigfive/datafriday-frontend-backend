@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards, Inject, Optional } from '@nestjs/common';
+import { Controller, Get, UseGuards, Optional } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { SkipThrottle } from '@nestjs/throttler';
 import { JwtDatabaseGuard } from '../core/auth/guards/jwt-db.guard';
@@ -74,13 +74,13 @@ export class HealthController {
     if (this.prisma) {
       const start = Date.now();
       try {
-        await this.prisma.$queryRaw`SELECT 1`;
+        await this.prisma.ping();
         checks.database = {
           status: 'healthy',
           latencyMs: Date.now() - start,
         };
       } catch (error) {
-        checks.database = { status: 'unhealthy', error: error.message };
+        checks.database = { status: 'unhealthy', error: (error as Error).message };
       }
     } else {
       checks.database = { status: 'not_configured' };
@@ -95,7 +95,7 @@ export class HealthController {
           connected: redisOk,
         };
       } catch (error) {
-        checks.redis = { status: 'unhealthy', error: error.message };
+        checks.redis = { status: 'unhealthy', error: (error as Error).message };
       }
     } else {
       checks.redis = { status: 'not_configured' };
@@ -110,7 +110,7 @@ export class HealthController {
           stats: queueStats,
         };
       } catch (error) {
-        checks.queues = { status: 'unhealthy', error: error.message };
+        checks.queues = { status: 'unhealthy', error: (error as Error).message };
       }
     } else {
       checks.queues = { status: 'not_configured' };
@@ -137,8 +137,10 @@ export class HealthController {
     const beats: Record<string, { lastBeatAt: string | null; stale: boolean }> = {};
     let stale = false;
     let known = false;
-    for (const [name, limit] of Object.entries(staleAfterMs)) {
-      const last = await this.redisService.get<string>(liveHeartbeatKey(name));
+    const entries = Object.entries(staleAfterMs);
+    const lasts = await Promise.all(entries.map(([name]) => this.redisService.get<string>(liveHeartbeatKey(name))));
+    for (const [i, [name, limit]] of entries.entries()) {
+      const last = lasts[i];
       const isStale = !last || Date.now() - new Date(last).getTime() > limit;
       beats[name] = { lastBeatAt: last, stale: isStale };
       known = known || !!last;

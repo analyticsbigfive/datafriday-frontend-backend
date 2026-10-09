@@ -7,6 +7,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { StaffingService } from './staffing.service';
 import { GenerateStaffingDto } from './dto/generate-staffing.dto';
+import { StaffingGenerationService } from './services/staffing-generation.service';
 
 class PatchStaffLineDto {
   @IsOptional()
@@ -59,12 +60,13 @@ class CreateStaffLineDto extends PatchStaffLineDto {
 @RequirePermissions('menu.hr.manage')
 @Controller()
 export class StaffingController {
-  constructor(private readonly service: StaffingService) {}
+  constructor(private readonly staffingGenerationService: StaffingGenerationService,
+    private readonly staffingService: StaffingService) {}
 
   @Get('events/:eventId/staffing')
   @ApiOperation({ summary: "Lignes de staff de l'événement groupées par PDV + totaux (§5)" })
   getStaffing(@Param('eventId') eventId: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.service.getStaffing(eventId, tenantId, undefined, user);
+    return this.staffingService.getStaffing(eventId, tenantId, undefined, user);
   }
 
   @Post('events/:eventId/staffing/generate')
@@ -79,7 +81,7 @@ export class StaffingController {
     @Body() dto?: GenerateStaffingDto,
   ) {
     // BUG-391-02 : CA prédit affiché à l'écran (optionnel, prioritaire sur la version par défaut).
-    return this.service.generate(eventId, tenantId, user, dto?.predictedRevenueByElement);
+    return this.staffingGenerationService.generate(eventId, tenantId, user, dto?.predictedRevenueByElement);
   }
 
   @Post('events/:eventId/staffing/lines')
@@ -90,19 +92,19 @@ export class StaffingController {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: any,
   ) {
-    return this.service.addLine(eventId, dto, tenantId, user);
+    return this.staffingService.addLine(eventId, dto, tenantId, user);
   }
 
   @Patch('staffing/lines/:id')
   @ApiOperation({ summary: 'Modifier une ligne (enabled / fournisseur / personne / horaires / taux)' })
   patchLine(@Param('id') id: string, @Body() dto: PatchStaffLineDto, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.service.patchLine(id, dto, tenantId, user);
+    return this.staffingService.patchLine(id, dto, tenantId, user);
   }
 
   @Delete('staffing/lines/:id')
   @ApiOperation({ summary: 'Supprimer une ligne (lignes MANUAL uniquement)' })
   removeLine(@Param('id') id: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.service.removeLine(id, tenantId, user);
+    return this.staffingService.removeLine(id, tenantId, user);
   }
 }
 
@@ -113,12 +115,12 @@ export class StaffingController {
 @RequirePermissions('menu.hr.manage')
 @Controller('hr-settings/costs')
 export class StaffingCostsController {
-  constructor(private readonly service: StaffingService) {}
+  constructor(private readonly staffingService: StaffingService) {}
 
   @Get()
   @ApiOperation({ summary: 'Σ EventStaffLine enabled × durée × taux, groupé par espace' })
   @ApiQuery({ name: 'spaceId', required: false })
   costs(@CurrentTenant() tenantId: string, @Query('spaceId') spaceId?: string, @CurrentUser() user?: any) {
-    return this.service.costsBySpace(tenantId, spaceId, user);
+    return this.staffingService.costsBySpace(tenantId, spaceId, user);
   }
 }
