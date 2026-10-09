@@ -6,6 +6,7 @@ import { StockItemKind } from '../logistics/dto/logistics.dto';
 import { CreateLogisticTaskBatchDto } from './dto/logistic-tasks.dto';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { StockMovementService } from '../logistics/services/stock-movement.service';
+import { NotificationPublisherService } from '../notifications/notification-publisher.service';
 
 /** Miroir de SHOP_TYPES (logistics.service.ts) : sert uniquement à choisir TRANSFER_SHOP
  * vs TRANSFER_STORAGE pour la contrepartie, même convention que LogisticMovementDialog. */
@@ -27,6 +28,7 @@ export class LogisticTasksService {
     private readonly prisma: PrismaService,
     private readonly stockMovementService: StockMovementService,
     private readonly spaceAccess: SpaceAccessService,
+    private readonly notificationPublisher: NotificationPublisherService,
   ) {}
 
   /** Résout le nom + type des SpaceElement référencés, pour enrichir les réponses. */
@@ -111,6 +113,7 @@ export class LogisticTasksService {
           link: `/spaces/${spaceId}/logistic`,
         })),
       });
+      await this.notificationPublisher.signal(tenantId, byStaff.keys());
     } catch (e) {
       this.logger.error(`Notification logistic_task_assigned échouée pour le lot ${spaceId} : ${(e as Error)?.message}`);
     }
@@ -313,6 +316,7 @@ export class LogisticTasksService {
           link: `/spaces/${task.spaceId}/logistic`,
         },
       });
+      await this.notificationPublisher.signal(tenantId, [task.createdBy]);
     } catch (e) {
       this.logger.error(`Notification logistic_task_failed échouée pour ${task.id} : ${(e as Error)?.message}`);
     }
@@ -340,6 +344,7 @@ export class LogisticTasksService {
           link: `/spaces/${task.spaceId}/logistic`,
         },
       });
+      await this.notificationPublisher.signal(tenantId, [task.createdBy]);
     } catch (e) {
       this.logger.error(`Notification logistic_batch_completed échouée pour le lot ${task.batchId} : ${(e as Error)?.message}`);
     }

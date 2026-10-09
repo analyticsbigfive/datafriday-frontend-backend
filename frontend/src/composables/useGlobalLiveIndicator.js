@@ -31,6 +31,9 @@ let _shared = null
 function createShared() {
   return _scope.run(() => {
     const lastSeenBySpace = ref(new Map())
+    // Signal « nouvelle notification » porté par le même flux (backend LiveController) :
+    // remplace le poll toutes les 30 s de la cloche (store serverNotifications).
+    const notificationListeners = new Set()
     let pruneTimer = null
     let started = false
 
@@ -48,6 +51,10 @@ function createShared() {
     }
 
     const stream = useLiveStream('/live/stream', (payload) => {
+      if (payload?.kind === 'notification') {
+        notificationListeners.forEach((cb) => { try { cb(payload) } catch { /* écouteur isolé */ } })
+        return
+      }
       if (!payload?.spaceId) return
       const next = new Map(lastSeenBySpace.value)
       next.set(payload.spaceId, Date.now())
@@ -78,7 +85,16 @@ function createShared() {
       return (spaceId && lastSeenBySpace.value.get(spaceId)) || null
     }
 
-    return { hasLiveEvents, liveSpaceCount, isSpaceLive, lastSeenAt, start, stop }
+    /** Abonnement aux signaux de notification ; renvoie la fonction de désabonnement. */
+    function onNotification(cb) {
+      notificationListeners.add(cb)
+      return () => notificationListeners.delete(cb)
+    }
+
+    return {
+      hasLiveEvents, liveSpaceCount, isSpaceLive, lastSeenAt, start, stop,
+      onNotification, connected: stream.connected,
+    }
   })
 }
 
