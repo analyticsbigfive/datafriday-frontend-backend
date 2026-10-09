@@ -16,3 +16,12 @@ export function liveSpaceChannel(tenantId: string, spaceId: string): string {
 export function liveTenantSpacePattern(tenantId: string): string {
   return `live:tenant:${tenantId}:space:*`;
 }
+
+/**
+ * Notifications serveur d'un utilisateur : signal publié à chaque notification créée pour lui
+ * (NotificationPublisherService), relayé par le flux SSE global GET /live/stream. Le message ne
+ * porte aucune donnée : le client recharge sa liste (GET /notifications) à réception.
+ */
+export function notificationUserChannel(tenantId: string, userId: string): string {
+  return `notif:tenant:${tenantId}:user:${userId}`;
+}

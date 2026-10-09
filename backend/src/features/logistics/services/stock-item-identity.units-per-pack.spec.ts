@@ -27,8 +27,16 @@ describe('StockItemIdentityService.resolveUnitsPerPackForItemKeys', () => {
     expect(await service.resolveUnitsPerPackForItemKey('Badiane', 't1')).toBeNull();
   });
 
-  it("reproduit le joker % de l'ILIKE de Prisma", async () => {
-    const { service } = make({ mp: [{ itemName: 'Heineken 0% - CAN 33CL', packedUnits: 24 }] });
-    expect(await service.resolveUnitsPerPackForItemKey('Heineken 0% 33cl', 't1')).toBe(24);
+  // Décision 5 du plan de remédiation (2026-10-09) : « % » et « _ » ne sont plus des jokers.
+  it('« % » et « _ » sont échappés : « Heineken 0% 33cl » ne correspond plus qu\'à lui-même', async () => {
+    const { prisma, service } = make({ mp: [{ itemName: 'Heineken 0% - CAN 33CL', packedUnits: 24 }] });
+    expect(await service.resolveUnitsPerPackForItemKey('Heineken 0% 33cl', 't1')).toBeNull();
+    const filter = prisma.marketPrice.findMany.mock.calls[0][0].where.OR[0].itemName;
+    expect(filter).toEqual({ equals: 'Heineken 0\\% 33cl', mode: 'insensitive' });
+  });
+
+  it('le même nom, casse différente, reste reconnu', async () => {
+    const { service } = make({ mp: [{ itemName: 'Heineken 0% 33CL', packedUnits: 24 }] });
+    expect(await service.resolveUnitsPerPackForItemKey('heineken 0% 33cl', 't1')).toBe(24);
   });
 });

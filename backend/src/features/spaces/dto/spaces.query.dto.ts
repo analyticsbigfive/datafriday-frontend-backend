@@ -1,5 +1,6 @@
 import { PageLimitQueryDto } from '../../../shared/dto/list-query.dto';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { MINUTE_LOCAL_PATTERN } from '../live-delta.util';
 
 /**
  * Paramètres de query des routes du contrôleur, validés (types, bornes). Les noms et valeurs
@@ -23,4 +24,21 @@ export class SpacesGetEventTimelineBatchQueryDto {
   @IsString()
   @MaxLength(2000)
   granularity?: string;
+
+  /** Écran Live : seulement les minutes locales >= since (format « YYYY-MM-DDTHH:mm »). */
+  @IsOptional()
+  @Matches(MINUTE_LOCAL_PATTERN, { message: 'since doit être une minute locale « YYYY-MM-DDTHH:mm »' })
+  since?: string;
+}
+
+export class SpacesGetTransactionBasketsBatchQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  eventIds?: string;
+
+  /** Écran Live : seulement les minutes locales >= since (format « YYYY-MM-DDTHH:mm »). */
+  @IsOptional()
+  @Matches(MINUTE_LOCAL_PATTERN, { message: 'since doit être une minute locale « YYYY-MM-DDTHH:mm »' })
+  since?: string;
 }

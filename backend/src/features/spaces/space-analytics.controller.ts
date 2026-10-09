@@ -9,7 +9,8 @@ import { RolesGuard } from '../../core/auth/guards/roles.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { SpaceIdParam } from '../../core/auth/decorators/space-id-param.decorator';
-import { SpacesGetEventTimelineBatchQueryDto } from './dto/spaces.query.dto';
+import { SpacesGetEventTimelineBatchQueryDto, SpacesGetTransactionBasketsBatchQueryDto } from './dto/spaces.query.dto';
+import { rowsSinceMinute } from './live-delta.util';
 import { SpaceEventTimelineService } from './services/space-event-timeline.service';
 import { SpaceAnalyseBatchService } from './services/space-analyse-batch.service';
 import { SpaceShopsService } from './services/space-shops.service';
@@ -47,6 +48,11 @@ export class SpaceAnalyticsController {
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
   @ApiQuery({ name: 'eventIds', required: true, description: 'IDs d\'événements séparés par des virgules (max 100)' })
   @ApiQuery({
+    name: 'since',
+    required: false,
+    description: 'Écran Live : seulement les minutes locales >= since (« YYYY-MM-DDTHH:mm »), rafraîchissement incrémental.',
+  })
+  @ApiQuery({
     name: 'granularity',
     required: false,
     enum: ['minute', 'summary'],
@@ -60,11 +66,12 @@ export class SpaceAnalyticsController {
     @Query() params: SpacesGetEventTimelineBatchQueryDto,
     @CurrentUser() user: any,
   ) {
-    const { eventIds, granularity } = params;
+    const { eventIds, granularity, since } = params;
     const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
-    return this.spaceEventTimelineService.getEventTimelineBatch(id, ids, user.tenantId, {
+    const byEvent = await this.spaceEventTimelineService.getEventTimelineBatch(id, ids, user.tenantId, {
       granularity: granularity === 'summary' ? 'summary' : 'minute',
     });
+    return rowsSinceMinute(byEvent, since);
   }
 
   /**
@@ -86,6 +93,11 @@ export class SpaceAnalyticsController {
   })
   @ApiParam({ name: 'id', description: 'ID de l\'espace' })
   @ApiQuery({ name: 'eventIds', required: true, description: 'IDs d\'événements séparés par des virgules (max 100)' })
+  @ApiQuery({
+    name: 'since',
+    required: false,
+    description: 'Écran Live : seulement les minutes locales >= since (« YYYY-MM-DDTHH:mm »), rafraîchissement incrémental.',
+  })
   @ApiResponse({
     status: 200,
     description: 'Combinaisons par transaction, groupées par eventId',
@@ -130,11 +142,12 @@ export class SpaceAnalyticsController {
   })
   async getTransactionBasketsBatch(
     @Param('id') id: string,
-    @Query('eventIds') eventIds: string,
+    @Query() params: SpacesGetTransactionBasketsBatchQueryDto,
     @CurrentUser() user: any,
   ) {
-    const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
-    return this.spaceAnalyseBatchService.getTransactionBasketsBatch(id, ids, user.tenantId, user);
+    const ids = (params.eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const byEvent = await this.spaceAnalyseBatchService.getTransactionBasketsBatch(id, ids, user.tenantId, user);
+    return rowsSinceMinute(byEvent, params.since);
   }
 
   /**
