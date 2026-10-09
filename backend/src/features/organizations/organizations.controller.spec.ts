@@ -7,7 +7,6 @@ import { ALLOW_NO_TENANT_KEY } from '../../core/auth/decorators/allow-no-tenant.
 
 describe('OrganizationsController', () => {
   let controller: OrganizationsController;
-  let service: OrganizationsService;
 
   const mockOrganization = {
     id: 'org-123',
@@ -39,7 +38,6 @@ describe('OrganizationsController', () => {
     }).compile();
 
     controller = module.get<OrganizationsController>(OrganizationsController);
-    service = module.get<OrganizationsService>(OrganizationsService);
 
     jest.clearAllMocks();
   });

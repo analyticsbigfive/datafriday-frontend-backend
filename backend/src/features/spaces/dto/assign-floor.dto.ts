@@ -19,8 +19,8 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
  * Zones non numériques acceptées par `assign-floor` en plus d'un niveau d'étage entier.
  * Partagé entre le DTO (validation) et le service (branchement).
  */
-export const ASSIGN_FLOOR_ZONES = ['forecourt', 'externalmerch'] as const;
-export type AssignFloorZone = (typeof ASSIGN_FLOOR_ZONES)[number];
+const ASSIGN_FLOOR_ZONES = ['forecourt', 'externalmerch'] as const;
+type AssignFloorZone = (typeof ASSIGN_FLOOR_ZONES)[number];
 export type AssignFloorLevel = number | AssignFloorZone;
 
 /**
@@ -29,7 +29,7 @@ export type AssignFloorLevel = number | AssignFloorZone;
  * décorateur d'union (`@IsUnion` n'existe pas) → validateur custom dédié.
  */
 @ValidatorConstraint({ name: 'isFloorLevelOrZone', async: false })
-export class IsFloorLevelOrZone implements ValidatorConstraintInterface {
+class IsFloorLevelOrZone implements ValidatorConstraintInterface {
   validate(value: unknown): boolean {
     if (typeof value === 'number') return Number.isInteger(value);
     if (typeof value === 'string') return (ASSIGN_FLOOR_ZONES as readonly string[]).includes(value);

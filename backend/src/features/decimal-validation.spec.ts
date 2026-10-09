@@ -8,7 +8,7 @@ import {
   MenuComponentChildLineDto,
 } from './menu-components/dto/create-menu-component.dto';
 import { PutPerformanceDto } from './builder-v2/dto/builder-v2.dto';
-import { parseAmount } from './digifood/services/digifood-csv-import.service';
+import { parseAmount } from './digifood/services/digifood-csv.parsing';
 
 /**
  * Chantier décimaux/prix (2026-08) : bornes @Min/@Max sur les montants,
@@ -24,10 +24,11 @@ describe('Champs monétaires — validation des DTOs', () => {
       expect(await validate(dto)).toHaveLength(0);
     });
 
-    it('rejette un prix négatif', async () => {
-      const dto = plainToInstance(CreateMenuItemDto, { ...base, basePrice: -1 });
-      const errors = await validate(dto);
-      expect(errors.find((e) => e.property === 'basePrice')?.constraints).toHaveProperty('min');
+    // 85717e0d (2026-08-06) : prix négatifs autorisés (remises/avoirs), seule la finitude est exigée.
+    it('accepte un prix négatif (remise/avoir) mais rejette un prix non numérique', async () => {
+      expect(await validate(plainToInstance(CreateMenuItemDto, { ...base, basePrice: -1 }))).toHaveLength(0);
+      const errors = await validate(plainToInstance(CreateMenuItemDto, { ...base, basePrice: 'abc' }));
+      expect(errors.find((e) => e.property === 'basePrice')).toBeDefined();
     });
 
     it('accepte une TVA à 0 % et rejette une TVA > 100 %', async () => {
@@ -60,9 +61,13 @@ describe('Champs monétaires — validation des DTOs', () => {
         expect(await validate(dto)).toHaveLength(0);
       });
 
-      it('rejette un ttc négatif, une TVA > 100 et une valeur non numérique', async () => {
+      it('accepte un ttc négatif (remise/avoir)', async () => {
+        const dto = plainToInstance(CreateMenuItemDto, { ...base, spacePrices: { s1: { ttc: -1 } } });
+        expect(await validate(dto)).toHaveLength(0);
+      });
+
+      it('rejette une TVA > 100 et une valeur non numérique', async () => {
         for (const spacePrices of [
-          { s1: { ttc: -1 } },
           { s1: { ttc: 5, vatRate: 200 } },
           { s1: 'douze' },
         ]) {

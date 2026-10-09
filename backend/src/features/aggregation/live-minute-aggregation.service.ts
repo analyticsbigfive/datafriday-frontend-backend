@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { Job } from 'bullmq';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -15,10 +15,11 @@ import {
   buildIntegrationClause,
   buildMatchClause,
   buildMinuteClause,
-  insertMinuteAggSql,
-  insertMinuteItemAggSql,
+  insertMinuteAgg,
+  insertMinuteItemAgg,
+  touchedMinutes,
   isUnscopedRangeWindow,
-} from './event-aggregation-sql';
+} from './event-aggregation.queries';
 
 /**
  * BUG-379-02 : agrégation live incrémentale. Ne recalcule que les minutes touchées par les
@@ -66,6 +67,7 @@ export class LiveMinuteAggregationService {
     try {
       for (const event of events) {
         try {
+          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée
           minutesProcessed += await this.aggregateEventMinutes({
             tenantId,
             spaceId,
@@ -82,9 +84,7 @@ export class LiveMinuteAggregationService {
       }
 
       if (minutesProcessed > 0) {
-        for (const pattern of eventBatchCachePatterns(tenantId, spaceId)) {
-          await this.redis.deletePattern(pattern);
-        }
+        await Promise.all(eventBatchCachePatterns(tenantId, spaceId).map((pattern) => this.redis.deletePattern(pattern)));
       }
 
       const existing = await this.prisma.aggregationJobLog.findUnique({ where: { id: jobLogId }, select: { metadata: true } });
@@ -132,25 +132,14 @@ export class LiveMinuteAggregationService {
     const { tenantId, spaceId, integrationId, event, spaceIntegrationIds } = input;
     const window = this.windowResolver.resolveEventWindow(event, input.spaceTimezone, input.seasonContainerIds, input.allSpaceEvents);
     if (isUnscopedRangeWindow(integrationId, window, spaceIntegrationIds)) {
-      throw new Error(`Aucune intégration mappée à l'espace ${spaceId} : event ${event.id} non rattachable (BUG-384-02)`);
+      throw new BadRequestException(`Aucune intégration mappée à l'espace ${spaceId} : event ${event.id} non rattachable (BUG-384-02)`);
     }
     const matchClause = buildMatchClause(window, input.seasonContainerIds);
     const integrationClause = buildIntegrationClause(integrationId, window, spaceIntegrationIds);
 
     const watermark = await this.readWatermark(event.id, event.calculatedAt);
     const since = watermark ? new Date(watermark.getTime() - LiveMinuteAggregationService.OVERLAP_MS) : null;
-    const sinceClause = since ? Prisma.sql`AND t."updatedAt" > ${since}` : Prisma.sql``;
-
-    // Pas de filtre deletedAt : la minute d'une transaction annulée doit être recalculée aussi.
-    const touched = await this.prisma.$queryRaw<Array<{ minute: Date; lastUpdatedAt: Date }>>(Prisma.sql`
-      SELECT date_trunc('minute', t."transactionDate") AS "minute", MAX(t."updatedAt") AS "lastUpdatedAt"
-      FROM "WeezeventTransaction" t
-      WHERE t."tenantId" = ${tenantId}
-        ${integrationClause}
-        AND ${matchClause}
-        ${sinceClause}
-      GROUP BY 1
-    `);
+    const touched = await touchedMinutes(this.prisma, tenantId, { integrationClause, matchClause, since });
     if (!touched.length) return 0;
 
     const minutes = touched.map((r) => new Date(r.minute));
@@ -160,8 +149,8 @@ export class LiveMinuteAggregationService {
     await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere as Prisma.SpaceRevenueMinuteItemAggWhereInput });
 
     const sqlInput = { tenantId, spaceId, eventId: event.id, integrationClause, matchClause, minuteClause: buildMinuteClause(minutes) };
-    await this.prisma.$executeRaw(insertMinuteAggSql(sqlInput));
-    await this.prisma.$executeRaw(insertMinuteItemAggSql(sqlInput));
+    await insertMinuteAgg(this.prisma, sqlInput);
+    await insertMinuteItemAgg(this.prisma, sqlInput);
     // Paniers pré-agrégés (Analyse) : mêmes minutes touchées, même purge scopée.
     await this.basketAgg.replaceForEvent(deleteWhere as Prisma.SpaceBasketMinuteAggWhereInput, sqlInput);
     await this.eventRollup.refresh(tenantId, spaceId, event, spaceIntegrationIds);

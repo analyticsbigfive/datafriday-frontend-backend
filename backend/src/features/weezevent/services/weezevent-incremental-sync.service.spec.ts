@@ -1,10 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { WeezeventIncrementalSyncService } from './weezevent-incremental-sync.service';
+import { WeezeventSyncStateService } from './sync/sync-state.service';
+import { WeezeventTransactionBatchWriterService } from './sync/transaction-batch-writer.service';
+import { WeezeventEventBatchWriterService } from './sync/event-batch-writer.service';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventClientService } from './weezevent-client.service';
+import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
 
 describe('WeezeventIncrementalSyncService', () => {
     let service: WeezeventIncrementalSyncService;
+    let syncState: WeezeventSyncStateService;
 
     const mockPrismaService = {
         tenant: {
@@ -44,12 +49,18 @@ describe('WeezeventIncrementalSyncService', () => {
         const module: TestingModule = await Test.createTestingModule({
             providers: [
                 WeezeventIncrementalSyncService,
+                WeezeventSyncStateService,
+                WeezeventTransactionBatchWriterService,
+                WeezeventEventBatchWriterService,
                 { provide: PrismaService, useValue: mockPrismaService },
                 { provide: WeezeventClientService, useValue: mockWeezeventClient },
+                // Agrégat de prix incrémental (chantier perf 2026-09) : effets de bord hors périmètre ici.
+                { provide: SalesPriceAggService, useValue: { applyDeltaSafe: jest.fn().mockResolvedValue(undefined), refreshForIntegrationSafe: jest.fn().mockResolvedValue(undefined) } },
             ],
         }).compile();
 
         service = module.get<WeezeventIncrementalSyncService>(WeezeventIncrementalSyncService);
+        syncState = module.get(WeezeventSyncStateService);
 
         jest.clearAllMocks();
     });
@@ -267,7 +278,7 @@ describe('WeezeventIncrementalSyncService', () => {
                 },
             ]);
 
-            const status = await service.getSyncStatus('tenant-123', 'integration-123');
+            const status = await syncState.getSyncStatus('tenant-123', 'integration-123');
 
             expect(status.events).toBeDefined();
             expect(status.transactions).toBeDefined();
@@ -277,7 +288,7 @@ describe('WeezeventIncrementalSyncService', () => {
 
     describe('resetSyncState', () => {
         it('should delete sync state for specific type', async () => {
-            await service.resetSyncState('tenant-123', undefined, 'events');
+            await syncState.resetSyncState('tenant-123', undefined, 'events');
 
             expect(mockPrismaService.weezeventSyncState.deleteMany).toHaveBeenCalledWith({
                 where: { tenantId: 'tenant-123', syncType: 'events' },
@@ -285,7 +296,7 @@ describe('WeezeventIncrementalSyncService', () => {
         });
 
         it('should delete all sync states when no type specified', async () => {
-            await service.resetSyncState('tenant-123');
+            await syncState.resetSyncState('tenant-123');
 
             expect(mockPrismaService.weezeventSyncState.deleteMany).toHaveBeenCalledWith({
                 where: { tenantId: 'tenant-123' },

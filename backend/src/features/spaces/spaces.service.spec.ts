@@ -1,17 +1,43 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { SpacesService } from './spaces.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { WeezeventClientService } from '../weezevent/services/weezevent-client.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
-import { LogisticsService } from '../logistics/logistics.service';
+import { StockLevelService } from '../logistics/services/stock-level.service';
 import { SpaceRevenueSummaryService } from './services/space-revenue-summary.service';
 import { ForbiddenException, Logger, NotFoundException } from '@nestjs/common';
+import { spaceAccessStub } from '../../core/auth/space-access.testing';
+import { SpaceCacheService } from './services/space-cache.service';
+import { SpaceZoneElementsService } from './services/space-zone-elements.service';
+import { SpaceCrudService } from './services/space-crud.service';
+import { SpaceAccessGrantService } from './services/space-access-grant.service';
+import { SpaceConfigurationService } from './services/space-configuration.service';
+import { SpaceElementService } from './services/space-element.service';
+import { SpaceEventTimelineService } from './services/space-event-timeline.service';
+import { SpaceWeezeventEventService } from './services/space-weezevent-event.service';
+import { SpaceElementLayoutService } from './services/space-element-layout.service';
+import { SpaceElementPlacementService } from './services/space-element-placement.service';
+import { SpaceSalesScopeService } from './services/space-sales-scope.service';
+import { SpaceAnalyseBatchService } from './services/space-analyse-batch.service';
+import { SpaceShopsService } from './services/space-shops.service';
+import { SpaceConfigurationSaveService } from './services/space-configuration-save.service';
 
-describe('SpacesService', () => {
-  let service: SpacesService;
-  let prismaService: PrismaService;
+describe('Services des espaces', () => {
+  let spaceCacheService: SpaceCacheService;
+  let spaceZoneElementsService: SpaceZoneElementsService;
+  let spaceCrudService: SpaceCrudService;
+  let spaceAccessGrantService: SpaceAccessGrantService;
+  let spaceConfigurationSaveService: any;
+  let spaceConfigurationService: any;
+  let spaceElementService: SpaceElementService;
+  let spaceEventTimelineService: SpaceEventTimelineService;
+  let spaceElementLayoutService: SpaceElementLayoutService;
+  let spaceElementPlacementService: SpaceElementPlacementService;
+  let spaceSalesScopeService: SpaceSalesScopeService;
+  let spaceAnalyseBatchService: SpaceAnalyseBatchService;
+  let spaceShopsService: SpaceShopsService;
+  let spaceWeezeventEventService: SpaceWeezeventEventService;
 
   const mockLogisticsService = {
     getStock: jest.fn(),
@@ -120,7 +146,19 @@ describe('SpacesService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        SpacesService,
+        SpaceCacheService,
+        SpaceZoneElementsService,
+        SpaceCrudService,
+        SpaceAccessGrantService,
+        SpaceConfigurationSaveService, SpaceConfigurationService, 
+        SpaceElementService,
+        SpaceEventTimelineService,
+        SpaceElementLayoutService,
+        SpaceElementPlacementService,
+        SpaceSalesScopeService,
+        SpaceAnalyseBatchService,
+        SpaceShopsService,
+        SpaceWeezeventEventService,
         {
           provide: PrismaService,
           useValue: mockPrismaService,
@@ -134,17 +172,42 @@ describe('SpacesService', () => {
         // silencieusement ses assertions.
         { provide: RedisService, useValue: { set: jest.fn(), get: jest.fn(), del: jest.fn(), delete: jest.fn(), deletePattern: jest.fn(), getOrSet: jest.fn((key, factory) => factory()), getClient: jest.fn() } },
         // Accès complet par défaut dans les tests (pas de restriction d'espace)
-        { provide: SpaceAccessService, useValue: { getAccessibleSpaceIds: jest.fn().mockResolvedValue('ALL'), hasFullAccess: jest.fn().mockReturnValue(true), canAccessSpace: jest.fn().mockResolvedValue(true) } },
+        { provide: SpaceAccessService, useValue: spaceAccessStub() },
         // Passthrough : les tests d'image vérifient le comportement DTO→DB, pas l'upload Storage.
         { provide: SupabaseStorageService, useValue: { resolveImage: jest.fn((value) => Promise.resolve(value)) } },
-        { provide: LogisticsService, useValue: mockLogisticsService },
+        { provide: StockLevelService, useValue: mockLogisticsService },
         // KPI de la liste des espaces : service dédié (cache par espace), hors périmètre de ces tests.
         { provide: SpaceRevenueSummaryService, useValue: { getSummaries: jest.fn().mockResolvedValue(new Map()) } },
       ],
     }).compile();
 
-    service = module.get<SpacesService>(SpacesService);
-    prismaService = module.get<PrismaService>(PrismaService);
+    spaceCacheService = module.get<SpaceCacheService>(SpaceCacheService);
+
+    spaceZoneElementsService = module.get<SpaceZoneElementsService>(SpaceZoneElementsService);
+
+    spaceCrudService = module.get<SpaceCrudService>(SpaceCrudService);
+
+    spaceAccessGrantService = module.get<SpaceAccessGrantService>(SpaceAccessGrantService);
+
+    spaceConfigurationSaveService = module.get(SpaceConfigurationSaveService);
+
+    spaceConfigurationService = module.get(SpaceConfigurationService);
+
+    spaceElementService = module.get<SpaceElementService>(SpaceElementService);
+
+    spaceEventTimelineService = module.get<SpaceEventTimelineService>(SpaceEventTimelineService);
+
+    spaceElementLayoutService = module.get<SpaceElementLayoutService>(SpaceElementLayoutService);
+
+    spaceElementPlacementService = module.get<SpaceElementPlacementService>(SpaceElementPlacementService);
+
+    spaceSalesScopeService = module.get<SpaceSalesScopeService>(SpaceSalesScopeService);
+
+    spaceAnalyseBatchService = module.get<SpaceAnalyseBatchService>(SpaceAnalyseBatchService);
+
+    spaceShopsService = module.get<SpaceShopsService>(SpaceShopsService);
+
+    spaceWeezeventEventService = module.get<SpaceWeezeventEventService>(SpaceWeezeventEventService);
   });
 
   afterEach(() => {
@@ -152,7 +215,9 @@ describe('SpacesService', () => {
   });
 
   it('should be defined', () => {
-    expect(service).toBeDefined();
+    for (const s of [spaceElementLayoutService, spaceSalesScopeService, spaceCacheService, spaceZoneElementsService, spaceCrudService, spaceAccessGrantService, spaceConfigurationService, spaceElementService, spaceEventTimelineService, spaceWeezeventEventService]) {
+      expect(s).toBeDefined();
+    }
   });
 
   describe('create', () => {
@@ -179,7 +244,7 @@ describe('SpacesService', () => {
 
       mockPrismaService.space.create.mockResolvedValue(mockSpace);
 
-      const result = await service.create(tenantId, dto);
+      const result = await spaceCrudService.create(tenantId, dto);
 
       expect(result).toEqual(mockSpace);
       expect(mockPrismaService.space.create).toHaveBeenCalledWith({
@@ -224,9 +289,14 @@ describe('SpacesService', () => {
       mockPrismaService.space.findMany.mockResolvedValue(mockSpaces);
       mockPrismaService.space.count.mockResolvedValue(2);
 
-      const result = await service.findAll(tenantId, query, { id: "u", isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
+      const result = await spaceCrudService.findAll(tenantId, query, { id: "u", isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
 
-      expect(result.data).toEqual(mockSpaces);
+      // Chaque espace est enrichi de ses KPI de liste (0 sans agrégats en base).
+      const zeroKpis = {
+        totalRevenue: 0, fbRevenue: 0, merchRevenue: 0, avgEvent: 0,
+        avgTransaction: 0, perCapita: 0, ticketingCount: 0,
+      };
+      expect(result.data).toEqual(mockSpaces.map((sp) => ({ ...sp, ...zeroKpis })));
       expect(result.meta).toEqual({
         total: 2,
         page: 1,
@@ -242,7 +312,7 @@ describe('SpacesService', () => {
       mockPrismaService.space.findMany.mockResolvedValue([]);
       mockPrismaService.space.count.mockResolvedValue(0);
 
-      await service.findAll(tenantId, query, { id: "u", isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
+      await spaceCrudService.findAll(tenantId, query, { id: "u", isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
 
       expect(mockPrismaService.space.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -274,7 +344,7 @@ describe('SpacesService', () => {
 
       mockPrismaService.space.findFirst.mockResolvedValue(mockSpace);
 
-      const result = await service.findOne(spaceId, tenantId);
+      const result = await spaceCrudService.findOne(spaceId, tenantId);
 
       expect(result).toEqual(mockSpace);
     });
@@ -285,7 +355,7 @@ describe('SpacesService', () => {
 
       mockPrismaService.space.findFirst.mockResolvedValue(null);
 
-      await expect(service.findOne(spaceId, tenantId)).rejects.toThrow(
+      await expect(spaceCrudService.findOne(spaceId, tenantId)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -311,7 +381,7 @@ describe('SpacesService', () => {
       mockPrismaService.space.findFirst.mockResolvedValue(mockSpace);
       mockPrismaService.space.update.mockResolvedValue(updatedSpace);
 
-      const result = await service.update(spaceId, tenantId, dto);
+      const result = await spaceCrudService.update(spaceId, tenantId, dto);
 
       expect(result.name).toBe(dto.name);
       expect(mockPrismaService.space.update).toHaveBeenCalled();
@@ -332,7 +402,7 @@ describe('SpacesService', () => {
       mockPrismaService.space.findFirst.mockResolvedValue(mockSpace);
       mockPrismaService.space.delete.mockResolvedValue(mockSpace);
 
-      const result = await service.remove(spaceId, tenantId);
+      const result = await spaceCrudService.remove(spaceId, tenantId);
 
       expect(result.message).toBe('Space deleted successfully');
       expect(mockPrismaService.space.delete).toHaveBeenCalledWith({
@@ -359,7 +429,7 @@ describe('SpacesService', () => {
       mockPrismaService.userPinnedSpace.findUnique.mockResolvedValue(null);
       mockPrismaService.userPinnedSpace.create.mockResolvedValue(mockPinned);
 
-      const result = await service.pin(spaceId, userId, tenantId);
+      const result = await spaceAccessGrantService.pin(spaceId, userId, tenantId);
 
       expect(result.message).toBe('Space pinned successfully');
       expect(result.pinned).toEqual(mockPinned);
@@ -376,7 +446,7 @@ describe('SpacesService', () => {
       mockPrismaService.space.findFirst.mockResolvedValue(mockSpace);
       mockPrismaService.userPinnedSpace.findUnique.mockResolvedValue(existingPin);
 
-      const result = await service.pin(spaceId, userId, tenantId);
+      const result = await spaceAccessGrantService.pin(spaceId, userId, tenantId);
 
       expect(result.message).toBe('Space already pinned');
     });
@@ -395,7 +465,7 @@ describe('SpacesService', () => {
       mockPrismaService.userPinnedSpace.findUnique.mockResolvedValue(existingPin);
       mockPrismaService.userPinnedSpace.delete.mockResolvedValue(existingPin);
 
-      const result = await service.unpin(spaceId, userId, tenantId);
+      const result = await spaceAccessGrantService.unpin(spaceId, userId, tenantId);
 
       expect(result.message).toBe('Space unpinned successfully');
     });
@@ -410,7 +480,7 @@ describe('SpacesService', () => {
       mockPrismaService.space.findFirst.mockResolvedValue(mockSpace);
       mockPrismaService.userPinnedSpace.findUnique.mockResolvedValue(null);
 
-      await expect(service.unpin(spaceId, userId, tenantId)).rejects.toThrow(
+      await expect(spaceAccessGrantService.unpin(spaceId, userId, tenantId)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -439,7 +509,7 @@ describe('SpacesService', () => {
       mockPrismaService.userSpaceAccess.findUnique.mockResolvedValue(null);
       mockPrismaService.userSpaceAccess.create.mockResolvedValue(mockAccess);
 
-      const result = await service.grantAccess(spaceId, userId, role, tenantId);
+      const result = await spaceAccessGrantService.grantAccess(spaceId, userId, role, tenantId);
 
       expect(result).toEqual(mockAccess);
     });
@@ -455,7 +525,7 @@ describe('SpacesService', () => {
         { id: 'space-1', name: 'Space 1', image: null, createdAt: new Date() },
       ]);
 
-      const result = await service.getStatistics(tenantId);
+      const result = await spaceCrudService.getStatistics(tenantId);
 
       expect(result.totalSpaces).toBe(5);
       expect(result.totalConfigs).toBe(12);
@@ -485,7 +555,7 @@ describe('SpacesService', () => {
       mockPrismaService.space.findFirst.mockResolvedValue(mockSpace);
       mockPrismaService.space.update.mockResolvedValue(updatedSpace);
 
-      const result = await service.updateImage(spaceId, tenantId, image);
+      const result = await spaceCrudService.updateImage(spaceId, tenantId, image);
 
       expect(result.image).toBe(image);
       expect(mockPrismaService.space.update).toHaveBeenCalledWith({
@@ -507,7 +577,7 @@ describe('SpacesService', () => {
 
       mockPrismaService.space.findFirst.mockResolvedValue(null);
 
-      await expect(service.updateImage(spaceId, tenantId, image)).rejects.toThrow(
+      await expect(spaceCrudService.updateImage(spaceId, tenantId, image)).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -550,7 +620,7 @@ describe('SpacesService', () => {
       mockPrismaService.space.findFirst.mockResolvedValue(mockSpace);
       mockPrismaService.config.findMany.mockResolvedValue(mockConfigurations);
 
-      const result = await service.getConfigurations(spaceId, tenantId);
+      const result = await spaceConfigurationService.getConfigurations(spaceId, tenantId);
 
       expect(result).toEqual(mockConfigurations);
       expect(result).toHaveLength(2);
@@ -589,7 +659,7 @@ describe('SpacesService', () => {
 
       mockPrismaService.config.findMany.mockResolvedValue([]);
 
-      await expect(service.getConfigurations(spaceId, tenantId)).resolves.toEqual([]);
+      await expect(spaceConfigurationService.getConfigurations(spaceId, tenantId)).resolves.toEqual([]);
     });
 
     it('should return empty array if no configurations', async () => {
@@ -605,7 +675,7 @@ describe('SpacesService', () => {
       mockPrismaService.space.findFirst.mockResolvedValue(mockSpace);
       mockPrismaService.config.findMany.mockResolvedValue([]);
 
-      const result = await service.getConfigurations(spaceId, tenantId);
+      const result = await spaceConfigurationService.getConfigurations(spaceId, tenantId);
 
       expect(result).toEqual([]);
     });
@@ -624,7 +694,7 @@ describe('SpacesService', () => {
         space: { id: 'space-1', name: 'Space 1', tenantId: 'tenant-123' },
       });
 
-      const result = await service.getConfiguration('config-1', 'tenant-123');
+      const result = await spaceConfigurationService.getConfiguration('config-1', 'tenant-123');
 
       expect(result.spaceId).toBe('space-1');
       expect(mockPrismaService.config.findFirst).toHaveBeenCalledWith(
@@ -640,7 +710,7 @@ describe('SpacesService', () => {
     it('should throw NotFoundException when configuration is not accessible for tenant', async () => {
       mockPrismaService.config.findFirst.mockResolvedValue(null);
 
-      await expect(service.getConfiguration('config-404', 'tenant-123')).rejects.toThrow(
+      await expect(spaceConfigurationService.getConfiguration('config-404', 'tenant-123')).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -661,7 +731,7 @@ describe('SpacesService', () => {
       });
 
       await expect(
-        service.saveConfiguration(
+        spaceConfigurationSaveService.saveConfiguration(
           {
             id: 'config-1',
             name: 'Updated config',
@@ -710,7 +780,7 @@ describe('SpacesService', () => {
         pinnedSpaces.map((s) => ({ space: s })),
       );
 
-      const result = await service.setPinnedSpaces(userId, tenantId, spaceIds, { id: userId, isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
+      const result = await spaceAccessGrantService.setPinnedSpaces(userId, tenantId, spaceIds, { id: userId, isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
 
       expect(mockPrismaService.userPinnedSpace.deleteMany).toHaveBeenCalled();
       expect(mockPrismaService.userPinnedSpace.createMany).toHaveBeenCalledWith({
@@ -737,7 +807,7 @@ describe('SpacesService', () => {
       mockPrismaService.userPinnedSpace.deleteMany.mockResolvedValue({ count: 2 });
       mockPrismaService.userPinnedSpace.findMany.mockResolvedValue([]);
 
-      const result = await service.setPinnedSpaces(userId, tenantId, spaceIds, { id: userId, isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
+      const result = await spaceAccessGrantService.setPinnedSpaces(userId, tenantId, spaceIds, { id: userId, isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
 
       expect(mockPrismaService.userPinnedSpace.deleteMany).toHaveBeenCalled();
       expect(mockPrismaService.userPinnedSpace.createMany).not.toHaveBeenCalled();
@@ -763,7 +833,7 @@ describe('SpacesService', () => {
         { space: { id: 'space-2', name: 'Space 2' } },
       ]);
 
-      await service.setPinnedSpaces(userId, tenantId, spaceIds, { id: userId, isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
+      await spaceAccessGrantService.setPinnedSpaces(userId, tenantId, spaceIds, { id: userId, isSuperAdmin: false, role: { systemKey: "ADMIN" } } as any);
 
       expect(mockPrismaService.userPinnedSpace.createMany).toHaveBeenCalledWith({
         data: [
@@ -815,7 +885,7 @@ describe('SpacesService', () => {
 
       mockPrismaService.space.create.mockResolvedValue(mockSpace);
 
-      const result = await service.create(tenantId, dto);
+      const result = await spaceCrudService.create(tenantId, dto);
 
       expect(result).toEqual(mockSpace);
       expect(mockPrismaService.space.create).toHaveBeenCalledWith({
@@ -841,12 +911,12 @@ describe('SpacesService', () => {
 
   describe('getShopDetails — cache Redis (chemin critique premier rendu /analyse)', () => {
     it('délègue à redis.getOrSet avec une clé tenant+space+params et TTL 60s', async () => {
-      const redis = (service as any).redis;
+      const redis = (spaceCrudService as any).redis;
       (mockPrismaService as any).$queryRaw = jest
         .fn()
         .mockResolvedValue([{ get_space_shop_details: { shops: [] } }]);
 
-      await service.getShopDetails('space-1', 'tenant-1', 2, 50, true);
+      await spaceShopsService.getShopDetails('space-1', 'tenant-1', 2, 50, true);
 
       expect(redis.getOrSet).toHaveBeenCalledWith(
         'spaces:shopdetails:tenant-1:space-1:2:50:1',
@@ -860,7 +930,7 @@ describe('SpacesService', () => {
         .fn()
         .mockResolvedValue([{ get_space_shop_details: { __error: 'space_not_found' } }]);
 
-      await expect(service.getShopDetails('space-x', 'tenant-1')).rejects.toThrow();
+      await expect(spaceShopsService.getShopDetails('space-x', 'tenant-1')).rejects.toThrow();
     });
   });
 
@@ -888,7 +958,7 @@ describe('SpacesService', () => {
 
       // Trigger getShopDetails — it may throw for unrelated reasons after SQL,
       // but we only care about what $queryRaw received.
-      await service.getShopDetails(spaceId, tenantId).catch(() => {});
+      await spaceShopsService.getShopDetails(spaceId, tenantId).catch(() => {});
 
       // Verify all $queryRaw calls — none should contain 'completed'
       for (const call of rawQueryMock.mock.calls) {
@@ -922,7 +992,7 @@ describe('SpacesService', () => {
     });
 
     it('retourne un objet vide sans requête quand aucun eventId n’est fourni', async () => {
-      const res = await service.getTransactionBasketsBatch(spaceId, [], tenantId);
+      const res = await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, [], tenantId);
 
       expect(res).toEqual({});
       expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
@@ -936,7 +1006,7 @@ describe('SpacesService', () => {
           categoryCombo: ['Bières', null], typeCombo: ['Boisson'], itemCombo: ['Pinte'], transactionCount: 3, quantity: 4, revenueHt: '25.00' },
       ]);
 
-      const res = await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
+      const res = await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
 
       expect(mockPrismaService.$queryRaw).toHaveBeenCalledTimes(1);
       const sql: string = (mockPrismaService.$queryRaw.mock.calls[0][0]?.strings ?? []).join('');
@@ -958,7 +1028,7 @@ describe('SpacesService', () => {
           categoryCombo: [], typeCombo: [], itemCombo: [], transactionCount: 1, quantity: 1, revenueHt: '5.00' }])
         .mockResolvedValueOnce([]);
 
-      await service.getTransactionBasketsBatch(spaceId, ['ev-1', 'ev-2'], tenantId);
+      await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1', 'ev-2'], tenantId);
 
       expect(mockPrismaService.$queryRaw).toHaveBeenCalledTimes(2);
       const rawCall = mockPrismaService.$queryRaw.mock.calls[1][0];
@@ -969,7 +1039,7 @@ describe('SpacesService', () => {
     });
 
     it('applique les prédicats obligatoires de lecture des ventes (BUG-028 / BUG-108)', async () => {
-      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+      await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
       const call = mockPrismaService.$queryRaw.mock.calls.at(-1);
       const sql: string = (call?.[0]?.strings ?? []).join('');
@@ -993,7 +1063,7 @@ describe('SpacesService', () => {
         { salesLocationId: 'integ-2' },
       ]);
 
-      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+      await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
       const call = mockPrismaService.$queryRaw.mock.calls.at(-1);
       const sql: string = (call?.[0]?.strings ?? []).join('');
@@ -1006,7 +1076,7 @@ describe('SpacesService', () => {
     it('sans aucune intégration mappée : pas de filtre intégration, scope PdV strict', async () => {
       mockPrismaService.locationSpaceMapping.findMany.mockResolvedValue([]);
 
-      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+      await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
       const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
       // BUG-368-02 : t."integrationId" apparaît maintenant aussi dans la clause
@@ -1037,14 +1107,14 @@ describe('SpacesService', () => {
         },
       ]);
 
-      const res = await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
+      const res = await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
 
       expect(res['ev-1'][0].minuteLocal).toBe('2026-03-01T19:42');
       expect(res['ev-1'][0].minute).toBe('19:42');
     });
 
     it('trie les combinaisons côté SQL — « Bières, Consigne » et « Consigne, Bières » sont un seul bucket', async () => {
-      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+      await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
       const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
       expect(sql).toContain('ARRAY_AGG(DISTINCT pc.name ORDER BY pc.name)');
@@ -1056,7 +1126,7 @@ describe('SpacesService', () => {
     // « contient » (question #42) : sans typeCombo, cliquer une part de ce donut
     // viderait le camembert au lieu de le restreindre.
     it('remonte aussi la combinaison de TYPES d’article', async () => {
-      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+      await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
       const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
       expect(sql).toContain('ARRAY_AGG(DISTINCT pt.name ORDER BY pt.name)');
@@ -1067,7 +1137,7 @@ describe('SpacesService', () => {
     // mappées restent COMPTÉES, affichées « Non mappées » — jamais filtrées ici. Le
     // volume non mappé est mesuré à part par getAnalyseUnmappedBatch (bandeau).
     it('n’écarte JAMAIS les lignes non résolues (ni mapping, ni catégorie)', async () => {
-      await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+      await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
       const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
       // Convention maison : afficher « Non mappées » plutôt que sous-compter en silence.
@@ -1098,7 +1168,7 @@ describe('SpacesService', () => {
         },
       ]);
 
-      const res = await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
+      const res = await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
 
       expect(res['ev-1']).toHaveLength(1);
       expect(res['ev-1'][0]).toMatchObject({
@@ -1128,7 +1198,7 @@ describe('SpacesService', () => {
         },
       ]);
 
-      const res = await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
+      const res = await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
 
       expect(res['ev-1'][0].categoryCombo).toEqual(['Bières', null]);
       expect(res['ev-1'][0].transactionCount).toBe(3);
@@ -1139,7 +1209,7 @@ describe('SpacesService', () => {
         { eventId: 'ev-inconnu', minute: '20:00', categoryCombo: ['Bières'], itemCombo: [], transactionCount: 5 },
       ]);
 
-      const res = await service.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
+      const res = await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
 
       expect(res['ev-1']).toEqual([]);
       expect(res['ev-inconnu']).toBeUndefined();
@@ -1169,7 +1239,7 @@ describe('SpacesService', () => {
     });
 
     it('retourne des zéros (pas des trous) pour un event entièrement mappé', async () => {
-      const res = await service.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
+      const res = await spaceAnalyseBatchService.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
 
       expect(res['ev-1']).toEqual({
         unmappedLines: 0,
@@ -1181,7 +1251,7 @@ describe('SpacesService', () => {
     });
 
     it('cible produit OU PdV non mappé, avec les mêmes prédicats de lecture que la page', async () => {
-      await service.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
+      await spaceAnalyseBatchService.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
 
       const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
       expect(sql).toContain('wpm."menuItemId" IS NULL OR mem."spaceElementId" IS NULL');
@@ -1204,7 +1274,7 @@ describe('SpacesService', () => {
         },
       ]);
 
-      const res = await service.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
+      const res = await spaceAnalyseBatchService.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
 
       expect(res['ev-1'].unmappedRevenueHt).toBe(145.5);
       expect(res['ev-1'].unmappedProductLines).toBe(10);
@@ -1230,7 +1300,7 @@ describe('SpacesService', () => {
     // BUG-137-01 : les produits non mappés restent DANS le flux (menuItemId null),
     // affichés « Non mappées » côté page — pas de WHERE d'exclusion sur le mapping.
     it('renvoie aussi les produits non mappés (pas de filtre wpm dans le WHERE)', async () => {
-      await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+      await spaceEventTimelineService.getEventTimelineBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
       const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
       expect(sql).not.toContain('wpm."menuItemId" IS NOT NULL');
@@ -1238,7 +1308,7 @@ describe('SpacesService', () => {
     });
 
     it('déduplique par merchant (MAX interne) puis SOMME au grain affichage (BUG-130-01)', async () => {
-      await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
+      await spaceEventTimelineService.getEventTimelineBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
       const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
       // Niveau interne : le merchant reste dans le GROUP BY de la CTE dedup…
@@ -1271,7 +1341,7 @@ describe('SpacesService', () => {
         },
       ]);
 
-      const res = await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId);
+      const res = await spaceEventTimelineService.getEventTimelineBatch(spaceId, ['ev-1'], tenantId);
 
       expect(res['ev-1']).toHaveLength(1);
       expect(res['ev-1'][0]).toMatchObject({
@@ -1287,7 +1357,7 @@ describe('SpacesService', () => {
 
     // BUG-364-01 (étape 5) : granularity=summary — grain event × shop × produit, SANS minute.
     it('summary : le SQL n’a ni minuteLocal ni GROUP BY minute au niveau affichage', async () => {
-      await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId, { granularity: 'summary' }).catch(() => {});
+      await spaceEventTimelineService.getEventTimelineBatch(spaceId, ['ev-1'], tenantId, { granularity: 'summary' }).catch(() => {});
 
       const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
       // La dédup inter-writers reste PAR minute (CTE interne)…
@@ -1318,7 +1388,7 @@ describe('SpacesService', () => {
         },
       ]);
 
-      const res = await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId, { granularity: 'summary' });
+      const res = await spaceEventTimelineService.getEventTimelineBatch(spaceId, ['ev-1'], tenantId, { granularity: 'summary' });
 
       expect(res['ev-1']).toHaveLength(1);
       expect(res['ev-1'][0]).toMatchObject({ shopId: 'el-1', menuItemId: 'mi-1', revenueHt: 12.5 });
@@ -1327,7 +1397,7 @@ describe('SpacesService', () => {
       expect(res['ev-1'][0]).not.toHaveProperty('revenue');
       // Clé de cache suffixée ':sum' — jamais mélangée avec le grain minute,
       // mais couverte par le motif de purge spaces:evtimeline:{t}:{s}:*.
-      const writtenKeys = ((service as any).redis.set as jest.Mock).mock.calls.map((c: any[]) => c[0]);
+      const writtenKeys = ((spaceCrudService as any).redis.set as jest.Mock).mock.calls.map((c: any[]) => c[0]);
       expect(writtenKeys).toContain(`spaces:evtimeline:${tenantId}:${spaceId}:ev-1:sum`);
     });
   });
@@ -1391,7 +1461,7 @@ describe('SpacesService', () => {
     it('resserre la fin de fenêtre sur eventEndTime et démarre l’event suivant à cette borne (PFC/SFP)', async () => {
       mockEvents([pfc, sfp]);
 
-      await service.getEventTimelineBatch(spaceId, ['ev-pfc', 'ev-sfp'], tenantId);
+      await spaceEventTimelineService.getEventTimelineBatch(spaceId, ['ev-pfc', 'ev-sfp'], tenantId);
 
       const w = windowsFromLastQuery();
       // PFC : minuit LOCAL du 14/02 (23:00Z la veille, fiche 147-01 — aligné sur l'agrégation)
@@ -1408,7 +1478,7 @@ describe('SpacesService', () => {
     it('exclut la tranche de tête même quand l’event précédent est HORS du batch demandé', async () => {
       mockEvents([pfc, sfp]);
 
-      await service.getEventTimelineBatch(spaceId, ['ev-sfp'], tenantId);
+      await spaceEventTimelineService.getEventTimelineBatch(spaceId, ['ev-sfp'], tenantId);
 
       const w = windowsFromLastQuery();
       expect(w['ev-pfc']).toBeUndefined();
@@ -1420,7 +1490,7 @@ describe('SpacesService', () => {
         { id: 'ev-1', eventDate: new Date('2026-03-01T00:00:00.000Z'), eventEndDate: null, eventEndTime: null, sessions: null },
       ]);
 
-      await service.getEventTimelineBatch(spaceId, ['ev-1'], tenantId);
+      await spaceEventTimelineService.getEventTimelineBatch(spaceId, ['ev-1'], tenantId);
 
       const w = windowsFromLastQuery();
       // Journée calendaire pleine, bornée en minuits LOCAUX (Europe/Paris, UTC+1 en mars → 23:00Z).
@@ -1445,7 +1515,7 @@ describe('SpacesService', () => {
       };
       mockEvents([e1, e2]);
 
-      await service.getEventTimelineBatch(spaceId, ['ev-apresmidi', 'ev-soir'], tenantId);
+      await spaceEventTimelineService.getEventTimelineBatch(spaceId, ['ev-apresmidi', 'ev-soir'], tenantId);
 
       const w = windowsFromLastQuery();
       // Le voisin du soir finit APRÈS l'event de l'après-midi → ne doit pas vider sa fenêtre.
@@ -1466,7 +1536,7 @@ describe('SpacesService', () => {
         },
       ]);
 
-      await service.getEventTimelineBatch(spaceId, ['ev-portes'], tenantId);
+      await spaceEventTimelineService.getEventTimelineBatch(spaceId, ['ev-portes'], tenantId);
 
       const w = windowsFromLastQuery();
       // Minuit local → fin déclarée : les portes (19:00) et le show (20:00) n'interviennent pas
@@ -1521,13 +1591,17 @@ describe('SpacesService', () => {
         .mockResolvedValue({ data: {}, version: 0 });
       mockPrismaService.externalMerch.findUnique.mockResolvedValue(null);
       mockPrismaService.externalMerch.create.mockResolvedValue({ id: 'em-1', name: 'Espace Externe', width: 200, length: 200 });
-      mockPrismaService.spaceElement.findFirst.mockResolvedValue({
+      // Lecture groupée des éléments (une requête), écritures dans une transaction.
+      mockPrismaService.spaceElement.findMany.mockResolvedValue([{
         id: 'el-1', floorId: 'f-0',
         floor: { config: { space: { id: spaceId, tenantId } } },
-      });
+      }]);
       mockPrismaService.spaceElement.update.mockResolvedValue({ id: 'el-1' });
+      mockPrismaService.$transaction.mockImplementation((arg: any) =>
+        Array.isArray(arg) ? Promise.all(arg) : arg(mockPrismaService),
+      );
 
-      const res: any = await service.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 'externalmerch');
+      const res: any = await spaceElementPlacementService.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 'externalmerch');
 
       expect(res.kind).toBe('externalmerch');
       expect(res.externalMerchId).toBe('em-1');
@@ -1554,7 +1628,7 @@ describe('SpacesService', () => {
           Array.isArray(arg) ? Promise.all(arg) : arg(mockPrismaService),
         );
 
-        const res: any = await service.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 0);
+        const res: any = await spaceElementPlacementService.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 0);
 
         // 1. La réponse porte désormais un indicateur explicite du routage effectif.
         expect(res.builderVersion).toBe('v2');
@@ -1577,7 +1651,7 @@ describe('SpacesService', () => {
     it('A4 — assignElementsToFloorLevel rejette un level non entier (BadRequestException)', async () => {
       mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
       await expect(
-        service.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 1.5 as any),
+        spaceElementPlacementService.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 1.5 as any),
       ).rejects.toThrow('level invalide');
     });
 
@@ -1592,7 +1666,7 @@ describe('SpacesService', () => {
       mockPrismaService.spaceElement.count.mockResolvedValue(0);
       mockPrismaService.spaceElement.create.mockResolvedValue({ id: 'el-1', name: 'Bar' });
 
-      const res: any = await service.quickCreateElement(spaceId, tenantId, { name: 'Bar', type: 'fnb-beverages' });
+      const res: any = await spaceElementService.quickCreateElement(spaceId, tenantId, { name: 'Bar', type: 'fnb-beverages' });
 
       expect(res.id).toBe('el-1');
       // Le shop est créé dans la config utilisateur, PAS dans une config interne auto-générée.
@@ -1606,7 +1680,7 @@ describe('SpacesService', () => {
       mockPrismaService.config.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.quickCreateElement(spaceId, tenantId, { name: 'Bar', type: 'fnb-beverages' }),
+        spaceElementService.quickCreateElement(spaceId, tenantId, { name: 'Bar', type: 'fnb-beverages' }),
       ).rejects.toThrow('Aucune configuration');
       expect(mockPrismaService.config.create).not.toHaveBeenCalled();
     });
@@ -1616,7 +1690,7 @@ describe('SpacesService', () => {
       mockPrismaService.config.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 0),
+        spaceElementPlacementService.assignElementsToFloorLevel(spaceId, tenantId, ['el-1'], 0),
       ).rejects.toThrow('Aucune configuration');
       expect(mockPrismaService.config.create).not.toHaveBeenCalled();
       expect(mockPrismaService.floor.create).not.toHaveBeenCalled();
@@ -1631,7 +1705,7 @@ describe('SpacesService', () => {
       });
       mockPrismaService.floor.findMany.mockResolvedValue([]);
 
-      const res: any = await service.getConfiguration('cfg-1', tenantId);
+      const res: any = await spaceConfigurationService.getConfiguration('cfg-1', tenantId);
 
       expect(res.data.externalMerch).toEqual({ id: 'em-1', name: 'Espace Externe', elements: [] });
       expect(res.isSystem).toBe(false);
@@ -1654,7 +1728,7 @@ describe('SpacesService', () => {
     it('is not live when no event window covers the present instant (and no shop resolved)', async () => {
       mockPrismaService.event.findMany.mockResolvedValue([]);
 
-      const result = await service.getLiveStatus(spaceId, tenantId);
+      const result = await spaceShopsService.getLiveStatus(spaceId, tenantId);
 
       // Court-circuité par shopIds vide (beforeEach), pas par l'absence d'event — le early-return
       // sur "aucun Event" a été retiré (revue de la définition "event live").
@@ -1669,7 +1743,7 @@ describe('SpacesService', () => {
       mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1' }]);
       mockPrismaService.$queryRaw.mockResolvedValue([{ since }]);
 
-      const result = await service.getLiveStatus(spaceId, tenantId);
+      const result = await spaceShopsService.getLiveStatus(spaceId, tenantId);
 
       // Aucun Event saisi en amont : le live est ancré uniquement sur la vente réelle
       // (fenêtre glissante de 30 min), eventId reste null.
@@ -1682,7 +1756,7 @@ describe('SpacesService', () => {
         { id: 'event-old', eventDate: eightDaysAgo, eventStartDate: null, eventEndDate: null },
       ]);
 
-      const result = await service.getLiveStatus(spaceId, tenantId);
+      const result = await spaceShopsService.getLiveStatus(spaceId, tenantId);
 
       // graceEnd (eventDate + 3h) est bien avant "now" → rejeté par le filtre de fenêtre en mémoire.
       expect(result).toEqual({ isLive: false, eventId: null, since: null });
@@ -1695,7 +1769,7 @@ describe('SpacesService', () => {
       ]);
       // spaceElement.findMany déjà mocké à [] dans le beforeEach → shopIds = []
 
-      const result = await service.getLiveStatus(spaceId, tenantId);
+      const result = await spaceShopsService.getLiveStatus(spaceId, tenantId);
 
       expect(result).toEqual({ isLive: false, eventId: 'event-1', since: null });
       expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
@@ -1710,7 +1784,7 @@ describe('SpacesService', () => {
       mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1' }]);
       mockPrismaService.$queryRaw.mockResolvedValue([{ since }]);
 
-      const result = await service.getLiveStatus(spaceId, tenantId);
+      const result = await spaceShopsService.getLiveStatus(spaceId, tenantId);
 
       expect(result).toEqual({ isLive: true, eventId: 'event-1', since: since.toISOString() });
     });
@@ -1723,21 +1797,21 @@ describe('SpacesService', () => {
       mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'shop-1' }]);
       mockPrismaService.$queryRaw.mockResolvedValue([{ since: null }]);
 
-      const result = await service.getLiveStatus(spaceId, tenantId);
+      const result = await spaceShopsService.getLiveStatus(spaceId, tenantId);
 
       expect(result).toEqual({ isLive: false, eventId: 'event-1', since: null });
     });
   });
 
-  // Passthrough vers LogisticsService (tracker front #22, LIVE_API_GUIDE.md §3) — la logique vit
-  // dans LogisticsService.getLiveInventory (testée dans logistics.service.spec.ts), on vérifie
+  // Passthrough vers StockLevelService (tracker front #22, LIVE_API_GUIDE.md §3) — la logique vit
+  // dans StockLevelService.getLiveInventory (testée dans logistics.service.spec.ts), on vérifie
   // uniquement le câblage ici.
   describe('getLiveInventory', () => {
-    it('delegates to LogisticsService.getLiveInventory with the same spaceId/tenantId', async () => {
+    it('delegates to StockLevelService.getLiveInventory with the same spaceId/tenantId', async () => {
       const expected = { shops: [], items: [] };
       mockLogisticsService.getLiveInventory.mockResolvedValue(expected);
 
-      const result = await service.getLiveInventory('space-1', 'tenant-1');
+      const result = await spaceShopsService.getLiveInventory('space-1', 'tenant-1');
 
       expect(mockLogisticsService.getLiveInventory).toHaveBeenCalledWith('space-1', 'tenant-1');
       expect(result).toBe(expected);

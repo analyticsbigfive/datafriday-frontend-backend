@@ -5,6 +5,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { BrandsService } from './brands.service';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { BrandsFindAllQueryDto } from './dto/brands.query.dto';
 
 class CreateBrandDto {
   @IsString()
@@ -26,10 +27,9 @@ export class BrandsController {
   @ApiOperation({ summary: 'Lister les brands du tenant (paginé)' })
   findAll(
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
+    @Query() params: BrandsFindAllQueryDto,
   ) {
+    const { page, limit, search } = params;
     return this.brandsService.findAll(tenantId, page ? +page : undefined, limit ? +limit : undefined, search);
   }
 

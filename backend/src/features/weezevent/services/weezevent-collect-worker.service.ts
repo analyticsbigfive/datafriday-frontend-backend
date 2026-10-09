@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { WeezeventClientService } from './weezevent-client.service';
+import { AppConfigService } from '../../../config/app-config.service';
 
 /**
  * Weezevent API hard cap : toujours 500 items max, total_pages toujours 1.
@@ -18,14 +19,17 @@ export class WeezeventCollectWorkerService {
     // concurrentes pour un gros tenant (des dizaines/centaines de feuilles) et déclencherait
     // le rate-limit (429) ou le circuit breaker de WeezeventApiService. Même ordre de grandeur
     // que PARALLEL_CHUNKS côté WeezeventInsertWorkerService.
-    private readonly maxConcurrency = Number(process.env.WEEZEVENT_COLLECT_CONCURRENCY || 5);
+    private readonly maxConcurrency: number;
     private activeCount = 0;
     private readonly waitQueue: Array<() => void> = [];
 
     constructor(
         private readonly prisma: PrismaService,
         private readonly weezeventClient: WeezeventClientService,
-    ) {}
+        appConfig: AppConfigService,
+    ) {
+        this.maxConcurrency = appConfig.weezeventHttp.collectConcurrency;
+    }
 
     private async acquireSlot(): Promise<void> {
         if (this.activeCount < this.maxConcurrency) {
@@ -61,7 +65,7 @@ export class WeezeventCollectWorkerService {
             const organizationId = job.integration.weezevent?.organizationId ?? null;
 
             if (!organizationId) {
-                throw new Error(`organizationId manquant pour l'intégration ${job.integrationId}`);
+                throw new BadRequestException(`organizationId manquant pour l'intégration ${job.integrationId}`);
             }
 
             await this.fetchChunk(

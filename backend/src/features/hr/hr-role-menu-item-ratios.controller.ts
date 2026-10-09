@@ -5,7 +5,7 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
-import { HrService } from './hr.service';
+import { HrRoleMenuItemRatioService } from './services/hr-role-menu-item-ratio.service';
 
 /**
  * Association Rôle ↔ Menu Item(s), scopée par espace — variante « espace-scopée » du mécanisme
@@ -53,29 +53,29 @@ class UpdateHrRoleMenuItemRatioDto extends PartialType(CreateHrRoleMenuItemRatio
 @RequirePermissions('menu.hr.manage')
 @Controller('hr/role-menu-item-ratios')
 export class HrRoleMenuItemRatiosController {
-  constructor(private readonly service: HrService) {}
+  constructor(private readonly hrRoleMenuItemRatioService: HrRoleMenuItemRatioService) {}
 
   @Get()
   @ApiOperation({ summary: "Lister les associations Rôle↔MenuItem du tenant (filtrable par espace)" })
   findAll(@Query('spaceId') spaceId: string | undefined, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.service.findAllRoleMenuItemRatios(tenantId, { spaceId }, user);
+    return this.hrRoleMenuItemRatioService.findAllRoleMenuItemRatios(tenantId, { spaceId }, user);
   }
 
   @Post()
   @ApiOperation({ summary: 'Créer une association Rôle↔MenuItem' })
   create(@Body() dto: CreateHrRoleMenuItemRatioDto, @CurrentTenant() tenantId: string) {
-    return this.service.createRoleMenuItemRatio(dto, tenantId);
+    return this.hrRoleMenuItemRatioService.createRoleMenuItemRatio(dto, tenantId);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour une association Rôle↔MenuItem' })
   update(@Param('id') id: string, @Body() dto: UpdateHrRoleMenuItemRatioDto, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.service.updateRoleMenuItemRatio(id, dto, tenantId, user);
+    return this.hrRoleMenuItemRatioService.updateRoleMenuItemRatio(id, dto, tenantId, user);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer une association Rôle↔MenuItem' })
   remove(@Param('id') id: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.service.removeRoleMenuItemRatio(id, tenantId, user);
+    return this.hrRoleMenuItemRatioService.removeRoleMenuItemRatio(id, tenantId, user);
   }
 }

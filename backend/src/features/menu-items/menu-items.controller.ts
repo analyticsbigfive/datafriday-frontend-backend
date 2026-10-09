@@ -13,7 +13,6 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
-import { MenuItemsService } from './menu-items.service';
 import { BulkCreateMenuItemsDto, CreateMenuItemDto, ReplaceMenuItemComponentsDto, ReplaceMenuItemIngredientsDto, ReplaceMenuItemPackagingsDto, ReplaceMenuItemComboItemsDto } from './dto/create-menu-item.dto';
 import { RecipeBatchDto } from './dto/recipe-batch.dto';
 import { ApplyWeezeventPriceDto, ApplyWeezeventPricesBulkDto, BackfillWeezeventPricesDto } from './dto/apply-weezevent-price.dto';
@@ -25,6 +24,15 @@ import { UpdateProductCategoryDto } from './dto/update-product-category.dto';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
+import { MenuItemsFindAllQueryDto, ProductTypesFindAllQueryDto, ProductCategoriesFindAllQueryDto } from './dto/menu-items.query.dto';
+import { MenuItemCompositionService } from './services/menu-item-composition.service';
+import { MenuItemCostService } from './services/menu-item-cost.service';
+import { MenuItemRecipeService } from './services/menu-item-recipe.service';
+import { MenuItemWeezeventPriceService } from './services/menu-item-weezevent-price.service';
+import { ProductTaxonomyService } from './services/product-taxonomy.service';
+import { MenuItemBulkCreateService } from './services/menu-item-bulk-create.service';
+import { MenuItemCommandService } from './services/menu-item-command.service';
+import { MenuItemQueryService } from './services/menu-item-query.service';
 
 @ApiTags('Menu Items')
 @ApiBearerAuth('supabase-jwt')
@@ -33,7 +41,13 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 export class MenuItemsController {
   private readonly logger = new Logger(MenuItemsController.name);
 
-  constructor(private readonly menuItemsService: MenuItemsService) {}
+  constructor(private readonly menuItemCompositionService: MenuItemCompositionService,
+    private readonly menuItemCostService: MenuItemCostService,
+    private readonly menuItemBulkCreateService: MenuItemBulkCreateService,
+    private readonly menuItemCommandService: MenuItemCommandService,
+    private readonly menuItemQueryService: MenuItemQueryService,
+    private readonly menuItemRecipeService: MenuItemRecipeService,
+    private readonly menuItemWeezeventPriceService: MenuItemWeezeventPriceService) {}
 
   @RequirePermissions('menu.fb.menuItems')
   @Post()
@@ -41,7 +55,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 201, description: 'Article créé' })
   create(@Body() dto: CreateMenuItemDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /menu-items - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.create(dto, tenantId);
+    return this.menuItemCommandService.create(dto, tenantId);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -50,7 +64,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 201, description: 'Articles créés' })
   bulkCreate(@Body() dto: BulkCreateMenuItemsDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /menu-items/bulk - User: ${user?.id}, Tenant: ${tenantId}, Items: ${dto.items?.length || 0}`);
-    return this.menuItemsService.bulkCreate(dto.items || [], tenantId);
+    return this.menuItemBulkCreateService.bulkCreate(dto.items || [], tenantId);
   }
 
   @Get()
@@ -159,16 +173,11 @@ export class MenuItemsController {
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('spaceId') spaceId?: string,
-    @Query('search') search?: string,
-    @Query('typeId') typeId?: string,
-    @Query('categoryId') categoryId?: string,
-    @Query('readyForSale') readyForSale?: string,
+    @Query() params: MenuItemsFindAllQueryDto,
   ) {
+    const { page, limit, spaceId, search, typeId, categoryId, readyForSale } = params;
     this.logger.log(`GET /menu-items - User: ${user?.id}, Tenant: ${tenantId}, spaceId: ${spaceId ?? 'all'}`);
-    return this.menuItemsService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100, spaceId, {
+    return this.menuItemQueryService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100, spaceId, {
       search,
       typeId,
       categoryId,
@@ -182,7 +191,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 200, description: 'Coûts recalculés' })
   refreshCosts(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /menu-items/refresh-costs - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.refreshCosts(tenantId);
+    return this.menuItemCostService.refreshCosts(tenantId);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -195,9 +204,9 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`POST /menu-items/${id}/refresh-costs - User: ${user?.id}, Tenant: ${tenantId}`);
-    await this.menuItemsService.findOne(id, tenantId, user);
-    await this.menuItemsService.refreshCosts(tenantId, { itemIds: [id] });
-    return this.menuItemsService.findOne(id, tenantId, user);
+    await this.menuItemQueryService.findOne(id, tenantId, user);
+    await this.menuItemCostService.refreshCosts(tenantId, { itemIds: [id] });
+    return this.menuItemQueryService.findOne(id, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -214,7 +223,7 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`POST /menu-items/apply-weezevent-prices - User: ${user?.id}, Tenant: ${tenantId}, Items: ${dto.items?.length || 0}, Space: ${dto.spaceId ?? 'global'}`);
-    return this.menuItemsService.applyWeezeventPricesBulk(dto.items || [], tenantId, dto.spaceId);
+    return this.menuItemWeezeventPriceService.applyWeezeventPricesBulk(dto.items || [], tenantId, dto.spaceId);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -231,7 +240,7 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`POST /menu-items/backfill-weezevent-prices - User: ${user?.id}, Tenant: ${tenantId}, Space: ${dto?.spaceId ?? 'all'}, Event: ${dto?.eventId ?? 'latest'}, Overwrite: ${!!dto?.overwrite}, DryRun: ${!!dto?.dryRun}`);
-    return this.menuItemsService.backfillWeezeventPrices(tenantId, {
+    return this.menuItemWeezeventPriceService.backfillWeezeventPrices(tenantId, {
       spaceId: dto?.spaceId,
       eventId: dto?.eventId,
       overwrite: dto?.overwrite,
@@ -252,7 +261,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 200, description: 'Recettes + dictionnaire fournisseurs' })
   getRecipes(@Body() dto: RecipeBatchDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /menu-items/recipes - User: ${user?.id}, Tenant: ${tenantId}, ids: ${dto?.ids?.length ?? 0}`);
-    return this.menuItemsService.getRecipes(dto?.ids ?? [], tenantId);
+    return this.menuItemRecipeService.getRecipes(dto?.ids ?? [], tenantId);
   }
 
   @Get(':id/recipe')
@@ -266,7 +275,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 404, description: 'Article non trouvé' })
   getRecipe(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-items/${id}/recipe - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.getRecipe(id, tenantId, user);
+    return this.menuItemRecipeService.getRecipe(id, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -287,7 +296,7 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`POST /menu-items/${id}/apply-weezevent-price - User: ${user?.id}, Tenant: ${tenantId}, Space: ${dto?.spaceId ?? 'global'}`);
-    return this.menuItemsService.applyWeezeventPrice(id, tenantId, dto?.weezeventProductId, dto?.spaceId, {
+    return this.menuItemWeezeventPriceService.applyWeezeventPrice(id, tenantId, dto?.weezeventProductId, dto?.spaceId, {
       basePrice: dto?.basePrice,
       vatRate: dto?.vatRate,
     }, user);
@@ -303,7 +312,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 404, description: 'Article non trouvé' })
   getPriceHistory(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-items/${id}/price-history - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.getPriceHistory(id, tenantId, user);
+    return this.menuItemWeezeventPriceService.getPriceHistory(id, tenantId, user);
   }
 
   @Get(':id')
@@ -316,7 +325,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 404, description: 'Article non trouvé' })
   findOne(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`GET /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.findOne(id, tenantId, user);
+    return this.menuItemQueryService.findOne(id, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -331,7 +340,7 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PUT /menu-items/${id}/components - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.replaceComponents(id, dto.components, tenantId, user);
+    return this.menuItemCompositionService.replaceComponents(id, dto.components, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -346,7 +355,7 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PUT /menu-items/${id}/ingredients - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.replaceIngredients(id, dto.ingredients, tenantId, user);
+    return this.menuItemCompositionService.replaceIngredients(id, dto.ingredients, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -361,7 +370,7 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PUT /menu-items/${id}/packagings - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.replacePackagings(id, dto.packagings, tenantId, user);
+    return this.menuItemCompositionService.replacePackagings(id, dto.packagings, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -376,7 +385,7 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PUT /menu-items/${id}/combo-items - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.replaceComboItems(id, dto.comboItems, tenantId, user);
+    return this.menuItemCompositionService.replaceComboItems(id, dto.comboItems, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -386,7 +395,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 200, description: 'Article mis à jour' })
   update(@Param('id') id: string, @Body() dto: UpdateMenuItemDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`PATCH /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.update(id, dto, tenantId, user);
+    return this.menuItemCommandService.update(id, dto, tenantId, user);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -396,7 +405,7 @@ export class MenuItemsController {
   @ApiResponse({ status: 200, description: 'Article supprimé' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`DELETE /menu-items/${id} - User: ${user?.id}, Tenant: ${tenantId}`);
-    return this.menuItemsService.remove(id, tenantId, user);
+    return this.menuItemCommandService.remove(id, tenantId, user);
   }
 }
 
@@ -407,7 +416,7 @@ export class MenuItemsController {
 export class ProductTypesController {
   private readonly logger = new Logger(ProductTypesController.name);
 
-  constructor(private readonly menuItemsService: MenuItemsService) {}
+  constructor(private readonly productTaxonomyService: ProductTaxonomyService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lister tous les types de produits' })
@@ -418,12 +427,11 @@ export class ProductTypesController {
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
+    @Query() params: ProductTypesFindAllQueryDto,
   ) {
+    const { page, limit, search } = params;
     this.logger.log(`GET /product-types - User: ${user?.id}`);
-    return this.menuItemsService.getProductTypes(tenantId, page ? +page : 1, limit ? +limit : 200, search);
+    return this.productTaxonomyService.getProductTypes(tenantId, page ? +page : 1, limit ? +limit : 200, search);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -432,7 +440,7 @@ export class ProductTypesController {
   @ApiResponse({ status: 201, description: 'Type de produit créé' })
   create(@Body() body: CreateProductTypeDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /product-types - User: ${user?.id}`);
-    return this.menuItemsService.createProductType(body.name, tenantId);
+    return this.productTaxonomyService.createProductType(body.name, tenantId);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -447,7 +455,7 @@ export class ProductTypesController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PATCH /product-types/${id} - User: ${user?.id}`);
-    return this.menuItemsService.updateProductType(id, body.name, tenantId);
+    return this.productTaxonomyService.updateProductType(id, body.name, tenantId);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -457,7 +465,7 @@ export class ProductTypesController {
   @ApiResponse({ status: 404, description: 'Type de produit non trouvé' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`DELETE /product-types/${id} - User: ${user?.id}`);
-    return this.menuItemsService.deleteProductType(id, tenantId);
+    return this.productTaxonomyService.deleteProductType(id, tenantId);
   }
 }
 
@@ -468,7 +476,7 @@ export class ProductTypesController {
 export class ProductCategoriesController {
   private readonly logger = new Logger(ProductCategoriesController.name);
 
-  constructor(private readonly menuItemsService: MenuItemsService) {}
+  constructor(private readonly productTaxonomyService: ProductTaxonomyService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lister toutes les catégories de produits' })
@@ -478,15 +486,13 @@ export class ProductCategoriesController {
   @ApiQuery({ name: 'search', required: false, type: String, description: 'Filtre par nom (contains, insensible à la casse)' })
   @ApiResponse({ status: 200, description: 'Liste paginée des catégories de produits' })
   findAll(
-    @Query('typeId') typeId: string,
+    @Query() params: ProductCategoriesFindAllQueryDto,
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
-    @Query('page') page?: string,
-    @Query('limit') limit?: string,
-    @Query('search') search?: string,
   ) {
+    const { typeId, page, limit, search } = params;
     this.logger.log(`GET /product-categories - User: ${user?.id}`);
-    return this.menuItemsService.getProductCategories(tenantId, typeId, page ? +page : 1, limit ? +limit : 200, search);
+    return this.productTaxonomyService.getProductCategories(tenantId, typeId, page ? +page : 1, limit ? +limit : 200, search);
   }
 
   @RequirePermissions('menu.fb.menuItems')
@@ -495,7 +501,7 @@ export class ProductCategoriesController {
   @ApiResponse({ status: 201, description: 'Catégorie de produit créée' })
   create(@Body() body: CreateProductCategoryDto, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`POST /product-categories - User: ${user?.id}`);
-    return this.menuItemsService.createProductCategory(
+    return this.productTaxonomyService.createProductCategory(
       body.name,
       body.typeId,
       tenantId,
@@ -515,7 +521,7 @@ export class ProductCategoriesController {
     @CurrentTenant() tenantId: string,
   ) {
     this.logger.log(`PATCH /product-categories/${id} - User: ${user?.id}`);
-    return this.menuItemsService.updateProductCategory(
+    return this.productTaxonomyService.updateProductCategory(
       id,
       { name: body.name, typeId: body.typeId, productTypeId: body.productTypeId },
       tenantId,
@@ -529,6 +535,6 @@ export class ProductCategoriesController {
   @ApiResponse({ status: 404, description: 'Catégorie de produit non trouvée' })
   remove(@Param('id') id: string, @CurrentUser() user: any, @CurrentTenant() tenantId: string) {
     this.logger.log(`DELETE /product-categories/${id} - User: ${user?.id}`);
-    return this.menuItemsService.deleteProductCategory(id, tenantId);
+    return this.productTaxonomyService.deleteProductCategory(id, tenantId);
   }
 }

@@ -1,11 +1,11 @@
 import { ArgumentMetadata, BadRequestException } from '@nestjs/common';
 import { AllExceptionsFilter } from './all-exceptions.filter';
-import { ValidationPipe } from '../pipes/validation.pipe';
+import { createGlobalValidationPipe } from '../pipes/global-validation.pipe';
 import { CreateSpaceDto } from '../../features/spaces/dto/create-space.dto';
 
 describe('AllExceptionsFilter with ValidationPipe', () => {
   it('should return validation errors in the real API error payload', async () => {
-    const pipe = new ValidationPipe();
+    const pipe = createGlobalValidationPipe();
     const filter = new AllExceptionsFilter();
 
     const reply = {
@@ -46,24 +46,16 @@ describe('AllExceptionsFilter with ValidationPipe', () => {
     filter.catch(thrownError, host);
 
     expect(reply.status).toHaveBeenCalledWith(400);
+    // Format réellement renvoyé par l'API : première violation en `message`,
+    // toutes les violations en `errors`.
     expect(reply.send).toHaveBeenCalledWith(
       expect.objectContaining({
         statusCode: 400,
-        message: 'Validation failed',
+        message: expect.stringMatching(/^department must not be less than 1/),
+        error: 'BadRequestException',
         path: '/api/v1/spaces',
         method: 'POST',
-        errors: expect.arrayContaining([
-          expect.objectContaining({
-            property: 'department',
-            value: 0,
-            constraints: expect.objectContaining({
-              min: expect.stringContaining('must not be less than 1'),
-            }),
-            messages: expect.arrayContaining([
-              expect.stringContaining('must not be less than 1'),
-            ]),
-          }),
-        ]),
+        errors: expect.arrayContaining([expect.stringMatching(/^department must not be less than 1/)]),
       }),
     );
   });

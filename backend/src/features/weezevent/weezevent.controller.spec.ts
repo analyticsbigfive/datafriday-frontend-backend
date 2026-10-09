@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { WeezeventController } from './weezevent.controller';
 import { WeezeventSyncService } from './services/weezevent-sync.service';
 import { WeezeventIncrementalSyncService } from './services/weezevent-incremental-sync.service';
+import { WeezeventSyncStateService } from './services/sync/sync-state.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { SyncTrackerService } from './services/sync-tracker.service';
 import { QueueService } from '../../core/queue/queue.service';
@@ -9,13 +10,14 @@ import { WeezeventClientService } from './services/weezevent-client.service';
 import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
 import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
 import { MenuItemPricingService } from '../../shared/pricing/menu-item-pricing.service';
+import { WeezeventSalesDataQueryService } from './services/console/weezevent-sales-data-query.service';
+import { WeezeventProductCatalogService } from './services/console/weezevent-product-catalog.service';
+import { WeezeventProductMappingAdminService } from './services/console/weezevent-product-mapping-admin.service';
+import { WeezeventSyncAdminService } from './services/console/weezevent-sync-admin.service';
+import { WeezeventSyncJobService } from './services/console/weezevent-sync-job.service';
 
 describe('WeezeventController', () => {
   let controller: WeezeventController;
-  let syncService: WeezeventSyncService;
-  let incrementalSyncService: WeezeventIncrementalSyncService;
-  let prisma: PrismaService;
-  let syncTracker: SyncTrackerService;
 
   const mockUser = {
     id: 'user-123',
@@ -126,12 +128,21 @@ describe('WeezeventController', () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [WeezeventController],
       providers: [
+        WeezeventSalesDataQueryService,
+        WeezeventProductCatalogService,
+        WeezeventProductMappingAdminService,
+        WeezeventSyncAdminService,
+        WeezeventSyncJobService,
         {
           provide: WeezeventSyncService,
           useValue: mockSyncService,
         },
         {
           provide: WeezeventIncrementalSyncService,
+          useValue: mockIncrementalSyncService,
+        },
+        {
+          provide: WeezeventSyncStateService,
           useValue: mockIncrementalSyncService,
         },
         {
@@ -164,10 +175,6 @@ describe('WeezeventController', () => {
     }).compile();
 
     controller = module.get<WeezeventController>(WeezeventController);
-    syncService = module.get<WeezeventSyncService>(WeezeventSyncService);
-    incrementalSyncService = module.get<WeezeventIncrementalSyncService>(WeezeventIncrementalSyncService);
-    prisma = module.get<PrismaService>(PrismaService);
-    syncTracker = module.get<SyncTrackerService>(SyncTrackerService);
 
     jest.clearAllMocks();
   });
@@ -346,7 +353,7 @@ describe('WeezeventController', () => {
       mockPrismaService.salesEvent.findMany.mockResolvedValue([mockEvent]);
       mockPrismaService.salesEvent.count.mockResolvedValue(1);
 
-      const result = await controller.getEvents(mockUser, 1, 50);
+      const result = await controller.getEvents(mockUser, { page: 1, perPage: 50 });
 
       expect(result).toEqual({
         data: [mockEvent],
@@ -365,11 +372,12 @@ describe('WeezeventController', () => {
       mockPrismaService.salesProduct.findMany.mockResolvedValue([mockProduct]);
       mockPrismaService.salesProduct.count.mockResolvedValue(1);
 
-      const result = await controller.getProducts(mockUser, 1, 50);
+      const result = await controller.getProducts(mockUser, { page: 1, perPage: 50 });
 
       expect(result).toEqual({
         data: [mockProduct],
         meta: {
+          catalogTotal: 1,
           current_page: 1,
           per_page: 50,
           total: 1,
@@ -382,7 +390,7 @@ describe('WeezeventController', () => {
       mockPrismaService.salesProduct.findMany.mockResolvedValue([]);
       mockPrismaService.salesProduct.count.mockResolvedValue(0);
 
-      await controller.getProducts(mockUser, 1, 50, undefined, 'food');
+      await controller.getProducts(mockUser, { page: 1, perPage: 50, category: 'food' });
 
       expect(mockPrismaService.salesProduct.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -466,7 +474,7 @@ describe('WeezeventController', () => {
       mockPrismaService.productMapping.findMany.mockResolvedValue(mockMappings);
       mockPrismaService.productMapping.count.mockResolvedValue(1);
 
-      const result = await controller.getProductMappings(mockUser, 1, 50);
+      const result = await controller.getProductMappings(mockUser, { page: 1, perPage: 50 });
 
       expect(result.data).toEqual(mockMappings);
       expect(result.meta).toEqual({
@@ -509,7 +517,7 @@ describe('WeezeventController', () => {
       mockPrismaService.weezeventOrder.findMany.mockResolvedValue(mockOrders);
       mockPrismaService.weezeventOrder.count.mockResolvedValue(1);
 
-      const result = await controller.getOrders(mockUser, 1, 50);
+      const result = await controller.getOrders(mockUser, { page: 1, perPage: 50 });
 
       expect(result.data).toEqual(mockOrders);
       expect(result.meta.total).toBe(1);
@@ -519,7 +527,7 @@ describe('WeezeventController', () => {
       mockPrismaService.weezeventOrder.findMany.mockResolvedValue([]);
       mockPrismaService.weezeventOrder.count.mockResolvedValue(0);
 
-      await controller.getOrders(mockUser, 1, 50, undefined, 'event-123');
+      await controller.getOrders(mockUser, { page: 1, perPage: 50, eventId: 'event-123' });
 
       expect(mockPrismaService.weezeventOrder.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -546,7 +554,7 @@ describe('WeezeventController', () => {
       mockPrismaService.weezeventPrice.findMany.mockResolvedValue(mockPrices);
       mockPrismaService.weezeventPrice.count.mockResolvedValue(1);
 
-      const result = await controller.getPrices(mockUser, 1, 50);
+      const result = await controller.getPrices(mockUser, { page: 1, perPage: 50 });
 
       expect(result.data).toEqual(mockPrices);
       expect(result.meta.total).toBe(1);
@@ -567,7 +575,7 @@ describe('WeezeventController', () => {
       mockPrismaService.weezeventAttendee.findMany.mockResolvedValue(mockAttendees);
       mockPrismaService.weezeventAttendee.count.mockResolvedValue(1);
 
-      const result = await controller.getAttendees(mockUser, 1, 50);
+      const result = await controller.getAttendees(mockUser, { page: 1, perPage: 50 });
 
       expect(result.data).toEqual(mockAttendees);
       expect(result.meta.total).toBe(1);
@@ -584,7 +592,7 @@ describe('WeezeventController', () => {
 
       expect(result).toMatchObject({ status: 'queued', syncType: 'orders' });
       expect(mockQueueService.queueWeezeventSyncType).toHaveBeenCalledWith(
-        'tenant-123', 'orders', expect.objectContaining({ eventId: 'event-123' }),
+        'tenant-123', 'orders', 'integration-123', expect.objectContaining({ eventId: 'event-123' }),
       );
     });
 
@@ -603,7 +611,7 @@ describe('WeezeventController', () => {
 
       expect(result).toMatchObject({ status: 'queued', syncType: 'prices' });
       expect(mockQueueService.queueWeezeventSyncType).toHaveBeenCalledWith(
-        'tenant-123', 'prices', expect.objectContaining({ eventId: 'event-123' }),
+        'tenant-123', 'prices', 'integration-123', expect.objectContaining({ eventId: 'event-123' }),
       );
     });
 
@@ -616,7 +624,7 @@ describe('WeezeventController', () => {
 
       expect(result).toMatchObject({ status: 'queued', syncType: 'attendees' });
       expect(mockQueueService.queueWeezeventSyncType).toHaveBeenCalledWith(
-        'tenant-123', 'attendees', expect.objectContaining({ eventId: 'event-123' }),
+        'tenant-123', 'attendees', 'integration-123', expect.objectContaining({ eventId: 'event-123' }),
       );
     });
 

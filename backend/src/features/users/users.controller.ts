@@ -34,13 +34,17 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { UserRole } from '@prisma/client';
+import { UserAccessService } from './services/user-access.service';
+import { UserInvitationService } from './services/user-invitation.service';
 
 @ApiTags('Users')
 @ApiBearerAuth('supabase-jwt')
 @Controller('users')
 @UseGuards(JwtDatabaseGuard, RolesGuard, PermissionsGuard)
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+  constructor(private readonly userAccessService: UserAccessService,
+    private readonly userInvitationService: UserInvitationService,
+    private readonly usersService: UsersService) {}
 
   /**
    * Create a new user
@@ -190,7 +194,7 @@ export class UsersController {
     @CurrentUser() user: any,
     @Body() dto: InviteUserDto,
   ) {
-    return this.usersService.invite(tenantId, dto, user.id);
+    return this.userInvitationService.invite(tenantId, dto, user.id);
   }
 
   /**
@@ -213,7 +217,7 @@ export class UsersController {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: any,
   ) {
-    return this.usersService.reinvite(id, tenantId, user.id);
+    return this.userInvitationService.reinvite(id, tenantId, user.id);
   }
 
   /**
@@ -234,7 +238,7 @@ export class UsersController {
     @CurrentUser() user: any,
     @Body() dto: ChangeRoleDto,
   ) {
-    return this.usersService.changeRole(id, tenantId, dto, user.id, user.role.systemKey);
+    return this.userAccessService.changeRole(id, tenantId, dto, user.id, user.role.systemKey);
   }
 
   /**
@@ -257,7 +261,7 @@ export class UsersController {
     @CurrentTenant() tenantId: string,
     @Body() body: GrantSpaceAccessDto,
   ) {
-    return this.usersService.grantSpaceAccess(userId, spaceId, tenantId, body.role);
+    return this.userAccessService.grantSpaceAccess(userId, spaceId, tenantId, body.role);
   }
 
   /**
@@ -278,6 +282,6 @@ export class UsersController {
     @Param('spaceId') spaceId: string,
     @CurrentTenant() tenantId: string,
   ) {
-    return this.usersService.revokeSpaceAccess(userId, spaceId, tenantId);
+    return this.userAccessService.revokeSpaceAccess(userId, spaceId, tenantId);
   }
 }

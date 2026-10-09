@@ -1,10 +1,10 @@
-import { SpaceMenusService } from './space-menus.service';
+import { createSpaceMenusServices } from './services/space-menus-services.testing';
 
-describe('SpaceMenusService.getConfigShopMenuItemsLight (BUG-383-02 : articles = union des configurations)', () => {
+describe('SpaceMenuConfigurationService.getConfigShopMenuItemsLight (BUG-383-02 : articles = union des configurations)', () => {
     const beer = { id: 'mi-beer', name: 'Bière', basePrice: 6, productCategory: { name: 'Beer' } };
     const hotdog = { id: 'mi-hotdog', name: 'Hot dog', basePrice: 5, productCategory: { name: 'Food' } };
     let prisma: any;
-    let service: SpaceMenusService;
+  let spaceMenuConfigurationService: any;
 
     beforeEach(() => {
         prisma = {
@@ -20,11 +20,11 @@ describe('SpaceMenusService.getConfigShopMenuItemsLight (BUG-383-02 : articles =
                 ]),
             },
         };
-        service = new SpaceMenusService(prisma, {} as any, {} as any, {} as any);
+        ({ spaceMenuConfigurationService } = createSpaceMenusServices({ prisma: prisma, redis: {} as any, pricing: {} as any, spaceAccess: {} as any }));
     });
 
     it("par défaut, ne lit que les assignations de LA configuration (Analyse, Space Menu)", async () => {
-        await service.getConfigShopMenuItemsLight('space-1', 'cfg-pfc', 'tenant-1');
+        await spaceMenuConfigurationService.getConfigShopMenuItemsLight('space-1', 'cfg-pfc', 'tenant-1');
         const args = prisma.spaceElement.findMany.mock.calls[0][0];
         expect(args.select.menuAssignments.where).toEqual({ configId: 'cfg-pfc', enabled: true, menuItem: { deletedAt: null } });
         // Les PdV restent ceux de la configuration demandée.
@@ -32,7 +32,7 @@ describe('SpaceMenusService.getConfigShopMenuItemsLight (BUG-383-02 : articles =
     });
 
     it("itemsScope 'space' : PdV de la configuration, articles de toutes les configurations de l'espace, dédupliqués", async () => {
-        const out = await service.getConfigShopMenuItemsLight('space-1', 'cfg-pfc', 'tenant-1', { itemsScope: 'space' });
+        const out = await spaceMenuConfigurationService.getConfigShopMenuItemsLight('space-1', 'cfg-pfc', 'tenant-1', { itemsScope: 'space' });
         const args = prisma.spaceElement.findMany.mock.calls[0][0];
         expect(args.select.menuAssignments.where).toEqual({ enabled: true, menuItem: { deletedAt: null }, config: { spaceId: 'space-1' } });
         expect(args.where.OR).toEqual(expect.arrayContaining([{ floor: { configId: 'cfg-pfc' } }]));
@@ -40,7 +40,7 @@ describe('SpaceMenusService.getConfigShopMenuItemsLight (BUG-383-02 : articles =
     });
 
     it("shopsScope 'space' (« Voir tout l'inventaire ») : PdV de toutes les configurations de l'espace", async () => {
-        await service.getConfigShopMenuItemsLight('space-1', 'cfg-pfc', 'tenant-1', { itemsScope: 'space', shopsScope: 'space' });
+        await spaceMenuConfigurationService.getConfigShopMenuItemsLight('space-1', 'cfg-pfc', 'tenant-1', { itemsScope: 'space', shopsScope: 'space' });
         const args = prisma.spaceElement.findMany.mock.calls[0][0];
         const bySpace = { config: { spaceId: 'space-1' } };
         expect(args.where.OR).toEqual([
@@ -53,6 +53,6 @@ describe('SpaceMenusService.getConfigShopMenuItemsLight (BUG-383-02 : articles =
 
     it('configuration inconnue ou hors tenant : réponse vide', async () => {
         prisma.config.findFirst.mockResolvedValue(null);
-        expect(await service.getConfigShopMenuItemsLight('space-1', 'nope', 'tenant-1', { itemsScope: 'space' })).toEqual({});
+        expect(await spaceMenuConfigurationService.getConfigShopMenuItemsLight('space-1', 'nope', 'tenant-1', { itemsScope: 'space' })).toEqual({});
     });
 });

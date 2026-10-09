@@ -6,7 +6,6 @@ import { JoinByCodeDto } from './dto/join-by-code.dto';
 
 describe('OnboardingController', () => {
   let controller: OnboardingController;
-  let service: OnboardingService;
 
   const mockUser = {
     id: 'user-123',
@@ -49,7 +48,6 @@ describe('OnboardingController', () => {
     }).compile();
 
     controller = module.get<OnboardingController>(OnboardingController);
-    service = module.get<OnboardingService>(OnboardingService);
 
     jest.clearAllMocks();
   });

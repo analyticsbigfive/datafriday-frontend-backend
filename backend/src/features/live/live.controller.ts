@@ -2,7 +2,7 @@ import { Controller, Sse, Inject, MessageEvent } from '@nestjs/common';
 import { Observable } from 'rxjs';
 import type Redis from 'ioredis';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
-import { REDIS_CLIENT } from '../../core/redis/redis.module';
+import { REDIS_CLIENT } from '../../core/redis/redis.constants';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
@@ -12,7 +12,7 @@ import { liveTenantSpacePattern } from '../../shared/live-channel.util';
  * Chantier 379 (frontend/docs/chantiers/379_live_standalone_backend_driven) — indicateur
  * global "un event est live quelque part" (App.vue, monté une fois par session, survit à la
  * navigation inter-routes — même pattern que SyncJobFloatingWidget). Distinct de
- * SpacesController::liveStream (un espace précis) : ici un seul flux couvre TOUS les espaces
+ * SpaceAnalyticsController::liveStream (un espace précis) : ici un seul flux couvre TOUS les espaces
  * du tenant via un `psubscribe` (pattern Redis), pas une connexion par espace.
  *
  * Filtre par accès utilisateur (pas juste par tenant) : un utilisateur à accès restreint ne

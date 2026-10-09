@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
-import { RouterModule, APP_GUARD, APP_INTERCEPTOR, Reflector } from '@nestjs/core';
-import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ScheduleModule } from '@nestjs/schedule';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ConfigService } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
-import { ClsModule } from 'nestjs-cls';
-import * as Joi from 'joi';
+import { AppConfigModule } from './config/app-config.module';
+import { AppConfigService } from './config/app-config.service';
+import { backgroundJobsInApi } from './config/background-jobs';
+import { BackgroundJobsModule } from './background-jobs.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './core/database/prisma.module';
@@ -75,42 +76,7 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      // Charge le fichier d'env spécifique à l'environnement, avec fallback en cascade.
-      // En production/staging/conteneur, on s'appuie aussi sur process.env injecté par l'orchestrateur.
-      envFilePath: [
-        `envFiles/.env.${process.env.NODE_ENV || 'development'}`,
-        'envFiles/.env',
-        '.env',
-      ],
-      expandVariables: true,
-      validationSchema: Joi.object({
-        NODE_ENV: Joi.string()
-          .valid('development', 'staging', 'production', 'test')
-          .default('development'),
-        DATABASE_URL: Joi.string().required(),
-        JWT_SECRET: Joi.string().required(),
-        // Accès invité PIN (managers PDV sans compte, cf. GuestPinAccessModule) — secrets
-        // DÉDIÉS, jamais partagés avec JWT_SECRET (celui-ci vérifie les tokens Supabase).
-        GUEST_PIN_JWT_SECRET: Joi.string().required(),
-        GUEST_PIN_HMAC_SECRET: Joi.string().required(),
-        GUEST_PIN_JWT_TTL: Joi.string().default('1d'),
-        PORT: Joi.number().default(3000),
-        // Rate limiting (par tenant, cf. TenantThrottlerGuard) — 3 paliers indépendants,
-        // chacun surchargeable via env sans redéploiement de code.
-        RATE_LIMIT_SHORT_TTL: Joi.number().default(1000),
-        RATE_LIMIT_SHORT_MAX: Joi.number().default(20),
-        RATE_LIMIT_MEDIUM_TTL: Joi.number().default(60000),
-        RATE_LIMIT_MEDIUM_MAX: Joi.number().default(300),
-        RATE_LIMIT_LONG_TTL: Joi.number().default(3600000),
-        RATE_LIMIT_LONG_MAX: Joi.number().default(5000),
-      }),
-      validationOptions: {
-        allowUnknown: true,
-        abortEarly: false,
-      },
-    }),
+    AppConfigModule,
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => [
@@ -119,37 +85,32 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
         { name: 'long', ttl: config.get<number>('RATE_LIMIT_LONG_TTL'), limit: config.get<number>('RATE_LIMIT_LONG_MAX') },
       ],
     }),
-    LoggerModule.forRoot({
-      pinoHttp: {
-        level: process.env.LOG_LEVEL || 'info',
-        transport:
-          process.env.NODE_ENV !== 'production'
+    LoggerModule.forRootAsync({
+      inject: [AppConfigService],
+      useFactory: (config: AppConfigService) => ({
+        pinoHttp: {
+          level: config.logLevel,
+          transport: !config.isProduction
             ? { target: 'pino-pretty', options: { singleLine: true, colorize: true } }
             : undefined,
-        redact: [
-          'req.headers.authorization',
-          'req.headers.cookie',
-          'req.headers["x-api-key"]',
-          // Accès invité PIN : jamais de PIN en clair dans les logs.
-          'req.body.pin',
-        ],
-        customProps: (req: any) => ({
-          tenantId: req.user?.tenantId ?? undefined,
-          userId: req.user?.id ?? undefined,
-        }),
-      },
-    }),
-    ScheduleModule.forRoot(),
-    // Request-scoped context (AsyncLocalStorage) — carries tenantId for
-    // automatic Prisma tenant scoping. Mounted as middleware so it wraps the
-    // whole request (guards, interceptors, handlers).
-    ClsModule.forRoot({
-      global: true,
-      middleware: { mount: true },
+          redact: [
+            'req.headers.authorization',
+            'req.headers.cookie',
+            'req.headers["x-api-key"]',
+            // Accès invité PIN : jamais de PIN en clair dans les logs.
+            'req.body.pin',
+          ],
+          customProps: (req: any) => ({
+            tenantId: req.user?.tenantId ?? undefined,
+            userId: req.user?.id ?? undefined,
+          }),
+        },
+      }),
     }),
     EncryptionModule,
     CacheModule,
     SupabaseModule,
+    // Contexte tenant (CLS) : enveloppe chaque requête, porte le tenantId pour Prisma.
     TenantModule,
     SpaceAccessModule,
     RedisModule.forRoot(),
@@ -209,6 +170,8 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     SeasonsModule,
     HrModule,
     StaffingModule,
+    // Repli sans worker déployé uniquement (BACKGROUND_JOBS_IN_API=true) : voir BackgroundJobsModule.
+    ...(backgroundJobsInApi() ? [BackgroundJobsModule] : []),
   ],
   controllers: [AppController],
   providers: [

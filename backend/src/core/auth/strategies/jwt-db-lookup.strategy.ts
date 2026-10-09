@@ -8,7 +8,7 @@ import { RedisService } from '../../redis/redis.service';
 import { buildJwtVerifyOptions } from '../jwt-secret.provider';
 
 /** Pub/Sub channel used to invalidate per-pod local auth caches cluster-wide. */
-export const AUTH_INVALIDATE_CHANNEL = 'auth:invalidate';
+const AUTH_INVALIDATE_CHANNEL = 'auth:invalidate';
 
 export interface JwtPayload {
   sub: string; // userId Supabase

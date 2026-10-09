@@ -63,7 +63,7 @@ describe('OrchestratorController', () => {
     });
 
     it('should invalidate cache for specific space', async () => {
-      const result = await controller.invalidateCache(
+      await controller.invalidateCache(
         { spaceId: 'space-456' } as any,
         'tenant-123',
       );

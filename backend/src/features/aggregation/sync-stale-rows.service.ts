@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
+import { selectDatabaseNow } from './sync-stale-rows.queries';
 
 /** Event du run qui n'a pas pu être retraité : ses lignes existantes sont conservées. */
 export interface FailedSyncEvent {
@@ -29,7 +30,7 @@ export class SyncStaleRowsService {
 
   /** Horloge de la base, prise avant la reconstruction (référence du balayage). */
   async databaseNow(): Promise<Date> {
-    const rows = await this.prisma.$queryRaw<Array<{ now: Date }>>`SELECT NOW() AS "now"`;
+    const rows = await selectDatabaseNow(this.prisma);
     return rows[0].now;
   }
 

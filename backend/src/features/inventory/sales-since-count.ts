@@ -72,6 +72,7 @@ export async function subtractSalesSinceCount<T extends PushLine>(
     for (const [elementId, buckets] of bucketsByElement) {
       if (buckets[r]) sinceByElement.set(elementId, buckets[r].since);
     }
+    // eslint-disable-next-line no-await-in-loop -- au plus MAX_ROUNDS lectures des transactions, une à la fois pour ne pas charger la base pendant le match
     const sold = await deps.consumption(sinceByElement);
     if (!sold.length) continue;
     for (const [elementId, buckets] of bucketsByElement) {

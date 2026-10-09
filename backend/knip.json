@@ -1,0 +1,30 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "src/main.ts",
+    "src/worker.ts",
+    "prisma/*.ts",
+    "scripts/**/*.{ts,js,mjs,cjs}"
+  ],
+  "project": [
+    "src/**/*.ts",
+    "prisma/**/*.ts",
+    "scripts/**/*.{ts,js,mjs,cjs}"
+  ],
+  "jest": {
+    "config": [
+      "jest.config.js"
+    ]
+  },
+  "nest": true,
+  "ignoreDependencies": [
+    "pino-pretty",
+    "source-map-support"
+  ],
+  "ignoreBinaries": [
+    "docker-compose"
+  ],
+  "rules": {
+    "enumMembers": "off"
+  }
+}

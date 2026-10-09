@@ -290,6 +290,7 @@ export async function ensureSystemPermissionCatalog(prisma: RbacClient): Promise
   const newlyCreatedCodes: string[] = [];
 
   for (const perm of SYSTEM_PERMISSIONS) {
+    // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
     const existing = await prisma.permission.findFirst({
       where: { tenantId: null, code: perm.code },
       select: { id: true },
@@ -298,6 +299,7 @@ export async function ensureSystemPermissionCatalog(prisma: RbacClient): Promise
     let permissionId: string;
 
     if (existing) {
+      // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
       await prisma.permission.update({
         where: { id: existing.id },
         data: {
@@ -308,6 +310,7 @@ export async function ensureSystemPermissionCatalog(prisma: RbacClient): Promise
       });
       permissionId = existing.id;
     } else {
+      // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
       const created = await prisma.permission.create({
         data: {
           tenantId: null,
@@ -353,12 +356,14 @@ async function grantNewPermissionsToExistingRoles(
 
     if (!permissionIds.length) continue;
 
+    // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
     const existingRoles = await prisma.role.findMany({
       where: { name: roleDef.name, isSystem: true },
       select: { id: true },
     });
 
     for (const role of existingRoles) {
+      // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
       await prisma.rolePermission.createMany({
         data: permissionIds.map((permissionId) => ({ roleId: role.id, permissionId })),
         skipDuplicates: true,
@@ -393,6 +398,7 @@ export async function cloneSystemRolesForTenant(
   const roleIdByName: Record<string, string> = {};
 
   for (const roleDef of SYSTEM_ROLES) {
+    // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
     const existing = await prisma.role.findFirst({
       where: { tenantId, name: roleDef.name },
       select: { id: true },
@@ -405,6 +411,7 @@ export async function cloneSystemRolesForTenant(
     let roleId: string;
 
     if (existing) {
+      // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
       await prisma.role.update({
         where: { id: existing.id },
         data: {
@@ -415,13 +422,16 @@ export async function cloneSystemRolesForTenant(
       });
       // ADMIN : resync complet du catalogue (invariant). Les autres rôles gardent leurs perms.
       if (roleDef.systemKey === UserRole.ADMIN) {
+        // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
         await prisma.rolePermission.deleteMany({ where: { roleId: existing.id } });
+        // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
         await prisma.rolePermission.createMany({
           data: permissionIds.map((permissionId) => ({ roleId: existing.id, permissionId })),
         });
       }
       roleId = existing.id;
     } else {
+      // eslint-disable-next-line no-await-in-loop -- amorçage idempotent du catalogue au démarrage, quelques dizaines d'entrées
       const created = await prisma.role.create({
         data: {
           tenantId,

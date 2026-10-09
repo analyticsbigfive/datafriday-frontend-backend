@@ -1,0 +1,6 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "strict": true, "noEmit": true, "incremental": false },
+  "include": ["src/config/**/*.ts", "src/core/**/*.ts", "src/shared/**/*.ts", "src/health/**/*.ts"],
+  "exclude": ["**/*.spec.ts", "**/*.testing.ts"]
+}

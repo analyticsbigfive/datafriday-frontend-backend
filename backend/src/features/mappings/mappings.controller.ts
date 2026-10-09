@@ -12,7 +12,6 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
-import { MappingsService } from './mappings.service';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import {
   CreateLocationSpaceMappingDto,
@@ -22,6 +21,11 @@ import {
   BulkLocationShopMappingDto,
   BulkProductMappingDto,
 } from './dto/mapping.dto';
+import { MappingsGetLocationSpaceMappingsQueryDto, MappingsGetLocationShopMappingsQueryDto, MappingsGetMerchantElementMappingsQueryDto, MappingsGetProductMappingsQueryDto } from './dto/mappings.query.dto';
+import { LocationMappingService } from './services/location-mapping.service';
+import { MappingProgressService } from './services/mapping-progress.service';
+import { MerchantMappingService } from './services/merchant-mapping.service';
+import { ProductMappingService } from './services/product-mapping.service';
 
 @ApiTags('Mappings')
 @ApiBearerAuth('supabase-jwt')
@@ -30,7 +34,10 @@ import {
 export class MappingsController {
   private readonly logger = new Logger(MappingsController.name);
 
-  constructor(private readonly mappingsService: MappingsService) {}
+  constructor(private readonly locationMappingService: LocationMappingService,
+    private readonly mappingProgressService: MappingProgressService,
+    private readonly merchantMappingService: MerchantMappingService,
+    private readonly productMappingService: ProductMappingService) {}
 
   // ─── Location → Space ───────────────────────────────────
 
@@ -76,11 +83,11 @@ export class MappingsController {
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   getLocationSpaceMappings(
     @CurrentUser() user: any,
-    @Query('page') page = 1,
-    @Query('limit') limit = 100,
+    @Query() params: MappingsGetLocationSpaceMappingsQueryDto,
   ) {
+    const { page = 1, limit = 100 } = params;
     this.logger.log(`GET /mappings/location-space - Tenant: ${user.tenantId}`);
-    return this.mappingsService.getLocationSpaceMappings(user.tenantId, +page, +limit, user);
+    return this.locationMappingService.getLocationSpaceMappings(user.tenantId, +page, +limit, user);
   }
 
   @Get('location-space/:locationId')
@@ -94,7 +101,7 @@ export class MappingsController {
     @Param('locationId') locationId: string,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.getLocationSpaceMapping(user.tenantId, locationId, user);
+    return this.locationMappingService.getLocationSpaceMapping(user.tenantId, locationId, user);
   }
 
   @RequirePermissions('menu.integration.fb')
@@ -110,7 +117,7 @@ export class MappingsController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /mappings/location-space - location=${dto.weezeventLocationId}`);
-    return this.mappingsService.createLocationSpaceMapping(dto, user.tenantId);
+    return this.locationMappingService.createLocationSpaceMapping(dto, user.tenantId);
   }
 
   @RequirePermissions('menu.integration.fb')
@@ -122,7 +129,7 @@ export class MappingsController {
     @Param('locationId') locationId: string,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.deleteLocationSpaceMapping(user.tenantId, locationId);
+    return this.locationMappingService.deleteLocationSpaceMapping(user.tenantId, locationId);
   }
 
   // ─── Location → ShopElement ─────────────────────────────
@@ -138,12 +145,10 @@ export class MappingsController {
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 1000 })
   getLocationShopMappings(
     @CurrentUser() user: any,
-    @Query('locationId') locationId?: string,
-    @Query('spaceId') spaceId?: string,
-    @Query('page') page = 1,
-    @Query('limit') limit = 1000,
+    @Query() params: MappingsGetLocationShopMappingsQueryDto,
   ) {
-    return this.mappingsService.getLocationShopMappings(
+    const { locationId, spaceId, page = 1, limit = 1000 } = params;
+    return this.locationMappingService.getLocationShopMappings(
       user.tenantId,
       locationId,
       spaceId,
@@ -161,7 +166,7 @@ export class MappingsController {
     @Body() dto: CreateLocationShopMappingDto,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.createLocationShopMapping(dto, user.tenantId);
+    return this.locationMappingService.createLocationShopMapping(dto, user.tenantId);
   }
 
   @RequirePermissions('menu.integration.fb')
@@ -172,7 +177,7 @@ export class MappingsController {
     @Body() dto: BulkLocationShopMappingDto,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.bulkLocationShopMappings(dto, user.tenantId);
+    return this.locationMappingService.bulkLocationShopMappings(dto, user.tenantId);
   }
 
   @RequirePermissions('menu.integration.fb')
@@ -189,7 +194,7 @@ export class MappingsController {
     @Param('locationId') locationId: string,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.deleteLocationShopMapping(user.tenantId, locationId);
+    return this.locationMappingService.deleteLocationShopMapping(user.tenantId, locationId);
   }
 
   // ─── Merchant → Element ─────────────────────────────────
@@ -234,11 +239,10 @@ export class MappingsController {
   })
   getMerchantElementMappings(
     @CurrentUser() user: any,
-    @Query('locationId') locationId?: string,
-    @Query('page') page = 1,
-    @Query('limit') limit = 200,
+    @Query() params: MappingsGetMerchantElementMappingsQueryDto,
   ) {
-    return this.mappingsService.getMerchantElementMappings(user.tenantId, locationId, +page, +limit);
+    const { locationId, page = 1, limit = 200 } = params;
+    return this.merchantMappingService.getMerchantElementMappings(user.tenantId, locationId, +page, +limit);
   }
 
   @RequirePermissions('menu.integration.fb')
@@ -250,7 +254,7 @@ export class MappingsController {
     @Body() dto: CreateMerchantElementMappingDto,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.createMerchantElementMapping(dto, user.tenantId);
+    return this.merchantMappingService.createMerchantElementMapping(dto, user.tenantId);
   }
 
   @RequirePermissions('menu.integration.fb')
@@ -286,7 +290,7 @@ export class MappingsController {
     @Body() dto: BulkMerchantElementMappingDto,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.bulkMerchantElementMappings(dto, user.tenantId);
+    return this.merchantMappingService.bulkMerchantElementMappings(dto, user.tenantId);
   }
 
   @RequirePermissions('menu.integration.fb')
@@ -305,7 +309,7 @@ export class MappingsController {
     @Param('merchantId') merchantId: string,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.deleteMerchantElementMapping(user.tenantId, merchantId);
+    return this.merchantMappingService.deleteMerchantElementMapping(user.tenantId, merchantId);
   }
 
   // ─── Product → MenuItem ──────────────────────────────────
@@ -320,7 +324,7 @@ export class MappingsController {
     @CurrentUser() user: any,
     @Query('integrationId') integrationId?: string,
   ) {
-    return this.mappingsService.getProductMappingStats(user.tenantId, integrationId);
+    return this.productMappingService.getProductMappingStats(user.tenantId, integrationId);
   }
 
   @Get('product-menu')
@@ -367,20 +371,15 @@ export class MappingsController {
   })
   getProductMappings(
     @CurrentUser() user: any,
-    @Query('locationId') locationId?: string,
-    @Query('page') page = 1,
-    @Query('limit') limit = 200,
-    @Query('includeSales') includeSales?: string,
-    @Query('integrationId') integrationId?: string,
-    @Query('fromDate') fromDate?: string,
-    @Query('toDate') toDate?: string,
+    @Query() params: MappingsGetProductMappingsQueryDto,
   ) {
+    const { locationId, page = 1, limit = 200, includeSales, integrationId, fromDate, toDate } = params;
     const parseDate = (v?: string) => {
       if (!v) return undefined;
       const d = new Date(v);
       return Number.isNaN(d.getTime()) ? undefined : d;
     };
-    return this.mappingsService.getProductMappings(user.tenantId, locationId, +page, +limit, {
+    return this.productMappingService.getProductMappings(user.tenantId, locationId, +page, +limit, {
       includeSales: includeSales === 'true' || includeSales === '1',
       integrationId,
       fromDate: parseDate(fromDate),
@@ -421,7 +420,7 @@ export class MappingsController {
     @Body() dto: BulkProductMappingDto,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.bulkProductMappings(dto, user.tenantId, user.id);
+    return this.productMappingService.bulkProductMappings(dto, user.tenantId, user.id);
   }
 
   @RequirePermissions('menu.integration.fb')
@@ -433,7 +432,7 @@ export class MappingsController {
     @Param('productId') productId: string,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.deleteProductMapping(user.tenantId, productId);
+    return this.productMappingService.deleteProductMapping(user.tenantId, productId);
   }
 
   // ─── Integration Progress ────────────────────────────────
@@ -478,7 +477,7 @@ export class MappingsController {
     },
   })
   getAllIntegrationProgress(@CurrentUser() user: any) {
-    return this.mappingsService.getAllIntegrationProgress(user.tenantId);
+    return this.mappingProgressService.getAllIntegrationProgress(user.tenantId);
   }
 
   @Get('progress/:locationId')
@@ -492,7 +491,7 @@ export class MappingsController {
     @Param('locationId') locationId: string,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.getIntegrationProgress(user.tenantId, locationId);
+    return this.mappingProgressService.getIntegrationProgress(user.tenantId, locationId);
   }
 
   @Get('summary/:locationId')
@@ -534,6 +533,6 @@ export class MappingsController {
     @Param('locationId') locationId: string,
     @CurrentUser() user: any,
   ) {
-    return this.mappingsService.getLocationSummary(user.tenantId, locationId);
+    return this.mappingProgressService.getLocationSummary(user.tenantId, locationId);
   }
 }

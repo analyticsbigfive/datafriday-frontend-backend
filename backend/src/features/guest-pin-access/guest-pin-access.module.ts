@@ -8,17 +8,18 @@ import { MarketPricesModule } from '../market-prices/market-prices.module';
 import { MenuComponentsModule } from '../menu-components/menu-components.module';
 import { AuditModule } from '../../core/audit/audit.module';
 import { JwtGuestPinStrategy } from '../../core/auth/strategies/jwt-guest-pin.strategy';
-import { GuestPinAccessService } from './guest-pin-access.service';
 import { GuestPinAuthController } from './guest-pin-auth.controller';
 import { GuestPinAdminController } from './guest-pin-admin.controller';
-import { InventoryWindowLifecycleCronService } from './inventory-window-lifecycle.cron';
-import { InventoryCycleCronService } from './inventory-cycle.cron';
-import { SpacesModule } from '../spaces/spaces.module';
 import { SpaceMenusModule } from '../space-menus/space-menus.module';
 import { StorageTypesModule } from '../storage-types/storage-types.module';
 import { LogisticsModule } from '../logistics/logistics.module';
 import { VentilationAccessService } from './ventilation-access.service';
 import { VentilationAdminController } from './ventilation-admin.controller';
+import { GuestPinCountingService } from './services/guest-pin-counting.service';
+import { GuestPinCredentialService } from './services/guest-pin-credential.service';
+import { GuestPinSessionService } from './services/guest-pin-session.service';
+import { GuestPinWindowService } from './services/guest-pin-window.service';
+import { GuestPinPhaseService } from './services/guest-pin-phase.service';
 
 @Module({
   imports: [
@@ -34,7 +35,6 @@ import { VentilationAdminController } from './ventilation-admin.controller';
     SpaceMenusModule,
     StorageTypesModule,
     AuditModule,
-    SpacesModule, // getLiveStatus : première vente du match (arrêt du pre-event)
     LogisticsModule, // accès Ventilation : dépôts (mouvements VENTILATION) et leur annulation
     PassportModule,
     // JwtModule DÉDIÉ, secret distinct de celui d'AuthModule (JWT_SECRET, réservé
@@ -50,11 +50,15 @@ import { VentilationAdminController } from './ventilation-admin.controller';
   ],
   controllers: [GuestPinAuthController, GuestPinAdminController, VentilationAdminController],
   providers: [
-    GuestPinAccessService,
-    VentilationAccessService,
     JwtGuestPinStrategy,
-    InventoryWindowLifecycleCronService,
-    InventoryCycleCronService,
+    GuestPinCredentialService,
+    GuestPinSessionService,
+    GuestPinCountingService,
+    GuestPinWindowService,
+    GuestPinPhaseService,
+    VentilationAccessService,
   ],
+  // Crons des fenêtres (GuestPinAccessJobsModule) : clôture, préparation, démarrages et arrêts.
+  exports: [GuestPinWindowService, GuestPinPhaseService],
 })
 export class GuestPinAccessModule {}

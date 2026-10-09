@@ -1,4 +1,4 @@
-import { InventoryService } from './inventory.service';
+import { createInventoryServices } from './services/inventory-services.testing';
 
 /**
  * Feuille post-event par match (demande Bertrand 2026-09-29, « même système que le
@@ -20,21 +20,23 @@ describe('InventoryService, feuille post-event et recomptage par PDV', () => {
     inventoryCount: { updateMany: jest.fn().mockResolvedValue({ count: 12 }) },
     guestPinAccess: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
   };
-  let service: InventoryService;
+  let inventoryCountService: any;
+  let inventoryLogisticPushService: any;
+  let inventoryReconciliationService: any;
   let push: jest.SpyInstance;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    service = new InventoryService(prisma as any, {} as any);
-    jest.spyOn(service as any, 'assertSpace').mockResolvedValue(undefined);
-    jest.spyOn(service, 'getBySpaceAndEvent').mockResolvedValue({ inventoryCounts: { 'shop-1': {} } } as any);
-    push = jest.spyOn(service as any, 'pushCountToLogistic').mockResolvedValue({ ok: true, lineCount: 3 });
+    const spaceAccess = { assertSpaceInTenant: jest.fn().mockResolvedValue({ id: 'space-1', name: 'Espace' }) };
+    ({ inventoryCountService, inventoryLogisticPushService, inventoryReconciliationService } = createInventoryServices({ prisma: prisma as any, stockItemIdentityService: {} as any, stockLevelService: {} as any, stockReconciliationService: {} as any, spaceAccess: spaceAccess as any }));
+    jest.spyOn(inventoryCountService, 'getBySpaceAndEvent').mockResolvedValue({ inventoryCounts: { 'shop-1': {} } } as any);
+    push = jest.spyOn(inventoryLogisticPushService as any, 'pushCountToLogistic').mockResolvedValue({ ok: true, lineCount: 3 });
   });
 
   const dto = { eventId: 'event-1', lines: [] } as any;
 
   it('brouillon : feuille remplacée, ni Logistic ni clôture du post-event', async () => {
-    const created = await service.createPostEventReconciliation('space-1', dto, 'tenant-1', 'user-1', { draft: true });
+    const created = await inventoryReconciliationService.createPostEventReconciliation('space-1', dto, 'tenant-1', 'user-1', { draft: true });
     expect(created.id).toBe('reco-new');
     expect((created as any).meta.draft).toBe(true);
     expect(prisma.stockReconciliation.deleteMany).toHaveBeenCalledWith({
@@ -45,7 +47,7 @@ describe('InventoryService, feuille post-event et recomptage par PDV', () => {
   });
 
   it('finale : feuille remplacée, Logistic mis à jour, post-event clos', async () => {
-    await service.createPostEventReconciliation('space-1', dto, 'tenant-1', 'user-1');
+    await inventoryReconciliationService.createPostEventReconciliation('space-1', dto, 'tenant-1', 'user-1');
     expect(prisma.stockReconciliation.deleteMany).toHaveBeenCalled();
     expect(push).toHaveBeenCalled();
     expect(prisma.inventoryWindow.findMany).toHaveBeenCalledWith(
@@ -69,7 +71,7 @@ describe('InventoryService, feuille post-event et recomptage par PDV', () => {
 
   it('recompter un PDV : articles remis à compter, accès PIN rouvert', async () => {
     await expect(
-      service.resetElementForRecount('space-1', 'event-1', 'shop-1', 'tenant-1', 'user-1'),
+      inventoryCountService.resetElementForRecount('space-1', 'event-1', 'shop-1', 'tenant-1', 'user-1'),
     ).resolves.toEqual({ resetCount: 12 });
     expect(prisma.inventoryCount.updateMany).toHaveBeenCalledWith({
       where: { tenantId: 'tenant-1', spaceId: 'space-1', eventId: 'event-1', shopId: 'shop-1' },

@@ -1,6 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
-import { WeezeventIncrementalSyncService } from './weezevent-incremental-sync.service';
+import { WeezeventTransactionBatchWriterService } from './sync/transaction-batch-writer.service';
 import { SalesPriceAggService } from '../../../shared/pricing/sales-price-agg.service';
 
 const POLL_INTERVAL_MS = 500;
@@ -12,7 +12,7 @@ export class WeezeventInsertWorkerService {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly incrementalSync: WeezeventIncrementalSyncService,
+        private readonly transactionBatchWriter: WeezeventTransactionBatchWriterService,
         private readonly priceAgg: SalesPriceAggService,
     ) {}
 
@@ -26,6 +26,7 @@ export class WeezeventInsertWorkerService {
         try {
             while (true) {
                 // Prendre les prochains chunks disponibles
+                // eslint-disable-next-line no-await-in-loop -- scrutation des lots d'un job jusqu'à leur fin
                 const chunks = await this.prisma.weezeventSyncChunk.findMany({
                     where: { jobId, status: 'PENDING' },
                     take: PARALLEL_CHUNKS,
@@ -33,12 +34,14 @@ export class WeezeventInsertWorkerService {
                 });
 
                 if (chunks.length > 0) {
+                    // eslint-disable-next-line no-await-in-loop -- scrutation des lots d'un job jusqu'à leur fin
                     await Promise.all(chunks.map(chunk => this.processChunk(chunk, jobId)));
                     continue;
                 }
 
                 // Aucun chunk disponible — vérifier l'état du job (tenantId/integrationId :
                 // BUG-337-02, docs/bugs/ — nécessaires pour le refresh SalesPriceAgg à COMPLETED)
+                // eslint-disable-next-line no-await-in-loop -- scrutation des lots d'un job jusqu'à leur fin
                 const job = await this.prisma.weezeventSyncJob.findUnique({
                     where: { id: jobId },
                     select: { collectDone: true, totalChunks: true, processedChunks: true, status: true, tenantId: true, integrationId: true },
@@ -47,6 +50,7 @@ export class WeezeventInsertWorkerService {
                 if (!job || job.status === 'FAILED' || job.status === 'CANCELLED') break;
 
                 if (job.collectDone && job.processedChunks >= job.totalChunks) {
+                    // eslint-disable-next-line no-await-in-loop -- scrutation des lots d'un job jusqu'à leur fin
                     await this.prisma.weezeventSyncJob.update({
                         where: { id: jobId },
                         data: { status: 'COMPLETED', completedAt: new Date() },
@@ -69,10 +73,12 @@ export class WeezeventInsertWorkerService {
                 // continuerait à poller indéfiniment sans jamais atteindre COMPLETED ni FAILED,
                 // laissant le job bloqué à "0/N" pour toujours sans erreur visible nulle part.
                 if (job.collectDone) {
+                    // eslint-disable-next-line no-await-in-loop -- scrutation des lots d'un job jusqu'à leur fin
                     const failedCount = await this.prisma.weezeventSyncChunk.count({
                         where: { jobId, status: 'FAILED' },
                     });
                     if (failedCount > 0) {
+                        // eslint-disable-next-line no-await-in-loop -- scrutation des lots d'un job jusqu'à leur fin
                         await this.prisma.weezeventSyncJob.update({
                             where: { id: jobId },
                             data: {
@@ -87,6 +93,7 @@ export class WeezeventInsertWorkerService {
                 }
 
                 // Collecte encore en cours, pause courte avant de reprendre
+                // eslint-disable-next-line no-await-in-loop -- scrutation des lots d'un job jusqu'à leur fin
                 await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
             }
         } catch (err: any) {
@@ -113,11 +120,11 @@ export class WeezeventInsertWorkerService {
                 select: { tenantId: true, integrationId: true },
             });
 
-            if (!job) throw new Error(`Job ${jobId} introuvable`);
+            if (!job) throw new NotFoundException(`Job ${jobId} introuvable`);
 
             const transactions: any[] = Array.isArray(chunk.rawData) ? chunk.rawData : [];
 
-            await this.incrementalSync.insertTransactionBatch(job.tenantId, job.integrationId, transactions);
+            await this.transactionBatchWriter.insertTransactionBatch(job.tenantId, job.integrationId, transactions);
 
             await this.prisma.weezeventSyncChunk.update({
                 where: { id: chunk.id },

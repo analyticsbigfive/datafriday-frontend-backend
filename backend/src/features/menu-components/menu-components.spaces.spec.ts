@@ -1,5 +1,8 @@
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { MenuComponentsService } from './menu-components.service';
+import { MenuComponentCostService } from './services/menu-component-cost.service';
+import { MenuComponentValidationService } from './services/menu-component-validation.service';
+import { createMenuComponentsServices } from './services/menu-components-services.testing';
 
 // Demande Bertrand 2026-10-08 : espaces des composants (vide = commun), filtre des
 // comptes restreints, cuisine Locale ou cuisine de Settings.
@@ -10,6 +13,8 @@ describe('MenuComponentsService : espaces et cuisine', () => {
     let redis: any;
     let spaceAccess: any;
     let service: MenuComponentsService;
+    let cost: MenuComponentCostService;
+    let validation: MenuComponentValidationService;
 
     beforeEach(() => {
         prisma = {
@@ -26,7 +31,11 @@ describe('MenuComponentsService : espaces et cuisine', () => {
             hasFullAccess: jest.fn((u: any) => u.isOwner || u.isSuperAdmin || u.allSpacesAccess),
             getAccessibleSpaceIds: jest.fn().mockResolvedValue(['space-b', 'space-a']),
         };
-        service = new MenuComponentsService(prisma, redis, spaceAccess, { resolveImage: async (v: any) => v } as any);
+        ({
+            menuComponentsService: service,
+            menuComponentCostService: cost,
+            menuComponentValidationService: validation,
+        } = createMenuComponentsServices({ prisma, redis, spaceAccess }));
     });
 
     describe('findAll', () => {
@@ -71,11 +80,11 @@ describe('MenuComponentsService : espaces et cuisine', () => {
     describe('update', () => {
         beforeEach(() => {
             prisma.menuComponent.findFirst.mockResolvedValue({ id: 'c1', spaceIds: [] });
-            jest.spyOn(service as any, 'assertIngredientsExist').mockResolvedValue(undefined);
-            jest.spyOn(service as any, 'assertChildrenExist').mockResolvedValue(undefined);
-            jest.spyOn(service as any, 'assertComponentTypeAccessible').mockResolvedValue(undefined);
-            jest.spyOn(service as any, 'assertComponentCategoryAccessible').mockResolvedValue(undefined);
-            jest.spyOn(service, 'refreshCosts').mockResolvedValue({ updatedComponents: 0, updatedLines: 0 } as any);
+            jest.spyOn(validation as any, 'assertIngredientsExist').mockResolvedValue(undefined);
+            jest.spyOn(validation as any, 'assertChildrenExist').mockResolvedValue(undefined);
+            jest.spyOn(validation as any, 'assertComponentTypeAccessible').mockResolvedValue(undefined);
+            jest.spyOn(validation as any, 'assertComponentCategoryAccessible').mockResolvedValue(undefined);
+            jest.spyOn(cost, 'refreshCosts').mockResolvedValue({ updatedComponents: 0, updatedLines: 0 } as any);
         });
 
         const updateData = () => prisma.menuComponent.update.mock.calls[0][0].data;

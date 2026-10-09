@@ -64,7 +64,8 @@ export class SyncTrackerService {
             this.jobs.set(id, job);
 
             // Clean up after 5 minutes
-            setTimeout(() => this.jobs.delete(id), 5 * 60 * 1000);
+            // unref : la purge différée ne doit pas retenir le process à l’arrêt.
+            setTimeout(() => this.jobs.delete(id), 5 * 60 * 1000).unref();
         }
     }
 
@@ -80,7 +81,8 @@ export class SyncTrackerService {
             this.jobs.set(id, job);
 
             // Clean up after 5 minutes
-            setTimeout(() => this.jobs.delete(id), 5 * 60 * 1000);
+            // unref : la purge différée ne doit pas retenir le process à l’arrêt.
+            setTimeout(() => this.jobs.delete(id), 5 * 60 * 1000).unref();
         }
     }
 

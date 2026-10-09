@@ -7,7 +7,6 @@ import {
   UseGuards, HttpCode, HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiHeader, ApiQuery } from '@nestjs/swagger';
-import { BuilderV2Service } from './builder-v2.service';
 import {
   CreateZoneDto, UpdateZoneDto, ReorderZonesDto, CreateElementDto, UpdateElementDto,
   BatchElementsDto, DuplicateElementDto, PutPerformanceDto, PutStaffDto, PutInventoryDto,
@@ -20,6 +19,10 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { SpaceIdParam } from '../../core/auth/decorators/space-id-param.decorator';
+import { BuilderV2ConfigurationService } from './services/builder-v2-configuration.service';
+import { BuilderV2ElementService } from './services/builder-v2-element.service';
+import { BuilderV2ElementSettingsService } from './services/builder-v2-element-settings.service';
+import { BuilderV2ZoneService } from './services/builder-v2-zone.service';
 
 @ApiTags('Builder v2')
 @ApiBearerAuth('supabase-jwt')
@@ -27,7 +30,10 @@ import { SpaceIdParam } from '../../core/auth/decorators/space-id-param.decorato
 @SpaceIdParam('spaceId')
 @UseGuards(JwtDatabaseGuard, RolesGuard)
 export class BuilderV2Controller {
-  constructor(private readonly service: BuilderV2Service) {}
+  constructor(private readonly builderV2ConfigurationService: BuilderV2ConfigurationService,
+    private readonly builderV2ElementService: BuilderV2ElementService,
+    private readonly builderV2ElementSettingsService: BuilderV2ElementSettingsService,
+    private readonly builderV2ZoneService: BuilderV2ZoneService) {}
 
   // ─── Bootstrap ──────────────────────────────────────────────────────────────
 
@@ -38,7 +44,7 @@ export class BuilderV2Controller {
   })
   @ApiParam({ name: 'spaceId', description: 'ID de l\'espace' })
   async getBuilderState(@Param('spaceId') spaceId: string, @CurrentTenant() tenantId: string) {
-    return this.service.getBuilderState(spaceId, tenantId);
+    return this.builderV2ZoneService.getBuilderState(spaceId, tenantId);
   }
 
   // ─── Zones ──────────────────────────────────────────────────────────────────
@@ -52,7 +58,7 @@ export class BuilderV2Controller {
     @CurrentTenant() tenantId: string,
     @Body() dto: CreateZoneDto,
   ) {
-    return this.service.createZone(spaceId, tenantId, dto);
+    return this.builderV2ZoneService.createZone(spaceId, tenantId, dto);
   }
 
   // ⚠️ Déclarée AVANT zones/:id pour que « reorder » ne soit pas capturé comme un id.
@@ -60,7 +66,7 @@ export class BuilderV2Controller {
   @RequirePermissions('space.edit')
   @ApiOperation({ summary: 'Réordonner les zones d\'un espace (sortIndex)' })
   async reorderZones(@CurrentTenant() tenantId: string, @Body() dto: ReorderZonesDto) {
-    return this.service.reorderZones(dto.spaceId, tenantId, dto.orderedIds);
+    return this.builderV2ZoneService.reorderZones(dto.spaceId, tenantId, dto.orderedIds);
   }
 
   @Patch('zones/:id')
@@ -72,7 +78,7 @@ export class BuilderV2Controller {
     @Body() dto: UpdateZoneDto,
     @CurrentUser() user: any,
   ) {
-    return this.service.updateZone(id, tenantId, dto, user);
+    return this.builderV2ZoneService.updateZone(id, tenantId, dto, user);
   }
 
   @Delete('zones/:id')
@@ -85,7 +91,7 @@ export class BuilderV2Controller {
     @Query() query: DeleteZoneQueryDto,
     @CurrentUser() user: any,
   ) {
-    return this.service.deleteZone(id, tenantId, query.force === 'true', user);
+    return this.builderV2ZoneService.deleteZone(id, tenantId, query.force === 'true', user);
   }
 
   @Post('zones/:id/duplicate')
@@ -93,7 +99,7 @@ export class BuilderV2Controller {
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({ summary: 'Dupliquer un étage (zone + éléments + adhésions, PAS les mappings)' })
   async duplicateZone(@Param('id') id: string, @CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.service.duplicateZone(id, tenantId, user);
+    return this.builderV2ZoneService.duplicateZone(id, tenantId, user);
   }
 
   // ─── Éléments ───────────────────────────────────────────────────────────────
@@ -108,7 +114,7 @@ export class BuilderV2Controller {
     @Body() dto: CreateElementDto,
     @CurrentUser() user: any,
   ) {
-    return this.service.createElement(zoneId, tenantId, dto, user);
+    return this.builderV2ElementService.createElement(zoneId, tenantId, dto, user);
   }
 
   // ⚠️ Déclarée AVANT elements/:id (sinon « batch » serait pris pour un id).
@@ -116,7 +122,7 @@ export class BuilderV2Controller {
   @RequirePermissions('space.edit')
   @ApiOperation({ summary: 'Patch géométrique de plusieurs éléments en une transaction' })
   async patchElementsBatch(@CurrentTenant() tenantId: string, @Body() dto: BatchElementsDto, @CurrentUser() user: any) {
-    return this.service.patchElementsBatch(tenantId, dto, user);
+    return this.builderV2ElementService.patchElementsBatch(tenantId, dto, user);
   }
 
   @Patch('elements/:id')
@@ -131,7 +137,7 @@ export class BuilderV2Controller {
     @Headers('if-match') ifMatch?: string,
   ) {
     const expectedVersion = ifMatch !== undefined && ifMatch !== '' ? Number(ifMatch) : undefined;
-    return this.service.patchElement(
+    return this.builderV2ElementService.patchElement(
       id,
       tenantId,
       dto,
@@ -150,7 +156,7 @@ export class BuilderV2Controller {
     @Body() dto: DuplicateElementDto,
     @CurrentUser() user: any,
   ) {
-    return this.service.duplicateElement(id, tenantId, dto, user);
+    return this.builderV2ElementService.duplicateElement(id, tenantId, dto, user);
   }
 
   @Delete('elements/:id')
@@ -163,7 +169,7 @@ export class BuilderV2Controller {
     @Query() query: DeleteElementQueryDto,
     @CurrentUser() user: any,
   ) {
-    return this.service.deleteElement(id, tenantId, query.force === 'true', user);
+    return this.builderV2ElementService.deleteElement(id, tenantId, query.force === 'true', user);
   }
 
   @Put('elements/:id/performance')
@@ -176,7 +182,7 @@ export class BuilderV2Controller {
     @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.putPerformance(id, tenantId, dto, configId || undefined, user);
+    return this.builderV2ElementSettingsService.putPerformance(id, tenantId, dto, configId || undefined, user);
   }
 
   @Put('elements/:id/staff')
@@ -189,7 +195,7 @@ export class BuilderV2Controller {
     @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.putStaff(id, tenantId, dto, configId || undefined, user);
+    return this.builderV2ElementSettingsService.putStaff(id, tenantId, dto, configId || undefined, user);
   }
 
   @Get('elements/:id/staff-suggestions')
@@ -206,7 +212,7 @@ export class BuilderV2Controller {
     @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.getStaffSuggestions(id, tenantId, configId || undefined, user);
+    return this.builderV2ElementSettingsService.getStaffSuggestions(id, tenantId, configId || undefined, user);
   }
 
   @Get('elements/:id/menu-item-sales-input')
@@ -220,7 +226,7 @@ export class BuilderV2Controller {
     @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.getMenuItemSalesInput(id, tenantId, configId || undefined, user);
+    return this.builderV2ElementSettingsService.getMenuItemSalesInput(id, tenantId, configId || undefined, user);
   }
 
   @Put('elements/:id/menu-item-sales-input')
@@ -233,7 +239,7 @@ export class BuilderV2Controller {
     @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.putMenuItemSalesInput(id, tenantId, dto, configId || undefined, user);
+    return this.builderV2ElementSettingsService.putMenuItemSalesInput(id, tenantId, dto, configId || undefined, user);
   }
 
   @Put('elements/:id/inventory')
@@ -246,7 +252,7 @@ export class BuilderV2Controller {
     @CurrentUser() user: any,
     @Query('configId') configId?: string,
   ) {
-    return this.service.putInventory(id, tenantId, dto, configId || undefined, user);
+    return this.builderV2ElementSettingsService.putInventory(id, tenantId, dto, configId || undefined, user);
   }
 
   // ─── Adhésions élément ↔ configuration ─────────────────────────────────────
@@ -261,7 +267,7 @@ export class BuilderV2Controller {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: any,
   ) {
-    return this.service.addMembership(configId, elementId, tenantId, user);
+    return this.builderV2ConfigurationService.addMembership(configId, elementId, tenantId, user);
   }
 
   @Delete('configurations/:configId/elements/:elementId')
@@ -273,7 +279,7 @@ export class BuilderV2Controller {
     @CurrentTenant() tenantId: string,
     @CurrentUser() user: any,
   ) {
-    return this.service.removeMembership(configId, elementId, tenantId, user);
+    return this.builderV2ConfigurationService.removeMembership(configId, elementId, tenantId, user);
   }
 
   // ─── Configurations ─────────────────────────────────────────────────────────
@@ -288,7 +294,7 @@ export class BuilderV2Controller {
     @Body() dto: CreateConfigurationDto,
     @CurrentUser() user: any,
   ) {
-    return this.service.createConfiguration(spaceId, tenantId, dto, user);
+    return this.builderV2ConfigurationService.createConfiguration(spaceId, tenantId, dto, user);
   }
 
   @Patch('configurations/:id')
@@ -300,7 +306,7 @@ export class BuilderV2Controller {
     @Body() dto: RenameConfigurationDto,
     @CurrentUser() user: any,
   ) {
-    return this.service.renameConfiguration(id, tenantId, dto.name, user);
+    return this.builderV2ConfigurationService.renameConfiguration(id, tenantId, dto.name, user);
   }
 
   @Delete('configurations/:id')
@@ -316,7 +322,7 @@ export class BuilderV2Controller {
     @Query() query: DeleteConfigurationQueryDto,
     @CurrentUser() user: any,
   ) {
-    return this.service.deleteConfiguration(id, tenantId, {
+    return this.builderV2ConfigurationService.deleteConfiguration(id, tenantId, {
       orphanPolicy: query.orphanPolicy,
       reassignToConfigId: query.reassignToConfigId,
     }, user);

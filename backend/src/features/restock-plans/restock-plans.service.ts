@@ -1,10 +1,6 @@
-import {
-  Injectable,
-  ForbiddenException,
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 
 /** Plafond de documents par espace — l'historique est une liste consultée à
  *  l'œil, pas un journal. Au-delà, l'utilisateur supprime avant d'ajouter. */
@@ -58,15 +54,9 @@ const LIST_SELECT = {
 
 @Injectable()
 export class RestockPlansService {
-  constructor(private readonly prisma: PrismaService) {}
-
-  private async assertSpaceOwnership(spaceId: string, tenantId: string): Promise<void> {
-    const space = await this.prisma.space.findFirst({
-      where: { id: spaceId, tenantId },
-      select: { id: true },
-    });
-    if (!space) throw new ForbiddenException(`Space ${spaceId} not found for tenant`);
-  }
+  constructor(private readonly prisma: PrismaService,
+    private readonly spaceAccess: SpaceAccessService,
+  ) {}
 
   private assertPayloadSize(body: Record<string, unknown>): void {
     const lines = body?.restockLines;
@@ -146,7 +136,7 @@ export class RestockPlansService {
     const name = String(body.name ?? '').trim();
     if (!name) throw new BadRequestException('Le plan doit porter un nom.');
     this.assertPayloadSize(body);
-    await this.assertSpaceOwnership(spaceId, tenantId);
+    await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
     await this.assertUnderCap(spaceId, tenantId);
     return this.prisma.restockPlan.create({
       data: {

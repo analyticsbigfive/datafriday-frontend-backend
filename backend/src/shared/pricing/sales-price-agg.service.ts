@@ -1,7 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
-import { buildSalesPriceAggDeltas, SalesPriceAggDeltaRow, SalesPriceAggDeltaSource } from './sales-price-agg-delta';
+import { buildSalesPriceAggDeltas, SalesPriceAggDeltaSource } from './sales-price-agg-delta';
+import {
+  deletePriceAggForIntegration,
+  purgeEmptyPriceAgg,
+  rebuildPriceAggForIntegration,
+  upsertPriceAggDeltas,
+} from './sales-price-agg.queries';
 
 /**
  * Écriture de SalesPriceAgg (BUG-337-02, docs/bugs/) — pré-agrégat lu par les méthodes
@@ -46,28 +51,10 @@ export class SalesPriceAggService {
     const rows = buildSalesPriceAggDeltas(added, removed);
     if (!rows.length) return;
 
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO "SalesPriceAgg"
-        ("id","tenantId","integrationId","locationId","productId","itemWeezeventId","productNameNorm","unitPrice","vat","salesCount","lastSoldAt","createdAt","updatedAt")
-      VALUES ${Prisma.join(rows.map((r) => this.deltaValues(tenantId, integrationId, r)))}
-      ON CONFLICT ("tenantId","locationId","productId","itemWeezeventId","productNameNorm","unitPrice","vat")
-      DO UPDATE SET
-        "salesCount" = "SalesPriceAgg"."salesCount" + EXCLUDED."salesCount",
-        "lastSoldAt" = GREATEST("SalesPriceAgg"."lastSoldAt", EXCLUDED."lastSoldAt"),
-        "updatedAt" = NOW()
-    `);
-
+    await upsertPriceAggDeltas(this.prisma, tenantId, integrationId, rows);
     if (rows.some((r) => r.delta < 0)) {
-      const locationIds = [...new Set(rows.map((r) => r.locationId))];
-      await this.prisma.$executeRaw(Prisma.sql`
-        DELETE FROM "SalesPriceAgg"
-        WHERE "tenantId" = ${tenantId} AND "locationId" IN (${Prisma.join(locationIds)}) AND "salesCount" <= 0
-      `);
+      await purgeEmptyPriceAgg(this.prisma, tenantId, [...new Set(rows.map((r) => r.locationId))]);
     }
-  }
-
-  private deltaValues(tenantId: string, integrationId: string, r: SalesPriceAggDeltaRow): Prisma.Sql {
-    return Prisma.sql`(gen_random_uuid(), ${tenantId}, ${integrationId}, ${r.locationId}, ${r.productId}, ${r.itemWeezeventId}, ${r.productNameNorm}, ${r.unitPrice}::numeric, ${r.vat}::numeric, ${r.delta}::int, ${r.lastSoldAt}::timestamp, NOW(), NOW())`;
   }
 
   /**
@@ -87,27 +74,8 @@ export class SalesPriceAggService {
    * restait vide jusqu'au prochain recalcul. GREATEST garde le compteur le plus complet.
    */
   async refreshForIntegration(tenantId: string, integrationId: string): Promise<void> {
-    await this.prisma.$executeRaw(Prisma.sql`
-      DELETE FROM "SalesPriceAgg" WHERE "tenantId" = ${tenantId} AND "integrationId" = ${integrationId}
-    `);
-    await this.prisma.$executeRaw(Prisma.sql`
-      INSERT INTO "SalesPriceAgg"
-        ("id","tenantId","integrationId","locationId","productId","itemWeezeventId","productNameNorm","unitPrice","vat","salesCount","lastSoldAt","createdAt","updatedAt")
-      SELECT
-        gen_random_uuid(), ${tenantId}, ${integrationId}, t."locationId",
-        COALESCE(ti."productId", ''), COALESCE(ti."rawData"->>'item_id', ''), COALESCE(LOWER(TRIM(ti."productName")), ''),
-        ti."unitPrice", ti."vat", COUNT(*)::int, MAX(t."transactionDate"), NOW(), NOW()
-      FROM "WeezeventTransactionItem" ti
-      JOIN "WeezeventTransaction" t ON t."id" = ti."transactionId"
-      WHERE t."tenantId" = ${tenantId} AND t."integrationId" = ${integrationId}
-        AND ti."unitPrice" > 0 AND t."locationId" IS NOT NULL
-      GROUP BY t."locationId", COALESCE(ti."productId",''), COALESCE(ti."rawData"->>'item_id',''), COALESCE(LOWER(TRIM(ti."productName")),''), ti."unitPrice", ti."vat"
-      ON CONFLICT ("tenantId","locationId","productId","itemWeezeventId","productNameNorm","unitPrice","vat")
-      DO UPDATE SET
-        "salesCount" = GREATEST("SalesPriceAgg"."salesCount", EXCLUDED."salesCount"),
-        "lastSoldAt" = GREATEST("SalesPriceAgg"."lastSoldAt", EXCLUDED."lastSoldAt"),
-        "updatedAt" = NOW()
-    `);
+    await deletePriceAggForIntegration(this.prisma, tenantId, integrationId);
+    await rebuildPriceAggForIntegration(this.prisma, tenantId, integrationId);
   }
 
   /** Best-effort : log et avale l'erreur, ne doit jamais casser le flux appelant (sync/webhook). */

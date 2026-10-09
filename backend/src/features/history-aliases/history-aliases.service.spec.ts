@@ -1,11 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-  BadRequestException,
-  ForbiddenException,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { HistoryAliasesService } from './history-aliases.service';
 import { PrismaService } from '../../core/database/prisma.service';
+import { SpaceAccessService } from '../../core/auth/space-access.service';
 
 describe('HistoryAliasesService', () => {
   let service: HistoryAliasesService;
@@ -33,6 +30,8 @@ describe('HistoryAliasesService', () => {
       providers: [
         HistoryAliasesService,
         { provide: PrismaService, useValue: mockPrisma },
+        // Vrai contrôle d'accès espace, branché sur le Prisma simulé du test.
+        { provide: SpaceAccessService, useFactory: (p: any) => new SpaceAccessService(p), inject: [PrismaService] },
       ],
     }).compile();
 
@@ -41,11 +40,11 @@ describe('HistoryAliasesService', () => {
   });
 
   describe('create', () => {
-    it('rejects a space that does not belong to the calling tenant', async () => {
+    it('rejects a space that does not belong to the calling tenant (404 : existence non révélée)', async () => {
       mockPrisma.space.findFirst.mockResolvedValue(null);
 
       await expect(service.create(dto, 'tenant-1', 'user-1')).rejects.toThrow(
-        ForbiddenException,
+        NotFoundException,
       );
       expect(mockPrisma.menuItemHistoryAlias.upsert).not.toHaveBeenCalled();
     });

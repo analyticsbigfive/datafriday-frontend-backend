@@ -1,7 +1,8 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { StockMovementReason } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
-import { LogisticsService } from './logistics.service';
+import { StockMovementService } from './services/stock-movement.service';
+import { StockReferentialService } from './services/stock-referential.service';
 
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
 
@@ -15,13 +16,14 @@ export function normalizeItemName(v: string | null | undefined): string {
  * raison « Ventilation »). Lecture des dépôts d'un match, annulation par mouvement
  * inverse (décision #76) et correspondance entre une ligne de la feuille de
  * réarmement et l'article Logistic. L'écriture dans le registre reste dans
- * LogisticsService (`createMovement`, `writeReversal`).
+ * StockMovementService (`createMovement`, `writeReversal`).
  */
 @Injectable()
 export class VentilationDepositsService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly logistics: LogisticsService,
+    private readonly stockMovementService: StockMovementService,
+    private readonly stockReferentialService: StockReferentialService,
   ) {}
 
   /**
@@ -107,7 +109,7 @@ export class VentilationDepositsService {
     if (options.requireCreatedBy && deposit.createdBy !== options.requireCreatedBy) {
       throw new ForbiddenException("Ce dépôt n'a pas été saisi depuis cet appareil");
     }
-    return this.logistics.writeReversal(deposit, actorId, options.user);
+    return this.stockMovementService.writeReversal(deposit, actorId, options.user);
   }
 
   /**
@@ -121,7 +123,7 @@ export class VentilationDepositsService {
     const levels = await this.prisma.stockLevel.findMany({ where: { tenantId, elementId }, select: { itemKey: true } });
     const level = levels.find((l) => normalizeItemName(l.itemKey) === wanted);
     if (level) return level.itemKey;
-    const [element] = await this.logistics.getElementItems(spaceId, tenantId, [elementId]);
+    const [element] = await this.stockReferentialService.getElementItems(spaceId, tenantId, [elementId]);
     return element?.items.find((it) => normalizeItemName(it.name) === wanted)?.name ?? itemName;
   }
 
@@ -137,7 +139,7 @@ export class VentilationDepositsService {
         where: { tenantId, elementId: { in: elementIds } },
         select: { elementId: true, itemKey: true, unitsPerPack: true },
       }),
-      this.logistics.getElementItems(spaceId, tenantId, elementIds),
+      this.stockReferentialService.getElementItems(spaceId, tenantId, elementIds),
     ]);
     const out = new Map<string, { elementId: string; itemName: string; unitsPerPack: number | null }>();
     for (const el of elements) {

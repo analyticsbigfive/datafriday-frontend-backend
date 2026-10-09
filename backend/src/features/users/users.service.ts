@@ -1,97 +1,26 @@
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-  ForbiddenException,
-  BadRequestException,
-  Logger,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.strategy';
-import { SupabaseAdminService, UserAuthInfo } from '../../core/supabase/supabase-admin.service';
+import { SupabaseAdminService } from '../../core/supabase/supabase-admin.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { QueryUserDto } from './dto/query-user.dto';
-import { InviteUserDto } from './dto/invite-user.dto';
-import { ChangeRoleDto } from './dto/change-role.dto';
 import { Prisma, UserRole } from '@prisma/client';
+import { UserSupportService } from './services/user-support.service';
 
+/**
+ * Utilisateurs d'un tenant : création, lecture, modification, suppression et statistiques.
+ */
 @Injectable()
 export class UsersService {
-  private readonly logger = new Logger(UsersService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtDatabaseStrategy: JwtDatabaseStrategy,
     private readonly supabaseAdmin: SupabaseAdminService,
-    private readonly config: ConfigService,
+    private readonly userSupportService: UserSupportService,
   ) {}
 
-  /**
-   * Resolve the tenant's Role row matching a system key (ADMIN/MANAGER/...).
-   * Returns null when the tenant has no cloned roles yet (legacy tenants);
-   * callers fall back to the legacy enum on `User.role`.
-   */
-  private async resolveRoleId(
-    tenantId: string,
-    systemKey: UserRole,
-  ): Promise<string | null> {
-    const role = await this.prisma.role.findFirst({
-      where: { tenantId, systemKey },
-      select: { id: true },
-    });
-    return role?.id ?? null;
-  }
-
-  /**
-   * Resolve a role from either a dynamic `roleId` (preferred, from the UI) or a
-   * legacy system `role` enum. Returns both the effective systemKey (for the
-   * legacy `User.role` column) and the `roleId` FK.
-   */
-  private async resolveRole(
-    tenantId: string,
-    opts: { roleId?: string; role?: UserRole },
-  ): Promise<{ systemKey: UserRole; roleId: string | null }> {
-    if (opts.roleId) {
-      const role = await this.prisma.role.findFirst({
-        where: { id: opts.roleId, tenantId },
-        select: { id: true, systemKey: true },
-      });
-      if (!role) {
-        throw new NotFoundException(`Role ${opts.roleId} not found`);
-      }
-      return { systemKey: role.systemKey ?? UserRole.VIEWER, roleId: role.id };
-    }
-
-    const systemKey = opts.role ?? UserRole.VIEWER;
-    const roleId = await this.resolveRoleId(tenantId, systemKey);
-    return { systemKey, roleId };
-  }
-
-  /**
-   * Résout les espaces à accorder à un nouvel utilisateur :
-   * `allSpaces` → tous les espaces du tenant ; sinon `spaceIds` validés
-   * (les IDs hors de l'organisation sont silencieusement ignorés).
-   */
-  private async resolveTargetSpaceIds(
-    tx: Prisma.TransactionClient,
-    tenantId: string,
-    dto: { allSpaces?: boolean; spaceIds?: string[] },
-  ): Promise<string[]> {
-    if (dto.allSpaces) {
-      const spaces = await tx.space.findMany({ where: { tenantId }, select: { id: true } });
-      return spaces.map((s) => s.id);
-    }
-    if (dto.spaceIds?.length) {
-      const valid = await tx.space.findMany({
-        where: { tenantId, id: { in: dto.spaceIds } },
-        select: { id: true },
-      });
-      return valid.map((s) => s.id);
-    }
-    return [];
-  }
+  private readonly logger = new Logger(UsersService.name);
 
   /**
    * Create a new user for a tenant
@@ -109,7 +38,7 @@ export class UsersService {
       throw new ConflictException(`User with email ${dto.email} already exists in this organization`);
     }
 
-    const { systemKey: role, roleId } = await this.resolveRole(tenantId, {
+    const { systemKey: role, roleId } = await this.userSupportService.resolveRole(tenantId, {
       roleId: dto.roleId,
       role: dto.role,
     });
@@ -160,7 +89,7 @@ export class UsersService {
 
         // Périmètre d'espaces : si "tous", le flag suffit. Sinon, on accorde la sélection.
         if (!dto.allSpaces) {
-          const spaceIds = await this.resolveTargetSpaceIds(tx, tenantId, dto);
+          const spaceIds = await this.userSupportService.resolveTargetSpaceIds(tx, tenantId, dto);
           if (spaceIds.length) {
             await tx.userSpaceAccess.createMany({
               data: spaceIds.map((spaceId) => ({ userId: created.id, spaceId, role })),
@@ -174,7 +103,7 @@ export class UsersService {
 
       this.logger.log(`User ${user.email} (${user.id}) created for tenant ${tenantId}`);
 
-      return this.sanitizeUser(user);
+      return this.userSupportService.sanitizeUser(user);
     } catch (error) {
       await this.supabaseAdmin.deleteUser(supabaseUser.id);
       this.logger.error(
@@ -235,7 +164,7 @@ export class UsersService {
     const authInfo = await this.supabaseAdmin.getAuthInfoByIds(users.map((u) => u.id));
 
     return {
-      data: users.map((u) => this.sanitizeUser(this.withAuthStatus(u, authInfo.get(u.id)))),
+      data: users.map((u) => this.userSupportService.sanitizeUser(this.userSupportService.withAuthStatus(u, authInfo.get(u.id)))),
       meta: {
         total,
         page,
@@ -298,31 +227,7 @@ export class UsersService {
 
     const authInfo = (await this.supabaseAdmin.getAuthInfoByIds([id])).get(id);
 
-    return this.sanitizeUser(this.withAuthStatus(user, authInfo));
-  }
-
-  /**
-   * Find user by email within a tenant
-   */
-  async findByEmail(email: string, tenantId: string) {
-    const user = await this.prisma.user.findFirst({
-      where: { email, tenantId },
-      include: {
-        tenant: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-          },
-        },
-      },
-    });
-
-    if (!user) {
-      throw new NotFoundException(`User with email ${email} not found`);
-    }
-
-    return this.sanitizeUser(user);
+    return this.userSupportService.sanitizeUser(this.userSupportService.withAuthStatus(user, authInfo));
   }
 
   /**
@@ -384,7 +289,7 @@ export class UsersService {
 
     this.logger.log(`User ${id} updated`);
 
-    return this.sanitizeUser(user);
+    return this.userSupportService.sanitizeUser(user);
   }
 
   /**
@@ -399,7 +304,7 @@ export class UsersService {
     role: UserRole,
     opts: { allSpaces?: boolean; spaceIds?: string[] },
   ): Promise<void> {
-    const targetIds = await this.resolveTargetSpaceIds(tx, tenantId, opts);
+    const targetIds = await this.userSupportService.resolveTargetSpaceIds(tx, tenantId, opts);
     const targetSet = new Set(targetIds);
 
     const current = await tx.userSpaceAccess.findMany({
@@ -473,323 +378,6 @@ export class UsersService {
   }
 
   /**
-   * Change user role
-   */
-  async changeRole(
-    id: string,
-    tenantId: string,
-    dto: ChangeRoleDto,
-    currentUserId: string,
-    currentUserRole: UserRole,
-  ) {
-    // Cannot change own role
-    if (id === currentUserId) {
-      throw new ForbiddenException('You cannot change your own role');
-    }
-
-    if (!dto.roleId && !dto.role) {
-      throw new BadRequestException('Either roleId or role must be provided');
-    }
-
-    // Resolve the dynamic Role row (new `roleId`, or legacy `role` enum mapped via systemKey)
-    let roleRecord: { id: string; name: string; systemKey: UserRole | null } | null = null;
-    let resolvedRole: UserRole;
-
-    if (dto.roleId) {
-      roleRecord = await this.prisma.role.findFirst({
-        where: { id: dto.roleId, tenantId },
-        select: { id: true, name: true, systemKey: true },
-      });
-
-      if (!roleRecord) {
-        throw new NotFoundException(`Role ${dto.roleId} not found`);
-      }
-
-      resolvedRole = roleRecord.systemKey ?? UserRole.VIEWER;
-    } else {
-      resolvedRole = dto.role as UserRole;
-      roleRecord = await this.prisma.role.findFirst({
-        where: { tenantId, systemKey: resolvedRole },
-        select: { id: true, name: true, systemKey: true },
-      });
-    }
-
-    // Only ADMIN can promote to ADMIN
-    if (resolvedRole === UserRole.ADMIN && currentUserRole !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only admins can promote users to admin');
-    }
-
-    // Verify user exists
-    const user = await this.findOne(id, tenantId);
-
-    // Cannot demote organization owner
-    const userTenant = await this.prisma.userTenant.findFirst({
-      where: { userId: id, tenantId },
-    });
-
-    if (userTenant?.isOwner && resolvedRole !== UserRole.ADMIN) {
-      throw new ForbiddenException('Cannot demote the organization owner');
-    }
-
-    const data = {
-      role: resolvedRole,
-      roleId: roleRecord?.id,
-    };
-
-    // Update role in User table
-    await this.prisma.user.update({
-      where: { id },
-      data,
-    });
-
-    // Update role in UserTenant table
-    await this.prisma.userTenant.updateMany({
-      where: { userId: id, tenantId },
-      data,
-    });
-
-    // Invalidate the JWT-DB auth cache so the new role/permissions apply immediately
-    await this.jwtDatabaseStrategy.invalidateUserCache(id);
-
-    this.logger.log(`User ${id} role changed to ${resolvedRole}`);
-
-    return {
-      ...user,
-      role: resolvedRole,
-      roleId: roleRecord?.id ?? null,
-      message: `Role changed to ${resolvedRole}`,
-    };
-  }
-
-  /**
-   * Invite a user to the tenant.
-   *
-   * Three cases, handled gracefully:
-   *  - brand-new email → create the Supabase account + send the invitation email;
-   *  - email already has a Supabase account but no DB profile → attach it to this
-   *    tenant (they sign in with their existing password, no email);
-   *  - email already belongs to a DB profile → clear 409 (already member here, or
-   *    rattached to another organization).
-   */
-  async invite(tenantId: string, dto: InviteUserDto, invitedBy: string) {
-    // Already a member of THIS tenant?
-    const existing = await this.prisma.user.findFirst({
-      where: { email: dto.email, tenantId },
-    });
-
-    if (existing) {
-      throw new ConflictException(`User ${dto.email} is already a member of this organization`);
-    }
-
-    const { systemKey: role, roleId } = await this.resolveRole(tenantId, {
-      roleId: dto.roleId,
-      role: dto.role,
-    });
-
-    // Admin may pre-fill the name; otherwise the invitee sets it on acceptance.
-    const firstName = dto.firstName?.trim() || 'Invited';
-    const lastName = dto.lastName?.trim() || 'User';
-    const fullName = `${firstName} ${lastName}`.trim();
-    const profile = { email: dto.email, firstName, lastName, fullName, phone: dto.phone ?? null, role, roleId };
-    const spaceOpts = { allSpaces: dto.allSpaces, spaceIds: dto.spaceIds };
-
-    // Does this email already have a Supabase auth account?
-    const existingSupabaseUser = await this.supabaseAdmin.getUserByEmail(dto.email);
-    if (existingSupabaseUser) {
-      return this.attachExistingAccountToTenant(existingSupabaseUser.id, tenantId, profile, spaceOpts);
-    }
-
-    // Brand-new person: send the real invitation email + create the (pending) auth
-    // user. The returned id is reused as the DB User id so they can authenticate.
-    const redirectTo = this.config.get<string>('INVITE_REDIRECT_URL');
-    const supabaseUser = await this.supabaseAdmin.inviteUserByEmail(dto.email, {
-      redirectTo,
-      data: { tenantId, invitedBy, firstName, lastName },
-    });
-
-    // Mirror in our DB (pending profile, completed when the invite is accepted).
-    try {
-      const user = await this.createMembership(supabaseUser.id, tenantId, profile, spaceOpts);
-      this.logger.log(
-        `Invitation sent to ${dto.email} (${user.id}) for tenant ${tenantId} by ${invitedBy}`,
-      );
-      return {
-        success: true,
-        message: `Invitation sent to ${dto.email}`,
-        user: this.sanitizeUser(user),
-      };
-    } catch (error) {
-      await this.supabaseAdmin.deleteUser(supabaseUser.id);
-      this.logger.error(
-        `DB user creation failed for invite ${dto.email}; rolled back Supabase account ${supabaseUser.id}`,
-      );
-      throw error;
-    }
-  }
-
-  /**
-   * Re-send the invitation email to a user who was invited but never logged in.
-   *
-   * Supabase's `inviteUserByEmail` (the only primitive that actually *sends* an
-   * email) refuses an existing account, so we can't just call it twice. Instead,
-   * for a still-pending user we tear down the stale auth+DB records (capturing
-   * role + space scope first) and run a fresh invite — preserving their access.
-   *
-   * Guard rails:
-   *  - the user must exist in this tenant (404 otherwise);
-   *  - if they have already signed in → 409 (re-invite is pointless; tell them to
-   *    use "forgot password");
-   *  - if the account is attached to several organizations → 409 (recreating the
-   *    id would break the other memberships; use password reset instead).
-   */
-  async reinvite(id: string, tenantId: string, invitedBy: string) {
-    if (!this.supabaseAdmin.isEnabled()) {
-      throw new BadRequestException(
-        'La réinvitation nécessite la configuration Supabase Admin (SUPABASE_SERVICE_ROLE_KEY).',
-      );
-    }
-
-    const user = await this.prisma.user.findFirst({ where: { id, tenantId } });
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
-
-    // Already active? (signed in at least once) → re-invite is a no-op.
-    const authUser = await this.supabaseAdmin.getUserById(id);
-    if (authUser?.last_sign_in_at) {
-      throw new ConflictException(
-        "Cet utilisateur s'est déjà connecté — la réinvitation est inutile. Il peut utiliser « mot de passe oublié ».",
-      );
-    }
-
-    // Recreating the Supabase id is only safe when this is the user's sole org.
-    const membershipCount = await this.prisma.userTenant.count({ where: { userId: id } });
-    if (membershipCount > 1) {
-      throw new ConflictException(
-        'Ce compte est rattaché à plusieurs organisations — utilisez la réinitialisation de mot de passe plutôt que la réinvitation.',
-      );
-    }
-
-    // Preserve role + explicit space access across the fresh invite.
-    const spaceAccess = await this.prisma.userSpaceAccess.findMany({
-      where: { userId: id, space: { tenantId } },
-      select: { spaceId: true },
-    });
-    const inviteDto: InviteUserDto = {
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      phone: user.phone ?? undefined,
-      roleId: user.roleId ?? undefined,
-      role: user.roleId ? undefined : user.role,
-      allSpaces: user.allSpacesAccess,
-      spaceIds: user.allSpacesAccess ? undefined : spaceAccess.map((s) => s.spaceId),
-    };
-
-    // Tear down the stale pending records (DB cascade removes membership + space
-    // access + pins), then send a brand-new invitation email.
-    await this.supabaseAdmin.deleteUser(id);
-    await this.prisma.user.delete({ where: { id } });
-    await this.jwtDatabaseStrategy.invalidateUserCache(id);
-
-    const result = await this.invite(tenantId, inviteDto, invitedBy);
-
-    this.logger.log(`User ${user.email} re-invited for tenant ${tenantId} by ${invitedBy}`);
-
-    return {
-      success: true,
-      message: `Invitation renvoyée à ${user.email}`,
-      user: result.user,
-    };
-  }
-
-  /**
-   * Attach an EXISTING Supabase account to a tenant. Never duplicates the User
-   * row (User.id = Supabase id is the primary key).
-   */
-  private async attachExistingAccountToTenant(
-    supabaseUserId: string,
-    tenantId: string,
-    profile: { email: string; firstName: string; lastName: string; fullName: string; phone?: string | null; role: UserRole; roleId: string | null },
-    spaceOpts: { allSpaces?: boolean; spaceIds?: string[] } = {},
-  ) {
-    const dbUser = await this.prisma.user.findUnique({ where: { id: supabaseUserId } });
-
-    if (dbUser) {
-      if (dbUser.tenantId === tenantId) {
-        throw new ConflictException(`User ${profile.email} is already a member of this organization`);
-      }
-      // Multi-organization per user isn't exposed in the app yet — fail clearly.
-      throw new ConflictException(
-        `Un compte existe déjà avec l'email ${profile.email} et est rattaché à une autre organisation.`,
-      );
-    }
-
-    // Supabase account exists but no DB profile (e.g. abandoned signup): create
-    // the profile + membership. They already have a password → no email needed.
-    const user = await this.createMembership(supabaseUserId, tenantId, profile, spaceOpts);
-    await this.jwtDatabaseStrategy.invalidateUserCache(user.id);
-    this.logger.log(`Linked existing Supabase account ${supabaseUserId} to tenant ${tenantId}`);
-
-    return {
-      success: true,
-      message:
-        "Ce compte existait déjà : il a été rattaché à votre organisation. L'utilisateur peut se connecter avec son mot de passe existant.",
-      user: this.sanitizeUser(user),
-    };
-  }
-
-  /**
-   * Create the User row + UserTenant membership for a given Supabase id, plus les
-   * accès espaces optionnels (`allSpaces`/`spaceIds`). Transactionnel.
-   */
-  private async createMembership(
-    userId: string,
-    tenantId: string,
-    profile: { email: string; firstName: string; lastName: string; fullName: string; phone?: string | null; role: UserRole; roleId: string | null },
-    spaceOpts: { allSpaces?: boolean; spaceIds?: string[] } = {},
-  ) {
-    return this.prisma.$transaction(async (tx) => {
-      const user = await tx.user.create({
-        data: {
-          id: userId,
-          email: profile.email,
-          firstName: profile.firstName,
-          lastName: profile.lastName,
-          fullName: profile.fullName,
-          phone: profile.phone ?? null,
-          role: profile.role,
-          roleId: profile.roleId,
-          tenantId,
-          allSpacesAccess: !!spaceOpts.allSpaces,
-        },
-      });
-
-      await tx.userTenant.create({
-        data: {
-          userId: user.id,
-          tenantId,
-          role: profile.role,
-          roleId: profile.roleId,
-          isOwner: false,
-        },
-      });
-
-      if (!spaceOpts.allSpaces) {
-        const spaceIds = await this.resolveTargetSpaceIds(tx, tenantId, spaceOpts);
-        if (spaceIds.length) {
-          await tx.userSpaceAccess.createMany({
-            data: spaceIds.map((spaceId) => ({ userId: user.id, spaceId, role: profile.role })),
-            skipDuplicates: true,
-          });
-        }
-      }
-
-      return user;
-    });
-  }
-
-  /**
    * Get user statistics for a tenant
    */
   async getStatistics(tenantId: string) {
@@ -830,118 +418,5 @@ export class UsersService {
       byRole: roleStats,
       recentUsers,
     };
-  }
-
-  /**
-   * Grant space access to a user
-   */
-  async grantSpaceAccess(
-    userId: string,
-    spaceId: string,
-    tenantId: string,
-    role: UserRole = UserRole.VIEWER,
-  ) {
-    // Verify user exists
-    await this.findOne(userId, tenantId);
-
-    // Verify space exists and belongs to tenant
-    const space = await this.prisma.space.findFirst({
-      where: { id: spaceId, tenantId },
-    });
-
-    if (!space) {
-      throw new NotFoundException(`Space ${spaceId} not found`);
-    }
-
-    const access = await this.prisma.userSpaceAccess.upsert({
-      where: {
-        userId_spaceId: { userId, spaceId },
-      },
-      create: {
-        userId,
-        spaceId,
-        role,
-      },
-      update: {
-        role,
-      },
-      include: {
-        space: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
-      },
-    });
-
-    return access;
-  }
-
-  /**
-   * Revoke space access from a user
-   */
-  async revokeSpaceAccess(userId: string, spaceId: string, tenantId: string) {
-    // Verify user exists
-    await this.findOne(userId, tenantId);
-
-    await this.prisma.userSpaceAccess.deleteMany({
-      where: { userId, spaceId },
-    });
-
-    return { success: true, message: 'Space access revoked' };
-  }
-
-  /**
-   * Attach the connection lifecycle (`status` + timestamps) read from Supabase.
-   * - `active`  : the user has logged in at least once;
-   * - `pending` : invited / created but never signed in;
-   * - `unknown` : Supabase info unavailable (admin client off, or no auth row).
-   */
-  private withAuthStatus(user: any, info?: UserAuthInfo) {
-    if (!info) {
-      return { ...user, status: 'unknown', lastSignInAt: null, invitedAt: null, emailConfirmedAt: null };
-    }
-    return {
-      ...user,
-      status: info.lastSignInAt ? 'active' : 'pending',
-      lastSignInAt: info.lastSignInAt,
-      invitedAt: info.invitedAt,
-      emailConfirmedAt: info.emailConfirmedAt,
-    };
-  }
-
-  /**
-   * Sanitize user object (remove sensitive data)
-   */
-  private sanitizeUser(user: any) {
-    // Remove any sensitive fields if present
-    const { roleRef, userTenants, ...sanitized } = user;
-
-    // isOwner DE CE TENANT, quand `userTenants` a été demandé (findAll) — le front s'en sert
-    // pour désactiver la suppression/rétrogradation du owner (cf. UserListView.vue).
-    if (Array.isArray(userTenants)) {
-      sanitized.isOwner = userTenants[0]?.isOwner ?? false;
-    }
-
-    // Quand la relation `roleRef` a été DEMANDÉE (findAll/findOne incluent `roleRef`,
-    // même si la valeur est null car `roleId` est null), on expose le rôle sous la
-    // forme attendue par le front : `role: { id, name, systemKey }` + `roleName`.
-    // Fallback sur l'enum legacy `role` quand il n'y a pas de rôle dynamique
-    // (roleId null) — IDENTIQUE à la résolution de /me (jwt-db-lookup.strategy) :
-    // `roleRef?.name ?? user.role`. Évite la colonne "Role" vide (ex. ADMIN owner
-    // ou users invités sans roleId assigné).
-    // Les autres appelants (login/create/findByEmail) n'incluent PAS `roleRef` →
-    // la clé est absente → on ne touche à rien (champ legacy `role` enum inchangé).
-    if ('roleRef' in user) {
-      const name = roleRef?.name ?? sanitized.role ?? null;
-      return {
-        ...sanitized,
-        role: { id: roleRef?.id ?? null, name, systemKey: roleRef?.systemKey ?? sanitized.role ?? null },
-        roleName: name,
-      };
-    }
-
-    return sanitized;
   }
 }

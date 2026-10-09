@@ -6,10 +6,15 @@ import { JwtDatabaseStrategy } from '../../core/auth/strategies/jwt-db-lookup.st
 import { SupabaseAdminService } from '../../core/supabase/supabase-admin.service';
 import { ConflictException, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
+import { UserAccessService } from './services/user-access.service';
+import { UserInvitationService } from './services/user-invitation.service';
+import { UserSupportService } from './services/user-support.service';
 
 describe('UsersService', () => {
-  let service: UsersService;
-  let prisma: PrismaService;
+  let userSupportService: any;
+  let usersService: any;
+  let userInvitationService: any;
+  let userAccessService: any;
 
   const mockPrismaService = {
     user: {
@@ -81,7 +86,7 @@ describe('UsersService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
-        UsersService,
+        UserSupportService, UsersService, UserInvitationService, UserAccessService, 
         {
           provide: PrismaService,
           useValue: mockPrismaService,
@@ -101,15 +106,20 @@ describe('UsersService', () => {
       ],
     }).compile();
 
-    service = module.get<UsersService>(UsersService);
-    prisma = module.get<PrismaService>(PrismaService);
+    userSupportService = module.get(UserSupportService);
+
+    usersService = module.get(UsersService);
+
+    userInvitationService = module.get(UserInvitationService);
+
+    userAccessService = module.get(UserAccessService);
 
     // Reset all mocks
     jest.clearAllMocks();
   });
 
   it('should be defined', () => {
-    expect(service).toBeDefined();
+    expect(userSupportService).toBeDefined(); expect(usersService).toBeDefined(); expect(userInvitationService).toBeDefined(); expect(userAccessService).toBeDefined();
   });
 
   describe('create', () => {
@@ -126,7 +136,7 @@ describe('UsersService', () => {
         lastName: 'Doe',
       };
 
-      const result = await service.create(mockTenantId, dto);
+      const result = await usersService.create(mockTenantId, dto);
 
       expect(result).toBeDefined();
       expect(result.email).toBe(dto.email);
@@ -147,7 +157,7 @@ describe('UsersService', () => {
       mockPrismaService.user.create.mockRejectedValue(new Error('db down'));
 
       await expect(
-        service.create(mockTenantId, { email: 'test@example.com', firstName: 'John', lastName: 'Doe' }),
+        usersService.create(mockTenantId, { email: 'test@example.com', firstName: 'John', lastName: 'Doe' }),
       ).rejects.toThrow('db down');
       expect(mockSupabaseAdmin.deleteUser).toHaveBeenCalledWith(mockUserId);
     });
@@ -161,7 +171,7 @@ describe('UsersService', () => {
         lastName: 'Doe',
       };
 
-      await expect(service.create(mockTenantId, dto)).rejects.toThrow(ConflictException);
+      await expect(usersService.create(mockTenantId, dto)).rejects.toThrow(ConflictException);
     });
   });
 
@@ -174,7 +184,7 @@ describe('UsersService', () => {
       mockPrismaService.userTenant.create.mockResolvedValue({});
       mockConfigService.get.mockReturnValue('https://app.test/accept-invite');
 
-      const result = await service.invite(
+      const result = await userInvitationService.invite(
         mockTenantId,
         { email: 'new@x.com', firstName: 'Ada', lastName: 'Lovelace', roleId: 'role-staff' },
         'admin-1',
@@ -205,7 +215,7 @@ describe('UsersService', () => {
       mockPrismaService.user.create.mockRejectedValue(new Error('db down'));
 
       await expect(
-        service.invite(mockTenantId, { email: 'new@x.com', roleId: 'role-staff' }, 'admin-1'),
+        userInvitationService.invite(mockTenantId, { email: 'new@x.com', roleId: 'role-staff' }, 'admin-1'),
       ).rejects.toThrow('db down');
       expect(mockSupabaseAdmin.deleteUser).toHaveBeenCalledWith('supa-invite-id');
     });
@@ -218,7 +228,7 @@ describe('UsersService', () => {
       mockPrismaService.user.create.mockResolvedValue({ id: 'existing-supa-id', email: 'exist@x.com' });
       mockPrismaService.userTenant.create.mockResolvedValue({});
 
-      const result = await service.invite(mockTenantId, { email: 'exist@x.com', roleId: 'role-staff' }, 'admin-1');
+      const result = await userInvitationService.invite(mockTenantId, { email: 'exist@x.com', roleId: 'role-staff' }, 'admin-1');
 
       expect(result.success).toBe(true);
       expect(mockSupabaseAdmin.inviteUserByEmail).not.toHaveBeenCalled(); // no new email
@@ -234,7 +244,7 @@ describe('UsersService', () => {
       mockPrismaService.user.findUnique.mockResolvedValue({ id: 'existing-supa-id', tenantId: 'other-tenant' });
 
       await expect(
-        service.invite(mockTenantId, { email: 'exist@x.com', roleId: 'role-staff' }, 'admin-1'),
+        userInvitationService.invite(mockTenantId, { email: 'exist@x.com', roleId: 'role-staff' }, 'admin-1'),
       ).rejects.toThrow(ConflictException);
       expect(mockSupabaseAdmin.inviteUserByEmail).not.toHaveBeenCalled();
     });
@@ -265,7 +275,7 @@ describe('UsersService', () => {
       mockPrismaService.userTenant.create.mockResolvedValue({});
       mockConfigService.get.mockReturnValue('https://app.test/accept-invite');
 
-      const result = await service.reinvite(mockUserId, mockTenantId, 'admin-1');
+      const result = await userInvitationService.reinvite(mockUserId, mockTenantId, 'admin-1');
 
       expect(result.success).toBe(true);
       expect(result.message).toContain(mockUser.email);
@@ -278,7 +288,7 @@ describe('UsersService', () => {
       mockPrismaService.user.findFirst.mockResolvedValue(pendingUser);
       mockSupabaseAdmin.getUserById.mockResolvedValue({ id: mockUserId, last_sign_in_at: '2026-01-01T00:00:00Z' });
 
-      await expect(service.reinvite(mockUserId, mockTenantId, 'admin-1')).rejects.toThrow(ConflictException);
+      await expect(userInvitationService.reinvite(mockUserId, mockTenantId, 'admin-1')).rejects.toThrow(ConflictException);
       expect(mockSupabaseAdmin.deleteUser).not.toHaveBeenCalled();
     });
 
@@ -287,14 +297,14 @@ describe('UsersService', () => {
       mockSupabaseAdmin.getUserById.mockResolvedValue({ id: mockUserId, last_sign_in_at: null });
       mockPrismaService.userTenant.count.mockResolvedValue(2);
 
-      await expect(service.reinvite(mockUserId, mockTenantId, 'admin-1')).rejects.toThrow(ConflictException);
+      await expect(userInvitationService.reinvite(mockUserId, mockTenantId, 'admin-1')).rejects.toThrow(ConflictException);
       expect(mockPrismaService.user.delete).not.toHaveBeenCalled();
     });
 
     it('throws NotFoundException when the user is not in the tenant', async () => {
       mockPrismaService.user.findFirst.mockResolvedValue(null);
 
-      await expect(service.reinvite('nope', mockTenantId, 'admin-1')).rejects.toThrow(NotFoundException);
+      await expect(userInvitationService.reinvite('nope', mockTenantId, 'admin-1')).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -303,7 +313,7 @@ describe('UsersService', () => {
       mockPrismaService.user.findMany.mockResolvedValue([mockUser]);
       mockPrismaService.user.count.mockResolvedValue(1);
 
-      const result = await service.findAll(mockTenantId, { page: 1, limit: 20 });
+      const result = await usersService.findAll(mockTenantId, { page: 1, limit: 20 });
 
       expect(result.data).toHaveLength(1);
       expect(result.meta.total).toBe(1);
@@ -317,7 +327,7 @@ describe('UsersService', () => {
         new Map([[mockUserId, { lastSignInAt: '2026-06-01T10:00:00Z', invitedAt: null, emailConfirmedAt: '2026-05-01T00:00:00Z' }]]),
       );
 
-      const result = await service.findAll(mockTenantId, { page: 1, limit: 20 });
+      const result = await usersService.findAll(mockTenantId, { page: 1, limit: 20 });
 
       expect(result.data[0].status).toBe('active');
       expect(result.data[0].lastSignInAt).toBe('2026-06-01T10:00:00Z');
@@ -330,11 +340,11 @@ describe('UsersService', () => {
         new Map([[mockUserId, { lastSignInAt: null, invitedAt: '2026-06-01T00:00:00Z', emailConfirmedAt: null }]]),
       );
 
-      const pending = await service.findAll(mockTenantId, { page: 1, limit: 20 });
+      const pending = await usersService.findAll(mockTenantId, { page: 1, limit: 20 });
       expect(pending.data[0].status).toBe('pending');
 
       mockSupabaseAdmin.getAuthInfoByIds.mockResolvedValue(new Map());
-      const unknown = await service.findAll(mockTenantId, { page: 1, limit: 20 });
+      const unknown = await usersService.findAll(mockTenantId, { page: 1, limit: 20 });
       expect(unknown.data[0].status).toBe('unknown');
     });
 
@@ -342,7 +352,7 @@ describe('UsersService', () => {
       mockPrismaService.user.findMany.mockResolvedValue([mockUser]);
       mockPrismaService.user.count.mockResolvedValue(1);
 
-      await service.findAll(mockTenantId, { search: 'john', page: 1, limit: 20 });
+      await usersService.findAll(mockTenantId, { search: 'john', page: 1, limit: 20 });
 
       expect(mockPrismaService.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -357,7 +367,7 @@ describe('UsersService', () => {
       mockPrismaService.user.findMany.mockResolvedValue([mockUser]);
       mockPrismaService.user.count.mockResolvedValue(1);
 
-      await service.findAll(mockTenantId, { role: UserRole.ADMIN, page: 1, limit: 20 });
+      await usersService.findAll(mockTenantId, { role: UserRole.ADMIN, page: 1, limit: 20 });
 
       expect(mockPrismaService.user.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -373,7 +383,7 @@ describe('UsersService', () => {
     it('should return a user by ID', async () => {
       mockPrismaService.user.findFirst.mockResolvedValue(mockUser);
 
-      const result = await service.findOne(mockUserId, mockTenantId);
+      const result = await usersService.findOne(mockUserId, mockTenantId);
 
       expect(result).toBeDefined();
       expect(result.id).toBe(mockUserId);
@@ -382,7 +392,7 @@ describe('UsersService', () => {
     it('should throw NotFoundException if user not found', async () => {
       mockPrismaService.user.findFirst.mockResolvedValue(null);
 
-      await expect(service.findOne('nonexistent', mockTenantId)).rejects.toThrow(NotFoundException);
+      await expect(usersService.findOne('nonexistent', mockTenantId)).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -395,7 +405,7 @@ describe('UsersService', () => {
         firstName: 'Jane',
       });
 
-      const result = await service.update(mockUserId, mockTenantId, { firstName: 'Jane' });
+      const result = await usersService.update(mockUserId, mockTenantId, { firstName: 'Jane' });
 
       expect(result.firstName).toBe('Jane');
       expect(mockPrismaService.user.update).toHaveBeenCalled();
@@ -410,7 +420,7 @@ describe('UsersService', () => {
       mockPrismaService.userTenant.count.mockResolvedValue(0);
       mockPrismaService.user.delete.mockResolvedValue(mockUser);
 
-      const result = await service.remove(mockUserId, mockTenantId, 'other-user');
+      const result = await usersService.remove(mockUserId, mockTenantId, 'other-user');
 
       expect(result.success).toBe(true);
       expect(mockPrismaService.user.delete).toHaveBeenCalled();
@@ -425,13 +435,13 @@ describe('UsersService', () => {
       mockPrismaService.userTenant.count.mockResolvedValue(1);
       mockPrismaService.user.delete.mockResolvedValue(mockUser);
 
-      await service.remove(mockUserId, mockTenantId, 'other-user');
+      await usersService.remove(mockUserId, mockTenantId, 'other-user');
 
       expect(mockSupabaseAdmin.deleteUser).not.toHaveBeenCalled();
     });
 
     it('should not allow deleting yourself', async () => {
-      await expect(service.remove(mockUserId, mockTenantId, mockUserId)).rejects.toThrow(
+      await expect(usersService.remove(mockUserId, mockTenantId, mockUserId)).rejects.toThrow(
         ForbiddenException,
       );
     });
@@ -440,7 +450,7 @@ describe('UsersService', () => {
       mockPrismaService.user.findFirst.mockResolvedValue(mockUser);
       mockPrismaService.userTenant.findFirst.mockResolvedValue({ isOwner: true });
 
-      await expect(service.remove(mockUserId, mockTenantId, 'other-user')).rejects.toThrow(
+      await expect(usersService.remove(mockUserId, mockTenantId, 'other-user')).rejects.toThrow(
         ForbiddenException,
       );
     });
@@ -454,7 +464,7 @@ describe('UsersService', () => {
       mockPrismaService.user.update.mockResolvedValue({ ...mockUser, role: UserRole.MANAGER });
       mockPrismaService.userTenant.updateMany.mockResolvedValue({});
 
-      const result = await service.changeRole(
+      const result = await userAccessService.changeRole(
         mockUserId,
         mockTenantId,
         { role: UserRole.MANAGER },
@@ -477,7 +487,7 @@ describe('UsersService', () => {
       mockPrismaService.user.update.mockResolvedValue({ ...mockUser, role: UserRole.MANAGER });
       mockPrismaService.userTenant.updateMany.mockResolvedValue({});
 
-      const result = await service.changeRole(
+      const result = await userAccessService.changeRole(
         mockUserId,
         mockTenantId,
         { roleId: 'role-manager' },
@@ -497,19 +507,19 @@ describe('UsersService', () => {
       mockPrismaService.role.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.changeRole(mockUserId, mockTenantId, { roleId: 'unknown-role' }, 'other-user', UserRole.ADMIN),
+        userAccessService.changeRole(mockUserId, mockTenantId, { roleId: 'unknown-role' }, 'other-user', UserRole.ADMIN),
       ).rejects.toThrow(NotFoundException);
     });
 
     it('should not allow changing own role', async () => {
       await expect(
-        service.changeRole(mockUserId, mockTenantId, { role: UserRole.ADMIN }, mockUserId, UserRole.ADMIN),
+        userAccessService.changeRole(mockUserId, mockTenantId, { role: UserRole.ADMIN }, mockUserId, UserRole.ADMIN),
       ).rejects.toThrow(ForbiddenException);
     });
 
     it('should require either roleId or role', async () => {
       await expect(
-        service.changeRole(mockUserId, mockTenantId, {}, 'other-user', UserRole.ADMIN),
+        userAccessService.changeRole(mockUserId, mockTenantId, {}, 'other-user', UserRole.ADMIN),
       ).rejects.toThrow(BadRequestException);
     });
   });
@@ -523,7 +533,7 @@ describe('UsersService', () => {
       ]);
       mockPrismaService.user.findMany.mockResolvedValue([mockUser]);
 
-      const result = await service.getStatistics(mockTenantId);
+      const result = await usersService.getStatistics(mockTenantId);
 
       expect(result.total).toBe(10);
       expect(result.byRole.ADMIN).toBe(2);

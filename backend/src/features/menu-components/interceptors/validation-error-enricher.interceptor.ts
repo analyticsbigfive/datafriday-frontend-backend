@@ -34,13 +34,11 @@ export class ValidationErrorEnricherInterceptor implements NestInterceptor {
               
               // Naviguer dans le body pour trouver l'objet concerné
               let targetObject = body;
-              let parentObject = null;
               let arrayIndex = -1;
               
               for (let i = 0; i < propertyPath.length - 1; i++) {
                 const key = propertyPath[i];
                 if (targetObject && targetObject[key] !== undefined) {
-                  parentObject = targetObject;
                   targetObject = targetObject[key];
                   
                   // Si c'est un index de tableau, le stocker

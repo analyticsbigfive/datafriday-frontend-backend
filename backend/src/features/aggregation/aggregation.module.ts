@@ -1,8 +1,6 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
-import { AggregationService } from './aggregation.service';
 import { AggregationController } from './aggregation.controller';
-import { AggregationProcessor } from './aggregation.processor';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
 import { LiveMinuteAggregationService } from './live-minute-aggregation.service';
@@ -13,6 +11,9 @@ import { SyncStaleRowsService } from './sync-stale-rows.service';
 import { PrismaModule } from '../../core/database/prisma.module';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { MappingsModule } from '../mappings/mappings.module';
+import { AggregationService } from './aggregation.service';
+import { AggregationStatusService } from './aggregation-status.service';
+import { EventAggregateReadService } from './event-aggregate-read.service';
 
 @Module({
   imports: [
@@ -24,8 +25,6 @@ import { MappingsModule } from '../mappings/mappings.module';
   ],
   controllers: [AggregationController],
   providers: [
-    AggregationService,
-    AggregationProcessor,
     EventWindowResolverService,
     EventRollupService,
     LiveMinuteAggregationService,
@@ -33,7 +32,10 @@ import { MappingsModule } from '../mappings/mappings.module';
     BasketAggregationService,
     SpaceIntegrationScopeService,
     SyncStaleRowsService,
+    AggregationStatusService,
+    EventAggregateReadService,
+    AggregationService,
   ],
-  exports: [AggregationService],
+  exports: [AggregationService, LiveMinuteAggregationService],
 })
 export class AggregationModule {}

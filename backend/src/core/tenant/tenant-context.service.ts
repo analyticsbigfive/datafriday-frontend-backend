@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { ClsService } from 'nestjs-cls';
 import { BYPASS_TENANT_KEY, TENANT_ID_KEY } from './tenant-context.constants';
 
@@ -37,12 +37,30 @@ export class TenantContextService {
   }
 
   /**
-   * Run `fn` with tenant auto-scoping disabled. Restores the previous flag
-   * afterwards. Use sparingly for cross-tenant / system operations.
+   * Exécute `fn` dans un contexte restreint à `tenantId` (jobs, crons, webhooks
+   * différés). Toujours un contexte neuf : n'hérite d'aucun tenant ni contournement.
+   */
+  runForTenant<T>(tenantId: string, fn: () => Promise<T>): Promise<T> {
+    if (!tenantId) throw new InternalServerErrorException('runForTenant : tenantId requis');
+    // `await` DANS le contexte : une requête Prisma est paresseuse et ne s'exécute qu'au
+    // moment où elle est attendue ; la renvoyer telle quelle la ferait partir hors contexte.
+    return this.cls.run({ ifNested: 'override' }, async () => {
+      this.cls.set(TENANT_ID_KEY, tenantId);
+      return await fn();
+    });
+  }
+
+  /**
+   * Exécute `fn` sans restriction tenant, pour les opérations volontairement
+   * transverses (cron qui parcourt tous les tenants, catalogue système). Chaque usage
+   * doit être justifié en commentaire. Restaure l'état précédent à la sortie.
    */
   async runWithoutTenantScope<T>(fn: () => Promise<T>): Promise<T> {
     if (!this.cls.isActive()) {
-      return fn();
+      return this.cls.run(async () => {
+        this.cls.set(BYPASS_TENANT_KEY, true);
+        return await fn();
+      });
     }
     const previous = this.cls.get<boolean>(BYPASS_TENANT_KEY);
     this.cls.set(BYPASS_TENANT_KEY, true);

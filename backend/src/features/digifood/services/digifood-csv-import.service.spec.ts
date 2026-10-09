@@ -185,7 +185,8 @@ describe('DigifoodCsvImportService', () => {
             // Total TTC 90,00 € pour 2 → prix unitaire 45 € ; date+heure composées
             expect(sale).toMatchObject({ id: 'order_real_1', type: 'sale', total: 90 });
             expect(sale.items[0]).toMatchObject({ quantity: 2, unitPrice: 45, vatRate: 10, externalReference: 'MI-42' });
-            expect(sale.placedAt.toISOString()).toContain('2026-07-05T12:30');
+            // 12:30 heure de Paris (CEST) dans l'export = 10:30 UTC (CSV_NAIVE_TIMEZONE)
+            expect(sale.placedAt.toISOString()).toContain('2026-07-05T10:30');
             // Pas d'ID de site/PDV dans l'export → clés dérivées des noms
             expect(sale.shop).toMatchObject({ id: 'shop:buvette-b-03', name: 'Buvette B-03' });
             expect(sale.location).toMatchObject({ id: 'loc:zoo-de-vanves', name: 'Zoo de Vanves' });
@@ -199,12 +200,9 @@ describe('DigifoodCsvImportService', () => {
             const [, , noVatRate] = ingestion.ingestOrder.mock.calls[2];
             expect(noVatRate.items[0]).toMatchObject({ unitPrice: 90, vatRate: 20 });
 
-            // « 05-07-2026 16:45 » (JJ-MM-AAAA + heure combinée) → 5 juillet 2026 16:45
+            // « 05-07-2026 16:45 » (JJ-MM-AAAA + heure combinée, heure de Paris) → 14:45 UTC
             const [, , dashDate] = ingestion.ingestOrder.mock.calls[3];
-            expect(dashDate.placedAt.getFullYear()).toBe(2026);
-            expect(dashDate.placedAt.getMonth()).toBe(6); // juillet
-            expect(dashDate.placedAt.getDate()).toBe(5);
-            expect(dashDate.placedAt.getHours()).toBe(16);
+            expect(dashDate.placedAt.toISOString()).toBe('2026-07-05T14:45:00.000Z');
 
             expect(ingestion.ingestOrder.mock.calls.every((c: any[]) => c[3] === 'csv')).toBe(true);
         });

@@ -16,8 +16,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
-import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
-import { InventoryService } from './inventory.service';
+import { CurrentUser, CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { CreateInventoryDto } from './dto/create-inventory.dto';
 import { CreateInventoryCountDto } from './dto/create-inventory-count.dto';
 import { CreatePostEventReconciliationDto } from './dto/create-post-event-reconciliation.dto';
@@ -28,6 +27,10 @@ import { PostEventDraftService } from './post-event-draft.service';
 import { PushToLogisticDto } from './dto/push-to-logistic.dto';
 import { RegeneratePreEventReconciliationDto } from './dto/regenerate-pre-event-reconciliation.dto';
 import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
+import { InventoryBaselineService } from './services/inventory-baseline.service';
+import { InventoryCountService } from './services/inventory-count.service';
+import { InventoryLogisticPushService } from './services/inventory-logistic-push.service';
+import { InventoryReconciliationService } from './services/inventory-reconciliation.service';
 
 @ApiTags('Inventory')
 @ApiBearerAuth('supabase-jwt')
@@ -38,7 +41,10 @@ export class InventoryController {
   private readonly logger = new Logger(InventoryController.name);
 
   constructor(
-    private readonly inventoryService: InventoryService,
+    private readonly inventoryBaselineService: InventoryBaselineService,
+    private readonly inventoryCountService: InventoryCountService,
+    private readonly inventoryLogisticPushService: InventoryLogisticPushService,
+    private readonly inventoryReconciliationService: InventoryReconciliationService,
     private readonly preEventFlow: PreEventInventoryFlowService,
     private readonly postEventDraft: PostEventDraftService,
   ) {}
@@ -67,7 +73,7 @@ export class InventoryController {
   @ApiResponse({ status: 404, description: 'Aucun snapshot trouvé' })
   async getLatestBySpace(@Param('spaceId') spaceId: string, @CurrentUser() user: any) {
     this.logger.log(`GET /inventory/${spaceId}/latest`);
-    return this.inventoryService.getLatestBySpace(spaceId, user.tenantId);
+    return this.inventoryCountService.getLatestBySpace(spaceId, user.tenantId);
   }
 
   // ⚠️ Comme ':spaceId/latest' : toute route statique à 2 segments DOIT être
@@ -81,7 +87,7 @@ export class InventoryController {
   @ApiResponse({ status: 200, description: 'Liste commune triée du plus récent au plus ancien' })
   async listInventoryReconciliations(@Param('spaceId') spaceId: string, @CurrentUser() user: any) {
     this.logger.log(`GET /inventory/${spaceId}/reconciliations`);
-    return this.inventoryService.listInventoryReconciliations(
+    return this.inventoryReconciliationService.listInventoryReconciliations(
       spaceId,
       user.tenantId,
       this.canSeeExpected(user),
@@ -103,7 +109,7 @@ export class InventoryController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`DELETE /inventory/${spaceId}/reconciliations/${id}`);
-    return this.inventoryService.deleteInventoryReconciliation(spaceId, id, user.tenantId);
+    return this.inventoryReconciliationService.deleteInventoryReconciliation(spaceId, id, user.tenantId);
   }
 
   // Quantités ATTENDUES du Pre-event Inventory — gating par PERMISSION DÉDIÉE
@@ -124,7 +130,7 @@ export class InventoryController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`GET /inventory/${spaceId}/pre-event-baseline/${eventId}`);
-    return this.inventoryService.getPreEventBaseline(spaceId, eventId, user.tenantId);
+    return this.inventoryBaselineService.getPreEventBaseline(spaceId, eventId, user.tenantId);
   }
 
   // Indice de référence du Post-event Inventory. MÊME permission dédiée que le
@@ -157,7 +163,7 @@ export class InventoryController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`GET /inventory/${spaceId}/post-event-baseline/${eventId}`);
-    return this.inventoryService.getPostEventBaseline(spaceId, eventId, user.tenantId);
+    return this.inventoryBaselineService.getPostEventBaseline(spaceId, eventId, user.tenantId);
   }
 
   // Mise à jour de Logistic : responsable logistique ou administrateur du site seulement
@@ -283,7 +289,7 @@ export class InventoryController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`GET /inventory/${spaceId}/event-consumption/${eventId}`);
-    return this.inventoryService.getEventSalesConsumption(spaceId, eventId, user.tenantId);
+    return this.inventoryBaselineService.getEventSalesConsumption(spaceId, eventId, user.tenantId);
   }
 
   @Get(':spaceId/pre-event/:eventId')
@@ -299,7 +305,7 @@ export class InventoryController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`GET /inventory/${spaceId}/pre-event/${eventId}`);
-    return this.inventoryService.getPreEventInventory(spaceId, eventId, user.tenantId);
+    return this.inventoryBaselineService.getPreEventInventory(spaceId, eventId, user.tenantId);
   }
 
   // Génère la réconciliation post-event, pousse le comptage vers Logistic et CLÔT le
@@ -316,7 +322,7 @@ export class InventoryController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /inventory/${spaceId}/reconciliations eventId=${dto.eventId}`);
-    return this.inventoryService.createPostEventReconciliation(spaceId, dto, user.tenantId, user.id);
+    return this.inventoryReconciliationService.createPostEventReconciliation(spaceId, dto, user.tenantId, user.id);
   }
 
   // Brouillon de la feuille post-event (PDV complet, recomptage) : ne touche ni Logistic
@@ -331,7 +337,7 @@ export class InventoryController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /inventory/${spaceId}/reconciliations/draft eventId=${dto.eventId}`);
-    return this.inventoryService.createPostEventReconciliation(spaceId, dto, user.tenantId, user.id, {
+    return this.inventoryReconciliationService.createPostEventReconciliation(spaceId, dto, user.tenantId, user.id, {
       draft: true,
     });
   }
@@ -345,10 +351,10 @@ export class InventoryController {
   async savePostEventContext(
     @Param('spaceId') spaceId: string,
     @Body() dto: PostEventContextDto,
-    @CurrentUser() user: any,
+    @CurrentUser() user: CurrentUserData,
   ) {
     this.logger.log(`POST /inventory/${spaceId}/post-event-context eventId=${dto.eventId} lines=${dto.lines?.length ?? 0}`);
-    return this.postEventDraft.saveContext(spaceId, dto, user.tenantId, user.id);
+    return this.postEventDraft.saveContext(spaceId, dto, user.tenantId!, user.id);
   }
 
   @Post(':spaceId/recount-element')
@@ -362,7 +368,7 @@ export class InventoryController {
     @CurrentUser() user: any,
   ) {
     this.logger.log(`POST /inventory/${spaceId}/recount-element eventId=${dto.eventId} element=${dto.elementId}`);
-    return this.inventoryService.resetElementForRecount(spaceId, dto.eventId, dto.elementId, user.tenantId, user.id);
+    return this.inventoryCountService.resetElementForRecount(spaceId, dto.eventId, dto.elementId, user.tenantId, user.id);
   }
 
   @Post(':spaceId/push-to-logistic')
@@ -405,7 +411,7 @@ export class InventoryController {
       }
       return { ok: true, lineCount: push.lineCount };
     }
-    return this.inventoryService.pushCurrentCountToLogistic(
+    return this.inventoryLogisticPushService.pushCurrentCountToLogistic(
       spaceId,
       dto.eventId,
       user.tenantId,
@@ -438,7 +444,7 @@ export class InventoryController {
   ) {
     this.logger.log(`GET /inventory/${spaceId}/${eventId} phase=${phase ?? 'none'}`);
     const validPhase = phase === 'pre-event' || phase === 'post-event' ? phase : undefined;
-    return this.inventoryService.getBySpaceAndEvent(spaceId, eventId, user.tenantId, validPhase);
+    return this.inventoryCountService.getBySpaceAndEvent(spaceId, eventId, user.tenantId, validPhase);
   }
 
   @Post()
@@ -447,7 +453,7 @@ export class InventoryController {
   @ApiResponse({ status: 200, description: 'Snapshot créé' })
   async upsertInventory(@Body() dto: CreateInventoryDto, @CurrentUser() user: any) {
     this.logger.log(`POST /inventory spaceId=${dto.spaceId}`);
-    return this.inventoryService.upsertInventory(dto, user.tenantId, user.id);
+    return this.inventoryCountService.upsertInventory(dto, user.tenantId, user.id);
   }
 }
 

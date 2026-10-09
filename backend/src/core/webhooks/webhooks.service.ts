@@ -115,8 +115,8 @@ export class WebhooksService {
       }
     } catch (error) {
       status = 0;
-      response = error.message?.substring(0, 500) || 'Unknown error';
-      this.logger.error(`Webhook ${webhook.id} failed: ${error.message}`);
+      response = (error as Error).message?.substring(0, 500) || 'Unknown error';
+      this.logger.error(`Webhook ${webhook.id} failed: ${(error as Error).message}`);
     }
 
     const duration = Date.now() - startTime;

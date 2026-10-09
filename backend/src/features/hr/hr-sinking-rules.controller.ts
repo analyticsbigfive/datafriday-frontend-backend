@@ -4,15 +4,15 @@ import { IsString, IsNotEmpty, IsOptional, IsNumber, IsInt, Min } from 'class-va
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
-import { HrService } from './hr.service';
+import { HrSinkingRuleService } from './services/hr-sinking-rule.service';
 
 /**
  * Règles « Sinking RH » (STF-2) : dotation conditionnelle d'un rôle selon la
  * catégorie FNB détectée sur un PDV (+ condition optionnelle sur un attribut
  * d'équipement, ex. nbFriteuses ≥ seuil). Consommées par
- * StaffingService.generate() — voir staffing-calculator.service.ts::applySinkingRules.
+ * StaffingGenerationService.generate() — voir staffing-calculator.service.ts::applySinkingRules.
  * CFG-2 Étape 4.5 : `fnbCategory` valide son existence contre Subtype (département `shop`)
- * dans HrService.resolveFnbCategories(), plus de liste figée HR_FNB_CATEGORIES.
+ * dans HrRoleService.resolveFnbCategories(), plus de liste figée HR_FNB_CATEGORIES.
  */
 class CreateHrSinkingRuleDto {
   @IsString()
@@ -47,29 +47,29 @@ class UpdateHrSinkingRuleDto extends PartialType(CreateHrSinkingRuleDto) {}
 @RequirePermissions('menu.hr.manage')
 @Controller('hr/sinking-rules')
 export class HrSinkingRulesController {
-  constructor(private readonly service: HrService) {}
+  constructor(private readonly hrSinkingRuleService: HrSinkingRuleService) {}
 
   @Get()
   @ApiOperation({ summary: 'Lister les règles Sinking RH du tenant (filtrable par rôle)' })
   findAll(@Query('roleId') roleId: string | undefined, @CurrentTenant() tenantId: string) {
-    return this.service.findAllSinkingRules(tenantId, { roleId });
+    return this.hrSinkingRuleService.findAllSinkingRules(tenantId, { roleId });
   }
 
   @Post()
   @ApiOperation({ summary: 'Créer une règle Sinking RH' })
   create(@Body() dto: CreateHrSinkingRuleDto, @CurrentTenant() tenantId: string) {
-    return this.service.createSinkingRule(dto, tenantId);
+    return this.hrSinkingRuleService.createSinkingRule(dto, tenantId);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Mettre à jour une règle Sinking RH' })
   update(@Param('id') id: string, @Body() dto: UpdateHrSinkingRuleDto, @CurrentTenant() tenantId: string) {
-    return this.service.updateSinkingRule(id, dto, tenantId);
+    return this.hrSinkingRuleService.updateSinkingRule(id, dto, tenantId);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Supprimer une règle Sinking RH' })
   remove(@Param('id') id: string, @CurrentTenant() tenantId: string) {
-    return this.service.removeSinkingRule(id, tenantId);
+    return this.hrSinkingRuleService.removeSinkingRule(id, tenantId);
   }
 }
