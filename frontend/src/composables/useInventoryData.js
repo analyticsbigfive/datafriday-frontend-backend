@@ -20,6 +20,7 @@ import {
   mergeConfigFloors,
   eventConfigElementIds,
 } from '@/utils/inventoryScope'
+import { configPlanZones } from '@/utils/configPlanZones'
 import {
   buildConsolidatedInventory,
   buildStorageInventory,
@@ -163,7 +164,7 @@ export function useInventoryData(selectedConfigId) {
     await runWithConcurrency(others, 4, async (id) => {
       try {
         const res = await getConfiguration(id)
-        floorsByConfig[others.indexOf(id)] = res?.data?.floors ?? res?.floors ?? []
+        floorsByConfig[others.indexOf(id)] = configPlanZones(res)
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn(`[inventory] plan de la config ${id} indisponible (tout l'inventaire):`, e?.message)
@@ -223,7 +224,8 @@ export function useInventoryData(selectedConfigId) {
       let floors = []
       const configFailed = configRes.status === 'rejected'
       if (!configFailed) {
-        floors = configRes.value?.data?.floors ?? configRes.value?.floors ?? []
+        // Parvis et zone externe inclus : sinon leurs stockages/merch disparaissent.
+        floors = configPlanZones(configRes.value)
       } else {
         // eslint-disable-next-line no-console
         console.warn(
