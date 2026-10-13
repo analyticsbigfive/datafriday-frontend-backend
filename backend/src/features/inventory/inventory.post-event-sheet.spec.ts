@@ -17,7 +17,7 @@ describe('InventoryService, feuille post-event et recomptage par PDV', () => {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findMany: jest.fn().mockResolvedValue([{ id: 'win-post' }]),
     },
-    inventoryCount: { updateMany: jest.fn().mockResolvedValue({ count: 12 }) },
+    inventoryCount: { updateMany: jest.fn().mockResolvedValue({ count: 12 }), findMany: jest.fn().mockResolvedValue([]) },
     guestPinAccess: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
   };
   let inventoryCountService: any;
@@ -49,7 +49,11 @@ describe('InventoryService, feuille post-event et recomptage par PDV', () => {
   it('finale : feuille remplacée, Logistic mis à jour, post-event clos', async () => {
     await inventoryReconciliationService.createPostEventReconciliation('space-1', dto, 'tenant-1', 'user-1');
     expect(prisma.stockReconciliation.deleteMany).toHaveBeenCalled();
-    expect(push).toHaveBeenCalled();
+    // État de push lu avant les quantités et transmis : sa version est celle marquée envoyée.
+    expect(push).toHaveBeenCalledWith('space-1', 'tenant-1', 'post-event', expect.anything(), expect.anything(), 'user-1', expect.any(Map));
+    expect(prisma.inventoryCount.findMany.mock.invocationCallOrder[0]).toBeLessThan(
+      (inventoryCountService.getBySpaceAndEvent as jest.Mock).mock.invocationCallOrder[0],
+    );
     expect(prisma.inventoryWindow.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { tenantId: 'tenant-1', spaceId: 'space-1', eventId: 'event-1', phase: 'post-event', status: 'open' },
