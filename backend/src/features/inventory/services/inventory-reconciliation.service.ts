@@ -5,6 +5,7 @@ import { SpaceAccessService } from '../../../core/auth/space-access.service';
 import { InventoryBaselineService } from './inventory-baseline.service';
 import { InventoryCountService } from './inventory-count.service';
 import { InventoryLogisticPushService } from './inventory-logistic-push.service';
+import { loadPostEventDraftStates } from '../post-event-draft-state';
 import { InventoryUnitResolverService } from './inventory-unit-resolver.service';
 import { closeInventoryWindows } from '../inventory-window-closure';
 
@@ -49,6 +50,9 @@ export class InventoryReconciliationService {
    *  - `draft` (PDV complet, recomptage) : feuille seule, Logistic et fenêtre PIN intacts ;
    *  - final (« Générer la réconciliation ») : pousse le comptage vers Logistic et clôt le
    *    post-event.
+   * `documentDraft` : statut « Brouillon » affiché, quand il diffère de `draft` (feuille
+   * tenue par le serveur, jamais poussée, finale une fois le post-event arrêté :
+   * loadPostEventDraftStates).
    * Les lignes restent construites côté écran (mêmes sources et mêmes calculs qu'avant).
    */
   async createPostEventReconciliation(
@@ -56,7 +60,7 @@ export class InventoryReconciliationService {
     dto: CreatePostEventReconciliationDto,
     tenantId: string,
     userId?: string,
-    options: { draft?: boolean; extraMeta?: Record<string, unknown> } = {},
+    options: { draft?: boolean; documentDraft?: boolean; extraMeta?: Record<string, unknown> } = {},
   ) {
     const draft = !!options.draft;
     this.logger.log(
@@ -106,7 +110,7 @@ export class InventoryReconciliationService {
           predictedUnjoined: dto.predictedUnjoined ?? null,
           perimeterExcluded: dto.perimeterExcluded ?? null,
           // Brouillon régénéré en cours de comptage : Logistic pas encore mis à jour.
-          draft,
+          draft: options.documentDraft ?? draft,
           ...(options.extraMeta ?? {}),
         },
         createdBy: userId ?? null,
@@ -129,6 +133,8 @@ export class InventoryReconciliationService {
     // Source du comptage : la MÊME que le snapshot (canaux packed/loose bruts).
     // Les lignes du DTO ne portent qu'un total en unités (`countedUnits`) — s'en
     // servir obligerait à refabriquer une répartition packed/loose.
+    // État de push lu AVANT les quantités (cf. pushCountToLogistic).
+    const pushState = await this.inventoryLogisticPushService.loadLogisticPushState(spaceId, event.id, tenantId);
     const merged = await this.inventoryCountService.getBySpaceAndEvent(spaceId, event.id, tenantId, 'post-event');
     await this.inventoryLogisticPushService.pushCountToLogistic(
       spaceId,
@@ -137,6 +143,7 @@ export class InventoryReconciliationService {
       event,
       (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>,
       userId,
+      pushState,
     );
 
     // Fin du post-event (règle Bertrand 2026-09-29) : quand le responsable logistique ou
@@ -172,7 +179,26 @@ export class InventoryReconciliationService {
       // compilation tant que `prisma generate` n'a pas été rejoué après la
       // migration. Le document entier est de toute façon scopé au tenant.
     });
-    return canSeeExpected ? docs : docs.map((d) => this.redactPreEventDoc(d));
+    const live = await this.withLivePostEventDraft(spaceId, tenantId, docs);
+    return canSeeExpected ? live : live.map((d) => this.redactPreEventDoc(d));
+  }
+
+  /** Brouillon post-event recalculé à la lecture : la fenêtre se ferme et l'événement
+   *  devient passé sans que le document soit reconstruit (loadPostEventDraftStates). */
+  private async withLivePostEventDraft<T extends { kind?: string | null; eventId?: string | null; meta?: unknown }>(
+    spaceId: string,
+    tenantId: string,
+    docs: T[],
+  ): Promise<T[]> {
+    const isDraft = (d: T) => d.kind === 'post-event' && !!(d.meta as { draft?: boolean } | null)?.draft;
+    const eventIds = docs.filter(isDraft).map((d) => d.eventId).filter((id): id is string => !!id);
+    if (!eventIds.length) return docs;
+    const states = await loadPostEventDraftStates(this.prisma, tenantId, spaceId, eventIds);
+    return docs.map((d) =>
+      isDraft(d) && d.eventId && states.get(d.eventId) === false
+        ? { ...d, meta: { ...(d.meta as Record<string, unknown>), draft: false } }
+        : d,
+    );
   }
 
   // ── DELETE /inventory/:spaceId/reconciliations/:id ───────────────────────────
@@ -259,9 +285,10 @@ export class InventoryReconciliationService {
     // Compté = fusion existante (InventoryCount prioritaire sur snapshot).
     // Cast : la branche snapshot renvoie un Json Prisma, mais son écriture ne
     // passe que par upsertInventory (blob objet) — jamais un scalaire.
+    // État de push lu AVANT les quantités (cf. pushCountToLogistic).
+    const pushState = await this.inventoryLogisticPushService.loadLogisticPushState(spaceId, eventId, tenantId);
     const merged = await this.inventoryCountService.getBySpaceAndEvent(spaceId, eventId, tenantId, 'pre-event');
     const countedBlob = (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>;
-    const pushState = await this.inventoryLogisticPushService.loadLogisticPushState(spaceId, eventId, tenantId);
     const previousByKey = new Map<string, Record<string, any>>();
     if (Array.isArray(previousLines)) {
       for (const l of previousLines as Array<Record<string, any>>) {

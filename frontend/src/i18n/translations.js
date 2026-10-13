@@ -2265,8 +2265,6 @@ export const translations = {
       'POS without a pre-event count: their Qty left comes from the Logistic register.',
     invRecoMetaBaselineUncovered:
       'counted POS with no starting stock at all (no pre-event count, nothing in Logistic): Qty left and Missing unavailable there.',
-    invPostCarriedHint:
-      'Quantities shown come from the pre-match count — recount and validate each item.',
     invConfiguration: 'Configuration',
     invTools: 'Tools',
     invFilters: 'Filters',
@@ -7164,8 +7162,6 @@ export const translations = {
       'PdV sans comptage pré-event : leur Restant vient du registre Logistic.',
     invRecoMetaBaselineUncovered:
       'PdV compté(s) sans aucun stock de départ (ni comptage pré-event, ni registre Logistic) : Restant et Manquant indisponibles sur ces PdV.',
-    invPostCarriedHint:
-      "Les quantités affichées viennent du comptage d'avant-match — recomptez et validez chaque article.",
     invConfiguration: 'Configuration',
     invTools: 'Outils',
     invFilters: 'Filtres',

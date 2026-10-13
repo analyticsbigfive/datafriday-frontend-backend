@@ -63,7 +63,9 @@ export class InventoryLogisticPushService {
     event: { id: string; name?: string | null },
     countedBlob: Record<string, Record<string, any>>,
     userId?: string,
-    // État de push des lignes (déjà chargé par l'appelant, sinon chargé ici).
+    // État de push des lignes, à charger AVANT `countedBlob` : sa version (`updatedAt`) est
+    // celle marquée envoyée. Lue après, elle pourrait couvrir une correction absente du blob,
+    // marquée envoyée sans l'être (Nantes-Reims 10/10). Chargé ici à défaut.
     pushState?: LogisticPushState,
   ): Promise<{ ok: boolean; reason?: string; lineCount?: number }> {
     // BUG-383-02 (règle Bertrand 2026-09-15) : seul ce qui a été COMPTÉ (validé) met à jour
@@ -161,7 +163,10 @@ export class InventoryLogisticPushService {
     }
     await this.markLogisticPushed(
       tenantId,
-      lines.map((l) => state.get(`${l.elementId}::${l.itemRefId}`)?.id).filter((id): id is string => !!id),
+      lines
+        .map((l) => state.get(`${l.elementId}::${l.itemRefId}`))
+        .filter((row): row is NonNullable<typeof row> => !!row)
+        .map((row) => ({ id: row.id, version: row.updatedAt })),
     );
     return { ok: true, lineCount: lines.length };
   }
@@ -200,12 +205,12 @@ export class InventoryLogisticPushService {
 
   /** Hors transaction du reset : un échec ici ne fait que repousser ces lignes au prochain
    *  push (delta 0). */
-  private async markLogisticPushed(tenantId: string, ids: string[]): Promise<void> {
-    if (!ids.length) return;
+  private async markLogisticPushed(tenantId: string, rows: Array<{ id: string; version: Date }>): Promise<void> {
+    if (!rows.length) return;
     try {
-      await markInventoryCountsPushed(this.prisma, tenantId, ids);
+      await markInventoryCountsPushed(this.prisma, tenantId, rows);
     } catch (error: any) {
-      this.logger.warn(`Marquage logisticPushedAt échoué (${ids.length} ligne(s)) : ${error?.message}`);
+      this.logger.warn(`Marquage logisticPushedAt échoué (${rows.length} ligne(s)) : ${error?.message}`);
     }
   }
 
@@ -275,11 +280,13 @@ export class InventoryLogisticPushService {
     userId?: string,
     elementId?: string | null,
   ) {
+    // État de push lu AVANT les quantités (cf. pushCountToLogistic).
+    const pushState = await this.loadLogisticPushState(spaceId, event.id, tenantId);
     const merged = await this.inventoryCountService.getBySpaceAndEvent(spaceId, event.id, tenantId, phase);
     const countedBlob = pickElements(
       (merged?.inventoryCounts ?? {}) as Record<string, Record<string, any>>,
       elementId ? [elementId] : undefined,
     );
-    return this.pushCountToLogistic(spaceId, tenantId, phase, event, countedBlob, userId);
+    return this.pushCountToLogistic(spaceId, tenantId, phase, event, countedBlob, userId, pushState);
   }
 }
