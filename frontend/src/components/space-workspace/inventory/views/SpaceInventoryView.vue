@@ -323,18 +323,6 @@
     <!-- Contenu central NORMAL (recherche, onglets, cartes, comptage) — substitué
          par la vue réconciliation quand un document est sélectionné. -->
     <template v-if="!activeReconciliation">
-    <!-- Post-event ouvert sur des saisies d'AVANT-match (BUG-237) : les valeurs
-         sont une proposition, pas un comptage validé — le dire explicitement,
-         sinon l'écran « 100 % compté » invite à sauvegarder sans recompter. -->
-    <v-alert
-      v-if="hasCarriedCounts"
-      type="info"
-      variant="tonal"
-      density="compact"
-      class="si-carried-alert"
-    >
-      {{ t('invPostCarriedHint') }}
-    </v-alert>
     <!-- Attendus indisponibles : dire POURQUOI. Sans ce bandeau, 403, backend non
          à jour et absence de comptage de référence produisent tous les trois le
          même écran de tirets, indiagnosticable sans l'onglet Réseau.
@@ -1298,17 +1286,6 @@ export default {
       const d = this.preEventWindow.deadline
       if (!d) return ''
       return d.toLocaleTimeString(this.intlLocale, { hour: '2-digit', minute: '2-digit' })
-    },
-    /** Mode post ouvert sur des lignes reprises du comptage d'avant-match
-     *  (drapeau serveur `carriedFromPreEvent`, BUG-237) → bandeau « à recompter ». */
-    hasCarriedCounts() {
-      if (this.isPreMode) return false
-      for (const byItem of Object.values(this.inventoryCounts || {})) {
-        for (const c of Object.values(byItem || {})) {
-          if (c?.carriedFromPreEvent) return true
-        }
-      }
-      return false
     },
     /** Quantités attendues (les DEUX écrans) : permission dédiée, gating serveur
      *  en miroir — sans elle, les endpoints baseline répondent 403 et on n'émet

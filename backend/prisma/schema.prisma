@@ -3225,7 +3225,8 @@ model InventoryCount {
   // Dernier push de CETTE ligne vers le registre Logistic (pushCountToLogistic). Une ligne
   // validée n'est (re)poussée que si `updatedAt > logisticPushedAt` : re-pousser un comptage
   // déjà pris en compte remettrait StockLevel à la valeur comptée et effacerait les ventes et
-  // mouvements survenus depuis. Posée en SQL brut pour ne pas toucher `updatedAt`.
+  // mouvements survenus depuis. Posée en SQL brut pour ne pas toucher `updatedAt`, à la
+  // valeur de `updatedAt` de la version envoyée (markInventoryCountsPushed).
   logisticPushedAt  DateTime?
   createdAt         DateTime  @default(now())
   updatedAt         DateTime  @updatedAt
