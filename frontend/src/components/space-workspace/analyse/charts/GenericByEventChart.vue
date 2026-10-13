@@ -22,6 +22,13 @@
     <div style="position: relative; height: 320px">
       <Bar :data="chartData" :options="chartOptions" />
     </div>
+    <EventMetricFooter
+      v-if="isRendementMetric"
+      :color="rendementColor"
+      :show-draft-legend="metric === 'stockValue'"
+      :message="rendementMessage"
+      :excluded="rendementExcluded"
+    />
   </v-card>
 </template>
 
@@ -33,6 +40,7 @@ import '@/lib/chartjs'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { itemLevelTotalsByEvent, eventMarginPct } from '@/utils/analyseAggregations'
 import { useI18n } from '@/i18n/useI18n'
+import EventMetricFooter from './EventMetricFooter.vue'
 
 const { t } = useI18n()
 
@@ -51,6 +59,9 @@ const props = defineProps({
   eventAggregates: { type: Array, default: () => [] },
   costMap: { type: Object, default: () => ({}) },
   initialMetric: { type: String, default: 'revenue' },
+  // Métriques rendement (useRendementWidgets.chartMetrics) : par métrique
+  // { status: 'ready'|'blocked'|'unresolved'|'error'|'loading', rows: Map<eventId, {value, reason, draft}> }.
+  extraMetrics: { type: Object, default: () => ({}) },
 })
 
 const METRICS = computed(() => [
@@ -64,7 +75,17 @@ const METRICS = computed(() => [
   { key: 'perCap',         label: t('anMetricPerCap'),       format: formatCurrencyDetailed },
   { key: 'transferRate',   label: t('anMetricTransferRate'), format: (v) => `${v.toFixed(1)}%` },
   { key: 'margin',         label: t('anMetricMargin'),       format: (v) => `${v.toFixed(1)}%` },
+  // Rendement : CA / TPE, CA / collaborateur (effectifs saisis par event) et
+  // valorisation du stock compté dans la dernière feuille post-event.
+  { key: 'revenuePerTpe',          label: t('anMetricRevenuePerTpe'),          format: formatCurrency },
+  { key: 'revenuePerCollaborator', label: t('anMetricRevenuePerCollaborator'), format: formatCurrency },
+  { key: 'stockValue',             label: t('anMetricStockValue'),             format: formatCurrency },
 ])
+
+const RENDEMENT_METRICS = ['revenuePerTpe', 'revenuePerCollaborator', 'stockValue']
+const isRendementMetric = computed(() => RENDEMENT_METRICS.includes(metric.value))
+const rendementState = computed(() => (isRendementMetric.value ? props.extraMetrics?.[metric.value] || null : null))
+const rendementRow = (row) => rendementState.value?.rows?.get(String(row.eventId)) || null
 
 const metric = ref(props.initialMetric)
 // Tri : 'date' (chronologique) ou 'value' (rang décroissant selon la métrique).
@@ -85,7 +106,9 @@ const config = computed(() => {
   const m = METRICS.value.find((x) => x.key === metric.value) || METRICS.value[0]
   return {
     title: `${m.label} ${t('anChartPerEvent')}`,
-    subtitle: `${eventRows.value.length} ${t('anChartEventCount')} ${t('anChartDisplayLabel')} ${m.label.toLowerCase()}`,
+    subtitle: metric.value === 'stockValue'
+      ? t('anRdtStockReportSubtitle')
+      : `${eventRows.value.length} ${t('anChartEventCount')} ${t('anChartDisplayLabel')} ${m.label.toLowerCase()}`,
   }
 })
 
@@ -200,6 +223,12 @@ function valueForEvent(row) {
     case 'transferRate':   return row.transferRate || 0
     // null = coût inconnu pour cet event : pas de barre plutôt qu'une fausse marge.
     case 'margin':         return row.margin ?? null
+    // Rendement : null = event exclu (effectif ou feuille absente) ; tant que l'état
+    // n'est pas 'ready' (chargement, filtre PdV, erreur) aucune barre, jamais de repli.
+    case 'revenuePerTpe':
+    case 'revenuePerCollaborator':
+    case 'stockValue':
+      return rendementState.value?.status === 'ready' ? (rendementRow(row)?.value ?? null) : null
     default:               return 0
   }
 }
@@ -222,7 +251,41 @@ const METRIC_COLORS = {
   avgTransaction: { r: 168, g: 85, b: 247 }, // purple
   perCap: { r: 236, g: 72, b: 153 },         // pink
   transferRate: { r: 20, g: 184, b: 166 },   // teal
+  revenuePerTpe: { r: 14, g: 165, b: 233 },          // sky (couleur du widget CA / TPE)
+  revenuePerCollaborator: { r: 236, g: 72, b: 153 }, // pink (widget CA / collaborateur)
+  stockValue: { r: 16, g: 185, b: 129 },             // emerald (widget Valorisation stock)
 }
+
+const rendementColor = computed(() => {
+  const c = METRIC_COLORS[metric.value]
+  return c ? `rgb(${c.r}, ${c.g}, ${c.b})` : '#10B981'
+})
+
+// Message d'état du pied de graphe + events exclus (valeur absente) avec leur raison.
+const REASON_KEYS = {
+  'no-tpe': 'anRdtReasonNoTpe',
+  'no-collaborators': 'anRdtReasonNoCollaborator',
+  'no-post-event-sheet': 'anRdtReasonNoSheet',
+}
+const rendementMessage = computed(() => {
+  switch (rendementState.value?.status) {
+    case 'blocked': return t('anRdtReportBlockedShop')
+    case 'unresolved': return t('anRdtReportUnresolved')
+    case 'error': return t('anRdtReportError')
+    case 'loading': return t('anRdtReportLoading')
+    default: return ''
+  }
+})
+const rendementExcluded = computed(() => {
+  if (rendementState.value?.status !== 'ready') return []
+  return eventRows.value
+    .map((row) => ({ row, info: rendementRow(row) }))
+    .filter(({ info }) => info && info.value == null)
+    .map(({ row, info }) => ({
+      name: safeEventName(row.eventName, row.eventId) || row.name || eventMetaById.value.get(String(row.eventId))?.name || '',
+      reason: t(REASON_KEYS[info.reason] || 'anRdtReasonNoSheet'),
+    }))
+})
 
 const chartData = computed(() => {
   // Valeur null (marge d'un event sans coût connu) : triée en dernier, sans barre.
@@ -238,7 +301,13 @@ const chartData = computed(() => {
   const min = Math.min(0, ...known)
   const span = max - min || 1
   const c = METRIC_COLORS[metric.value] || { r: 124, g: 77, b: 255 }
-  const colors = values.map((v) => {
+  const colors = values.map((v, i) => {
+    // Valorisation stock : feuille finale pleine, brouillon nettement plus clair
+    // (la légende du pied de graphe l'explique), pas d'opacité liée à l'importance.
+    if (metric.value === 'stockValue') {
+      const draft = rendementRow(sortedEvents[i])?.draft
+      return `rgba(${c.r}, ${c.g}, ${c.b}, ${draft ? 0.4 : 1})`
+    }
     // Lot 0.5 — opacité proportionnelle à l'importance (0.25 → 1.0)
     const ratio = ((v ?? min) - min) / span
     const alpha = 0.25 + ratio * 0.75
@@ -254,6 +323,8 @@ const chartData = computed(() => {
         label: METRICS.value.find((m) => m.key === metric.value).label,
         data: values,
         backgroundColor: colors,
+        // Lu par le tooltip : feuille brouillon de la valorisation stock.
+        draftFlags: sortedEvents.map((e) => !!rendementRow(e)?.draft),
         borderRadius: 4,
         barThickness: 'flex',
         maxBarThickness: 28,
@@ -274,7 +345,10 @@ const chartOptions = computed(() => {
       legend: { display: false },
       tooltip: {
         callbacks: {
-          label: (ctx) => ` ${m.format(ctx.parsed.y)}`,
+          label: (ctx) => {
+            const draft = metric.value === 'stockValue' && ctx.dataset.draftFlags?.[ctx.dataIndex]
+            return ` ${m.format(ctx.parsed.y)}${draft ? ` · ${t('anRdtDraftLabel')}` : ''}`
+          },
         },
       },
     },

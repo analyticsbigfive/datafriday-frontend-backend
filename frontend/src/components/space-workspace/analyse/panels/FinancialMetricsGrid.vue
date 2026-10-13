@@ -1,28 +1,31 @@
 <template>
+  <!-- 5 widgets sur une ligne en desktop (scroll horizontal si la place manque) :
+       CA / TPE, CA / collaborateur, Marge, TX/MIN, Valorisation stock. CA et Percap
+       restent dans la bande KPI du header. -->
   <v-row class="mb-4 fmg-row" dense>
-    <v-col cols="12" sm="6" lg="3">
+    <v-col cols="12" sm="6" class="fmg-col">
       <KpiCard
-        :config="cards[0]"
-        :loading="isLoading"
-        :value="formatCurrency(metrics.displayRevenue.value)"
-        :subtext="`${t('anAvgPerEvent')} : ${formatCurrency(metrics.displayAvgRevenue.value)}`"
-        :variation="v('revenue')"
-        @click="$emit('open-chart', 'revenue')"
+        :config="cardByKey.revenuePerTpe"
+        :loading="rendement.revenuePerTpe.loading"
+        :value="rendement.revenuePerTpe.value"
+        :detail="rendement.revenuePerTpe.subtext"
+        :warning="rendement.revenuePerTpe.warning || ''"
+        @click="$emit('open-chart', 'revenue-per-tpe')"
       />
     </v-col>
-    <v-col cols="12" sm="6" lg="3">
+    <v-col cols="12" sm="6" class="fmg-col">
       <KpiCard
-        :config="cards[1]"
-        :loading="isLoading"
-        :value="formatCurrencyDetailed(metrics.displayPerCapita.value)"
-        :subtext="perCapitaSubtext"
-        :variation="v('perCapita')"
-        @click="$emit('open-chart', 'percap')"
+        :config="cardByKey.revenuePerCollaborator"
+        :loading="rendement.revenuePerCollaborator.loading"
+        :value="rendement.revenuePerCollaborator.value"
+        :detail="rendement.revenuePerCollaborator.subtext"
+        :warning="rendement.revenuePerCollaborator.warning || ''"
+        @click="$emit('open-chart', 'revenue-per-collaborator')"
       />
     </v-col>
-    <v-col cols="12" sm="6" lg="3">
+    <v-col cols="12" sm="6" class="fmg-col">
       <KpiCard
-        :config="cards[2]"
+        :config="cardByKey.margin"
         :loading="isLoading"
         :value="marginLabel"
         :subtext="marginSubtext"
@@ -30,14 +33,24 @@
         @click="$emit('open-chart', 'margin')"
       />
     </v-col>
-    <v-col cols="12" sm="6" lg="3">
+    <v-col cols="12" sm="6" class="fmg-col">
       <KpiCard
-        :config="cards[3]"
+        :config="cardByKey.transactionRate"
         :loading="isLoading"
         :value="transactionRateLabel"
         :subtext="transactionRateSubtext"
         :variation="v('transferRate')"
         @click="$emit('open-chart', 'transaction-rate')"
+      />
+    </v-col>
+    <v-col cols="12" sm="6" class="fmg-col">
+      <KpiCard
+        :config="cardByKey.stockValue"
+        :loading="rendement.stockValue.loading"
+        :value="rendement.stockValue.value"
+        :detail="rendement.stockValue.subtext"
+        :warning="rendement.stockValue.warning || ''"
+        @click="$emit('open-chart', 'stock-value')"
       />
     </v-col>
   </v-row>
@@ -47,7 +60,7 @@
 import { computed } from 'vue'
 import KpiCard from '@/components/space-workspace/shared/KpiCard.vue'
 import { KPI_CARDS } from '@/constants/analyseColors'
-import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 import { useI18n } from '@/i18n/useI18n'
 
@@ -58,6 +71,9 @@ const props = defineProps({
   // 'empty' N'EST PAS 'loading' : un batch en échec ou un périmètre réellement
   // sans vente doit afficher ses zéros, pas un squelette qui tourne à l'infini.
   sourceState: { type: String, default: 'ready' },
+  // View-models des widgets rendement (useRendementWidgets.cards) : CA / TPE,
+  // CA / collaborateur, Valorisation stock. Chacun : { loading, value, subtext, warning }.
+  rendement: { type: Object, required: true },
 })
 defineEmits(['open-chart'])
 
@@ -67,8 +83,10 @@ const { t } = useI18n()
 const { formatDecimal } = useNumberFormat()
 
 // Labels KPI traduits (KPI_CARDS.label = fallback FR codé en dur ; labelKey = i18n).
-const cards = computed(() =>
-  KPI_CARDS.map((c) => ({ ...c, label: c.labelKey ? t(c.labelKey) : c.label }))
+const cardByKey = computed(() =>
+  Object.fromEntries(
+    KPI_CARDS.map((c) => [c.key, { ...c, label: c.labelKey ? t(c.labelKey) : c.label }]),
+  ),
 )
 
 // Mode de comparaison unifié : lu depuis `summary.comparisonMode` (alimenté par
@@ -101,17 +119,6 @@ const marginSubtext = computed(() => {
   return `${t('anTotal')} : ${formatCurrencyDetailed(net)}`
 })
 
-// BUG-350-01 — le périmètre du per-capita est affiché : ici les spectateurs des
-// SEULS events filtrés, alors que la carte d'espace (`SpaceItem.vue`) rapporte le
-// CA aux billets de TOUS les events de l'espace. Deux chiffres légitimes, deux
-// périmètres — sans cette mention ils se lisent comme une contradiction.
-const perCapitaSubtext = computed(() => {
-  const attendees = formatNumber(props.metrics.displayAttendees.value)
-  const evts = props.metrics.validEventsCount?.value || 0
-  const scope = evts ? ` · ${t('anPerCapScopeFiltered').replace('{n}', evts)}` : ''
-  return `${t('anHeaderKpiAttendees')} : ${attendees}${scope}`
-})
-
 // Décision JLH 2026-08-24 — TX/MIN = Σ des taux moyens par PdV, en permanence
 // (plus de « Cliquer » ni de bascule de formule à l'ouverture du panneau).
 // 0,00/min est TERMINAL (périmètre chargé sans ticket), pas provisoire ; `null`
@@ -128,6 +135,22 @@ const transactionRateSubtext = computed(() => t('anKpiTxRateScope'))
 </script>
 
 <style scoped>
+/* Desktop (>= 960 px) : les 5 widgets tiennent sur UNE ligne ; si la place manque
+   (colonne de filtres + résumé ouverts), la ligne défile horizontalement plutôt que
+   de passer à la ligne. Chaque carte garde une largeur minimale lisible. */
+@media (min-width: 960px) {
+  .fmg-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .fmg-row > :deep(.fmg-col) {
+    flex: 1 0 200px;
+    max-width: none;
+    width: auto;
+  }
+}
+
 /* Téléphone : KPIs en scroll horizontal (maquette Live de Bertrand) au lieu d'empiler en
    4 cartes pleine largeur. Chaque KPI garde une largeur lisible, on défile latéralement. */
 @media (max-width: 600px) {

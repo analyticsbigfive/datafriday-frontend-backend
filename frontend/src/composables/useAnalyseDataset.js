@@ -114,6 +114,11 @@ export function useAnalyseDataset(sources) {
       f.selectedMenuItemIds,
       f.selectedMenuItemTypes,
       f.selectedMenuItemCategories,
+      f.selectedBrands,
+      f.selectedIndustrials,
+      f.selectedSuppliers,
+      f.selectedPromotions,
+      f.selectedPromotionTypes,
       f.selectedEventCategories,
       f.selectedEventTypes,
     ]
