@@ -1,4 +1,3 @@
-import { Prisma } from '@prisma/client';
 import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service';
 import { InventoryLiveInitCronService } from './jobs/inventory-live-init.cron';
 import { passthroughTenantContext } from '../../core/tenant/tenant-context.testing';
@@ -142,13 +141,18 @@ class FakePrisma {
   ingredient = new Table('ingredient', this);
   packaging = new Table('packaging', this);
 
-  /** markLogisticPushed : UPDATE ... SET "logisticPushedAt" = NOW() WHERE id IN (...) */
-  // markInventoryCountsPushed : UPDATE ... WHERE "tenantId" = ${tenantId} AND "id" IN (${ids}).
-  $executeRaw = async (_strings: TemplateStringsArray, tenantId: string, joined: Prisma.Sql) => {
-    const ids: string[] = (joined as any).values;
-    const now = new Date();
-    for (const r of this.inventoryCount.rows) if (r.tenantId === tenantId && ids.includes(r.id)) r.logisticPushedAt = now;
-    return ids.length;
+  // markInventoryCountsPushed : SET "logisticPushedAt" = "updatedAt" pour les lignes
+  // (${ids}, ${versions}) restées à la version lue, "tenantId" = ${tenantId}.
+  $executeRaw = async (_strings: TemplateStringsArray, ids: string[], versions: string[], tenantId: string) => {
+    let marked = 0;
+    for (const r of this.inventoryCount.rows) {
+      if (r.tenantId !== tenantId) continue;
+      const i = ids.indexOf(r.id);
+      if (i < 0 || new Date(r.updatedAt).toISOString() !== versions[i]) continue;
+      r.logisticPushedAt = new Date(r.updatedAt);
+      marked += 1;
+    }
+    return marked;
   };
 }
 

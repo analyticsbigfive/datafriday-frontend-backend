@@ -813,11 +813,14 @@ describe('InventoryService', () => {
       expect(dto.lines.map((l: any) => l.itemRefId).sort()).toEqual(['item-beer', 'item-water']);
       // Seules les lignes poussées sont marquées, en SQL brut (pas d'update() Prisma).
       expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1);
-      const [strings, tenantId, joined] = mockPrisma.$executeRaw.mock.calls[0];
-      expect(strings.join('?')).toContain('"logisticPushedAt" = NOW()');
-      // Restreint au tenant, puis Prisma.join(ids) : les ids sont les valeurs du fragment.
+      const [strings, ids, versions, tenantId] = mockPrisma.$executeRaw.mock.calls[0];
+      // Seule la version envoyée est marquée : une ligne modifiée pendant l'envoi garde un
+      // `updatedAt` différent et repart au tick suivant (Nantes-Reims 10/10).
+      expect(strings.join('?')).toContain('"logisticPushedAt" = ic."updatedAt"');
+      expect(strings.join('?')).toContain('ic."updatedAt" = v.version');
       expect(tenantId).toBe('tenant-1');
-      expect([...joined.values].sort()).toEqual(['c-beer', 'c-water']);
+      const marked = Object.fromEntries(ids.map((id: string, i: number) => [id, versions[i]]));
+      expect(marked).toEqual({ 'c-beer': t1.toISOString(), 'c-water': t0.toISOString() });
       expect(mockPrisma.inventoryCount.update).not.toHaveBeenCalled();
       // Résultat du push archivé sur le document.
       expect((reco as any).meta.logisticPush).toEqual({ ok: true, reason: null, lineCount: 2 });

@@ -7,6 +7,7 @@ import { InventoryBaselineService } from './services/inventory-baseline.service'
 import { InventoryCountService } from './services/inventory-count.service';
 import { InventoryReconciliationService } from './services/inventory-reconciliation.service';
 import { InventoryUnitResolverService } from './services/inventory-unit-resolver.service';
+import { loadPostEventDraftStates } from './post-event-draft-state';
 import {
   buildPostEventLines,
   postEventKey,
@@ -29,7 +30,8 @@ export interface PostEventContextInput {
  *
  * Reconstruite à chaque envoi Logistic de la minute (staff ET invité PIN), à l'arrêt du
  * post-event et à la réception du contexte de l'écran. Le brouillon EST le document de
- * référence (D2) : plus de bouton « Générer la réconciliation ».
+ * référence (D2) : plus de bouton « Générer la réconciliation ». Il cesse d'être marqué
+ * brouillon à l'Arrêt ou une fois le match passé (loadPostEventDraftStates).
  */
 @Injectable()
 export class PostEventDraftService {
@@ -253,6 +255,8 @@ export class PostEventDraftService {
       itemNameById,
     });
 
+    // Brouillon tant que le comptage peut évoluer ; final après l'Arrêt ou le match passé.
+    const documentDraft = (await loadPostEventDraftStates(this.prisma, tenantId, spaceId, [eventId])).get(eventId) ?? true;
     const created = await this.inventoryReconciliationService.createPostEventReconciliation(
       spaceId,
       {
@@ -270,7 +274,10 @@ export class PostEventDraftService {
       tenantId,
       userId,
       {
+        // Jamais poussé ni clôturé par cette feuille (envoi Logistic à la minute, arrêt) :
+        // `draft` garde ce comportement, `documentDraft` porte le statut affiché.
         draft: true,
+        documentDraft,
         extraMeta: {
           builtBy: 'server',
           // Lignes : articles marqués comptés seulement (choix Ulrich 2026-10-06).
