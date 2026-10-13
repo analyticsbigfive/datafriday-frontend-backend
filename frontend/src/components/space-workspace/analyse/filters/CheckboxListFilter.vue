@@ -9,7 +9,7 @@
           :checked="(modelValue || []).includes(opt)"
           @change="toggle(opt)"
         />
-        <span class="cbf-name">{{ opt }}</span>
+        <span class="cbf-name">{{ labelFn ? labelFn(opt) : opt }}</span>
         <span v-if="counts" class="cbf-count">{{ counts.get(opt) || 0 }}</span>
       </label>
       <div v-if="!items || !items.length" class="cbf-empty">{{ t('anNoResults') }}</div>
@@ -31,6 +31,8 @@ const props = defineProps({
   items: { type: Array, default: () => [] },
   modelValue: { type: Array, default: () => [] },
   counts: { type: Object, default: null }, // Map | null
+  // Libellé affiché d'une option (valeur technique -> texte), identité par défaut.
+  labelFn: { type: Function, default: null },
 })
 const emit = defineEmits(['update:modelValue'])
 

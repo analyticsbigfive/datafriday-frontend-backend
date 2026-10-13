@@ -4,13 +4,22 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { AnalyseService } from './analyse.service';
 import { AnalyseGetTimelineQueryDto } from './dto/analyse.query.dto';
+import { ArticleDimensionsQueryDto, EventValuationQueryDto, StockValuationQueryDto } from './dto/analyse-rendement.query.dto';
+import { ArticleDimensionsService } from './article-dimensions.service';
+import { StockValuationService } from './stock-valuation.service';
+import { EventValuationService } from './event-valuation.service';
 
 @ApiTags('Analyse')
 @ApiBearerAuth('supabase-jwt')
 @UseGuards(JwtDatabaseGuard)
 @Controller('analyse')
 export class AnalyseController {
-  constructor(private readonly analyseService: AnalyseService) {}
+  constructor(
+    private readonly analyseService: AnalyseService,
+    private readonly articleDimensions: ArticleDimensionsService,
+    private readonly stockValuation: StockValuationService,
+    private readonly eventValuation: EventValuationService,
+  ) {}
 
   @Get('dashboard')
   @RequirePermissions('front.fb.analyse')
@@ -179,5 +188,53 @@ export class AnalyseController {
   @ApiResponse({ status: 401, description: 'Non authentifié' })
   getCostBreakdown(@Req() req) {
     return this.analyseService.getCostBreakdown(req.user.tenantId);
+  }
+  @Get('article-dimensions')
+  @RequirePermissions('front.fb.analyse')
+  @ApiOperation({
+    summary: 'Dimensions des articles (marque, industriel, fournisseur, promotion, combo)',
+    description:
+      'Par menuItemId : marque, parts par industriel (prorata du coût de recette), coût par unité vendue et par ' +
+      'fournisseur, promotion active et poids des enfants d\'un combo. `spaceId` (optionnel) restreint aux articles ' +
+      'vendus dans l\'espace (et aux enfants de leurs combos) et applique le prix propre à l\'espace.',
+  })
+  @ApiQuery({ name: 'spaceId', required: false })
+  @ApiResponse({ status: 200, description: '{ items: ArticleDimension[] }' })
+  getArticleDimensions(@Req() req, @Query() query: ArticleDimensionsQueryDto) {
+    return this.articleDimensions.getDimensions(req.user.tenantId, query.spaceId || undefined, req.user);
+  }
+
+  @Get('stock-valuation')
+  @RequirePermissions('front.fb.analyse')
+  @ApiOperation({
+    summary: 'Valorisation du stock Logistique actuel d\'un espace',
+    description:
+      'Σ (packedUnits × unitsPerPack + looseUnits) × coût unitaire résolu par kind. Lignes sans coût comptées à part, ' +
+      'jamais valorisées à 0. Filtres CSV optionnels : shopIds, shopTypes, shopAreas, industrialIds, supplierIds. ' +
+      'Les stockages sont exclus dès qu\'un filtre PdV / type / zone est actif.',
+  })
+  @ApiQuery({ name: 'spaceId', required: true })
+  @ApiQuery({ name: 'shopIds', required: false, description: 'CSV d\'ids de PdV (SpaceElement.id)' })
+  @ApiQuery({ name: 'shopTypes', required: false, description: 'CSV de sous-types de PdV' })
+  @ApiQuery({ name: 'shopAreas', required: false, description: 'CSV de zones (SpaceElement.area)' })
+  @ApiQuery({ name: 'industrialIds', required: false })
+  @ApiQuery({ name: 'supplierIds', required: false })
+  getStockValuation(@Req() req, @Query() query: StockValuationQueryDto) {
+    return this.stockValuation.getValuation(req.user.tenantId, query, req.user);
+  }
+
+  @Get('event-valuation')
+  @RequirePermissions('front.fb.analyse')
+  @ApiOperation({
+    summary: 'Valorisation de la dernière feuille post-event de chaque match',
+    description:
+      'Par event : Σ countedUnits × unitCost de la dernière StockReconciliation kind=post-event (brouillon ou finale). ' +
+      'Lignes sans unitCost revalorisées au coût actuel. Event sans feuille : value null, reason no-post-event-sheet.',
+  })
+  @ApiQuery({ name: 'spaceId', required: true })
+  @ApiQuery({ name: 'eventIds', required: true, description: 'CSV d\'Event.id' })
+  @ApiQuery({ name: 'shopIds', required: false, description: 'CSV d\'ids de PdV (elementId des lignes)' })
+  getEventValuation(@Req() req, @Query() query: EventValuationQueryDto) {
+    return this.eventValuation.getValuations(req.user.tenantId, query, req.user);
   }
 }
