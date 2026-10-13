@@ -88,6 +88,7 @@ import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { currentIntlLocale } from '@/composables/useNumberFormat'
+import { NOT_SET_KEY } from '@/utils/articleDimensionBreakdown'
 
 const store = useStore()
 const { t } = useI18n()
@@ -134,6 +135,14 @@ function entriesForArray(key, items, formatter = (v) => v) {
     label: formatter(v),
     onClear: () => setFilter(key, items.filter((x) => x !== v)),
   }))
+}
+
+// Libellé d'une valeur de filtre « dimension article » (clé technique -> texte traduit).
+function dimensionLabel(v) {
+  if (v === NOT_SET_KEY) return t('anNotSet')
+  if (v === 'promo') return t('anPromoYes')
+  if (v === 'normal') return t('anPromoNo')
+  return v
 }
 
 const groups = computed(() => {
@@ -229,6 +238,12 @@ const groups = computed(() => {
     ...entriesForArray('selectedMenuItemIds', f.selectedMenuItemIds),
     ...entriesForArray('selectedMenuItemTypes', f.selectedMenuItemTypes),
     ...entriesForArray('selectedMenuItemCategories', f.selectedMenuItemCategories),
+    // Dimensions article rendement : clés techniques traduites à l'affichage.
+    ...entriesForArray('selectedBrands', f.selectedBrands, dimensionLabel),
+    ...entriesForArray('selectedIndustrials', f.selectedIndustrials, dimensionLabel),
+    ...entriesForArray('selectedSuppliers', f.selectedSuppliers, dimensionLabel),
+    ...entriesForArray('selectedPromotions', f.selectedPromotions, dimensionLabel),
+    ...entriesForArray('selectedPromotionTypes', f.selectedPromotionTypes, dimensionLabel),
   ]
   if (fbEntries.length) {
     list.push({ key: 'fb', title: t('anFoodBev'), icon: 'mdi-silverware-fork-knife', color: '#EF5350', entries: fbEntries })

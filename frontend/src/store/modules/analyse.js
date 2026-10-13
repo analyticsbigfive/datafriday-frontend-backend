@@ -21,6 +21,7 @@ import {
   UNATTACHED_SHOP_KEY,
 } from '@/utils/analyseReconciliation'
 import { OTHER_SHOP_TYPE } from '@/constants/shopTypes'
+import { NOT_SET_KEY } from '@/utils/articleDimensionBreakdown'
 import {
   DATE_RANGE_LABEL_FR_MAP,
   PREDICT_DATE_RANGE_LABEL_FR_MAP,
@@ -493,6 +494,14 @@ const DEFAULT_FILTERS = () => ({
   selectedMenuItemIds: [],
   selectedMenuItemTypes: [],
   selectedMenuItemCategories: [],
+  // Dimensions article « rendement » (endpoint analyse/article-dimensions), cliquables
+  // depuis les donuts : valeurs = noms (NOT_SET_KEY pour « Non renseigné »), promotion
+  // = 'promo' | 'normal'. Appliquées aux records article (utils/articleDimensionFilter.js).
+  selectedBrands: [],
+  selectedIndustrials: [],
+  selectedSuppliers: [],
+  selectedPromotions: [],
+  selectedPromotionTypes: [],
 
   // Catégories d'événement
   selectedEventCategories: [],
@@ -1356,6 +1365,17 @@ const getters = {
       chips.push({ key: 'selectedMenuItemTypes', label: `${T('anItemType')}: ${filters.selectedMenuItemTypes.join(', ')}` })
     if (filters.selectedMenuItemCategories.length)
       chips.push({ key: 'selectedMenuItemCategories', label: `${T('anCategory')}: ${filters.selectedMenuItemCategories.join(', ')}` })
+    // Dimensions article rendement : « Non renseigné » est une clé technique, traduite ici.
+    const dimLabel = (v) => (v === NOT_SET_KEY ? T('anNotSet') : v === 'promo' ? T('anPromoYes') : v === 'normal' ? T('anPromoNo') : v)
+    for (const [key, labelKey] of [
+      ['selectedBrands', 'anFilterBrand'],
+      ['selectedIndustrials', 'anFilterIndustrial'],
+      ['selectedSuppliers', 'anFilterSupplier'],
+      ['selectedPromotions', 'anFilterPromotion'],
+      ['selectedPromotionTypes', 'anFilterPromotionType'],
+    ]) {
+      if (filters[key]?.length) chips.push({ key, label: `${T(labelKey)}: ${filters[key].map(dimLabel).join(', ')}` })
+    }
     if (filters.selectedEventCategories.length)
       chips.push({ key: 'selectedEventCategories', label: `${T('anEventCategory')}: ${filters.selectedEventCategories.join(', ')}` })
     if (filters.selectedEventTypes.length)

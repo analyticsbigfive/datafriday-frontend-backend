@@ -113,14 +113,26 @@
         />
       </v-col>
     </v-row>
+    <!-- Donuts rendement (industriel, marque, coût fournisseur) sous les 3 précédents. -->
+    <ArticleDimensionDonuts
+      class="mt-3"
+      :records="records"
+      :dimensions-index="dimensionsIndex"
+      :status="dimensionsStatus"
+      :mode="localMode"
+      @industrial-click="(v) => emit('industrial-click', v)"
+      @brand-click="(v) => emit('brand-click', v)"
+      @supplier-click="(v) => emit('supplier-click', v)"
+    />
     </template>
   </v-card>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import DonutChartCard from '../charts/DonutChartCard.vue'
+import ArticleDimensionDonuts from './ArticleDimensionDonuts.vue'
 import { SHOP_COLORS } from '@/constants/analyseColors'
 import { formatCurrency, formatShare } from '@/composables/useFormatters'
 import { useStore } from 'vuex'
@@ -153,9 +165,15 @@ const props = defineProps({
   // Mode Predict : nombre d'events prédits SANS scénario Event Predict sauvegardé.
   // Le moteur ne prédit qu'au niveau PdV → ces events n'ont aucun article à montrer.
   missingEventsCount: { type: Number, default: 0 },
+  // Dimensions article (endpoint A) pour les donuts industriel / marque / fournisseur.
+  dimensionsIndex: { type: Object, default: null },
+  dimensionsStatus: { type: String, default: 'idle' },
 })
 
-const emit = defineEmits(['type-click', 'category-click', 'item-click', 'shop-type-click'])
+const emit = defineEmits([
+  'type-click', 'category-click', 'item-click', 'shop-type-click',
+  'industrial-click', 'brand-click', 'supplier-click', 'mode-change',
+])
 
 const store = useStore()
 const selectedMenuItemTypes = computed(() => store.state.analyse.filters.selectedMenuItemTypes || [])
@@ -163,6 +181,8 @@ const selectedMenuItemCategories = computed(() => store.state.analyse.filters.se
 const selectedMenuItemNames = computed(() => store.state.analyse.filters.selectedMenuItemIds || [])
 
 const localMode = ref('revenue')
+// La section Promotion (sous cette carte) suit le même toggle Quantité / CA.
+watch(localMode, (m) => emit('mode-change', m), { immediate: true })
 const valueFn = (r) => (localMode.value === 'quantity' ? r.quantity || 0 : r.revenue || 0)
 
 const totalRevenue = computed(() => props.records.reduce((a, r) => a + (r.revenue || 0), 0))
