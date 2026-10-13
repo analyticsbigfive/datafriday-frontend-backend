@@ -2,6 +2,7 @@ import { normalizeShopType, OTHER_SHOP_TYPE } from '@/constants/shopTypes'
 import { UNATTACHED_SHOP_KEY } from '@/utils/analyseReconciliation'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { isMinuteInRange } from '@/utils/timelineBucketing'
+import { buildArticleDimensionPredicate } from '@/utils/articleDimensionFilter'
 
 function textValue(value) {
   if (typeof value === 'string') return value.trim()
@@ -353,11 +354,14 @@ export function applyCatalogTypeCorrection(records = [], catParentMap) {
  * L'appliquer à sa propre entrée rétrécit ses labels, ce qui redéfinit à quoi
  * correspond un même pourcentage de curseur — boucle de rétrécissement monotone.
  *
+ * `articleDimensions` (Map menuItemId -> dimensions, endpoint A) active les filtres marque /
+ * industriel / fournisseur / promotion ; null tant qu'il n'est pas chargé (rien n'est filtré).
+ *
  * NB : `selectedShopIds`/`selectedMenuItemIds` stockent des NOMS, pas des ids —
  * d'où la comparaison normalisée des deux côtés (le catalogue et les records
  * peuvent différer de casse).
  */
-export function buildItemFilterPredicate(f = {}, { skipMinute = false } = {}) {
+export function buildItemFilterPredicate(f = {}, { skipMinute = false, articleDimensions = null } = {}) {
   const shopSet = (f.selectedShopIds || []).length ? new Set(f.selectedShopIds.map(normalizeStr)) : null
   const itemSet = (f.selectedMenuItemIds || []).length ? new Set(f.selectedMenuItemIds.map(normalizeStr)) : null
   const shopTypes = f.selectedShopTypes || []
@@ -365,7 +369,9 @@ export function buildItemFilterPredicate(f = {}, { skipMinute = false } = {}) {
   const itemTypes = f.selectedMenuItemTypes || []
   const itemCats = f.selectedMenuItemCategories || []
   const range = f.selectedTimeRange
+  const dimensionPredicate = buildArticleDimensionPredicate(f, articleDimensions)
   return (r) => {
+    if (dimensionPredicate && !dimensionPredicate(r)) return false
     if (shopSet && !shopSet.has(normalizeStr(r.shopName))) return false
     if (shopTypes.length && !shopTypes.includes(resolveShopType(r))) return false
     if (shopAreas.length && !shopAreas.includes(r.shopArea)) return false

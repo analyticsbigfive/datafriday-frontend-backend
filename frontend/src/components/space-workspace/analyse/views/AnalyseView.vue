@@ -485,7 +485,7 @@
           </v-alert>
 
           <v-row v-if="chartsLoading" dense class="mb-4 an-fmg-desktop">
-            <v-col v-for="i in 4" :key="`kpi-sk-${i}`" cols="12" sm="6" lg="3">
+            <v-col v-for="i in 5" :key="`kpi-sk-${i}`" cols="12" sm="6" :lg="true">
               <v-skeleton-loader type="article" class="an-chart-skeleton" />
             </v-col>
           </v-row>
@@ -498,6 +498,7 @@
             :metrics="metrics"
             :summary="itemSummary"
             :source-state="kpiSourceState"
+            :rendement="rendementCards"
             @open-chart="onOpenChart"
           />
 
@@ -534,6 +535,7 @@
               :events="filteredEvents"
               :cost-map="menuItemCostMap"
               :initial-metric="byEventMetric"
+              :extra-metrics="rendementChartMetrics"
             />
           </v-card>
 
@@ -663,6 +665,22 @@
               @type-click="(v) => toggleArrayFilter('selectedMenuItemTypes', v)"
               @category-click="(v) => toggleArrayFilter('selectedMenuItemCategories', v)"
               @shop-type-click="(v) => toggleArrayFilter('selectedShopTypes', v)"
+              :dimensions-index="articleDimensionsIndex"
+              :dimensions-status="articleDimensionsStatus"
+              @industrial-click="(v) => toggleArrayFilter('selectedIndustrials', v)"
+              @brand-click="(v) => toggleArrayFilter('selectedBrands', v)"
+              @supplier-click="(v) => toggleArrayFilter('selectedSuppliers', v)"
+              @mode-change="(m) => (distributionMode = m)"
+            />
+            <!-- Section Promotion : 2 donuts, sous « Répartition du CA par article ». -->
+            <PromotionSection
+              v-can="'stats.financial.view'"
+              :records="articleRecords"
+              :dimensions-index="articleDimensionsIndex"
+              :status="articleDimensionsStatus"
+              :mode="distributionMode"
+              @promotion-click="(v) => toggleArrayFilter('selectedPromotions', v)"
+              @promotion-type-click="(v) => toggleArrayFilter('selectedPromotionTypes', v)"
             />
             <MenuItemsByShopTable
               v-can="'stats.financial.view'"
@@ -787,12 +805,16 @@ import { asyncComponentWithChunkReload } from '@/utils/chunkReload'
 // Chunk obsolète après redéploiement : rechargement unique au lieu d'un échec silencieux (BUG-389-02).
 const EventPredictView = asyncComponentWithChunkReload(() => import('@/components/space-workspace/event-predict/views/EventPredictView.vue'))
 import GenericByEventChart from '../charts/GenericByEventChart.vue'
+import PromotionSection from '../tables/PromotionSection.vue'
 import ShopItemEventsDialog from '../dialogs/ShopItemEventsDialog.vue'
 import UnalignedEventsDialog from '../dialogs/UnalignedEventsDialog.vue'
 import AggregationGapAlert from '../AggregationGapAlert.vue'
 import { useAggregationGap } from '@/composables/useAggregationGap'
 
 import { useFilters } from '@/composables/useFilters'
+import { useArticleDimensions } from '@/composables/useArticleDimensions'
+import { useRendementWidgets } from '@/composables/useRendementWidgets'
+import { hasArticleDimensionFilter } from '@/utils/articleDimensionFilter'
 import { useMetricsCalculator } from '@/composables/useMetricsCalculator'
 import { useShopPerformance } from '@/composables/useShopPerformance'
 import { useAnalyseTimeline } from '@/composables/useAnalyseTimeline'
@@ -885,6 +907,18 @@ const {
   toggleArrayFilterMany,
   resetFilters,
 } = useFilters()
+
+// Dimensions article rendement (marque, industriel, fournisseur, promotion) : une requête
+// par espace, mise en cache. Pas de chargement sans la permission financière (comme les
+// blocs voisins protégés par v-can).
+const canViewFinancial = computed(() => !!store.getters['auth/can']('stats.financial.view'))
+const {
+  index: articleDimensionsIndex,
+  status: articleDimensionsStatus,
+} = useArticleDimensions({
+  spaceId: computed(() => route.params.spaceId || null),
+  enabled: canViewFinancial,
+})
 
 // Actif dès premier rendu, avant même récupération session Supabase. Évite
 // flash contenu vide entre fin transition route et SET_LOADING du store.
@@ -986,11 +1020,15 @@ const itemLevelRecords = computed(() => {
   // le curseur n'a jamais agi sans courbe ouverte.
   const cursorActive = isTimelineActive.value && hasActiveRange(filters.value?.selectedTimeRange)
   if (cursorActive) {
-    return reconciledTimelineData.value.filter(buildItemFilterPredicate(filters.value || {}))
+    return reconciledTimelineData.value.filter(
+      buildItemFilterPredicate(filters.value || {}, { articleDimensions: articleDimensionsIndex.value }),
+    )
   }
   const recs = globalItemRecords.value || []
   if (!recs.length) return []
-  return recs.filter(buildItemFilterPredicate(filters.value || {}, { skipMinute: true }))
+  return recs.filter(
+    buildItemFilterPredicate(filters.value || {}, { skipMinute: true, articleDimensions: articleDimensionsIndex.value }),
+  )
 })
 
 // ─── Timeline : réconciliation + filtrage AVANT le graphique ───────────────
@@ -1020,7 +1058,7 @@ const reconciledTimelineData = computed(() => {
 // drag suivant réémet → rétrécissement monotone jusqu'au vide.
 const filteredTimelineData = computed(() =>
   reconciledTimelineData.value.filter(
-    buildItemFilterPredicate(filters.value || {}, { skipMinute: true }),
+    buildItemFilterPredicate(filters.value || {}, { skipMinute: true, articleDimensions: articleDimensionsIndex.value }),
   ),
 )
 
@@ -1113,6 +1151,11 @@ const timelineFilterSignature = computed(() => {
     f.selectedMenuItemIds,
     f.selectedMenuItemTypes,
     f.selectedMenuItemCategories,
+    f.selectedBrands,
+    f.selectedIndustrials,
+    f.selectedSuppliers,
+    f.selectedPromotions,
+    f.selectedPromotionTypes,
   ]
     .map((arr) => [...(arr || [])].sort().join('|'))
     .join('~')
@@ -1208,7 +1251,7 @@ const predictScenarioRecords = computed(() => {
   // absent dès qu'une borne est posée (timelineBucketing.js:97) → sans l'option,
   // poser le slider horaire les ferait tous disparaître. La fenêtre horaire du
   // scénario est déjà appliquée en amont, côté EventPredict.
-  const keep = buildItemFilterPredicate(filters.value || {}, { skipMinute: true })
+  const keep = buildItemFilterPredicate(filters.value || {}, { skipMinute: true, articleDimensions: articleDimensionsIndex.value })
   return scoped.map((r) => reconcileRecord(r, reconciliationCtx.value)).filter(keep)
 })
 
@@ -1636,6 +1679,7 @@ const intraEventFiltersActive = computed(() => {
   return (
     some(f.selectedShopIds) || some(f.selectedShopTypes) || some(f.selectedShopAreas) ||
     some(f.selectedMenuItemIds) || some(f.selectedMenuItemTypes) || some(f.selectedMenuItemCategories) ||
+    hasArticleDimensionFilter(f) ||
     !!(tr && (tr.start || tr.end))
   )
 })
@@ -1763,6 +1807,8 @@ const mobileKpiStrip = computed(() => {
       color: '#A855F7',
       variation: headerVariation('transferRate'),
     },
+    // Widgets rendement (CA / TPE, CA / collaborateur, Valorisation stock) : ajoutés, rien retiré.
+    ...rendementMobileKpis.value,
   ]
 })
 
@@ -1809,6 +1855,27 @@ watch(filteredEvents, (evs) => {
     shopPerformance.enrich(evs)
   }
 })
+
+// ---- Widgets rendement (CA / TPE, CA / collaborateur, Valorisation stock) ---
+// Le graphe « Valorisation stock » est le seul à déclencher le rapport par event (endpoint C).
+const stockReportOpen = computed(() => inlineChartVisible.value && byEventMetric.value === 'stockValue')
+const {
+  cards: rendementCards,
+  mobileKpis: rendementMobileKpis,
+  chartMetrics: rendementChartMetrics,
+} = useRendementWidgets({
+  spaceId: computed(() => route.params.spaceId || null),
+  canView: canViewFinancial,
+  filters,
+  filteredEvents,
+  kpiRecords,
+  eventRollupTotals,
+  sourceState: kpiSourceState,
+  stockReportOpen,
+})
+
+// Mode Quantité / CA de « Répartition du CA par article », relayé à la section Promotion.
+const distributionMode = ref('revenue')
 
 // ---- Dataset partagé + export xlsx/csv ------------------------------------
 // Placé ICI et pas plus haut : le composable lit `metrics` et `shopPerformance`,
@@ -2193,6 +2260,9 @@ const KIND_ACCENT = {
   percap: '#EC4899',
   'transaction-rate': '#A855F7',
   margin: '#3B82F6',
+  'revenue-per-tpe': '#0EA5E9',
+  'revenue-per-collaborator': '#EC4899',
+  'stock-value': '#10B981',
 }
 
 function onOpenChart(kind) {
@@ -2217,6 +2287,9 @@ function onOpenChart(kind) {
     percap: 'perCap',
     transformation: 'transferRate',
     'transaction-rate': 'transferRate',
+    'revenue-per-tpe': 'revenuePerTpe',
+    'revenue-per-collaborator': 'revenuePerCollaborator',
+    'stock-value': 'stockValue',
   }
   const metric = map[kind] || 'revenue'
   // Toggle : re-clic sur le KPI déjà affiché → ferme.

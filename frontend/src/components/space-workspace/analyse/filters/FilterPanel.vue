@@ -506,6 +506,9 @@
             </div>
           </v-expansion-panel-text>
         </v-expansion-panel>
+
+        <!-- ========================= MARQUE / INDUSTRIEL / FOURNISSEUR / PROMO ========================= -->
+        <ArticleDimensionFilters />
       </v-expansion-panels>
 
       <!-- Comparison — masqué en « Tout l'historique » (pas de période de référence). -->
@@ -552,6 +555,7 @@ import { safePush } from '@/utils/chunkReload'
 import { useFilters } from '@/composables/useFilters'
 import { getDateRangePresets, PRESET_I18N_KEYS } from '@/constants/dateRangePresets'
 import CheckboxListFilter from './CheckboxListFilter.vue'
+import ArticleDimensionFilters from './ArticleDimensionFilters.vue'
 import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
 import { Search } from 'lucide-vue-next'
 import { resolveShopType } from '@/utils/analyseDimensions'
