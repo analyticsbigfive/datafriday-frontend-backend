@@ -85,6 +85,15 @@ function dimsDeltas(a, b) {
   return out
 }
 
+const SHOP_DIM_KEYS = ['shop', 'type', 'area']
+
+/** Écarts de la répartition par PdV / type de PdV / zone, pour un mode (CA ou quantité). */
+function shopDimsDeltas(a, b) {
+  const out = {}
+  for (const k of SHOP_DIM_KEYS) out[k] = entriesDeltas(a?.[k], b?.[k])
+  return out
+}
+
 /** Cellules du tableau Article par PdV, appariées par PdV puis par article. */
 function itemsByShopDeltas(listA, listB) {
   const out = new Map()
@@ -149,6 +158,11 @@ export function computeReportDeltas(reportA, reportB) {
     },
     // Remise accordée : une hausse est une dépense en plus, donc inversée comme un coût.
     discount: makeDelta(bd(reportA).discount?.amount ?? null, bd(reportB).discount?.amount ?? null, { invert: true }),
+    // Répartition des PdV par CA (camemberts PdV / type / zone) : une Map clé -> Delta par dimension.
+    shopDistribution: {
+      revenue: shopDimsDeltas(reportA.shopDistribution?.revenue, reportB.shopDistribution?.revenue),
+      quantity: shopDimsDeltas(reportA.shopDistribution?.quantity, reportB.shopDistribution?.quantity),
+    },
     itemsByShop: itemsByShopDeltas(reportA.itemsByShop, reportB.itemsByShop),
     sections: {
       shopChartRevenue: makeDelta(reportA.sections?.shopChartRevenue ?? null, reportB.sections?.shopChartRevenue ?? null),

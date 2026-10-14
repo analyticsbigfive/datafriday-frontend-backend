@@ -61,10 +61,11 @@ const mainOf = (extra = {}) => ({
   selectedConfigurationId: null, temperatureRange: [-10, 45], ...extra,
 })
 
-function build({ main = mainOf(), mainEvents = EVENTS, enabled = true } = {}) {
+function build({ main = mainOf(), mainEvents = EVENTS, enabled = true, analysable = EVENTS } = {}) {
   store.state.seasons.seasons = SEASONS
   store.getters = {
-    'analyse/analysableEvents': EVENTS,
+    'analyse/analysableEvents': analysable,
+    'analyse/spaceAnalysableEvents': EVENTS,
     'analyse/filteredEvents': mainEvents,
     'analyse/uniqueDoorsOpenings': ['17:00', '18:00', '19:00'],
     'analyse/uniqueShowTimes': ['19:00', '20:00', '21:00'],
@@ -219,6 +220,19 @@ describe('useComparisonForm', () => {
     form.changeTaxonomy('type', '')
     expect(form.model.eventTypes).toEqual([])
     expect(form.taxonomy.value.options.types).toEqual(['Concert', 'Sport'])
+  })
+
+  it('principal sur une config précise : la liste, la cascade et les compteurs couvrent TOUS les events de l\'espace', async () => {
+    // Le principal (config précise) ne voit que e1 ; l'espace en compte trois.
+    const { form } = build({ analysable: [EVENTS[0]], mainEvents: [EVENTS[0]] })
+    await settle()
+    expect(form.eventOptions.value.map((o) => o.id)).toEqual(['e3', 'e2', 'e1'])
+    expect(form.taxonomy.value.options.types).toEqual(['Concert', 'Sport'])
+    form.patch({ kind: 'event', eventIds: ['e2', 'e3'] })
+    expect(form.comparisonCount.value).toBe(2)
+    expect(form.canRun.value).toBe(true)
+    // Le compteur du principal reste celui du principal.
+    expect(form.mainCount.value).toBe(1)
   })
 
   it('Predict : vérification en cours (grisé), puis actif si au moins un scénario', async () => {

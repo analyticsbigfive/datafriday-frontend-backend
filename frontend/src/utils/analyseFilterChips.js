@@ -20,10 +20,12 @@ import {
  * @param {(key: string) => string} translate  fonction de traduction (clé -> texte)
  * @param {{activeConfiguration?: object|null, seasons?: Array, defaultTimeRange?: string}} [context]
  *   defaultTimeRange : preset par défaut (pas de puce Période tant qu'il est actif).
+ *   formatDate : mise en forme des bornes de dates de la puce « Dates » (défaut : valeur brute, le
+ *   principal est inchangé ; la comparaison passe un formateur JJ/MM/AAAA).
  * @returns {Array<{key: string, label: string, clearValue?: any}>}
  */
 export function buildActiveFilterChips(filters, translate, context = {}) {
-  const { activeConfiguration = null, seasons = [], defaultTimeRange } = context
+  const { activeConfiguration = null, seasons = [], defaultTimeRange, formatDate = (v) => v } = context
   const T = translate
   const chips = []
   if (filters.selectedConfigurationId && activeConfiguration) {
@@ -106,7 +108,7 @@ export function buildActiveFilterChips(filters, translate, context = {}) {
       || PREDICT_DATE_RANGE_LABEL_FR_MAP[filters.timeRange]
       || filters.timeRange
     const label = filters.timeRange === 'custom'
-      ? `${T('anChipDates')} : ${filters.startDate || '—'} → ${filters.endDate || '—'}`
+      ? `${T('anChipDates')} : ${formatDate(filters.startDate) || '—'} → ${formatDate(filters.endDate) || '—'}`
       : `${T('anPeriod')} : ${rangeLabel}`
     chips.push({ key: 'timeRange', label, clearValue: defaultTimeRange })
   }

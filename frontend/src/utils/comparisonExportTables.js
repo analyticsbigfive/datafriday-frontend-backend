@@ -8,6 +8,7 @@
  */
 import { KPI_CHIP_DEFS } from '@/utils/comparisonReportView'
 import { WIDGET_KEYS } from '@/utils/comparisonReportSnapshot'
+import { shopTypeLabel } from '@/utils/shopDistribution'
 
 const NOT_SET_KEY = '__NOT_SET__'
 
@@ -29,6 +30,13 @@ const DIMENSIONS = [
   ['brand', 'anByBrand'],
   ['promotion', 'anPromoYesNo'],
   ['promotionType', 'anPromoType'],
+]
+
+/** Répartition des PdV par CA : [dimension, clé i18n du titre du camembert]. */
+const SHOP_DIMENSIONS = [
+  ['shop', 'anPieByShopTitle'],
+  ['type', 'anPieByTypeTitle'],
+  ['area', 'anPieByAreaTitle'],
 ]
 
 const num = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null)
@@ -133,11 +141,11 @@ export function buildDeltaTable({ snapshot, mainSnapshot, deltas, t }) {
   }
 
   // Une répartition : lignes de la comparaison, valeur du principal retrouvée par clé.
-  const pushEntries = (section, entries, mainEntries, deltaMap) => {
+  const pushEntries = (section, entries, mainEntries, deltaMap, labelOf = (key) => entryLabel(key, t)) => {
     if (!Array.isArray(entries)) return
     const ref = new Map((Array.isArray(mainEntries) ? mainEntries : []).map((e) => [e.key, e.value]))
     for (const e of entries) {
-      push(section, entryLabel(e.key, t), e.value, ref.has(e.key) ? ref.get(e.key) : null, deltaMap?.get?.(e.key))
+      push(section, labelOf(e.key), e.value, ref.has(e.key) ? ref.get(e.key) : null, deltaMap?.get?.(e.key))
     }
   }
 
@@ -151,6 +159,18 @@ export function buildDeltaTable({ snapshot, mainSnapshot, deltas, t }) {
         snapshot.breakdowns?.[mode]?.[dim],
         mainSnapshot?.breakdowns?.[mode]?.[dim],
         deltas?.breakdowns?.[mode]?.[dim],
+      )
+    }
+  }
+  // Répartition des PdV par CA : par PdV, type de PdV et zone (CA puis quantité).
+  for (const [mode, modeLabel] of modes) {
+    for (const [dim, titleKey] of SHOP_DIMENSIONS) {
+      pushEntries(
+        `${t(titleKey)} · ${modeLabel}`,
+        snapshot.shopDistribution?.[mode]?.[dim],
+        mainSnapshot?.shopDistribution?.[mode]?.[dim],
+        deltas?.shopDistribution?.[mode]?.[dim],
+        dim === 'type' ? (key) => shopTypeLabel(key, t) : (key) => String(key),
       )
     }
   }

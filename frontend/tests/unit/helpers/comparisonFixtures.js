@@ -25,6 +25,10 @@ export function fakeDeltasVsMain() {
       quantity: { item: new Map(), type: new Map(), category: new Map(), industrial: new Map(), brand: new Map(), promotion: new Map(), promotionType: new Map() },
       supplierCost: new Map(),
     },
+    shopDistribution: {
+      revenue: { shop: new Map([['Buvette Nord', delta('▲ 7,5 %')]]), type: new Map(), area: new Map() },
+      quantity: { shop: new Map(), type: new Map(), area: new Map() },
+    },
     discount: delta(),
     itemsByShop: new Map(),
     sections: { shopChartRevenue: delta(), articleDistributionRevenue: delta(), itemsByShopRevenue: delta() },

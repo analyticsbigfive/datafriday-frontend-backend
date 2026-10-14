@@ -24,12 +24,13 @@ jest.mock('vue-router', () => ({ useRoute: () => ({ params: {}, query: {} }), us
 
 import { createStore } from 'vuex'
 import { mount } from '@vue/test-utils'
-import { nextTick, ref, computed } from 'vue'
+import { nextTick, ref, computed, h } from 'vue'
 import { globalMountOptions, fakeRuntime, fakeComparison } from './helpers/comparisonFixtures'
 import ComparisonReport from '@/components/space-workspace/analyse/comparison/ComparisonReport.vue'
 
 const heavy = {
   EventRevenueByShopChart: { name: 'EventRevenueByShopChart', props: { records: Array, events: Array, isPredictMode: Boolean, trend: Array, embedded: Boolean, readonly: Boolean }, template: '<div class="stub-chart" />' },
+  ShopDistributionPieChart: { name: 'ShopDistributionPieChart', props: { records: Array, loading: Boolean, readonly: Boolean, deltas: Object }, template: '<div class="stub-shopdist" />' },
   MenuItemRevenueDistribution: { name: 'MenuItemRevenueDistribution', props: { records: Array, dimensionsIndex: null, dimensionsStatus: String, deltas: Object, readonly: Boolean }, emits: ['mode-change'], template: '<div class="stub-dist" @click="$emit(\'mode-change\', \'quantity\')" />' },
   PromotionSection: { name: 'PromotionSection', props: { records: Array, dimensionsIndex: null, status: String, mode: String, deltas: Object, readonly: Boolean }, template: '<div class="stub-promo">{{ mode }}</div>' },
   MenuItemsByShopTable: { name: 'MenuItemsByShopTable', props: { records: Array, deltas: Object, readonly: Boolean }, template: '<div class="stub-table" />' },
@@ -90,6 +91,30 @@ describe('ComparisonReport', () => {
     expect(w.findComponent({ name: 'EventRevenueByShopChart' }).props('readonly')).toBe(true)
     expect(w.findComponent({ name: 'MenuItemRevenueDistribution' }).props('deltas')).toBeTruthy()
     expect(w.findComponent({ name: 'MenuItemsByShopTable' }).props('records')).toHaveLength(2)
+  })
+
+  it('monte la répartition des PdV par CA en lecture seule, avec les écarts, avant la répartition par article', () => {
+    const { w } = mountReport()
+    const shop = w.findComponent({ name: 'ShopDistributionPieChart' })
+    expect(shop.exists()).toBe(true)
+    expect(shop.props('readonly')).toBe(true)
+    expect(shop.props('records')).toHaveLength(2)
+    expect(shop.props('deltas').shopDistribution.revenue.shop.get('Buvette Nord').text).toBe('▲ 7,5 %')
+    const html = w.html()
+    expect(html.indexOf('stub-chart')).toBeLessThan(html.indexOf('stub-shopdist'))
+    expect(html.indexOf('stub-shopdist')).toBeLessThan(html.indexOf('stub-dist'))
+  })
+
+  it('le vrai composant affiche le badge lecture seule et des pastilles dans les légendes', () => {
+    const appendItem = { inheritAttrs: true, render() { return h('div', { role: 'menuitem' }, [this.$slots.default?.(), this.$slots.append?.()]) } }
+    const { w } = mountReport({
+      real: true,
+      stubs: { ...heavy, ShopDistributionPieChart: false, 'v-list-item': appendItem },
+    })
+    const section = w.findComponent({ name: 'ShopDistributionPieChart' })
+    expect(section.text()).toContain('Lecture seule')
+    expect(section.text()).toContain('Buvette Nord')
+    expect(section.findAll('.delta-pill').some((p) => p.text().includes('7,5'))).toBe(true)
   })
 
   it('relaie le mode de répartition à PromotionSection', async () => {
