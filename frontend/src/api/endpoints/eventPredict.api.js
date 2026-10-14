@@ -64,3 +64,22 @@ export async function setEventPredictDefault(eventId, versionId) {
     { versionId: versionId || null },
   )
 }
+
+/**
+ * Synthèse groupée : parmi `eventIds`, ceux qui ont au moins une version sauvegardée.
+ * Une seule requête légère (pas de colonnes JSON). Découpe en lots pour garder une URL courte
+ * (le serveur plafonne à 500 ids par appel).
+ * @param {string[]} eventIds
+ * @returns {Promise<string[]>}
+ */
+export async function getEventIdsWithPredictVersions(eventIds) {
+  const ids = [...new Set((eventIds || []).filter(Boolean))]
+  const BATCH = 200
+  const found = []
+  for (let i = 0; i < ids.length; i += BATCH) {
+    const chunk = ids.slice(i, i + BATCH)
+    const res = await api.get('/predict-versions/summary', { params: { eventIds: chunk.join(',') } })
+    if (Array.isArray(res?.eventIds)) found.push(...res.eventIds)
+  }
+  return found
+}

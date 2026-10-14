@@ -21,17 +21,21 @@ import {
   UNATTACHED_SHOP_KEY,
 } from '@/utils/analyseReconciliation'
 import { OTHER_SHOP_TYPE } from '@/constants/shopTypes'
-import { NOT_SET_KEY } from '@/utils/articleDimensionBreakdown'
 import {
-  DATE_RANGE_LABEL_FR_MAP,
-  PREDICT_DATE_RANGE_LABEL_FR_MAP,
-  PRESET_I18N_KEYS,
   DEFAULT_ANALYSE_DATE_RANGE,
 } from '@/constants/dateRangePresets'
 import { t as translate, getCurrentLocale } from '@/i18n/translations'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { scenarioRecordsToAnalyseRecords } from '@/utils/predictScenarioRecords'
 import { parseEventSessions } from '@/utils/eventSessions'
+import {
+  applyDayWeatherFilters,
+  countEventsMissingWeather,
+  DEFAULT_TEMPERATURE_RANGE,
+} from '@/utils/eventDayWeatherFilters'
+import { filterEvents, eventDateOf } from '@/utils/analyseEventFilter'
+import { resolveDateBounds, previousPeriodBoundsOf, yearOverYearBoundsOf } from '@/utils/analyseDateBounds'
+import { buildActiveFilterChips } from '@/utils/analyseFilterChips'
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 // getConfiguration : MIGRÉ vers l'API NestJS (projet Supabase alsgd VIVANT) au lieu
 // du make-server Edge Function (projet uvxx MORT → 500/522). Import DYNAMIQUE au
@@ -53,23 +57,6 @@ function pctDiff(curr, prev) {
   if (!Number.isFinite(curr) || !Number.isFinite(prev)) return null
   if (!prev) return null
   return ((curr - prev) / prev) * 100
-}
-
-// Date d'un event, robuste aux DEUX champs (`date` ISO ET `eventDate` ISO ou
-// DD/MM/YYYY). Indispensable pour exclure les events FUTURS en mode analyse : si
-// un event ne porte que `eventDate` (pas `date`), le filtre basé sur `e.date`
-// seul le laissait passer → event futur affiché (ex. « Item/Events performance »).
-function eventDateOf(e) {
-  const raw = e?.date ?? e?.eventDate
-  if (!raw) return null
-  if (raw instanceof Date) return Number.isNaN(raw.getTime()) ? null : raw
-  const s = String(raw).trim()
-  const dd = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
-  if (dd) return new Date(+dd[3], +dd[2] - 1, +dd[1])
-  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
-  if (iso) return new Date(+iso[1], +iso[2] - 1, +iso[3])
-  const d = new Date(s)
-  return Number.isNaN(d.getTime()) ? null : d
 }
 
 function totalsForEventIds(events, records, costMap, eventIds) {
@@ -527,6 +514,12 @@ const DEFAULT_FILTERS = () => ({
   selectedDoorsOpenings: [],
   selectedShowTimes: [],
   selectedIntermissions: [], // ['yes'] | ['no'] | ['yes','no'] | []
+  // Jour de la semaine (clés 'mon'..'sun'), météo à l'heure du show (clés
+  // 'clear'|'cloudy'|'rain'|'snow'|'storm') et plage de température (°C).
+  // Défauts = pas de filtre ; un event sans météo est exclu quand le filtre est actif.
+  selectedDaysOfWeek: [],
+  selectedWeather: [],
+  temperatureRange: [...DEFAULT_TEMPERATURE_RANGE],
 
   // Ranges attendance
   ticketsSoldRange: [0, 1000000],
@@ -540,6 +533,9 @@ const DEFAULT_FILTERS = () => ({
   // timelines de comparaison. Activé par les pills Précédent / N-1.
   comparisonMode: null, // null | previous_period | year_over_year
 })
+
+/** Période par défaut des filtres (lecture seule), pour les rapports qui décrivent leurs filtres hors store. */
+export const getDefaultTimeRange = () => DEFAULT_FILTERS().timeRange
 
 const state = () => ({
   // Data brute
@@ -748,102 +744,11 @@ const getters = {
   // En mode 'predict', les presets thismonth/quarter/year vont jusqu'à la
   // fin de la période ; en mode 'analyse', ils s'arrêtent à today.
   dateBounds(state, g, rootState) {
-    const { timeRange, startDate, endDate } = state.filters
-    if (timeRange === 'custom') {
-      return {
-        start: startDate ? new Date(startDate) : null,
-        end: endDate ? new Date(endDate) : null,
-      }
-    }
-    // Saison (préset dynamique `season:<id>`, module Rapport Saison). Une saison
-    // supprimée/inconnue retombe sur « tout l'historique » ({null,null}) et
-    // SURTOUT pas sur le `default` du switch (année en cours) — un id orphelin
-    // ne doit jamais filtrer silencieusement sur une mauvaise période.
-    if (String(timeRange || '').startsWith('season:')) {
-      const id = String(timeRange).slice('season:'.length)
-      const season = (rootState.seasons?.seasons || []).find((s) => s.id === id)
-      if (!season) return { start: null, end: null }
-      const start = new Date(season.startDate)
-      const end = new Date(season.endDate)
-      end.setHours(23, 59, 59, 999)
-      return { start, end }
-    }
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const eod = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59)
-    const isPredict = (state.selectedToolbox === 'predict' || state.selectedToolbox === 'event-predict')
-    const y = now.getFullYear()
-    const m = now.getMonth()
-    const q = Math.floor(m / 3)
-
-    switch (timeRange) {
-      case 'all':
-        return { start: null, end: null }
-      case 'last12months':
-        // 12 mois glissants : même jour l'an dernier (00:00) → fin de journée.
-        return { start: new Date(y - 1, m, now.getDate()), end: eod(today) }
-      case 'today':
-        return { start: today, end: eod(today) }
-      case 'yesterday': {
-        const d = new Date(y, m, now.getDate() - 1)
-        return { start: d, end: eod(d) }
-      }
-      case 'thisweek': {
-        const dow = (today.getDay() + 6) % 7 // lundi=0
-        const start = new Date(y, m, today.getDate() - dow)
-        return { start, end: eod(today) }
-      }
-      case 'lastweek': {
-        const dow = (today.getDay() + 6) % 7
-        const start = new Date(y, m, today.getDate() - dow - 7)
-        const end = new Date(y, m, today.getDate() - dow - 1)
-        return { start, end: eod(end) }
-      }
-      case 'week': // last 7 days
-        return { start: new Date(y, m, today.getDate() - 6), end: eod(today) }
-      case 'month': // last 30 days
-        return { start: new Date(y, m, today.getDate() - 29), end: eod(today) }
-      case 'quarter': // last 90 days
-        return { start: new Date(y, m, today.getDate() - 89), end: eod(today) }
-      case 'thismonth': {
-        const start = new Date(y, m, 1)
-        const end = isPredict ? new Date(y, m + 1, 0, 23, 59, 59) : eod(today)
-        return { start, end }
-      }
-      case 'lastmonth': {
-        const start = new Date(y, m - 1, 1)
-        const end = new Date(y, m, 0, 23, 59, 59)
-        return { start, end }
-      }
-      case 'nextmonth':
-        return { start: new Date(y, m + 1, 1), end: new Date(y, m + 2, 0, 23, 59, 59) }
-      case 'thisquarter': {
-        const start = new Date(y, q * 3, 1)
-        const end = isPredict ? new Date(y, q * 3 + 3, 0, 23, 59, 59) : eod(today)
-        return { start, end }
-      }
-      case 'lastquarter': {
-        const start = new Date(y, (q - 1) * 3, 1)
-        const end = new Date(y, q * 3, 0, 23, 59, 59)
-        return { start, end }
-      }
-      case 'nextquarter':
-        return { start: new Date(y, (q + 1) * 3, 1), end: new Date(y, (q + 2) * 3, 0, 23, 59, 59) }
-      case 'thisyear': {
-        const start = new Date(y, 0, 1)
-        const end = isPredict ? new Date(y, 11, 31, 23, 59, 59) : eod(today)
-        return { start, end }
-      }
-      case 'year':
-      case 'last_year':
-      case 'lastyear':
-        return { start: new Date(y - 1, 0, 1), end: new Date(y - 1, 11, 31, 23, 59, 59) }
-      case 'nextyear':
-        return { start: new Date(y + 1, 0, 1), end: new Date(y + 1, 11, 31, 23, 59, 59) }
-      case 'this_year':
-      default:
-        return { start: new Date(y, 0, 1), end: new Date(y, 11, 31, 23, 59, 59) }
-    }
+    return resolveDateBounds(state.filters, {
+      seasons: rootState.seasons?.seasons || [],
+      isPredict: state.selectedToolbox === 'predict' || state.selectedToolbox === 'event-predict',
+      now: new Date(),
+    })
   },
 
   // Événements filtrés par tous les critères
@@ -851,77 +756,23 @@ const getters = {
   // En mode 'predict', les events futurs sont conservés et alimentent les
   // prédictions.
   filteredEvents(state, g) {
-    const {
-      selectedEventIds, searchQuery,
-      selectedEventCategories, selectedEventTypes, selectedTeams, selectedSponsors,
-      selectedSubcategories, selectedSessions, selectedPerformerNames,
-      selectedVisitingTeams, selectedOpeningActs,
-      selectedDoorsOpenings, selectedShowTimes, selectedIntermissions,
-      ticketsSoldRange, ticketsScannedRange,
-    } = state.filters
-    const { start, end } = g.dateBounds
+    // Filtres jour / météo / température appliqués en dernier, sur le périmètre
+    // déjà filtré par tout le reste (cf. eventsWithoutWeatherCount).
+    return applyDayWeatherFilters(g.eventsBeforeDayWeatherFilters, state.filters)
+  },
+
+  // Périmètre de filteredEvents AVANT les filtres jour / météo / température.
+  // Sert aussi à compter les events sans météo (information sous le champ).
+  eventsBeforeDayWeatherFilters(state, g) {
     // Base = events analysables (scope config + non-futurs). Les sélections
-    // multi-critères ci-dessous s'appliquent par-dessus.
-    let events = g.analysableEvents
+    // multi-critères s'appliquent par-dessus (utils/analyseEventFilter).
+    return filterEvents(g.analysableEvents, state.filters, g.dateBounds, { skipDayWeather: true })
+  },
 
-    if (selectedEventIds.length) {
-      const set = new Set(selectedEventIds)
-      events = events.filter((e) => set.has(e.id))
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      events = events.filter((e) => e.name?.toLowerCase().includes(q))
-    }
-    if (start || end) {
-      events = events.filter((e) => {
-        // Robuste aux deux champs (`date` / `eventDate`) et formats (ISO / DD/MM/YYYY),
-        // comme `analysableEvents`. Avec `e.date` brut, un event ne portant que
-        // `eventDate` passait toujours → preset de dates sans effet.
-        const d = eventDateOf(e)
-        if (!d) return true
-        if (start && d < start) return false
-        if (end && d > end) return false
-        return true
-      })
-    }
-
-    // Filtres catégories (chaque filtre est un Set, si non vide on intersecte)
-    const multi = [
-      [selectedEventCategories, 'category'],
-      [selectedEventTypes, 'eventType'],
-      [selectedTeams, 'team'],
-      [selectedSponsors, 'sponsor'],
-      [selectedSubcategories, 'subcategory'],
-      [selectedSessions, 'session'],
-      [selectedPerformerNames, 'performer'],
-      [selectedVisitingTeams, 'visitingTeam'],
-      [selectedOpeningActs, 'openingAct'],
-      [selectedDoorsOpenings, 'doorsOpening'],
-      [selectedShowTimes, 'showTime'],
-    ]
-    for (const [arr, key] of multi) {
-      if (arr.length) {
-        const set = new Set(arr)
-        events = events.filter((e) => set.has(e[key]))
-      }
-    }
-
-    // Intermission (binaire yes/no, cf. React selectedIntermissions)
-    if (selectedIntermissions.length) {
-      const set = new Set(selectedIntermissions)
-      events = events.filter((e) => set.has(e.hasIntermission ? 'yes' : 'no'))
-    }
-
-    // Ranges
-    events = events.filter((e) => {
-      const sold = e.ticketsSold ?? e.attendees ?? 0
-      const scanned = e.ticketsScanned ?? sold
-      if (sold < ticketsSoldRange[0] || sold > ticketsSoldRange[1]) return false
-      if (scanned < ticketsScannedRange[0] || scanned > ticketsScannedRange[1]) return false
-      return true
-    })
-
-    return events
+  // Events du périmètre sans météo / température, exclus quand le filtre
+  // correspondant est actif : { weather, temperature } (0 si filtre inactif).
+  eventsWithoutWeatherCount(state, g) {
+    return countEventsMissingWeather(g.eventsBeforeDayWeatherFilters, state.filters)
   },
 
   // Lignes granulaires filtrées
@@ -1341,97 +1192,14 @@ const getters = {
   },
 
   activeFilterChips(state, g, rootState) {
-    const chips = []
-    const { filters } = state
     // Préfixes de chips traduits (locale courante). Note : getter non réactif au
-    // changement de locale à chaud — recalculé au prochain changement de filtre.
+    // changement de locale à chaud, recalculé au prochain changement de filtre.
     const T = (k) => translate(k, getCurrentLocale())
-    if (filters.selectedConfigurationId && g.activeConfiguration) {
-      chips.push({
-        key: 'selectedConfigurationId',
-        label: `${T('anConfiguration')}: ${g.activeConfiguration.name}`,
-        clearValue: null,
-      })
-    }
-    // selectedEventIds : PAS de chip ici — FilterSummary a son chip dédié
-    // (chip-events, prop events-count = vraie sélection) avec style + handler propres.
-    if (filters.selectedShopIds.length)
-      chips.push({ key: 'selectedShopIds', label: `${filters.selectedShopIds.length} ${T('anShops')}` })
-    if (filters.selectedShopTypes.length)
-      chips.push({ key: 'selectedShopTypes', label: `${T('anTypes')}: ${filters.selectedShopTypes.join(', ')}` })
-    if (filters.selectedShopAreas.length)
-      chips.push({ key: 'selectedShopAreas', label: `${T('anZones')}: ${filters.selectedShopAreas.join(', ')}` })
-    if (filters.selectedMenuItemTypes.length)
-      chips.push({ key: 'selectedMenuItemTypes', label: `${T('anItemType')}: ${filters.selectedMenuItemTypes.join(', ')}` })
-    if (filters.selectedMenuItemCategories.length)
-      chips.push({ key: 'selectedMenuItemCategories', label: `${T('anCategory')}: ${filters.selectedMenuItemCategories.join(', ')}` })
-    // Dimensions article rendement : « Non renseigné » est une clé technique, traduite ici.
-    const dimLabel = (v) => (v === NOT_SET_KEY ? T('anNotSet') : v === 'promo' ? T('anPromoYes') : v === 'normal' ? T('anPromoNo') : v)
-    for (const [key, labelKey] of [
-      ['selectedBrands', 'anFilterBrand'],
-      ['selectedIndustrials', 'anFilterIndustrial'],
-      ['selectedSuppliers', 'anFilterSupplier'],
-      ['selectedPromotions', 'anFilterPromotion'],
-      ['selectedPromotionTypes', 'anFilterPromotionType'],
-    ]) {
-      if (filters[key]?.length) chips.push({ key, label: `${T(labelKey)}: ${filters[key].map(dimLabel).join(', ')}` })
-    }
-    if (filters.selectedEventCategories.length)
-      chips.push({ key: 'selectedEventCategories', label: `${T('anEventCategory')}: ${filters.selectedEventCategories.join(', ')}` })
-    if (filters.selectedEventTypes.length)
-      chips.push({ key: 'selectedEventTypes', label: `${T('anEventType')}: ${filters.selectedEventTypes.join(', ')}` })
-    if (filters.selectedTeams.length)
-      chips.push({ key: 'selectedTeams', label: `${T('anTeam')}: ${filters.selectedTeams.join(', ')}` })
-    if (filters.selectedSponsors.length)
-      chips.push({ key: 'selectedSponsors', label: `${T('anSponsor')}: ${filters.selectedSponsors.join(', ')}` })
-    if (filters.selectedSubcategories.length)
-      chips.push({ key: 'selectedSubcategories', label: `${T('anSubcategory')}: ${filters.selectedSubcategories.join(', ')}` })
-    if (filters.selectedSessions.length)
-      chips.push({ key: 'selectedSessions', label: `${T('anSessions')}: ${filters.selectedSessions.join(', ')}` })
-    if (filters.selectedDoorsOpenings.length)
-      chips.push({ key: 'selectedDoorsOpenings', label: `${T('anDoorsOpening')}: ${filters.selectedDoorsOpenings.join(', ')}` })
-    if (filters.selectedShowTimes.length)
-      chips.push({ key: 'selectedShowTimes', label: `${T('anShowTime')}: ${filters.selectedShowTimes.join(', ')}` })
-    if (filters.selectedPerformerNames.length)
-      chips.push({ key: 'selectedPerformerNames', label: `${T('anPerformer')}: ${filters.selectedPerformerNames.join(', ')}` })
-    if (filters.selectedVisitingTeams.length)
-      chips.push({ key: 'selectedVisitingTeams', label: `${T('anVisitingTeam')}: ${filters.selectedVisitingTeams.join(', ')}` })
-    if (filters.selectedOpeningActs.length)
-      chips.push({ key: 'selectedOpeningActs', label: `${T('anOpeningAct')}: ${filters.selectedOpeningActs.join(', ')}` })
-    if (filters.selectedIntermissions.length)
-      chips.push({ key: 'selectedIntermissions', label: `${T('anIntermission')}: ${filters.selectedIntermissions.map((v) => v === 'yes' ? T('anYes') : T('anNo')).join(', ')}` })
-    // Filtre de période (preset dates, ex. « Année dernière ») : chip visible dès
-    // que le preset diffère du défaut, sinon le filtre est invisible dans le
-    // bandeau et « Tout effacer » semble ne pas agir dessus. clearValue = défaut.
-    const defaultTimeRange = DEFAULT_FILTERS().timeRange
-    if (filters.timeRange && filters.timeRange !== defaultTimeRange) {
-      // Saison (`season:<id>`) : libellé = nom de la saison (store seasons).
-      const seasonId = String(filters.timeRange).startsWith('season:')
-        ? String(filters.timeRange).slice('season:'.length)
-        : null
-      const seasonName = seasonId
-        ? (rootState.seasons?.seasons || []).find((s) => s.id === seasonId)?.name || seasonId
-        : null
-      const rangeLabel = seasonName
-        || (PRESET_I18N_KEYS[filters.timeRange] && T(PRESET_I18N_KEYS[filters.timeRange]))
-        || DATE_RANGE_LABEL_FR_MAP[filters.timeRange]
-        || PREDICT_DATE_RANGE_LABEL_FR_MAP[filters.timeRange]
-        || filters.timeRange
-      const label = filters.timeRange === 'custom'
-        ? `${T('anChipDates')} : ${filters.startDate || '—'} → ${filters.endDate || '—'}`
-        : `${T('anPeriod')} : ${rangeLabel}`
-      chips.push({ key: 'timeRange', label, clearValue: defaultTimeRange })
-    }
-    if (filters.selectedTimeRange && (filters.selectedTimeRange.start || filters.selectedTimeRange.end)) {
-      const s = filters.selectedTimeRange.start || '—'
-      const e = filters.selectedTimeRange.end || '—'
-      chips.push({
-        key: 'selectedTimeRange',
-        label: `${T('anChipTimeRange')} : ${s} → ${e}`,
-        clearValue: { start: null, end: null },
-      })
-    }
-    return chips
+    return buildActiveFilterChips(state.filters, T, {
+      activeConfiguration: g.activeConfiguration,
+      seasons: rootState.seasons?.seasons || [],
+      defaultTimeRange: DEFAULT_FILTERS().timeRange,
+    })
   },
 
   // ============================
@@ -1445,132 +1213,17 @@ const getters = {
   // - N-1 = bornes courantes décalées de setFullYear(-1).
   // ============================
   previousPeriodBounds(state, g) {
-    const { start, end } = g.dateBounds || {}
-    if (!start || !end) return { start: null, end: null }
-    const day = (d) => {
-      const s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0)
-      const e = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999)
-      return { start: s, end: e }
-    }
-    const span = (s, e) => ({
-      start: new Date(s.getFullYear(), s.getMonth(), s.getDate(), 0, 0, 0, 0),
-      end: new Date(e.getFullYear(), e.getMonth(), e.getDate(), 23, 59, 59, 999),
-    })
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const y = now.getFullYear()
-    const m = now.getMonth()
-    const q = Math.floor(m / 3)
-    const dow = (today.getDay() + 6) % 7 // lundi = 0
-
-    switch (state.filters.timeRange) {
-      case 'last12months': // les 12 mois d'avant
-        return span(new Date(y - 2, m, now.getDate()), new Date(y - 1, m, now.getDate() - 1))
-      case 'today':
-        return day(new Date(y, m, now.getDate() - 1))
-      case 'yesterday':
-        return day(new Date(y, m, now.getDate() - 2))
-      case 'thisweek': // semaine dernière ENTIÈRE (lun → dim)
-        return span(new Date(y, m, today.getDate() - dow - 7), new Date(y, m, today.getDate() - dow - 1))
-      case 'lastweek': // semaine encore avant
-        return span(new Date(y, m, today.getDate() - dow - 14), new Date(y, m, today.getDate() - dow - 8))
-      case 'week': // les 7 jours d'avant
-        return span(new Date(y, m, today.getDate() - 13), new Date(y, m, today.getDate() - 7))
-      case 'month': // les 30 jours d'avant
-        return span(new Date(y, m, today.getDate() - 59), new Date(y, m, today.getDate() - 30))
-      case 'quarter': // les 90 jours d'avant
-        return span(new Date(y, m, today.getDate() - 179), new Date(y, m, today.getDate() - 90))
-      case 'thismonth': // mois dernier ENTIER
-        return span(new Date(y, m - 1, 1), new Date(y, m, 0))
-      case 'lastmonth': // mois encore avant
-        return span(new Date(y, m - 2, 1), new Date(y, m - 1, 0))
-      case 'thisquarter': // trimestre dernier ENTIER
-        return span(new Date(y, (q - 1) * 3, 1), new Date(y, q * 3, 0))
-      case 'lastquarter': // trimestre encore avant
-        return span(new Date(y, (q - 2) * 3, 1), new Date(y, (q - 1) * 3, 0))
-      case 'thisyear': {
-        // Mêmes jours écoulés l'an dernier (parité React l.7982-7986).
-        const daysSoFar = Math.floor((today.getTime() - new Date(y, 0, 1).getTime()) / 86400000)
-        return span(new Date(y - 1, 0, 1), new Date(y - 1, 0, 1 + daysSoFar))
-      }
-      case 'year':
-      case 'last_year':
-      case 'lastyear': // année dernière → année d'encore avant, entière
-        return span(new Date(y - 2, 0, 1), new Date(y - 2, 11, 31))
-      case 'custom':
-      default: {
-        // Décalage de la durée, avec 1 jour d'écart (parité React l.7842-7849).
-        const duration = end.getTime() - start.getTime()
-        const prevEnd = new Date(start.getTime() - 86400000)
-        prevEnd.setHours(23, 59, 59, 999)
-        const prevStart = new Date(prevEnd.getTime() - duration)
-        prevStart.setHours(0, 0, 0, 0)
-        return { start: prevStart, end: prevEnd }
-      }
-    }
+    return previousPeriodBoundsOf(g.dateBounds, state.filters.timeRange, new Date())
   },
   yearOverYearBounds(state, g) {
-    const { start, end } = g.dateBounds || {}
-    if (!start || !end) return { start: null, end: null }
-    const ys = new Date(start)
-    ys.setFullYear(ys.getFullYear() - 1)
-    const ye = new Date(end)
-    ye.setFullYear(ye.getFullYear() - 1)
-    return { start: ys, end: ye }
+    return yearOverYearBoundsOf(g.dateBounds)
   },
 
   // Events qui passent tous les filtres SAUF la date.
   // Sert de base pour reconstruire les events de la période précédente / N-1
   // en réappliquant uniquement le filtre date sur la fenêtre voulue.
   eventsMatchingFiltersExceptDate(state, g) {
-    const {
-      selectedEventIds, searchQuery,
-      selectedEventCategories, selectedEventTypes, selectedTeams, selectedSponsors,
-      selectedSubcategories, selectedSessions, selectedPerformerNames,
-      selectedVisitingTeams, selectedOpeningActs,
-      selectedDoorsOpenings, selectedShowTimes, selectedIntermissions,
-      ticketsSoldRange, ticketsScannedRange,
-    } = state.filters
-    let events = g.eventsInActiveConfiguration
-
-    if (selectedEventIds.length) {
-      const set = new Set(selectedEventIds)
-      events = events.filter((e) => set.has(e.id))
-    }
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase()
-      events = events.filter((e) => e.name?.toLowerCase().includes(q))
-    }
-    const multi = [
-      [selectedEventCategories, 'category'],
-      [selectedEventTypes, 'eventType'],
-      [selectedTeams, 'team'],
-      [selectedSponsors, 'sponsor'],
-      [selectedSubcategories, 'subcategory'],
-      [selectedSessions, 'session'],
-      [selectedPerformerNames, 'performer'],
-      [selectedVisitingTeams, 'visitingTeam'],
-      [selectedOpeningActs, 'openingAct'],
-      [selectedDoorsOpenings, 'doorsOpening'],
-      [selectedShowTimes, 'showTime'],
-    ]
-    for (const [arr, key] of multi) {
-      if (arr.length) {
-        const set = new Set(arr)
-        events = events.filter((e) => set.has(e[key]))
-      }
-    }
-    if (selectedIntermissions.length) {
-      const set = new Set(selectedIntermissions)
-      events = events.filter((e) => set.has(e.hasIntermission ? 'yes' : 'no'))
-    }
-    return events.filter((e) => {
-      const sold = e.ticketsSold ?? e.attendees ?? 0
-      const scanned = e.ticketsScanned ?? sold
-      if (sold < ticketsSoldRange[0] || sold > ticketsSoldRange[1]) return false
-      if (scanned < ticketsScannedRange[0] || scanned > ticketsScannedRange[1]) return false
-      return true
-    })
+    return filterEvents(g.eventsInActiveConfiguration, state.filters, null, { skipDate: true })
   },
 
   // Totaux KPI sur la période courante (depuis filteredEvents/filteredShopGranularData)

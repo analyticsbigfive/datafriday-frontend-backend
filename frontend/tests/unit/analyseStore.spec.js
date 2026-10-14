@@ -487,3 +487,70 @@ describe('analyse store — activeFilterChips', () => {
     expect(chips.some((c) => c.key === 'selectedShopTypes')).toBe(true)
   })
 })
+
+describe('analyse store, filtres jour / météo / température', () => {
+  const g = analyse.getters
+  const rootState = { seasons: { seasons: [] } }
+  const stateWith = (patch) => {
+    const base = analyse.state()
+    return { ...base, filters: { ...base.filters, timeRange: 'all', ...patch } }
+  }
+  const events = [
+    { id: 'a', date: '2026-10-17', weatherCode: 61, temperatureC: 8 },
+    { id: 'b', date: '2026-10-18', weatherCode: 0, temperatureC: 20 },
+    { id: 'c', date: '2026-10-17', weatherCode: null, temperatureC: null },
+  ]
+
+  it('défauts : pas de filtre', () => {
+    const f = analyse.state().filters
+    expect(f.selectedDaysOfWeek).toEqual([])
+    expect(f.selectedWeather).toEqual([])
+    expect(f.temperatureRange).toEqual([-10, 45])
+  })
+
+  it('RESET_FILTERS remet les trois clés au défaut', () => {
+    const state = stateWith({ selectedDaysOfWeek: ['sat'], selectedWeather: ['rain'], temperatureRange: [5, 12] })
+    analyse.mutations.RESET_FILTERS(state)
+    expect(state.filters.selectedDaysOfWeek).toEqual([])
+    expect(state.filters.selectedWeather).toEqual([])
+    expect(state.filters.temperatureRange).toEqual([-10, 45])
+  })
+
+  it('UPDATE_FILTER écrit les nouvelles clés', () => {
+    const state = stateWith({})
+    analyse.mutations.UPDATE_FILTER(state, { key: 'selectedWeather', value: ['snow'] })
+    expect(state.filters.selectedWeather).toEqual(['snow'])
+  })
+
+  it('filteredEvents : jour + météo appliqués sur le périmètre, les events sans météo sont exclus', () => {
+    const state = stateWith({ selectedDaysOfWeek: ['sat'], selectedWeather: ['rain'] })
+    expect(typeof g.eventsBeforeDayWeatherFilters).toBe('function')
+    const out = g.filteredEvents(state, { eventsBeforeDayWeatherFilters: events })
+    expect(out.map((e) => e.id)).toEqual(['a'])
+  })
+
+  it('eventsWithoutWeatherCount : compte les exclus seulement si le filtre est actif', () => {
+    const inactive = g.eventsWithoutWeatherCount(stateWith({}), { eventsBeforeDayWeatherFilters: events })
+    expect(inactive).toEqual({ weather: 0, temperature: 0 })
+    const active = g.eventsWithoutWeatherCount(
+      stateWith({ selectedWeather: ['clear'], temperatureRange: [0, 30] }),
+      { eventsBeforeDayWeatherFilters: events },
+    )
+    expect(active).toEqual({ weather: 1, temperature: 1 })
+  })
+
+  it('activeFilterChips : puces Jours / Météo / Temp. avec valeur d effacement de la température', () => {
+    const state = stateWith({ selectedDaysOfWeek: ['mon', 'sat'], selectedWeather: ['rain'], temperatureRange: [5, 12] })
+    const chips = g.activeFilterChips(state, {}, rootState)
+    const byKey = Object.fromEntries(chips.map((c) => [c.key, c]))
+    expect(byKey.selectedDaysOfWeek.label).toMatch(/: Lun, Sam$|: Mon, Sat$/)
+    expect(byKey.selectedWeather.label).toMatch(/Pluie|Rain/)
+    expect(byKey.temperatureRange.label).toMatch(/5 .* 12 °C$/)
+    expect(byKey.temperatureRange.clearValue).toEqual([-10, 45])
+  })
+
+  it('activeFilterChips : aucune puce quand rien n est actif', () => {
+    const chips = g.activeFilterChips(stateWith({}), {}, rootState)
+    expect(chips.some((c) => ['selectedDaysOfWeek', 'selectedWeather', 'temperatureRange'].includes(c.key))).toBe(false)
+  })
+})

@@ -21,7 +21,15 @@
          référence claire → toggle réservé aux presets datés. -->
     <div v-if="timeRange !== 'all'" class="d-flex align-center ga-2">
       <span class="fs-compare-label">{{ t('anCompareTo') }}</span>
-      <div class="compare-toggle" role="group" :aria-label="t('anComparisonMode')">
+      <!-- locked (rapport Comparaison chargé, décision 4) : toggle grisé, info-bulle. -->
+      <div
+        class="compare-toggle"
+        :class="{ 'compare-toggle--locked': locked }"
+        role="group"
+        :aria-label="t('anComparisonMode')"
+        :aria-disabled="locked || null"
+        :title="locked ? t('anDeltaLockedHint') : undefined"
+      >
         <!-- Toggle : re-clic sur la pill active → OFF (null). Aucune pill
              active par défaut = comparaison désactivée. -->
         <button
@@ -29,7 +37,7 @@
           class="compare-pill"
           :class="{ 'compare-pill--active': comparisonMode === 'previous_period' }"
           :title="t('anPrevious')"
-          @click="$emit('update:comparisonMode', comparisonMode === 'previous_period' ? null : 'previous_period')"
+          @click="!locked && $emit('update:comparisonMode', comparisonMode === 'previous_period' ? null : 'previous_period')"
         >
           {{ t('anPrevious') }}
         </button>
@@ -38,7 +46,7 @@
           class="compare-pill compare-pill--prev"
           :class="{ 'compare-pill--active': comparisonMode === 'year_over_year' }"
           :title="t('anYearOverYear')"
-          @click="$emit('update:comparisonMode', comparisonMode === 'year_over_year' ? null : 'year_over_year')"
+          @click="!locked && $emit('update:comparisonMode', comparisonMode === 'year_over_year' ? null : 'year_over_year')"
         >
           {{ t('anSummaryYearOverYearShort') }}
         </button>
@@ -71,6 +79,8 @@ defineProps({
   comparisonWindow: { type: String, default: '' },
   timeRange: { type: String, default: 'all' },
   dateRangeItems: { type: Array, default: () => [] },
+  // Rapport Comparaison chargé : ses écarts remplacent Précédent / N-1, le toggle est grisé.
+  locked: { type: Boolean, default: false },
 })
 defineEmits(['update:comparisonMode', 'update:timeRange'])
 </script>
@@ -117,6 +127,9 @@ defineEmits(['update:comparisonMode', 'update:timeRange'])
   font-family: inherit;
 }
 .compare-pill:hover { background-color: rgba(255, 255, 255, 0.5); }
+.compare-toggle--locked { opacity: 0.5; }
+.compare-toggle--locked .compare-pill { cursor: not-allowed; }
+.compare-toggle--locked .compare-pill:hover { background-color: transparent; }
 .compare-pill--active {
   background-color: #ffffff;
   color: #1e3a8a;

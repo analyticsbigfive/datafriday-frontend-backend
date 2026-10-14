@@ -7,6 +7,8 @@
       <div class="section-title">{{ t('anPromotionTitle') }}</div>
       <div class="section-subtitle">
         {{ t('anPromotionSubtitle').replace('{amount}', formatCurrency(discount.amount)) }}
+        <!-- Écart de la remise accordée vs le rapport de référence (mode Comparaison). -->
+        <DeltaPill v-if="deltas?.discount" :delta="deltas.discount" size="sm" class="promo-delta" />
       </div>
       <div v-if="discount.withoutReference > 0" class="section-subtitle">
         {{ t('anPromotionNoReference').replace('{n}', discount.withoutReference) }}
@@ -28,6 +30,8 @@
           :max-legend="6"
           :loading="loading"
           clickable
+          :readonly="readonly"
+          :deltas="dimDeltas?.promotion || null"
           :selected-labels="selectedPromotions"
           @slice-click="(key) => emit('promotion-click', key)"
         />
@@ -44,6 +48,8 @@
           :max-legend="6"
           :loading="loading"
           clickable
+          :readonly="readonly"
+          :deltas="dimDeltas?.promotionType || null"
           :selected-labels="selectedTypes"
           @slice-click="(key) => emit('promotion-type-click', key)"
         />
@@ -57,6 +63,7 @@ import { computed } from 'vue'
 import { useStore } from 'vuex'
 import { useTheme } from 'vuetify'
 import DonutChartCard from '../charts/DonutChartCard.vue'
+import DeltaPill from '@/components/space-workspace/shared/DeltaPill.vue'
 import { SHOP_COLORS } from '@/constants/analyseColors'
 import { formatCurrency } from '@/composables/useFormatters'
 import { useI18n } from '@/i18n/useI18n'
@@ -76,6 +83,10 @@ const props = defineProps({
   status: { type: String, default: 'idle' },
   // Mode du toggle Quantité / CA de la carte « Répartition du CA par article ».
   mode: { type: String, default: 'revenue' },
+  // Mode lecture seule (drawer Comparaison) : pas de clic filtrant, sélection vide.
+  readonly: { type: Boolean, default: false },
+  // Écarts vs le rapport de référence : objet complet de computeReportDeltas (ou null).
+  deltas: { type: Object, default: null },
 })
 const emit = defineEmits(['promotion-click', 'promotion-type-click'])
 
@@ -101,7 +112,10 @@ const discount = computed(() => (
   ready.value ? promotionDiscount(props.records, props.dimensionsIndex) : { amount: 0, withoutReference: 0 }
 ))
 
-const filters = computed(() => store.state.analyse.filters || {})
+const dimDeltas = computed(() => props.deltas?.breakdowns?.[props.mode === 'quantity' ? 'quantity' : 'revenue'] || null)
+
+// Lecture seule : la sélection du store appartient au rapport principal, on ne la lit pas.
+const filters = computed(() => (props.readonly ? {} : store.state.analyse.filters || {}))
 const selectedPromotions = computed(() => filters.value.selectedPromotions || [])
 const selectedTypes = computed(() => filters.value.selectedPromotionTypes || [])
 </script>
@@ -116,6 +130,10 @@ const selectedTypes = computed(() => filters.value.selectedPromotionTypes || [])
   font-size: var(--fs-sm);
   color: #757575;
   margin-top: 2px;
+}
+.promo-delta {
+  margin-left: 6px;
+  vertical-align: middle;
 }
 .promo--dark .section-title {
   color: #f9fafb;

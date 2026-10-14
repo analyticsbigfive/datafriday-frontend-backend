@@ -276,6 +276,32 @@ describe('EventsService', () => {
   });
 
   describe('update', () => {
+    it('remet la météo stockée à null quand la date ou les sessions changent', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue({ ...mockEvent, sessions: null });
+      mockPrisma.event.update.mockResolvedValue(mockEvent);
+      const reset = { weatherCode: null, temperatureC: null, weatherFetchedAt: null };
+
+      await eventsService.update('evt-1', 'tenant-1', { eventDate: '2024-09-01' } as any);
+      expect(mockPrisma.event.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({ data: expect.objectContaining(reset) }),
+      );
+
+      await eventsService.update('evt-1', 'tenant-1', { sessions: [{ showTime: '21:00' }] } as any);
+      expect(mockPrisma.event.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({ data: expect.objectContaining(reset) }),
+      );
+    });
+
+    it('garde la météo stockée quand la modification ne la concerne pas', async () => {
+      mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
+      mockPrisma.event.update.mockResolvedValue(mockEvent);
+
+      await eventsService.update('evt-1', 'tenant-1', { name: 'Renamed' } as any);
+      expect(mockPrisma.event.update).toHaveBeenLastCalledWith(
+        expect.objectContaining({ data: expect.not.objectContaining({ weatherFetchedAt: null }) }),
+      );
+    });
+
     it('should update an event', async () => {
       mockPrisma.event.findFirst.mockResolvedValue(mockEvent);
       mockPrisma.event.update.mockResolvedValue({ ...mockEvent, name: 'Updated' });

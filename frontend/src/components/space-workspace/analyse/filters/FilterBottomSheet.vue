@@ -89,6 +89,12 @@ import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { currentIntlLocale } from '@/composables/useNumberFormat'
 import { NOT_SET_KEY } from '@/utils/articleDimensionBreakdown'
+import {
+  DAY_LABEL_KEYS,
+  WEATHER_LABEL_KEYS,
+  DEFAULT_TEMPERATURE_RANGE,
+  isTemperatureFilterActive,
+} from '@/utils/eventDayWeatherFilters'
 
 const store = useStore()
 const { t } = useI18n()
@@ -228,6 +234,22 @@ const groups = computed(() => {
   }
   if (attendanceEntries.length) {
     list.push({ key: 'attendance', title: t('anAttendance'), icon: 'mdi-account-group', color: '#26A69A', entries: attendanceEntries })
+  }
+
+  // Jour / météo / température (filtres avancés de l'event)
+  const dayWeatherEntries = [
+    ...entriesForArray('selectedDaysOfWeek', f.selectedDaysOfWeek, (k) => t(DAY_LABEL_KEYS[k] || k)),
+    ...entriesForArray('selectedWeather', f.selectedWeather, (k) => t(WEATHER_LABEL_KEYS[k] || k)),
+  ]
+  if (isTemperatureFilterActive(f.temperatureRange)) {
+    dayWeatherEntries.push({
+      key: 'temperatureRange',
+      label: `${t('anTempShort')} : ${f.temperatureRange[0]} ${t('anTempTo')} ${f.temperatureRange[1]} °C`,
+      onClear: () => setFilter('temperatureRange', [...DEFAULT_TEMPERATURE_RANGE]),
+    })
+  }
+  if (dayWeatherEntries.length) {
+    list.push({ key: 'dayWeather', title: `${t('anDaysOfWeek')} / ${t('anWeatherShort')}`, icon: 'mdi-weather-partly-cloudy', color: '#29B6F6', entries: dayWeatherEntries })
   }
 
   // F&B (PdV / articles)
