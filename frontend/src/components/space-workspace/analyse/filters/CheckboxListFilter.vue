@@ -9,6 +9,7 @@
           :checked="(modelValue || []).includes(opt)"
           @change="toggle(opt)"
         />
+        <v-icon v-if="iconFn && iconFn(opt)" size="16" class="cbf-icon">{{ iconFn(opt) }}</v-icon>
         <span class="cbf-name">{{ labelFn ? labelFn(opt) : opt }}</span>
         <span v-if="counts" class="cbf-count">{{ counts.get(opt) || 0 }}</span>
       </label>
@@ -33,6 +34,8 @@ const props = defineProps({
   counts: { type: Object, default: null }, // Map | null
   // Libellé affiché d'une option (valeur technique -> texte), identité par défaut.
   labelFn: { type: Function, default: null },
+  // Pictogramme mdi optionnel d'une option (ex. météo), rien par défaut.
+  iconFn: { type: Function, default: null },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -46,6 +49,8 @@ function toggle(opt) {
 </script>
 
 <style scoped>
+.cbf-icon { flex-shrink: 0; color: #6b7280; }
+.cbf--dark .cbf-icon { color: #94a3b8; }
 .cbf-label {
   font-size: var(--fs-xs);
   font-weight: 700;

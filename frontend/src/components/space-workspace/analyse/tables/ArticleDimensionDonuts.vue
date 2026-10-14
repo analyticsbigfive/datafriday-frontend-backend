@@ -25,6 +25,8 @@
           :max-legend="6"
           :loading="loading"
           clickable
+          :readonly="readonly"
+          :deltas="dimDeltas?.industrial || null"
           :selected-labels="selectedIndustrials"
           @slice-click="(key) => emit('industrial-click', key)"
         />
@@ -41,6 +43,8 @@
           :max-legend="6"
           :loading="loading"
           clickable
+          :readonly="readonly"
+          :deltas="dimDeltas?.brand || null"
           :selected-labels="selectedBrands"
           @slice-click="(key) => emit('brand-click', key)"
         />
@@ -59,6 +63,8 @@
           :max-legend="6"
           :loading="loading"
           clickable
+          :readonly="readonly"
+          :deltas="deltas?.breakdowns?.supplierCost || null"
           :selected-labels="selectedSuppliers"
           @slice-click="(key) => emit('supplier-click', key)"
         />
@@ -91,6 +97,12 @@ const props = defineProps({
   status: { type: String, default: 'idle' },
   // Mode du toggle Quantité / CA de la carte parente.
   mode: { type: String, default: 'revenue' },
+  // Mode lecture seule (drawer Comparaison) : pas de clic filtrant, sélection vide
+  // (les filtres du store du principal ne sont pas lus).
+  readonly: { type: Boolean, default: false },
+  // Écarts vs le rapport de référence : objet complet de computeReportDeltas (ou null).
+  // Industriel / marque suivent `mode` ; le coût fournisseur est toujours en euros.
+  deltas: { type: Object, default: null },
 })
 const emit = defineEmits(['industrial-click', 'brand-click', 'supplier-click'])
 
@@ -115,7 +127,10 @@ const bySupplier = computed(() => entriesToDonut(
   ready.value ? supplierCostBreakdown(props.records, props.dimensionsIndex) : [], labelOf, SHOP_COLORS,
 ))
 
-const filters = computed(() => store.state.analyse.filters || {})
+const dimDeltas = computed(() => props.deltas?.breakdowns?.[props.mode === 'quantity' ? 'quantity' : 'revenue'] || null)
+
+// Lecture seule : la sélection du store appartient au rapport principal, on ne la lit pas.
+const filters = computed(() => (props.readonly ? {} : store.state.analyse.filters || {}))
 const selectedIndustrials = computed(() => filters.value.selectedIndustrials || [])
 const selectedBrands = computed(() => filters.value.selectedBrands || [])
 const selectedSuppliers = computed(() => filters.value.selectedSuppliers || [])

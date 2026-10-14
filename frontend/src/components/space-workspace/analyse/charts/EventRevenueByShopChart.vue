@@ -82,6 +82,22 @@
       >
         {{ t('anChartAverage') }}
       </v-btn>
+
+      <!-- Drawer Comparaison : superpose le CA par event du principal, aligné par rang. -->
+      <v-btn
+        v-if="trend"
+        size="small"
+        variant="outlined"
+        density="comfortable"
+        rounded="pill"
+        prepend-icon="mdi-chart-line"
+        :class="{ 'chart-trend-on': showTrend }"
+        :aria-pressed="showTrend"
+        :title="t('anTrendOfMainTip')"
+        @click="showTrend = !showTrend"
+      >
+        {{ t('anTrendOfMain') }}
+      </v-btn>
     </div>
 
     <!-- Empty state -->
@@ -145,6 +161,7 @@ import { useI18n } from '@/i18n/useI18n'
 import { useTheme } from 'vuetify'
 import { currentIntlLocale } from '@/composables/useNumberFormat'
 import { formatCurrency } from '@/composables/useFormatters'
+import { alignTrendByRank } from '@/utils/comparisonTrend'
 
 registerChartJs()
 
@@ -164,6 +181,14 @@ const props = defineProps({
   // Aplatit la <v-card> racine pour s'intégrer dans une carte parente
   // (fusion timeline + barres dans AnalyseView).
   embedded: { type: Boolean, default: false },
+  // Mode lecture seule (drawer Comparaison) : les clics barre / période / moyenne ne font
+  // qu'ÉMETTRE (le parent décide, rien n'est écrit dans le store) et « Moyenne » trace en plus
+  // une ligne de moyenne locale.
+  readonly: { type: Boolean, default: false },
+  // Tendance du principal : [{ value, label }] en ordre chronologique (cf. utils/comparisonTrend,
+  // trendFromEventSeries). Alignée PAR RANG sur les barres, dans l'ordre du tri courant.
+  // null = pas de bouton ni de courbe.
+  trend: { type: Array, default: null },
 })
 
 const emit = defineEmits(['show-average', 'event-click', 'period-drilldown'])
@@ -180,6 +205,8 @@ const aggregationOptions = computed(() => [
 const showCumulative = ref(false) // courbe CA cumulé cachée par défaut
 const expandLegend = ref(false)
 const maxLegend = 7
+const showTrend = ref(false)
+const showAverage = ref(false)
 
 const cumulativeAvailable = computed(
   () => aggregationMode.value !== 'event' || sortMode.value === 'date',
@@ -381,6 +408,14 @@ const visibleLegend = computed(() =>
   expandLegend.value ? itemsList.value : itemsList.value.slice(0, maxLegend)
 )
 
+// Tendance du principal par barre (rang), seulement en agrégation par event et si le bouton est actif.
+const trendAligned = computed(() => {
+  if (!props.trend || !showTrend.value || aggregationMode.value !== 'event') return null
+  return alignTrendByRank(props.trend, sortMode.value, aggregated.value.length)
+})
+
+const escapeHtml = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
+
 const chartData = computed(() => {
   const list = aggregated.value
   const items = itemsList.value
@@ -402,6 +437,39 @@ const chartData = computed(() => {
       order: 1,
     }
   })
+  if (props.readonly && showAverage.value && list.length) {
+    const avg = list.reduce((sum, e) => sum + (e.total || 0), 0) / list.length
+    datasets.push({
+      type: 'line',
+      label: t('anChartAverage'),
+      isAverage: true,
+      data: list.map(() => avg),
+      borderColor: '#64748b',
+      backgroundColor: '#64748b',
+      borderDash: [2, 4],
+      borderWidth: 1.5,
+      pointRadius: 0,
+      yAxisID: 'y',
+      order: 0,
+    })
+  }
+  if (trendAligned.value) {
+    datasets.push({
+      type: 'line',
+      label: t('anTrendOfMain'),
+      isTrend: true,
+      data: trendAligned.value.map((p) => (p ? p.value : null)),
+      borderColor: '#f59e0b',
+      backgroundColor: '#f59e0b',
+      borderDash: [6, 4],
+      borderWidth: 2,
+      pointRadius: 3,
+      tension: 0.25,
+      spanGaps: false,
+      yAxisID: 'y',
+      order: 0,
+    })
+  }
   if (cumulativeAvailable.value && showCumulative.value) {
     datasets.push({
       type: 'line',
@@ -680,6 +748,14 @@ const chartOptions = computed(() => ({
           return dateLabel ? `${t('anChartTooltipDate')} ${dateLabel}` : ''
         },
         label: (item) => {
+          if (item.dataset?.isTrend) {
+            const info = trendAligned.value?.[item.dataIndex]
+            const who = info?.label ? ` · ${escapeHtml(info.label)}` : ''
+            return `${item.dataset.label} : ${formatEuro(item.parsed.y)}${who}`
+          }
+          if (item.dataset?.isAverage) {
+            return `${item.dataset.label} : ${formatEuro(item.parsed.y)}`
+          }
           if (item.dataset?.type === 'line') {
             return `${t('anChartTooltipCumulRev')} ${formatEuro(item.parsed.y)}`
           }
@@ -737,6 +813,7 @@ function toggleSort() {
 }
 
 function onAverageClick() {
+  if (props.readonly) showAverage.value = !showAverage.value
   emit('show-average')
 }
 </script>
@@ -805,6 +882,16 @@ function onAverageClick() {
   background-color: #F3F4F6 !important;
   color: #111827 !important;
   font-weight: 600;
+}
+
+/* Bouton « Tendance du principal » actif : liseré ambré (couleur de la courbe). */
+.chart-toolbar :deep(.v-btn.chart-trend-on) {
+  border-color: #f59e0b !important;
+  color: #b45309 !important;
+}
+.erbs--dark .chart-toolbar :deep(.v-btn.chart-trend-on) {
+  border-color: #f59e0b !important;
+  color: #fbbf24 !important;
 }
 
 /* ── Dark (BUG-247-01) — pills toolbar : mêmes règles !important que le clair,

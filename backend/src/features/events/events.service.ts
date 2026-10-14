@@ -7,6 +7,7 @@ import { EventWeezeventLinkService } from './services/event-weezevent-link.servi
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { EventTaxonomyService } from './services/event-taxonomy.service';
 import { EventTeamService } from './services/event-team.service';
+import { weatherResetFor } from './weather/event-weather-reset';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
@@ -391,6 +392,8 @@ export class EventsService {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.eventDate !== undefined && { eventDate: new Date(dto.eventDate) }),
           ...(dateChanged && { weezeventEventId: null }),
+          // Météo stockée : périmée si le jour, l'heure du show ou l'espace change, le job de nuit la refait.
+          ...weatherResetFor(existing, dto),
           ...(dto.location !== undefined && { location: dto.location }),
           ...(dto.spaceName !== undefined && { spaceName: dto.spaceName }),
           ...(dto.sessions !== undefined && { sessions: dto.sessions ? JSON.stringify(dto.sessions) : null }),

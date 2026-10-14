@@ -1,13 +1,25 @@
 <template>
   <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'mird--dark': isDark }">
     <!-- BUG-285 : voile squelette pendant le recalcul des filtres (clic segment). -->
-    <AnalyseSkeletonVeil :active="filtersRecomputing" />
+    <AnalyseSkeletonVeil :active="!readonly && filtersRecomputing" />
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-3 flex-wrap">
       <div>
-        <div class="section-title">{{ t('anMenuItemDistTitle') }}</div>
+        <div class="section-title">
+          {{ t('anMenuItemDistTitle') }}
+          <!-- Rapport de comparaison : les sélections ne filtrent pas (badge maquette). -->
+          <span v-if="readonly" class="mird-lock">
+            <v-icon size="12" aria-hidden="true">mdi-lock-outline</v-icon>{{ t('anReadOnly') }}
+          </span>
+        </div>
         <div class="section-subtitle">
           {{ t('anTotalRevenue') }} : {{ formatCurrency(totalRevenue) }}
+          <DeltaPill
+            v-if="deltas?.sections?.articleDistributionRevenue"
+            :delta="deltas.sections.articleDistributionRevenue"
+            size="sm"
+            class="mird-delta"
+          />
         </div>
         <!-- Mode Predict : les events prédits sans scénario Event Predict n'ont
              aucune dimension article → exclus d'ici. Signalé plutôt que sous-compté
@@ -60,7 +72,15 @@
           <!-- Totaux par famille → 0 décimale (décision UI 2026-07-12, cf.
                useFormatters.js:9-16). Les 2 décimales sont réservées aux prix
                unitaires et aux ratios par ticket, pas aux totaux à 6 chiffres. -->
-          <div class="cat-value">{{ formatCurrency(entry.value) }}</div>
+          <div class="cat-value">
+            {{ formatCurrency(entry.value) }}
+            <DeltaPill
+              v-if="deltas?.categories?.get(entry.key)"
+              :delta="deltas.categories.get(entry.key)"
+              size="sm"
+              class="mird-delta"
+            />
+          </div>
         </v-card>
       </v-col>
     </v-row>
@@ -78,6 +98,8 @@
           :mode="localMode"
           :max-legend="5"
           clickable
+          :readonly="readonly"
+          :deltas="modeDeltas?.item || null"
           :selected-labels="selectedMenuItemNames"
           @slice-click="(label) => emit('item-click', label)"
         />
@@ -93,6 +115,8 @@
           :mode="localMode"
           :max-legend="6"
           clickable
+          :readonly="readonly"
+          :deltas="modeDeltas?.type || null"
           :selected-labels="selectedTypeKeys"
           @slice-click="onTypeDimensionClick"
         />
@@ -108,6 +132,8 @@
           :mode="localMode"
           :max-legend="6"
           clickable
+          :readonly="readonly"
+          :deltas="modeDeltas?.category || null"
           :selected-labels="selectedCategoryKeys"
           @slice-click="onCategoryDimensionClick"
         />
@@ -120,6 +146,8 @@
       :dimensions-index="dimensionsIndex"
       :status="dimensionsStatus"
       :mode="localMode"
+      :readonly="readonly"
+      :deltas="deltas"
       @industrial-click="(v) => emit('industrial-click', v)"
       @brand-click="(v) => emit('brand-click', v)"
       @supplier-click="(v) => emit('supplier-click', v)"
@@ -133,6 +161,7 @@ import { ref, computed, watch } from 'vue'
 import { useTheme } from 'vuetify'
 import DonutChartCard from '../charts/DonutChartCard.vue'
 import ArticleDimensionDonuts from './ArticleDimensionDonuts.vue'
+import DeltaPill from '@/components/space-workspace/shared/DeltaPill.vue'
 import { SHOP_COLORS } from '@/constants/analyseColors'
 import { formatCurrency, formatShare } from '@/composables/useFormatters'
 import { useStore } from 'vuex'
@@ -168,6 +197,13 @@ const props = defineProps({
   // Dimensions article (endpoint A) pour les donuts industriel / marque / fournisseur.
   dimensionsIndex: { type: Object, default: null },
   dimensionsStatus: { type: String, default: 'idle' },
+  // Mode lecture seule (drawer Comparaison) : aucun clic ne filtre, le store du principal
+  // n'est pas lu pour la sélection (surlignage vide) ni pour le voile de recalcul.
+  readonly: { type: Boolean, default: false },
+  // Écarts vs le rapport de référence : objet complet de computeReportDeltas (ou null).
+  // Cartes de catégories (deltas.categories), total CA (sections.articleDistributionRevenue),
+  // légendes des donuts (breakdowns[mode].*), remise et coût fournisseur plus bas.
+  deltas: { type: Object, default: null },
 })
 
 const emit = defineEmits([
@@ -176,11 +212,14 @@ const emit = defineEmits([
 ])
 
 const store = useStore()
-const selectedMenuItemTypes = computed(() => store.state.analyse.filters.selectedMenuItemTypes || [])
-const selectedMenuItemCategories = computed(() => store.state.analyse.filters.selectedMenuItemCategories || [])
-const selectedMenuItemNames = computed(() => store.state.analyse.filters.selectedMenuItemIds || [])
+// Lecture seule : la sélection du store appartient au rapport principal, on ne la lit pas.
+const selectedMenuItemTypes = computed(() => (props.readonly ? [] : store.state.analyse.filters.selectedMenuItemTypes || []))
+const selectedMenuItemCategories = computed(() => (props.readonly ? [] : store.state.analyse.filters.selectedMenuItemCategories || []))
+const selectedMenuItemNames = computed(() => (props.readonly ? [] : store.state.analyse.filters.selectedMenuItemIds || []))
 
 const localMode = ref('revenue')
+// Écarts des donuts : suivent le toggle Quantité / CA.
+const modeDeltas = computed(() => props.deltas?.breakdowns?.[localMode.value === 'quantity' ? 'quantity' : 'revenue'] || null)
 // La section Promotion (sous cette carte) suit le même toggle Quantité / CA.
 watch(localMode, (m) => emit('mode-change', m), { immediate: true })
 const valueFn = (r) => (localMode.value === 'quantity' ? r.quantity || 0 : r.revenue || 0)
@@ -308,6 +347,23 @@ function onCategoryDimensionClick(key) {
   color: #757575;
   margin-top: 2px;
 }
+.mird-delta {
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.mird-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  vertical-align: middle;
+}
 .category-card {
   background: #ffffff;
   border: 1px solid #e2e8f0;
@@ -373,6 +429,10 @@ function onCategoryDimensionClick(key) {
    Les internes Vuetify (donuts, skeleton, btn-toggle) suivent le thème global. ── */
 .mird--dark .section-title {
   color: #f9fafb;
+}
+.mird--dark .mird-lock {
+  background: #273549;
+  color: #94a3b8;
 }
 .mird--dark .section-subtitle {
   color: #94a3b8;
