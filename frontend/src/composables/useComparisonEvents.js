@@ -3,7 +3,7 @@
  * dans le store du principal (lecture seule de state.filters et des getters).
  *
  * Étapes : saisie de comparaison + filtres du principal -> buildComparisonFilters ->
- * bornes de dates -> filterEvents sur la base `analysableEvents` -> liste « filtres
+ * bornes de dates -> filterEvents sur la base `spaceAnalysableEvents` -> liste « filtres
  * appliqués » -> détection « mêmes events que le principal » (décision 15).
  */
 import { computed } from 'vue'
@@ -46,7 +46,11 @@ export function useComparisonEvents({
   /** Events qui correspondent aux filtres de la comparaison, avant plafond et avant tri Predict. */
   const matchedEvents = computed(() => {
     if (!filters.value) return []
-    const base = store.getters['analyse/analysableEvents'] || []
+    // Tous les events de l'espace (pas le scope de configuration du principal), sauf Predict :
+    // même périmètre que le principal par définition (décision 1).
+    const base = (isPredict.value
+      ? store.getters['analyse/analysableEvents']
+      : store.getters['analyse/spaceAnalysableEvents']) || []
     return filterEvents(base, filters.value, bounds.value)
   })
 

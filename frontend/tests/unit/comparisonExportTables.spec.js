@@ -18,6 +18,10 @@ function snap(over = {}) {
       supplierCost: [{ key: 'Brasserie', value: 30 }],
       discount: { amount: 5, withoutReference: 0 },
     },
+    shopDistribution: {
+      revenue: { shop: [{ key: 'Buvette', value: 120 }, { key: 'Grill', value: 30 }], type: [{ key: 'food, beverages', value: 150 }], area: [{ key: 'Nord', value: 150 }] },
+      quantity: { shop: [{ key: 'Buvette', value: 24 }], type: [], area: [] },
+    },
     itemsByShop: [], sections: {},
     ...over,
   }
@@ -55,6 +59,17 @@ describe('buildDeltaTable', () => {
     expect(row('anTopItemsByRevenue · anRevenue', 'Nouveau')).toMatchObject({ comparison: 30, main: null, delta: null, deltaUnit: 'anCmpExportNew' })
     expect(row('anCmpExportSecTypes', 'anNotSet')).toBeTruthy()
     expect(row('anPromoYesNo · anRevenue', 'anPromoYes')).toBeTruthy()
+  })
+
+  it('répartition des PdV par CA : par PdV, type, zone ; nouveau si absent du principal', () => {
+    const B2 = snap({ shopDistribution: { revenue: { shop: [{ key: 'Buvette', value: 60 }], type: [], area: [] }, quantity: { shop: [], type: [], area: [] } } })
+    const tb = buildDeltaTable({ snapshot: A, mainSnapshot: B2, deltas: computeReportDeltas(A, B2), t })
+    const r = (section, label) => tb.rows.find((x) => x.section === section && x.label === label)
+    expect(r('anPieByShopTitle · anRevenue', 'Buvette')).toMatchObject({ comparison: 120, main: 60, delta: 100, deltaUnit: '%' })
+    expect(r('anPieByShopTitle · anRevenue', 'Grill')).toMatchObject({ main: null, deltaUnit: 'anCmpExportNew' })
+    expect(tb.rows.filter((x) => x.section === 'anPieByTypeTitle · anRevenue')).toHaveLength(1)
+    expect(r('anPieByAreaTitle · anRevenue', 'Nord')).toMatchObject({ comparison: 150 })
+    expect(r('anPieByShopTitle · anQuantity', 'Buvette')).toMatchObject({ comparison: 24 })
   })
 
   it('répartition non chargée (null) = aucune ligne ; coût fournisseur et remise présents', () => {

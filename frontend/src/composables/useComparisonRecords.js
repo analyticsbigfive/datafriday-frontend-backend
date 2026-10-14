@@ -15,7 +15,7 @@ import { computed } from 'vue'
 import defaultStore from '@/store'
 import { useAnalyseItemRecords } from '@/composables/useAnalyseItemRecords'
 import { useTransactionBaskets } from '@/composables/useTransactionBaskets'
-import { useReconciliationContext } from '@/composables/useReconciliationContext'
+import { useComparisonReconciliationContext } from '@/composables/useComparisonReconciliationContext'
 import { buildItemFilterPredicate } from '@/utils/analyseDimensions'
 import { reconcileRecord } from '@/utils/analyseReconciliation'
 import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
@@ -35,11 +35,12 @@ import { scenarioRecordsToAnalyseRecords } from '@/utils/predictScenarioRecords'
 export function useComparisonRecords({
   filters, events, isPredict, scenarioVersions, dimensionsIndex, store = defaultStore,
 }) {
-  const reconciliationCtx = useReconciliationContext()
+  // Contexte élargi aux configurations des events chargés (lecture seule, principal intact).
+  const reconciliationCtx = useComparisonReconciliationContext({ events, store })
 
   // Predict : aucune vente réelle à charger.
   const loadEvents = computed(() => (isPredict.value ? [] : events.value || []))
-  const items = useAnalyseItemRecords(loadEvents)
+  const items = useAnalyseItemRecords(loadEvents, { reconciliationContext: reconciliationCtx })
   const baskets = useTransactionBaskets(loadEvents)
 
   const predicate = computed(() => buildItemFilterPredicate(filters.value || {}, {

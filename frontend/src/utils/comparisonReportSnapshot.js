@@ -19,6 +19,9 @@
  *                 discount: { amount, withoutReference }|null },
  *                // Dims = { item, type, category, industrial, brand, promotion, promotionType }
  *                // Entries = [{ key, value }] triées par valeur décroissante ; null = pas chargé
+ *   shopDistribution: { revenue: ShopDims, quantity: ShopDims },
+ *                // ShopDims = { shop, type, area } : Entries du CA (ou des quantités) par PdV,
+ *                // par type de PdV et par zone (utils/shopDistribution.js, chartRecords)
  *   itemsByShop: [{ name, total, avg, events,
  *                   items: [{ key, name, avgQuantity, quantity, events }] }],
  *   sections: { shopChartRevenue, articleDistributionRevenue, itemsByShopRevenue },
@@ -27,6 +30,7 @@
 import { unref } from 'vue'
 import { aggregateByShop } from '@/utils/analyseAggregations'
 import { buildReportBreakdowns } from '@/utils/comparisonBreakdowns'
+import { buildShopDistributionEntries } from '@/utils/shopDistribution'
 
 export const SNAPSHOT_VERSION = 1
 
@@ -128,6 +132,10 @@ export function buildReportSnapshot({
       quantity: b.quantity,
       supplierCost: b.supplierCost,
       discount: b.discount,
+    },
+    shopDistribution: {
+      revenue: buildShopDistributionEntries(chartRecords, 'revenue'),
+      quantity: buildShopDistributionEntries(chartRecords, 'quantity'),
     },
     itemsByShop: normalizeItemsByShop(articleRecords),
     sections: {

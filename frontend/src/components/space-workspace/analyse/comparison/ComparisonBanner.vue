@@ -2,6 +2,7 @@
   <header class="cb" :aria-label="t('anCmpReportTitle')">
     <div class="cb__top">
       <button
+        v-if="!mobile"
         type="button"
         class="cb__ico cb__ico--edge"
         :aria-label="expandLabel"
@@ -10,6 +11,17 @@
         @click="emit('toggle-expand')"
       >
         <v-icon size="18">{{ layout === 'drawer' ? 'mdi-chevron-double-right' : 'mdi-chevron-double-left' }}</v-icon>
+      </button>
+      <!-- Mobile : pas de bouton d'extension, un bouton fermer toujours visible dans le bandeau. -->
+      <button
+        v-else
+        type="button"
+        class="cb__ico cb__ico--edge cb__ico--touch"
+        :aria-label="t('anCmpClose')"
+        :title="t('anCmpClose')"
+        @click="emit('close')"
+      >
+        <v-icon size="20">mdi-close</v-icon>
       </button>
       <h1 class="cb__title">{{ t('anCmpReportTitle') }}</h1>
       <span class="cb__spacer"></span>
@@ -51,7 +63,7 @@
       </button>
     </div>
     <div class="cb__sub">
-      <span class="cb__label">{{ label }}<template v-if="label"> · </template>{{ eventsText }}</span>
+      <span class="cb__label">{{ label }}<template v-if="label && showEventCount"> · </template><template v-if="showEventCount">{{ eventsText }}</template></span>
       <span class="cb__spacer"></span>
       <button type="button" class="cb__edit" @click="emit('edit')">
         <v-icon size="16">mdi-pencil-outline</v-icon>
@@ -72,6 +84,10 @@ const props = defineProps({
   label: { type: String, default: '' },
   // Nombre d'events du rapport de comparaison.
   eventCount: { type: Number, default: 0 },
+  // false : le libellé dit déjà le nombre d'events (type Événement), pas de répétition.
+  showEventCount: { type: Boolean, default: true },
+  // Mobile : bouton fermer à la place du bouton d'extension (qui n'a pas de sens en mobile).
+  mobile: { type: Boolean, default: false },
   // Disposition de la grille : 'split' | 'drawer' | 'main' (icône du bouton d'extension).
   layout: { type: String, default: 'split' },
   // États des trois actions : spinner et bouton inactif pendant l'opération.
@@ -81,7 +97,7 @@ const props = defineProps({
   // true : export CSV impossible (rapport en chargement ou en mise à jour).
   exportDisabled: { type: Boolean, default: false },
 })
-const emit = defineEmits(['toggle-expand', 'export-csv', 'copy', 'share', 'edit'])
+const emit = defineEmits(['toggle-expand', 'export-csv', 'copy', 'share', 'edit', 'close'])
 
 const { t } = useI18n()
 const expandLabel = computed(() => (props.layout === 'drawer' ? t('anCmpRestoreWidths') : t('anCmpExpandDrawer')))
@@ -133,6 +149,8 @@ const eventsText = computed(() => t('anCmpEventsCount').replace('{n}', String(pr
 .cb__ico:disabled { cursor: default; opacity: 0.55; }
 .cb__ico[aria-pressed='true'] { background: rgba(255, 255, 255, 0.28); }
 .cb__ico--edge { border: 1px solid rgba(255, 255, 255, 0.55); }
+/* Cible tactile d'au moins 44 px (bouton fermer mobile). */
+.cb__ico--touch { width: 44px; height: 44px; }
 .cb__sub {
   display: flex;
   align-items: center;

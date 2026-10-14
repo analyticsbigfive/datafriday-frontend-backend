@@ -366,6 +366,73 @@ const configShopEntryCache = new Map() // `${spaceId}::${configId}` → Promise<
 
 export function resetConfigShopEntryCache() {
   configShopEntryCache.clear()
+  comparisonShopEntryCache.clear()
+}
+
+/**
+ * Fusion PURE d'entrées de contexte PdV (une par configuration) en une union : floorElements
+ * dédupliqués par NOM (un même PdV peut figurer dans plusieurs configs), union des assignations
+ * et de assignmentItemsByShop (articles dédupliqués par id). Partagée par l'union
+ * « All Configurations » et par le contexte de réconciliation du drawer Comparaison.
+ */
+export function mergeShopEntries(entries) {
+  const floorElements = []
+  const seenShopName = new Set()
+  const mergedMenuItems = {}
+  const assignmentItemsByShop = new Map()
+  for (const e of entries) {
+    if (!e) continue
+    for (const el of e.floorElements || []) {
+      const k = normalizeStr(el?.name)
+      if (k && seenShopName.has(k)) continue
+      if (k) seenShopName.add(k)
+      floorElements.push(el)
+    }
+    const mi = e.assignment?.menuItems || e.assignment || {}
+    for (const [elId, obj] of Object.entries(mi)) {
+      mergedMenuItems[elId] = { ...(mergedMenuItems[elId] || {}), ...(obj || {}) }
+    }
+    const ibs = e.assignmentItemsByShop
+    if (ibs instanceof Map) {
+      for (const [k, items] of ibs.entries()) {
+        const prev = assignmentItemsByShop.get(k) || []
+        const seenItem = new Set(prev.map((it) => String(it?.id ?? it?.name)))
+        const merged = prev.slice()
+        for (const it of items || []) {
+          const id = String(it?.id ?? it?.name)
+          if (id && !seenItem.has(id)) { seenItem.add(id); merged.push(it) }
+        }
+        assignmentItemsByShop.set(k, merged)
+      }
+    }
+  }
+  return { floorElements, assignment: { menuItems: mergedMenuItems }, assignmentItemsByShop }
+}
+
+/**
+ * Contexte PdV d'UNE configuration pour le drawer Comparaison, en LECTURE SEULE :
+ * aucun commit (pas de SET_SPACE_SHOPS_ROWS, pas de configShopContext), donc le
+ * principal n'est jamais touché. Cache propre (Promise par espace + config), purgé avec
+ * resetConfigShopEntryCache ; une entrée dont le batch d'articles a échoué n'est pas gardée.
+ */
+const comparisonShopEntryCache = new Map()
+
+export function buildConfigShopEntryReadOnly(spaceId, configId, { state, dispatch, rootGetters }) {
+  const key = `${spaceId}::${configId}`
+  const hit = comparisonShopEntryCache.get(key)
+  if (hit) return hit
+  const p = buildConfigShopEntry(spaceId, configId, { state, dispatch, commit: null, rootGetters }).then(
+    (entry) => {
+      if (entry?._batchFailed) comparisonShopEntryCache.delete(key)
+      return entry
+    },
+    (err) => {
+      comparisonShopEntryCache.delete(key)
+      throw err
+    },
+  )
+  comparisonShopEntryCache.set(key, p)
+  return p
 }
 
 function buildConfigShopEntryCached(spaceId, configId, ctx) {
@@ -736,6 +803,22 @@ const getters = {
       })
     }
     return evs
+  },
+
+  // Events de TOUT l'espace pour le drawer Comparaison : aucun scope de configuration
+  // (la comparaison peut viser un event d'une autre configuration que celle du principal),
+  // mêmes règles de date que analysableEvents (events à venir exclus en mode analyse).
+  // Le principal garde analysableEvents : ce getter ne le modifie pas.
+  spaceAnalysableEvents(state) {
+    const tb = state.selectedToolbox || 'analyse'
+    const evs = state.events || []
+    if (tb !== 'analyse') return evs
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    return evs.filter((e) => {
+      const d = eventDateOf(e)
+      return !d || d <= today
+    })
   },
 
   // Plage de dates effective selon timeRange
@@ -1924,47 +2007,16 @@ const actions = {
           }
         },
       )
-      // Merge : floorElements (dédupliqués par NOM — un même PdV peut être dans plusieurs
-      // configs) + union assignations {menuItems:{el:{mi:bool}}} + union assignmentItemsByShop
-      // (par nom de PdV, articles dédupliqués par id).
-      const mergedFloorElements = []
-      const seenShopName = new Set()
-      const mergedMenuItems = {}
-      const mergedItemsByShop = new Map()
-      for (const e of entries) {
-        for (const el of e.floorElements || []) {
-          const k = normalizeStr(el?.name)
-          if (k && seenShopName.has(k)) continue
-          if (k) seenShopName.add(k)
-          mergedFloorElements.push(el)
-        }
-        const mi = e.assignment?.menuItems || e.assignment || {}
-        for (const [elId, obj] of Object.entries(mi)) {
-          mergedMenuItems[elId] = { ...(mergedMenuItems[elId] || {}), ...(obj || {}) }
-        }
-        const ibs = e.assignmentItemsByShop
-        if (ibs instanceof Map) {
-          for (const [k, items] of ibs.entries()) {
-            const prev = mergedItemsByShop.get(k) || []
-            const seenItem = new Set(prev.map((it) => String(it?.id ?? it?.name)))
-            const merged = prev.slice()
-            for (const it of items || []) {
-              const id = String(it?.id ?? it?.name)
-              if (id && !seenItem.has(id)) { seenItem.add(id); merged.push(it) }
-            }
-            mergedItemsByShop.set(k, merged)
-          }
-        }
-      }
+      const merged = mergeShopEntries(entries)
       if (stale()) return
       commit('SET_CONFIG_SHOP_CONTEXT', {
         configId: null,
-        floorElements: mergedFloorElements,
-        assignment: { menuItems: mergedMenuItems },
-        assignmentItemsByShop: mergedItemsByShop,
+        floorElements: merged.floorElements,
+        assignment: merged.assignment,
+        assignmentItemsByShop: merged.assignmentItemsByShop,
       })
       console.log(
-        `[perf] allConfigsCtx ${Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _t0)}ms — ${configs.length} config(s), ${mergedFloorElements.length} PdV`,
+        `[perf] allConfigsCtx ${Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _t0)}ms — ${configs.length} config(s), ${merged.floorElements.length} PdV`,
       )
     } catch (err) {
       // Même logique que loadConfigShopContext : une vraie panne doit peupler

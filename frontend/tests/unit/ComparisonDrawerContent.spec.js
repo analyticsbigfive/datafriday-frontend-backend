@@ -27,6 +27,7 @@ const MAIN = { timeRange: 'last12months', startDate: null, endDate: null, temper
 const lightStub = (name, cls) => ({ name, props: { records: Array, events: Array, deltas: Object, trend: Array, readonly: Boolean, embedded: Boolean, isPredictMode: Boolean, dimensionsIndex: null, dimensionsStatus: String, status: String, mode: String }, template: `<div class="${cls}" />` })
 const stubs = {
   EventRevenueByShopChart: lightStub('EventRevenueByShopChart', 'stub-chart'),
+  ShopDistributionPieChart: lightStub('ShopDistributionPieChart', 'stub-shopdist'),
   MenuItemRevenueDistribution: lightStub('MenuItemRevenueDistribution', 'stub-dist'),
   PromotionSection: lightStub('PromotionSection', 'stub-promo'),
   MenuItemsByShopTable: lightStub('MenuItemsByShopTable', 'stub-table'),
