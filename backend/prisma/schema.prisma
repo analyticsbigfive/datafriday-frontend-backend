@@ -2813,6 +2813,14 @@ model Event {
   // transactions arrivent sans événement) : celui-là reste isSimulated=false.
   isSimulated Boolean @default(false)
 
+  // Météo à l'heure du show (Open-Meteo archive), remplie par le job de nuit à J+1 puis
+  // figée. weatherFetchedAt = dernière tentative (même infructueuse, cf. EventWeatherFillService) ;
+  // weatherCode = code WMO ; temperatureC = °C arrondi à 0,1. Remis à null si la date, les
+  // sessions ou l'espace de l'event changent.
+  weatherCode      Int?
+  temperatureC     Float?
+  weatherFetchedAt DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
