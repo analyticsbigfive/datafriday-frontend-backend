@@ -8,7 +8,6 @@
         :config="cardByKey.revenuePerTpe"
         :loading="rendement.revenuePerTpe.loading"
         :value="rendement.revenuePerTpe.value"
-        :detail="rendement.revenuePerTpe.subtext"
         :warning="rendement.revenuePerTpe.warning || ''"
         @click="$emit('open-chart', 'revenue-per-tpe')"
       />
@@ -18,7 +17,6 @@
         :config="cardByKey.revenuePerCollaborator"
         :loading="rendement.revenuePerCollaborator.loading"
         :value="rendement.revenuePerCollaborator.value"
-        :detail="rendement.revenuePerCollaborator.subtext"
         :warning="rendement.revenuePerCollaborator.warning || ''"
         @click="$emit('open-chart', 'revenue-per-collaborator')"
       />
@@ -48,7 +46,6 @@
         :config="cardByKey.stockValue"
         :loading="rendement.stockValue.loading"
         :value="rendement.stockValue.value"
-        :detail="rendement.stockValue.subtext"
         :warning="rendement.stockValue.warning || ''"
         @click="$emit('open-chart', 'stock-value')"
       />
@@ -110,7 +107,7 @@ const NO_VALUE = '—'
 
 const marginLabel = computed(() => {
   const m = props.metrics.displayMargin?.value
-  return m == null ? NO_VALUE : `${m.toFixed(1)}%`
+  return m == null ? NO_VALUE : `${formatDecimal(m, 1, { pad: true })}%`
 })
 
 const marginSubtext = computed(() => {
@@ -135,24 +132,30 @@ const transactionRateSubtext = computed(() => t('anKpiTxRateScope'))
 </script>
 
 <style scoped>
-/* Desktop (>= 960 px) : les 5 widgets tiennent sur UNE ligne ; si la place manque
-   (colonne de filtres + résumé ouverts), la ligne défile horizontalement plutôt que
-   de passer à la ligne. Chaque carte garde une largeur minimale lisible. */
-@media (min-width: 960px) {
+/* >= 600 px : les 5 widgets sur UNE ligne, même largeur et même hauteur (retour
+   Bertrand 2026-10-14 : alignement). Si la place manque (filtres + résumé ouverts),
+   la ligne défile horizontalement au lieu de passer à la ligne. */
+@media (min-width: 601px) {
   .fmg-row {
     flex-wrap: nowrap;
     overflow-x: auto;
     padding-bottom: 4px;
   }
   .fmg-row > :deep(.fmg-col) {
-    flex: 1 0 200px;
+    flex: 1 1 0;
+    min-width: 150px;
     max-width: none;
     width: auto;
+    display: flex;
+  }
+  .fmg-row > :deep(.fmg-col > .kpi-card) {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 }
 
 /* Téléphone : KPIs en scroll horizontal (maquette Live de Bertrand) au lieu d'empiler en
-   4 cartes pleine largeur. Chaque KPI garde une largeur lisible, on défile latéralement. */
+   cartes pleine largeur. Chaque KPI garde une largeur lisible, on défile latéralement. */
 @media (max-width: 600px) {
   .fmg-row {
     flex-wrap: nowrap;
