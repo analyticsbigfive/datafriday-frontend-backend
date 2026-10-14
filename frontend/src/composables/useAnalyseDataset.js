@@ -64,7 +64,14 @@ const cancelIdle =
     ? (id) => window.cancelIdleCallback(id)
     : (id) => clearTimeout(id)
 
-export function useAnalyseDataset(sources) {
+/**
+ * @param {object} sources  refs sources (voir plus bas)
+ * @param {{ standalone?: boolean }} [options]  standalone : dataset d'un AUTRE rapport (drawer
+ *   Comparaison). Il n'est JAMAIS publié dans le store (le dataset du store appartient au
+ *   rapport principal et à l'assistant), aucune planification en idle, aucun effet de bord :
+ *   `ensureDataset()` reconstruit à chaque appel et renvoie le dataset sans le mémoriser.
+ */
+export function useAnalyseDataset(sources, { standalone = false } = {}) {
   const store = useStore()
   // `locale` entre dans la signature : les titres de tables et les en-têtes de
   // colonnes sont résolus À LA CONSTRUCTION. Sans lui, un dataset bâti en
@@ -576,6 +583,14 @@ export function useAnalyseDataset(sources) {
    * @returns {object} le dataset publié
    */
   function ensureDataset() {
+    if (standalone) {
+      return {
+        signature: signature.value,
+        spaceName: spaceName.value,
+        isPredict: !!isPredictMode.value,
+        tables: buildTables(),
+      }
+    }
     const current = store.state.analyse.dataset
     if (current && current.signature === signature.value) return current
     building.value = true
@@ -623,7 +638,7 @@ export function useAnalyseDataset(sources) {
     }, DEBOUNCE_MS)
   }
 
-  watch(
+  if (!standalone) watch(
     [signature, busy],
     ([, isBusy]) => {
       // Le dataset publié ne doit jamais survivre au changement qui l'invalide :
@@ -639,7 +654,7 @@ export function useAnalyseDataset(sources) {
     { immediate: true },
   )
 
-  onBeforeUnmount(() => {
+  if (!standalone) onBeforeUnmount(() => {
     cancelPending()
     store.commit('analyse/SET_ANALYSE_DATASET', null)
   })

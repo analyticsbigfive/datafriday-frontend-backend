@@ -12,8 +12,10 @@
            | résumé. Le repli gauche est piloté par `drawer` (toggle du bandeau
            rouge), la colonne droite par `summaryDrawer`. -->
       <div
+        ref="anBodyRef"
         class="an-body"
-        :class="{ 'an-side-collapsed': !drawer, 'an-summary-collapsed': !summaryDrawer, 'an-live': isLive }"
+        :class="[{ 'an-side-collapsed': !drawer, 'an-summary-collapsed': !summaryDrawer, 'an-live': isLive }, comparison.gridClasses.value]"
+        @transitionend="comparison.onGridTransitionEnd"
       >
         <FilterPanel
           ref="filterPanelRef"
@@ -30,6 +32,15 @@
           <!-- Bloc sticky : bandeau ROUGE (titre + période/comparaison) PUIS la
                rangée de tags sur fond NEUTRE (hors du rouge). -->
           <div class="av-sticky">
+            <!-- Mobile, drawer Comparaison ouvert : sélecteur Principal | Comparaison au sommet
+                 de la vue principale (l'autre exemplaire est dans le drawer). -->
+            <div v-if="comparison.open.value && isComparisonMobile" class="av-cmp-mswitch">
+              <ComparisonMobileSwitch
+                :model-value="comparison.mobileView.value"
+                :shown="comparison.mobileView.value === 'main'"
+                @update:model-value="comparison.setMobileView($event)"
+              />
+            </div>
             <div class="av-header">
               <!-- Ligne 1 : [Espace] : Analyse ......... [Copier] [Partager] -->
               <div class="av-header__row1 d-flex align-center ga-2">
@@ -59,7 +70,8 @@
                 >
                   <v-icon size="20">mdi-filter-variant</v-icon>
                 </button>
-                <h1 class="av-header__title av-header__title--desktop">{{ desktopTitle }}</h1>
+                <h1 class="av-header__title av-header__title--desktop">{{ comparison.open.value ? t('anCmpMainTitle') : desktopTitle }}</h1>
+                <span v-if="comparison.open.value" class="av-header__rtag">{{ t('anCmpMainTag') }}</span>
                 <!-- Titre mobile (maquette Bertrand) : nom d'outil en gros + sous-titre event. -->
                 <div class="av-header__title-mobile">
                   <span class="av-header__title-mobile__main">{{ mobileToolName }}</span>
@@ -104,6 +116,19 @@
                 <!-- Actions desktop (copier/partager/PDF/export). Sur téléphone, remplacées
                      par un menu ⋮ unique (cf. .av-header__actions--desktop @media). -->
                 <div class="av-header__actions av-header__actions--desktop d-flex align-center">
+                <button
+                  v-if="selectedToolbox === 'analyse' && !isLive"
+                  v-can="'stats.financial.view'"
+                  type="button"
+                  class="av-cmp-btn"
+                  :aria-pressed="comparison.open.value"
+                  :title="t('anCmpButtonTip')"
+                  :aria-label="t('anCmpButtonTip')"
+                  @click="comparison.openDrawer()"
+                >
+                  <v-icon size="18">mdi-compare</v-icon>
+                  <span class="av-cmp-btn__lbl">{{ t('anCmpButton') }}</span>
+                </button>
                 <v-btn
                   icon
                   variant="text"
@@ -191,11 +216,33 @@
                     </v-list-item>
                   </v-list>
                 </v-menu>
+                <button
+                  v-if="comparison.open.value"
+                  type="button"
+                  class="av-cmp-edge"
+                  :aria-label="comparison.layout.value === 'main' ? t('anCmpRestoreWidths') : t('anCmpExpandMain')"
+                  :title="comparison.layout.value === 'main' ? t('anCmpRestoreWidths') : t('anCmpExpandMain')"
+                  :aria-pressed="comparison.layout.value === 'main'"
+                  @click="comparison.toggleExpandMain()"
+                >
+                  <v-icon size="18">{{ comparison.layout.value === 'main' ? 'mdi-chevron-double-left' : 'mdi-chevron-double-right' }}</v-icon>
+                </button>
                 </div>
 
                 <!-- Mobile (hors Live) : funnel = ouvre le panneau de filtres (config, events…)
                      en overlay depuis la DROITE. Placé juste avant le ▶ (demande Bertrand).
                      En Live, filtres gelés (timeRange=all) → masqué. -->
+                <button
+                  v-if="selectedToolbox === 'analyse' && !isLive"
+                  v-can="'stats.financial.view'"
+                  type="button"
+                  class="av-mobile-filter-trigger av-mobile-cmp-trigger"
+                  :aria-label="t('anCmpButtonTip')"
+                  :aria-pressed="comparison.open.value"
+                  @click="comparison.openDrawer()"
+                >
+                  <v-icon size="20">mdi-compare</v-icon>
+                </button>
                 <button
                   v-if="!isLive"
                   type="button"
@@ -244,6 +291,11 @@
                     </button>
                   </template>
                   <v-list density="compact">
+                    <ComparisonMenuItem
+                      v-if="selectedToolbox === 'analyse'"
+                      v-can="'stats.financial.view'"
+                      @open="comparison.openDrawer()"
+                    />
                     <v-list-item :disabled="copying" @click="onCopy">
                       <template #prepend><v-icon size="18">mdi-content-copy</v-icon></template>
                       <v-list-item-title>{{ t('anCopyImage') }}</v-list-item-title>
@@ -280,6 +332,7 @@
                   :comparison-window="comparisonWindowLabel"
                   :time-range="filters.timeRange"
                   :date-range-items="dateRangeItems"
+                  :locked="comparisonLocked"
                   @update:comparison-mode="(v) => setFilterImmediate('comparisonMode', v)"
                   @update:time-range="(v) => setFilterImmediate('timeRange', v)"
                 />
@@ -355,8 +408,9 @@
           <div class="av-mkpi__label">{{ kpi.label }}</div>
           <div class="av-mkpi__value">
             {{ kpi.value }}
+            <DeltaPill v-if="kpi.delta" :delta="kpi.delta" size="sm" class="av-mkpi__delta" />
             <span
-              v-if="kpi.variation != null"
+              v-else-if="kpi.variation != null"
               class="av-mkpi__var"
               :class="{ 'av-mkpi__var--bad': kpiVarBad(kpi) }"
             >{{ kpi.variation >= 0 ? '▲' : '▼' }}{{ Math.abs(kpi.variation).toFixed(1) }}%</span>
@@ -499,6 +553,7 @@
             :summary="itemSummary"
             :source-state="kpiSourceState"
             :rendement="rendementCards"
+            :deltas="widgetDeltas"
             @open-chart="onOpenChart"
           />
 
@@ -661,6 +716,7 @@
               :records="articleRecords"
               :loading="itemRecordsLoading || (isPredictMode && predictionsGenerating)"
               :missing-events-count="predictEventsWithoutScenarioCount"
+              :deltas="mainDeltas"
               @item-click="(v) => toggleArrayFilter('selectedMenuItemIds', v)"
               @type-click="(v) => toggleArrayFilter('selectedMenuItemTypes', v)"
               @category-click="(v) => toggleArrayFilter('selectedMenuItemCategories', v)"
@@ -679,6 +735,7 @@
               :dimensions-index="articleDimensionsIndex"
               :status="articleDimensionsStatus"
               :mode="distributionMode"
+              :deltas="mainDeltas"
               @promotion-click="(v) => toggleArrayFilter('selectedPromotions', v)"
               @promotion-type-click="(v) => toggleArrayFilter('selectedPromotionTypes', v)"
             />
@@ -687,6 +744,7 @@
               :records="articleRecords"
               :loading="itemRecordsLoading || (isPredictMode && predictionsGenerating)"
               :missing-events-count="predictEventsWithoutScenarioCount"
+              :deltas="mainDeltas"
               @events-click="onTableEventsClick"
             />
           </template>
@@ -702,6 +760,8 @@
             :label="activeFilterEditor.label"
             :items="activeFilterEditor.items"
             :model-value="activeFilterEditor.selected"
+            :label-fn="activeFilterEditor.labelFn"
+            :icon-fn="activeFilterEditor.iconFn"
             @update:model-value="(v) => setFilterImmediate(activeFilterDimension, v)"
             @close="activeFilterDimension = null"
           />
@@ -719,6 +779,32 @@
             @item-click="(v) => toggleArrayFilterMany('selectedMenuItemIds', v)"
           />
         </div>
+
+        <!-- 4e colonne : drawer Comparaison (desktop). Absent du DOM tant qu'il est fermé. -->
+        <ComparisonDrawer
+          v-if="comparison.open.value"
+          class="an-cmp-col"
+          :layout="comparison.layout.value"
+          :report-mode="comparison.view.value !== 'form'"
+          :mobile="isComparisonMobile"
+          :mobile-view="comparison.mobileView.value"
+          @update:mobile-view="comparison.setMobileView($event)"
+          @close="comparison.closeDrawer()"
+          @toggle-expand="comparison.toggleExpandDrawer()"
+        >
+          <template #head><ComparisonDrawerHead :runtime="comparisonRuntime" /></template>
+          <ComparisonDrawerContent
+            :comparison="comparison"
+            :form="comparisonForm"
+            :runtime="comparisonRuntime"
+            :exporting="comparisonExporting"
+            :copying="comparisonCopying"
+            :sharing="comparisonSharing"
+            @export-csv="onComparisonExportCsv"
+            @copy="onComparisonCopy"
+            @share="onComparisonShare"
+          />
+        </ComparisonDrawer>
       </div>
     </v-main>
 
@@ -763,6 +849,7 @@
       :timeout="2500"
       location="bottom right"
       :color="snackbarColor"
+      :z-index="3100"
     >
       {{ snackbarText }}
     </v-snackbar>
@@ -812,6 +899,22 @@ import AggregationGapAlert from '../AggregationGapAlert.vue'
 import { useAggregationGap } from '@/composables/useAggregationGap'
 
 import { useFilters } from '@/composables/useFilters'
+import { useComparisonSession } from '@/composables/useComparisonSession'
+import { resolveDimensionEditor } from '@/utils/dimensionEditor'
+import { useComparisonDrawer } from '@/composables/useComparisonDrawer'
+import { useComparisonExport } from '@/composables/useComparisonExport'
+import { useComparisonCapture } from '@/composables/useComparisonCapture'
+import ComparisonDrawer from '@/components/space-workspace/analyse/comparison/ComparisonDrawer.vue'
+import ComparisonDrawerContent from '@/components/space-workspace/analyse/comparison/ComparisonDrawerContent.vue'
+import ComparisonMobileSwitch from '@/components/space-workspace/analyse/comparison/ComparisonMobileSwitch.vue'
+import ComparisonMenuItem from '@/components/space-workspace/analyse/comparison/ComparisonMenuItem.vue'
+import { useComparisonSwipe } from '@/composables/useComparisonSwipe'
+import ComparisonDrawerHead from '@/components/space-workspace/analyse/comparison/ComparisonDrawerHead.vue'
+import { useComparisonRuntime } from '@/composables/useComparisonRuntime'
+import { useMainReportSnapshot } from '@/composables/useMainReportSnapshot'
+import { getDefaultTimeRange } from '@/store/modules/analyse'
+import { useComparisonForm } from '@/composables/useComparisonForm'
+import DeltaPill from '@/components/space-workspace/shared/DeltaPill.vue'
 import { useArticleDimensions } from '@/composables/useArticleDimensions'
 import { useRendementWidgets } from '@/composables/useRendementWidgets'
 import { hasArticleDimensionFilter } from '@/utils/articleDimensionFilter'
@@ -819,6 +922,7 @@ import { useMetricsCalculator } from '@/composables/useMetricsCalculator'
 import { useShopPerformance } from '@/composables/useShopPerformance'
 import { useAnalyseTimeline } from '@/composables/useAnalyseTimeline'
 import { useAnalyseItemRecords, ITEM_LEVEL_EVENT_CAP } from '@/composables/useAnalyseItemRecords'
+import { computeItemTotals, buildVariations } from '@/utils/analyseVariations'
 import { pickRevenueRecords, resolveKpiSourceState } from '@/utils/analyseRevenueSource'
 import { useAnalyseCapture } from '@/composables/useAnalyseCapture'
 import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
@@ -846,7 +950,7 @@ import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
 import { sumShopTransactionRates } from '@/utils/shopPerformanceCompute'
 import { useI18n } from '@/i18n/useI18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 // Format % localisé (« 47,0 % » fr / « 47.0% » en) — règle BUG-240.
 const { formatPercentLocale, formatDecimal } = useNumberFormat()
 
@@ -854,7 +958,9 @@ const route = useRoute()
 const router = useRouter()
 // Sur mobile / tablette, les drawers de filtre + résumé doivent être fermés
 // par défaut pour ne pas masquer le contenu (cf. version Figma responsive).
-const { mdAndDown } = useDisplay()
+const { mdAndDown, width: viewportWidth } = useDisplay()
+// Palier mobile du drawer Comparaison : celui de la grille .an-body (max-width: 900px).
+const isComparisonMobile = computed(() => viewportWidth.value <= 900)
 
 // Nav entre outils du workspace : drawer mobile « Outils » (☰), pattern Logistic.
 const showMobileToolDrawer = ref(false)
@@ -870,6 +976,21 @@ const drawer = ref(!mdAndDown.value)
 // Panneau « Analyse des données » : ouvert par défaut sur desktop, fermé
 // sur mobile/tablette. Les sections internes sont repliables via accordéon.
 const summaryDrawer = ref(!mdAndDown.value)
+
+// Drawer Comparaison (desktop) : état, disposition, repli/restauration des deux panneaux.
+const comparison = useComparisonDrawer({ leftOpen: drawer, summaryOpen: summaryDrawer })
+// Swipe horizontal principal <-> comparaison (mobile, drawer ouvert, aucun overlay filtres / résumé).
+const anBodyRef = ref(null)
+const comparisonSwipeEnabled = computed(
+  () => comparison.open.value && !drawer.value && !summaryDrawer.value
+)
+useComparisonSwipe({
+  target: anBodyRef,
+  open: comparisonSwipeEnabled,
+  isMobile: isComparisonMobile,
+  mobileView: comparison.mobileView,
+  setMobileView: comparison.setMobileView,
+})
 
 // ── Mode Live retiré d'AnalyseView à la bascule finale (/live rend désormais
 // LiveView.vue, cf. router). AnalyseView ne sert plus QUE la route Analyse, donc
@@ -907,6 +1028,17 @@ const {
   toggleArrayFilterMany,
   resetFilters,
 } = useFilters()
+
+// Formulaire du drawer Comparaison (brouillon conservé fermeture comprise ; vérification
+// Predict uniquement drawer ouvert).
+const comparisonForm = useComparisonForm({
+  mainFilters: filters,
+  mainEvents: filteredEvents,
+  spaceId: computed(() => route.params.spaceId || null),
+  translate: t,
+  locale,
+  enabled: comparison.open,
+})
 
 // Dimensions article rendement (marque, industriel, fournisseur, promotion) : une requête
 // par espace, mise en cache. Pas de chargement sans la permission financière (comme les
@@ -1398,59 +1530,6 @@ watch(() => filters.value.timeRange, (tr) => {
   }
 })
 
-function itemTotals(records, events, idSet) {
-  const costMap = store.state.analyse.menuItemCostMap || {}
-  let revenue = 0, cost = 0, transactions = 0, attendees = 0
-  // Parité React (validEventCount) : moyennes par event divisées par les
-  // events AVEC CA (> 0) — un event sans ventes ne dilue pas la moyenne.
-  // BUG-284 : revByEvent rempli dans LA MÊME passe que les totaux (avant : 2ᵉ
-  // boucle complète sur records) — mêmes accumulations, même ordre, résultat
-  // identique au bit près, une passe au lieu de deux par appel (×3 appels).
-  const revByEvent = new Map()
-  for (const r of records) {
-    if (!idSet.has(r.eventId)) continue
-    revenue += r.revenue || 0
-    cost += (costMap[r.menuItemId] || 0) * (r.quantity || 0)
-    transactions += r.transactionCount || 0
-    revByEvent.set(r.eventId, (revByEvent.get(r.eventId) || 0) + (r.revenue || 0))
-  }
-  for (const e of events) {
-    if (!idSet.has(e.id)) continue
-    attendees += e.ticketsScanned ?? e.attendees ?? e.ticketsSold ?? 0
-  }
-  const eventCount = idSet.size
-  let validEventCount = 0
-  for (const v of revByEvent.values()) if (v > 0) validEventCount++
-  return {
-    revenue, cost, transactions, attendees, eventCount, validEventCount,
-    avgRevenuePerEvent: validEventCount ? revenue / validEventCount : 0,
-    avgCost: validEventCount ? cost / validEventCount : 0,
-    avgPerTransaction: transactions ? revenue / transactions : 0,
-    perCapita: attendees ? revenue / attendees : 0,
-    margin: revenue ? ((revenue - cost) / revenue) * 100 : 0,
-    transferRate: attendees ? (transactions / attendees) * 100 : 0,
-  }
-}
-function buildVar(curr, prev) {
-  if (!prev || !prev.eventCount) return {}
-  const pct = (c, p) => (p ? ((c - p) / p) * 100 : null)
-  return {
-    revenue: pct(curr.revenue, prev.revenue),
-    avgRevenuePerEvent: pct(curr.avgRevenuePerEvent, prev.avgRevenuePerEvent),
-    cost: pct(curr.cost, prev.cost),
-    avgCost: pct(curr.avgCost, prev.avgCost),
-    transactions: pct(curr.transactions, prev.transactions),
-    avgPerTransaction: pct(curr.avgPerTransaction, prev.avgPerTransaction),
-    perCapita: pct(curr.perCapita, prev.perCapita),
-    // Parité stricte avec buildVariations (store) — headerVariation lit
-    // avgTransaction et attendees.
-    avgTransaction: pct(curr.avgPerTransaction, prev.avgPerTransaction),
-    attendees: pct(curr.attendees, prev.attendees),
-    // Marge = points de % (parité React) ; transfo = pct diff des TAUX.
-    margin: curr.margin - prev.margin,
-    transferRate: pct(curr.transferRate, prev.transferRate),
-  }
-}
 // Summary branché sur le grid KPI : variations item-level en mode analyse (dès que
 // l'item-level est chargé), sinon summary store (shop-level). Variations masquées
 // tant que l'item-level des périodes de comparaison charge (évite un faux « -100% »).
@@ -1484,12 +1563,13 @@ const itemSummary = computed(() => {
   // Côté COURANT = filteredEvents (déjà bornés par le preset daté ; en 'all'
   // la comparaison est désactivée — parité React).
   const curIds = withLoaded(new Set(filteredEvents.value.map((e) => e.id)), mainLoadedEventIds.value)
-  const cur = itemTotals(itemLevelRecords.value, filteredEvents.value, curIds)
-  const prev = itemTotals(kept, eventsBase,
-    withLoaded(idsInBounds(store.getters['analyse/previousPeriodBounds']), comparisonLoadedEventIds.value))
-  const yoy = itemTotals(kept, eventsBase,
-    withLoaded(idsInBounds(store.getters['analyse/yearOverYearBounds']), comparisonLoadedEventIds.value))
-  return { ...base, variations: buildVar(cur, prev), variationsYoY: buildVar(cur, yoy) }
+  const costMap = store.state.analyse.menuItemCostMap || {}
+  const cur = computeItemTotals(itemLevelRecords.value, filteredEvents.value, curIds, costMap)
+  const prev = computeItemTotals(kept, eventsBase,
+    withLoaded(idsInBounds(store.getters['analyse/previousPeriodBounds']), comparisonLoadedEventIds.value), costMap)
+  const yoy = computeItemTotals(kept, eventsBase,
+    withLoaded(idsInBounds(store.getters['analyse/yearOverYearBounds']), comparisonLoadedEventIds.value), costMap)
+  return { ...base, variations: buildVariations(cur, prev), variationsYoY: buildVariations(cur, yoy) }
 })
 
 // Fermeture demandée par utilisateur : revenir à vue overview complète.
@@ -1760,6 +1840,16 @@ function headerVariation(key) {
   return raw == null || !Number.isFinite(raw) ? null : raw
 }
 
+// Écarts du rapport Comparaison (drawer) : remplacent Précédent / N-1 quand un rapport est
+// chargé (décision 4). Null tant qu'aucun rapport n'est chargé : rien ne change.
+const {
+  mainDeltas,
+  isActive: comparisonLocked,
+  chipDeltas,
+  widgetDeltas,
+} = useComparisonSession()
+const chipDelta = (key) => chipDeltas.value?.[key] || null
+
 const headerKpis = computed(() => {
   const m = metrics
   // BUG-350-01 — la bande KPI du header suit la même règle que les tuiles : tant
@@ -1770,22 +1860,29 @@ const headerKpis = computed(() => {
   const trans = m.displayTransactions?.value ?? 0
   const att = m.displayAttendees?.value ?? 0
   return [
-    { label: t('anHeaderKpiRevenue'), kind: 'revenue', value: formatCurrency(rev), color: '#10B981', variation: headerVariation('revenue') },
-    { label: t('anHeaderKpiAvgPerEvent'), kind: 'avg-revenue', value: formatCurrency(m.displayAvgRevenue?.value ?? 0), color: '#F97316', variation: headerVariation('avgRevenuePerEvent') },
-    { label: t('anHeaderKpiCost'), kind: 'cost', value: formatCurrencyDetailed(m.displayCost?.value ?? 0), color: '#ff3131', variation: headerVariation('cost'), invert: true },
-    { label: t('anHeaderKpiTransactions'), kind: 'transactions', value: formatNumber(trans), color: '#3B82F6', variation: headerVariation('transactions') },
+    { label: t('anHeaderKpiRevenue'), kind: 'revenue', value: formatCurrency(rev), color: '#10B981', variation: headerVariation('revenue'), delta: chipDelta('revenue') },
+    { label: t('anHeaderKpiAvgPerEvent'), kind: 'avg-revenue', value: formatCurrency(m.displayAvgRevenue?.value ?? 0), color: '#F97316', variation: headerVariation('avgRevenuePerEvent'), delta: chipDelta('avgRevenuePerEvent') },
+    { label: t('anHeaderKpiCost'), kind: 'cost', value: formatCurrencyDetailed(m.displayCost?.value ?? 0), color: '#ff3131', variation: headerVariation('cost'), delta: chipDelta('cost'), invert: true },
+    { label: t('anHeaderKpiTransactions'), kind: 'transactions', value: formatNumber(trans), color: '#3B82F6', variation: headerVariation('transactions'), delta: chipDelta('transactions') },
     // Locale-aware (règle BUG-240 « plus jamais de fr-FR en dur ») : ces trois
     // valeurs suivaient le format français même en interface anglaise.
-    { label: t('anHeaderKpiBasket'), kind: 'avg-trans', value: formatCurrencyDetailed(trans ? rev / trans : 0), color: '#A855F7', variation: headerVariation('avgTransaction') },
-    { label: t('anHeaderKpiAttendees'), kind: 'attendees', value: formatNumber(att), color: '#0EA5E9', variation: headerVariation('attendees') },
-    { label: t('anHeaderKpiTransformation'), kind: 'transformation', value: att ? formatPercentLocale((trans / att) * 100, 1) : '—', color: '#14B8A6', variation: headerVariation('transferRate') },
-    { label: t('anHeaderKpiPerCap'), kind: 'percap', value: formatCurrencyDetailed(m.displayPerCapita?.value ?? 0), color: '#EC4899', variation: headerVariation('perCapita') },
+    { label: t('anHeaderKpiBasket'), kind: 'avg-trans', value: formatCurrencyDetailed(trans ? rev / trans : 0), color: '#A855F7', variation: headerVariation('avgTransaction'), delta: chipDelta('avgTransaction') },
+    { label: t('anHeaderKpiAttendees'), kind: 'attendees', value: formatNumber(att), color: '#0EA5E9', variation: headerVariation('attendees'), delta: chipDelta('attendees') },
+    { label: t('anHeaderKpiTransformation'), kind: 'transformation', value: att ? formatPercentLocale((trans / att) * 100, 1) : '—', color: '#14B8A6', variation: headerVariation('transferRate'), delta: chipDelta('transferRate') },
+    { label: t('anHeaderKpiPerCap'), kind: 'percap', value: formatCurrencyDetailed(m.displayPerCapita?.value ?? 0), color: '#EC4899', variation: headerVariation('perCapita'), delta: chipDelta('perCapita') },
   ]
 })
 
 // Bande KPI MOBILE fusionnée en UNE seule ligne (demande Bertrand) : les 8 stats du header
 // + les 2 KPIs uniques du FinancialMetricsGrid (MARGE, TX/MIN) — CA/PER CAP y sont déjà, on ne
 // duplique pas. Le FMG est masqué sur mobile (cf. @media), remplacé par cette bande.
+const RENDEMENT_DELTA_KEYS = {
+  'revenue-per-tpe': 'tpe',
+  'revenue-per-collaborator': 'collaborator',
+  'stock-value': 'stock',
+}
+const rendementKpiDelta = (kind) => widgetDeltas.value?.[RENDEMENT_DELTA_KEYS[kind]] || null
+
 const mobileKpiStrip = computed(() => {
   const base = headerKpis.value
   if (!base.length) return []
@@ -1799,6 +1896,7 @@ const mobileKpiStrip = computed(() => {
       value: marginVal == null ? '—' : `${marginVal.toFixed(1)}%`,
       color: '#3B82F6',
       variation: headerVariation('margin'),
+      delta: widgetDeltas.value?.margin || null,
     },
     {
       label: t('anKpiCardTransactionRate'),
@@ -1806,9 +1904,10 @@ const mobileKpiStrip = computed(() => {
       value: rateVal == null ? '—' : `${formatDecimal(rateVal, 2, { pad: true })}/min`,
       color: '#A855F7',
       variation: headerVariation('transferRate'),
+      delta: widgetDeltas.value?.transactionRate || null,
     },
     // Widgets rendement (CA / TPE, CA / collaborateur, Valorisation stock) : ajoutés, rien retiré.
-    ...rendementMobileKpis.value,
+    ...rendementMobileKpis.value.map((k) => ({ ...k, delta: rendementKpiDelta(k.kind) })),
   ]
 })
 
@@ -1863,6 +1962,7 @@ const {
   cards: rendementCards,
   mobileKpis: rendementMobileKpis,
   chartMetrics: rendementChartMetrics,
+  raw: rendementRaw,
 } = useRendementWidgets({
   spaceId: computed(() => route.params.spaceId || null),
   canView: canViewFinancial,
@@ -1873,6 +1973,52 @@ const {
   sourceState: kpiSourceState,
   stockReportOpen,
 })
+
+// Rapport du drawer Comparaison : snapshot du principal + exécuteur (aucun calcul tant que le
+// drawer est fermé ou sans modèle appliqué). Câblage seul, la logique est dans les composables.
+const mainSnapshot = useMainReportSnapshot({
+  metrics,
+  rendementRaw,
+  chartRecords,
+  articleRecords,
+  events: filteredEvents,
+  isPredict: isPredictRecords,
+  dimensionsIndex: articleDimensionsIndex,
+  sourceState: kpiSourceState,
+})
+const comparisonRuntime = useComparisonRuntime({
+  comparison,
+  mainFilters: filters,
+  mainEvents: filteredEvents,
+  mainSnapshot,
+  mainChartRecords: chartRecords,
+  spaceId: computed(() => route.params.spaceId || null),
+  canView: canViewFinancial,
+  translate: t,
+  defaultTimeRange: getDefaultTimeRange(),
+})
+// Export CSV, copie et partage du rapport de comparaison (snackbar de la page).
+function notifyComparison(text, color = 'success') {
+  snackbarText.value = text
+  snackbarColor.value = color
+  snackbar.value = true
+}
+const {
+  exporting: comparisonExporting,
+  exportCsv: onComparisonExportCsv,
+} = useComparisonExport({
+  comparison,
+  runtime: comparisonRuntime,
+  mainSnapshot,
+  spaceName,
+  notify: notifyComparison,
+})
+const {
+  copying: comparisonCopying,
+  sharing: comparisonSharing,
+  onCopy: onComparisonCopy,
+  onShare: onComparisonShare,
+} = useComparisonCapture({ spaceName, notify: notifyComparison })
 
 // Mode Quantité / CA de « Répartition du CA par article », relayé à la section Promotion.
 const distributionMode = ref('revenue')
@@ -2101,10 +2247,20 @@ const DIMENSION_EDITORS = {
   selectedPerformerNames: { labelKey: 'anPerformer', getter: 'uniquePerformers' },
   selectedVisitingTeams: { labelKey: 'anVisitingTeam', getter: 'uniqueVisitingTeams' },
   selectedOpeningActs: { labelKey: 'anOpeningAct', getter: 'uniqueOpeningActs' },
+  // Valeurs techniques traduites par resolveDimensionEditor (jours 'mon'..'sun', météo 'clear'..).
+  selectedDaysOfWeek: { labelKey: 'anDaysOfWeek' },
+  selectedWeather: { labelKey: 'anWeatherShort' },
 }
-const editableFilterKeys = new Set(Object.keys(DIMENSION_EDITORS))
+// Plage (pas une liste) : le clic sur la puce ouvre le panneau de gauche sur le champ concerné.
+const PANEL_REVEAL_CHIPS = new Set(['temperatureRange'])
+const editableFilterKeys = new Set([...Object.keys(DIMENSION_EDITORS), ...PANEL_REVEAL_CHIPS])
 const activeFilterDimension = ref(null)
 function onEditChip(key) {
+  if (PANEL_REVEAL_CHIPS.has(key)) {
+    drawer.value = true
+    nextTick(() => filterPanelRef.value?.revealTemperature?.())
+    return
+  }
   if (!DIMENSION_EDITORS[key]) return
   activeFilterDimension.value = key
   summaryDrawer.value = true
@@ -2113,11 +2269,7 @@ const activeFilterEditor = computed(() => {
   const key = activeFilterDimension.value
   const def = key && DIMENSION_EDITORS[key]
   if (!def) return null
-  return {
-    label: t(def.labelKey),
-    items: store.getters['analyse/' + def.getter] || [],
-    selected: filters.value?.[key] || [],
-  }
+  return resolveDimensionEditor(key, def, { t, getters: store.getters, filters: filters.value })
 })
 const isPredictMode = computed(() => selectedToolbox.value === 'predict')
 // Libellé « Nom — date » de l'évènement quand la sélection en contient EXACTEMENT
@@ -2609,6 +2761,105 @@ async function ensureAuthAndLoad(spaceId) {
   padding: 0;
   pointer-events: none;
 }
+// ── Drawer Comparaison (4e colonne, desktop) ───────────────────────────────
+// Fermé : la colonne n'existe pas (v-if), la grille reste celle à 3 colonnes ci-dessus.
+// Ouvert : 4 pistes, gap NUL (pas de piste fantôme) ; les séparations viennent de marges
+// sur les colonnes. Largeurs par custom properties : 50/50 par défaut, 70/30 dans un sens.
+.an-body.has-d {
+  --cl: 292px;
+  --cr: 340px;
+  --cm: 1fr;
+  --cd: 1fr;
+  grid-template-columns: var(--cl) minmax(0, var(--cm)) var(--cr) minmax(0, var(--cd));
+  column-gap: 0;
+  transition: grid-template-columns 0.25s ease;
+}
+.an-body.has-d.an-side-collapsed { --cl: 0px; }
+.an-body.has-d.an-summary-collapsed { --cr: 0px; }
+.an-body.has-d.lay-drawer { --cm: 0.62fr; --cd: 1.7fr; }
+.an-body.has-d.lay-main { --cm: 1.7fr; --cd: 0.62fr; }
+.an-body.has-d > .an-main { padding-right: 18px; }
+.an-body.has-d:not(.an-side-collapsed) > .an-main { margin-left: 18px; }
+.an-body.has-d:not(.an-summary-collapsed) > .an-right { margin-left: 18px; }
+.an-body > .an-cmp-col {
+  min-width: 0;
+  min-height: 0;
+  max-height: 100%;
+}
+// Repère « Principal » et bouton Comparaison / extension dans le bandeau rouge.
+.av-header__rtag {
+  flex: none;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.28);
+  border-radius: 6px;
+  padding: 2px 7px;
+  white-space: nowrap;
+}
+.av-header { container-type: inline-size; }
+.av-cmp-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px 0 9px;
+  margin-right: 4px;
+  border: 1px solid transparent;
+  border-radius: 99px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #ff3131;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  cursor: pointer;
+}
+.av-cmp-btn:hover { background: #fff; }
+.av-cmp-btn[aria-pressed='true'] {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: none;
+}
+.av-cmp-btn:focus-visible,
+.av-cmp-edge:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.av-cmp-edge {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  margin-left: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 50%;
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+}
+.av-cmp-edge:hover,
+.av-cmp-edge[aria-pressed='true'] { background: rgba(255, 255, 255, 0.22); }
+// Bandeau étroit : le libellé disparaît, le bouton devient rond.
+@container (max-width: 560px) {
+  .av-cmp-btn__lbl { display: none; }
+  .av-cmp-btn { width: 34px; padding: 0; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .an-body.has-d { transition: none; }
+}
+@media (max-width: 900px) {
+  // Mobile : le drawer est un overlay plein écran (styles dans ComparisonDrawer), le bouton
+  // d'extension du principal n'a plus de sens.
+  .av-cmp-edge { display: none; }
+  .an-body.has-d,
+  .an-body.has-d.an-side-collapsed,
+  .an-body.has-d.an-summary-collapsed {
+    grid-template-columns: 1fr;
+  }
+  .an-body.has-d > .an-main { padding-right: 0; margin-left: 0; }
+  .an-body.has-d > .an-right { margin-left: 0; }
+}
 @media (max-width: 900px) {
   .an-body,
   .an-body.an-side-collapsed,
@@ -2621,6 +2872,9 @@ async function ensureAuthAndLoad(spaceId) {
     pointer-events: auto;
   }
 }
+
+// Sélecteur Principal | Comparaison au sommet de la vue principale (mobile).
+.av-cmp-mswitch { padding: 8px 12px 6px; }
 
 /* Bloc sticky : bandeau rouge + tags neutres épinglés ensemble au scroll. */
 .av-sticky {
@@ -2760,6 +3014,7 @@ async function ensureAuthAndLoad(spaceId) {
 }
 .av-mkpi__var { font-size: var(--fs-xs); font-weight: var(--fw-semibold); color: #10b981; margin-left: 4px; }
 .av-mkpi__var--bad { color: #ff3131; }
+.av-mkpi__delta { margin-left: 4px; vertical-align: middle; }
 .analyse-app--dark .av-mkpi { background: #1e293b; border-color: rgba(255, 255, 255, 0.08); }
 .analyse-app--dark .av-mkpi__value { color: #f1f5f9; }
 .analyse-app--dark .av-mkpi__label { color: #94a3b8; }
@@ -2777,6 +3032,8 @@ async function ensureAuthAndLoad(spaceId) {
   .av-mobile-filter-trigger,
   .av-mobile-more-trigger,
   .av-mobile-summary-trigger { display: flex; }
+  .av-mobile-cmp-trigger[aria-pressed='true'] { background: rgba(255, 255, 255, 0.38); }
+  .av-header__rtag { display: none; }
 
   /* Bande des 8 stats en scroll horizontal (maquette Bertrand), sous le bandeau rouge.
      min-width:0 + max-width:100% : la bande reste bornée à la largeur du parent (sinon elle

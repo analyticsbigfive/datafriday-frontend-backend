@@ -2,7 +2,7 @@
   <v-card variant="outlined" class="pa-3 donut-card" :class="{ 'donut-card--dark': isDark }" style="height: 100%">
     <!-- BUG-285 : voile pendant le recalcul des filtres — SAUF sur le donut qui
          vient d'être cliqué (pendingKey posé) : lui garde son feedback optimiste. -->
-    <AnalyseSkeletonVeil :active="filtersRecomputing && pendingKey == null" />
+    <AnalyseSkeletonVeil :active="!readonly && filtersRecomputing && pendingKey == null" />
     <div class="d-flex align-center mb-1">
       <v-icon size="14" color="#5B8DEF" class="mr-1">mdi-circle</v-icon>
       <span class="donut-title">{{ title }}</span>
@@ -38,8 +38,8 @@
           v-for="(label, idx) in visibleLabels"
           :key="itemKeyAt(idx)"
           min-height="28"
-          :class="['px-2 py-0', { 'legend-item--clickable': clickable, 'legend-item--selected': selectedLabels.includes(itemKeyAt(idx)) }]"
-          @click="clickable ? onLegendClick(idx) : null"
+          :class="['px-2 py-0', { 'legend-item--clickable': isClickable, 'legend-item--selected': selectedLabels.includes(itemKeyAt(idx)) }]"
+          @click="isClickable ? onLegendClick(idx) : null"
         >
           <template #prepend>
             <span class="legend-dot" :style="{ background: colors[idx] }" />
@@ -47,6 +47,13 @@
           <v-list-item-title class="legend-text" :title="label">{{ label }}</v-list-item-title>
           <template #append>
             <span class="legend-value">{{ formatBase(values[idx]) }}</span>
+            <!-- Écart vs le rapport de référence (mode Comparaison) : à droite de la valeur. -->
+            <DeltaPill
+              v-if="deltaAt(idx)"
+              :delta="deltaAt(idx)"
+              size="sm"
+              class="legend-delta"
+            />
             <span v-if="showPercent" class="legend-share">{{ formatShare(values[idx], valuesTotal) }}</span>
           </template>
         </v-list-item>
@@ -73,6 +80,7 @@ import { formatCurrency, formatNumber, formatShare } from '@/composables/useForm
 import { useI18n } from '@/i18n/useI18n'
 import { useFilters } from '@/composables/useFilters'
 import AnalyseSkeletonVeil from '@/components/space-workspace/analyse/AnalyseSkeletonVeil.vue'
+import DeltaPill from '@/components/space-workspace/shared/DeltaPill.vue'
 
 registerChartJs()
 
@@ -110,11 +118,26 @@ const props = defineProps({
   // d'une liste de 69 articles) : sans elle, 100 % serait le top 10 et non le CA
   // réel. null = somme des `values`.
   percentBase: { type: Number, default: null },
+  // Mode lecture seule (drawer Comparaison) : aucun clic ne filtre, pas de voile du
+  // recalcul des filtres du principal (la sélection reste reçue via selectedLabels).
+  readonly: { type: Boolean, default: false },
+  // Écarts par ligne de légende : Map (ou objet) clé -> { text, tone, kind }, clés = itemKeys
+  // (ou labels). Absent = aucune pastille.
+  deltas: { type: [Map, Object], default: null },
 })
 
 const emit = defineEmits(['slice-click'])
 
 const expanded = ref(false)
+
+const isClickable = computed(() => props.clickable && !props.readonly)
+
+function deltaAt(index) {
+  const d = props.deltas
+  if (!d) return null
+  const key = itemKeyAt(index)
+  return (d instanceof Map ? d.get(key) : d[key]) || null
+}
 
 // BUG-285 (fluidité, maquette « A+B ») : feedback OPTIMISTE — la part cliquée se
 // détache immédiatement (offset), sans attendre le round-trip clic → filtre
@@ -190,7 +213,7 @@ const chartOptions = computed(() => ({
   // BUG-284 : 1000 ms → 200 ms (cf. GenericByEventChart).
   animation: { duration: 200 },
   cutout: '65%',
-  onClick: props.clickable
+  onClick: isClickable.value
     ? (_e, elements) => {
         if (!elements || !elements.length) return
         const idx = elements[0].index
@@ -201,7 +224,7 @@ const chartOptions = computed(() => ({
         }
       }
     : undefined,
-  onHover: props.clickable
+  onHover: isClickable.value
     ? (event, elements) => {
         if (!event?.native?.target) return
         event.native.target.style.cursor = elements?.length ? 'pointer' : 'default'
@@ -342,6 +365,9 @@ const chartOptions = computed(() => ({
 }
 .legend-value {
   margin-left: 8px;
+}
+.legend-delta {
+  margin-left: 6px;
 }
 .legend-share {
   color: #757575;

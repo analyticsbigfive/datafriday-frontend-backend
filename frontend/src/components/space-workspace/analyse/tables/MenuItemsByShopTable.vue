@@ -1,7 +1,7 @@
 <template>
   <v-card flat rounded="lg" class="pa-5 mb-4" :class="{ 'mibs--dark': isDark }">
     <!-- BUG-285 : voile squelette pendant le recalcul des filtres (clic segment). -->
-    <AnalyseSkeletonVeil :active="filtersRecomputing" />
+    <AnalyseSkeletonVeil :active="!readonly && filtersRecomputing" />
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-3">
       <div>
@@ -49,7 +49,7 @@
       </v-btn-toggle>
 
       <v-select
-        :model-value="filters.selectedMenuItemTypes || []"
+        :model-value="selectedTypes"
         :items="allTypes"
         :placeholder="t('anTypes')"
         multiple
@@ -62,10 +62,10 @@
         rounded="pill"
         class="mibs-select"
         style="min-width: 200px; max-width: 280px"
-        @update:model-value="setFilterImmediate('selectedMenuItemTypes', $event)"
+        @update:model-value="onTypesChange"
       />
       <v-select
-        :model-value="filters.selectedMenuItemCategories || []"
+        :model-value="selectedCategories"
         :items="allCategories"
         :placeholder="t('anCategories')"
         multiple
@@ -78,7 +78,7 @@
         rounded="pill"
         class="mibs-select"
         style="min-width: 220px; max-width: 320px"
-        @update:model-value="setFilterImmediate('selectedMenuItemCategories', $event)"
+        @update:model-value="onCategoriesChange"
       />
     </div>
 
@@ -99,6 +99,7 @@
             <span class="shop-stats">
               {{ t('anAvg') }} : {{ formatNumber(shop.avg) }}
               &nbsp;&nbsp;{{ t('anTotal') }} : {{ formatNumber(shop.total) }}
+              <DeltaPill v-if="shopDelta(shop)" :delta="shopDelta(shop).total" size="sm" class="mibs-delta" />
               &nbsp;&nbsp;{{ t('anEvents') }} : {{ shop.events }}
             </span>
           </div>
@@ -141,8 +142,14 @@
                   >{{ item.name }}<v-icon size="11" class="ml-1">mdi-open-in-new</v-icon></a>
                   <span v-else>{{ item.name }}</span>
                 </td>
-                <td class="text-right font-weight-bold">{{ formatNumber(item.avgQuantity) }}</td>
-                <td class="text-right">{{ formatNumber(item.quantity) }}</td>
+                <td class="text-right font-weight-bold">
+                  {{ formatNumber(item.avgQuantity) }}
+                  <DeltaPill v-if="itemDelta(shop, item)" :delta="itemDelta(shop, item).avgQuantity" size="sm" class="mibs-delta" />
+                </td>
+                <td class="text-right">
+                  {{ formatNumber(item.quantity) }}
+                  <DeltaPill v-if="itemDelta(shop, item)" :delta="itemDelta(shop, item).quantity" size="sm" class="mibs-delta" />
+                </td>
                 <td
                   class="text-right mibs-events-cell"
                   :class="{ 'mibs-events-clickable': item.events > 0 }"
@@ -150,7 +157,7 @@
                   tabindex="0"
                   @click="item.events > 0 && emit('events-click', { shopName: shop.name, menuItemName: item.name })"
                   @keydown.enter="item.events > 0 && emit('events-click', { shopName: shop.name, menuItemName: item.name })"
-                >{{ item.events }}</td>
+                >{{ item.events }}<DeltaPill v-if="itemDelta(shop, item)" :delta="itemDelta(shop, item).events" size="sm" class="mibs-delta" /></td>
               </tr>
               <!-- Cap rendu : au-delà de ITEM_ROWS_CAP lignes, lien « tout afficher » -->
               <tr v-if="shop.items.length > ITEM_ROWS_CAP && !expandedShops.has(shop.name)">
@@ -263,6 +270,7 @@ import {
   buildItemsByShopRows,
 } from '@/utils/analyseAggregations'
 import AnalyseSkeletonVeil from '@/components/space-workspace/analyse/AnalyseSkeletonVeil.vue'
+import DeltaPill from '@/components/space-workspace/shared/DeltaPill.vue'
 
 const props = defineProps({
   // Data-driven (parité React MenuItemsByShopTable) : rows = PdV vendeurs des
@@ -274,6 +282,12 @@ const props = defineProps({
   // Mode Predict : nombre d'events prédits SANS scénario Event Predict sauvegardé.
   // Le moteur ne prédit qu'au niveau PdV → ces events n'ont aucun article à montrer.
   missingEventsCount: { type: Number, default: 0 },
+  // Mode lecture seule (drawer Comparaison) : les sélecteurs type / catégorie sont un état
+  // LOCAL (le store du principal n'est ni lu ni écrit) et filtrent les records reçus ici.
+  readonly: { type: Boolean, default: false },
+  // Écarts vs le rapport de référence : objet complet de computeReportDeltas (ou null).
+  // Lit deltas.itemsByShop (Map nom de PdV -> { isNew, shop: { total }, items: Map clé -> ... }).
+  deltas: { type: Object, default: null },
 })
 
 // Point 18 — clic sur la cellule « Events » d'un combo PdV × article →
@@ -354,6 +368,37 @@ function itemDims(item) {
 // donc le tableau reflète immédiatement la sélection.
 const { filters, setFilterImmediate, options, filtersRecomputing } = useFilters()
 
+// Sélection type / catégorie : store global (principal) ou état local (lecture seule).
+const localTypes = ref([])
+const localCategories = ref([])
+const selectedTypes = computed(() => (props.readonly ? localTypes.value : filters.value.selectedMenuItemTypes || []))
+const selectedCategories = computed(() => (props.readonly ? localCategories.value : filters.value.selectedMenuItemCategories || []))
+function onTypesChange(v) {
+  if (props.readonly) localTypes.value = v || []
+  else setFilterImmediate('selectedMenuItemTypes', v)
+}
+function onCategoriesChange(v) {
+  if (props.readonly) localCategories.value = v || []
+  else setFilterImmediate('selectedMenuItemCategories', v)
+}
+// Records affichés : en lecture seule, filtrés ici par la sélection locale ; sinon le parent
+// les a déjà filtrés (store), on garde la même référence.
+const viewRecords = computed(() => {
+  if (!props.readonly || (!localTypes.value.length && !localCategories.value.length)) return props.records
+  return props.records.filter((r) =>
+    (!localTypes.value.length || localTypes.value.includes(resolveItemType(r)))
+    && (!localCategories.value.length || localCategories.value.includes(resolveItemCategory(r))))
+})
+
+// Écarts : appariement par PdV (nom) puis par article (menuItemId, sinon nom), comme le snapshot.
+const itemKeyOf = (item) => (item?.menuItemId != null && item.menuItemId !== '' ? `id:${item.menuItemId}` : `name:${item?.name}`)
+function shopDelta(shop) {
+  return props.deltas?.itemsByShop?.get(shop.name)?.shop || null
+}
+function itemDelta(shop, item) {
+  return props.deltas?.itemsByShop?.get(shop.name)?.items?.get(itemKeyOf(item)) || null
+}
+
 const search = ref('')
 const searchScope = ref('all') // all | shop | type | category | item
 const tableView = ref('shops') // 'shops' | 'items'
@@ -412,13 +457,13 @@ const shops = computed(() =>
   // Agrégation PARTAGÉE avec l'export du bandeau (`utils/analyseAggregations`).
   // Seule la résolution d'image reste ici : elle dépend du catalogue, que l'util
   // n'a pas à connaître.
-  aggregateByShop(props.records, {
+  aggregateByShop(viewRecords.value, {
     pictureOf: (key, r) => r.menuItemPicture || catalogPictureByName.value.get(normalizeStr(key)) || null,
   }),
 )
 
 // Vue inverse « By Item » : liste fabriquée depuis les ventes (groupées par article).
-const items = computed(() => aggregateByItem(props.records))
+const items = computed(() => aggregateByItem(viewRecords.value))
 
 const filteredShops = computed(() => {
   const q = search.value.toLowerCase().trim()
@@ -484,7 +529,7 @@ function visibleItems(shop) {
 }
 // Recherche / données changent → retour page 1.
 // Changement de page → referme tout (les index de panneaux sont par page).
-watch([search, searchScope, () => props.records], () => {
+watch([search, searchScope, viewRecords], () => {
   shopPage.value = 1
   itemPage.value = 1
   expandedShops.value = new Set()
@@ -501,7 +546,7 @@ async function exportExcel() {
     // (bouton Télécharger du bandeau) sort exactement le même tableau. Deux
     // fichiers produits par deux codes différents finiraient par diverger.
     const rows = buildItemsByShopRows(
-      props.records,
+      viewRecords.value,
       {
         shop: t('anTblShopXlsShop'),
         item: t('anTblShopXlsItem'),
@@ -545,6 +590,10 @@ async function exportExcel() {
 .shop-stats {
   color: #757575;
   font-size: var(--fs-sm);
+}
+.mibs-delta {
+  margin-left: 6px;
+  vertical-align: middle;
 }
 
 /* Lot 0.5 — Toolbar « Articles du menu par PdV » : recherche en pilule grise

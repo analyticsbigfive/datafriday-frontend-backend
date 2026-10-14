@@ -32,9 +32,12 @@ const ARTICLE_FILTER_KEYS = ['selectedMenuItemIds', 'selectedMenuItemTypes', 'se
  * @param {import('vue').Ref<Object|null>} p.eventRollupTotals non null = aucun filtre intra-event, CA = Event.revenue
  * @param {import('vue').Ref<string>} p.sourceState 'loading' | 'ready' | 'empty'
  * @param {import('vue').Ref<boolean>} p.stockReportOpen graphe « Valorisation stock » ouvert
+ * @param {import('vue').Ref<boolean>} [p.stockApplicable] false = widget sans objet (rapport de
+ *   comparaison Predict) : aucune requête de stock, carte « — » terminale. Défaut : toujours applicable.
  */
 export function useRendementWidgets({
   spaceId, canView, filters, filteredEvents, kpiRecords, eventRollupTotals, sourceState, stockReportOpen,
+  stockApplicable = null,
 }) {
   const store = useStore()
   const { t } = useI18n()
@@ -66,8 +69,9 @@ export function useRendementWidgets({
   const collaborator = headcount('collaborator')
 
   // ── Stock actuel (B) et rapport par event (C) ──
+  const stockOk = computed(() => (stockApplicable ? !!stockApplicable.value : true))
   const stock = useStockValuation({
-    spaceId, enabled: canView, filters, floorElements, dimensionsIndex, dimensionsStatus,
+    spaceId, enabled: computed(() => canView.value && stockOk.value), filters, floorElements, dimensionsIndex, dimensionsStatus,
   })
   const eventValuations = useEventValuations({
     spaceId,
@@ -98,6 +102,10 @@ export function useRendementWidgets({
 
   const filterLabel = (item) => t(item.labelKey)
   const stockCard = computed(() => {
+    // Sans objet (Predict d'un rapport de comparaison) : valeur terminale « — », jamais de squelette.
+    if (!stockOk.value) {
+      return { key: 'stockValue', loading: false, value: NO_VALUE, subtext: t('anRdtStockSub'), warning: null }
+    }
     const d = stock.data.value
     // Le serveur répond « aucun PdV ne porte ces noms » par un total vide marqué : c'est un
     // filtre non résolu, pas un stock à 0.
@@ -137,6 +145,19 @@ export function useRendementWidgets({
     revenuePerCollaborator: headcountCard('revenuePerCollaborator', collaborator, 'collaborator'),
     stockValue: stockCard.value,
   }))
+
+  // Valeurs NUMÉRIQUES (null = « — ») pour calculer des écarts entre deux rapports :
+  // les cartes ci-dessus ne portent que du texte formaté.
+  const raw = computed(() => {
+    const d = stock.data.value
+    return {
+      revenuePerTpe: tpe.value.blocked ? null : tpe.value.value ?? null,
+      revenuePerCollaborator: collaborator.value.blocked ? null : collaborator.value.value ?? null,
+      stockValue: stockOk.value && stock.status.value === 'ready' && d && Number.isFinite(Number(d.total))
+        ? Number(d.total)
+        : null,
+    }
+  })
 
   // Entrées de la bande KPI mobile (on ajoute, rien n'est retiré).
   const mobileKpis = computed(() => {
@@ -178,5 +199,5 @@ export function useRendementWidgets({
     }
   })
 
-  return { cards, mobileKpis, chartMetrics, dimensionsIndex, dimensionsStatus }
+  return { cards, raw, mobileKpis, chartMetrics, dimensionsIndex, dimensionsStatus }
 }
