@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { PredictVersionsService } from './predict-versions.service';
 import { PrismaService } from '../../core/database/prisma.service';
 
@@ -9,6 +9,7 @@ describe('PredictVersionsService', () => {
   const mockPrisma = {
     eventPredictVersion: {
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       updateMany: jest.fn(),
       update: jest.fn(),
     },
@@ -58,6 +59,38 @@ describe('PredictVersionsService', () => {
 
       expect(mockPrisma.eventPredictVersion.findFirst).not.toHaveBeenCalled();
       expect(result).toEqual({ defaultVersionId: null });
+    });
+  });
+
+  describe('eventIdsWithVersions', () => {
+    it('liste vide : renvoie [] sans requête', async () => {
+      expect(await service.eventIdsWithVersions([], 'tenant-1')).toEqual([]);
+      expect(mockPrisma.eventPredictVersion.findMany).not.toHaveBeenCalled();
+    });
+
+    it('respecte le tenant, dédoublonne et ne sélectionne que eventId', async () => {
+      mockPrisma.eventPredictVersion.findMany.mockResolvedValue([{ eventId: 'a' }]);
+      const result = await service.eventIdsWithVersions(['a', 'b', 'a'], 'tenant-1');
+      expect(result).toEqual(['a']);
+      expect(mockPrisma.eventPredictVersion.findMany).toHaveBeenCalledWith({
+        where: { tenantId: 'tenant-1', eventId: { in: ['a', 'b'] } },
+        select: { eventId: true },
+        distinct: ['eventId'],
+      });
+    });
+
+    it('un event sans version est absent du résultat', async () => {
+      mockPrisma.eventPredictVersion.findMany.mockResolvedValue([{ eventId: 'a' }]);
+      const result = await service.eventIdsWithVersions(['a', 'sans-version'], 'tenant-1');
+      expect(result).not.toContain('sans-version');
+    });
+
+    it('refuse plus de 500 ids distincts (400) mais accepte 500 et dédoublonne avant de compter', async () => {
+      mockPrisma.eventPredictVersion.findMany.mockResolvedValue([]);
+      const many = Array.from({ length: 501 }, (_, i) => `e${i}`);
+      await expect(service.eventIdsWithVersions(many, 't')).rejects.toThrow(BadRequestException);
+      expect(mockPrisma.eventPredictVersion.findMany).not.toHaveBeenCalled();
+      await expect(service.eventIdsWithVersions([...many.slice(0, 500), 'e0'], 't')).resolves.toEqual([]);
     });
   });
 });

@@ -9,6 +9,7 @@
         :loading="rendement.revenuePerTpe.loading"
         :value="rendement.revenuePerTpe.value"
         :warning="rendement.revenuePerTpe.warning || ''"
+        :delta="deltas?.tpe || null"
         @click="$emit('open-chart', 'revenue-per-tpe')"
       />
     </v-col>
@@ -18,6 +19,7 @@
         :loading="rendement.revenuePerCollaborator.loading"
         :value="rendement.revenuePerCollaborator.value"
         :warning="rendement.revenuePerCollaborator.warning || ''"
+        :delta="deltas?.collaborator || null"
         @click="$emit('open-chart', 'revenue-per-collaborator')"
       />
     </v-col>
@@ -28,6 +30,7 @@
         :value="marginLabel"
         :subtext="marginSubtext"
         :variation="v('margin')"
+        :delta="deltas?.margin || null"
         @click="$emit('open-chart', 'margin')"
       />
     </v-col>
@@ -38,6 +41,7 @@
         :value="transactionRateLabel"
         :subtext="transactionRateSubtext"
         :variation="v('transferRate')"
+        :delta="deltas?.transactionRate || null"
         @click="$emit('open-chart', 'transaction-rate')"
       />
     </v-col>
@@ -47,6 +51,7 @@
         :loading="rendement.stockValue.loading"
         :value="rendement.stockValue.value"
         :warning="rendement.stockValue.warning || ''"
+        :delta="deltas?.stock || null"
         @click="$emit('open-chart', 'stock-value')"
       />
     </v-col>
@@ -71,6 +76,10 @@ const props = defineProps({
   // View-models des widgets rendement (useRendementWidgets.cards) : CA / TPE,
   // CA / collaborateur, Valorisation stock. Chacun : { loading, value, subtext, warning }.
   rendement: { type: Object, required: true },
+  // Écarts du rapport Comparaison, par widget : { tpe, collaborator, margin, transactionRate,
+  // stock } (objets { text, tone, kind }). Prioritaires sur les variations Précédent / N-1
+  // (décision 4) ; absent ou clé manquante = comportement historique.
+  deltas: { type: Object, default: null },
 })
 defineEmits(['open-chart'])
 

@@ -43,6 +43,7 @@
     "prisma:seed": "node scripts/db-guard.cjs seed && npx tsx prisma/seed.ts",
     "rbac:backfill": "node scripts/db-guard.cjs backfill && npx tsx prisma/backfill-rbac.ts",
     "rbac:backfill-stats-financial-view": "node scripts/db-guard.cjs backfill && npx tsx prisma/backfill-stats-financial-view.ts",
+    "event-weather:backfill": "node scripts/db-guard.cjs backfill && npx tsx prisma/backfill-event-weather.ts",
     "stock-identity:backfill": "node scripts/db-guard.cjs backfill && npx tsx prisma/backfill-stock-item-identity.ts",
     "images:migrate-to-storage": "node scripts/db-guard.cjs migration && npx tsx prisma/migrate-images-to-storage.ts",
     "docker:up": "docker-compose up -d",

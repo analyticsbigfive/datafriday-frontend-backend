@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreatePredictVersionDto, PatchPredictVersionDto } from './dto/predict-version.dto';
 
@@ -13,6 +13,29 @@ export class PredictVersionsService {
       where: { eventId, tenantId },
       orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
     });
+  }
+
+  /** Plafond d'ids par requête de synthèse (disponibilité Predict du formulaire de comparaison). */
+  static readonly SUMMARY_MAX_EVENT_IDS = 500;
+
+  /**
+   * Parmi les eventIds demandés, ceux qui ont AU MOINS une version du tenant courant.
+   * Ne lit que la colonne eventId (jamais les colonnes JSON lourdes). Ids dédoublonnés.
+   */
+  async eventIdsWithVersions(eventIds: string[], tenantId: string): Promise<string[]> {
+    const ids = [...new Set((eventIds ?? []).filter((id) => typeof id === 'string' && id.length > 0))];
+    if (ids.length === 0) return [];
+    if (ids.length > PredictVersionsService.SUMMARY_MAX_EVENT_IDS) {
+      throw new BadRequestException(
+        `Trop d'événements demandés (${ids.length}), maximum ${PredictVersionsService.SUMMARY_MAX_EVENT_IDS}`,
+      );
+    }
+    const rows = await this.prisma.eventPredictVersion.findMany({
+      where: { tenantId, eventId: { in: ids } },
+      select: { eventId: true },
+      distinct: ['eventId'],
+    });
+    return rows.map((r) => r.eventId);
   }
 
   async findById(id: string, tenantId: string) {

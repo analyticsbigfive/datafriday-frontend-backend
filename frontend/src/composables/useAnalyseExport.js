@@ -39,11 +39,13 @@ const NUMERIC_FORMATS = new Set(['currency', 'number', 'int', 'percent'])
 const CSV_SEP = ';'
 const CSV_BOM = '\uFEFF'
 
-export function useAnalyseExport({ ensureDataset, spaceName, isPredictMode, notify }) {
+export function useAnalyseExport({ ensureDataset, spaceName, isPredictMode, notify, fileBase: fileBaseOverride = null }) {
   const { t } = useI18n()
   const exporting = ref(false)
 
   function fileBase() {
+    // Nom propre à un autre rapport (comparaison) : fonction () => string, sans extension.
+    if (typeof fileBaseOverride === 'function') return fileBaseOverride()
     const slug = String(spaceName.value || 'analyse')
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')

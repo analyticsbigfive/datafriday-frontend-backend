@@ -9,8 +9,15 @@ import { sanitizeOklchColors } from '@/utils/oklchFallback'
  * @param {import('vue').ComputedRef<string>} options.spaceName  nom du space pour nommer le fichier
  * @param {string} [options.rootId]  id DOM de la zone à capturer (défaut : la page Analyse ;
  *   Live passe son propre id pour ne pas dépendre d'AnalyseView.vue)
+ * @param {(text: string, color?: string) => void} [options.notify]  notificateur externe (ex.
+ *   snackbar déjà monté par la page) ; absent, le composable expose ses propres refs snackbar
+ * @param {(clonedDoc: Document) => void} [options.prepareClone]  retouche du DOM cloné par
+ *   html2canvas avant le rendu (ex. révéler des blocs réservés à la capture)
+ * @param {() => string} [options.fileName]  nom de fichier PNG sans extension (défaut :
+ *   « <espace>-<horodatage> » ; la comparaison passe « comparaison-<espace>-<date> »)
  */
-export function useAnalyseCapture({ spaceName, rootId = 'analyse-capture-root' }) {
+export function useAnalyseCapture({ spaceName, rootId = 'analyse-capture-root', fileName = null, notify: externalNotify = null, prepareClone = null }) {
+  const pngName = () => `${typeof fileName === 'function' ? fileName() : `${spaceName.value}-${Date.now()}`}.png`
   const copying = ref(false)
   const sharing = ref(false)
   const snackbar = ref(false)
@@ -18,6 +25,10 @@ export function useAnalyseCapture({ spaceName, rootId = 'analyse-capture-root' }
   const snackbarColor = ref('success')
 
   function notify(text, color = 'success') {
+    if (typeof externalNotify === 'function') {
+      externalNotify(text, color)
+      return
+    }
     snackbarText.value = text
     snackbarColor.value = color
     snackbar.value = true
@@ -33,7 +44,10 @@ export function useAnalyseCapture({ spaceName, rootId = 'analyse-capture-root' }
       logging: false,
       // Même contrainte que le Rapport J+1 : html2canvas 1.4.1 ne parse pas
       // `oklch()`, syntaxe des tokens Tailwind v4 hérités par toute la page.
-      onclone: (clonedDoc) => sanitizeOklchColors(clonedDoc),
+      onclone: (clonedDoc) => {
+        sanitizeOklchColors(clonedDoc)
+        if (typeof prepareClone === 'function') prepareClone(clonedDoc)
+      },
     })
     return new Promise((resolve, reject) => {
       canvas.toBlob((blob) => {
@@ -60,7 +74,7 @@ export function useAnalyseCapture({ spaceName, rootId = 'analyse-capture-root' }
         await navigator.clipboard.write([new window.ClipboardItem({ 'image/png': blob })])
         notify('Capture copiée dans le presse-papiers')
       } else {
-        downloadBlob(blob, `${spaceName.value}-${Date.now()}.png`)
+        downloadBlob(blob, pngName())
         notify('Capture téléchargée (presse-papiers indisponible)')
       }
     } catch (e) {
@@ -75,7 +89,7 @@ export function useAnalyseCapture({ spaceName, rootId = 'analyse-capture-root' }
     sharing.value = true
     try {
       const blob = await captureAnalyse()
-      const file = new File([blob], `${spaceName.value}-${Date.now()}.png`, { type: 'image/png' })
+      const file = new File([blob], pngName(), { type: 'image/png' })
       const shareData = {
         title: `Tableau de bord ${spaceName.value}`,
         text: `Tableau de bord ${spaceName.value} — DataFriday`,

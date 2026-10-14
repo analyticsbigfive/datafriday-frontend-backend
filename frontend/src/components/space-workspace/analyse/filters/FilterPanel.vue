@@ -238,6 +238,11 @@
               :counts="advCounts.session"
               @update:model-value="(v) => setFilterImmediate('selectedSessions', v)"
             />
+            <DayOfWeekFilter
+              :model-value="filters.selectedDaysOfWeek"
+              :counts="advCounts.dayOfWeek"
+              @update:model-value="(v) => setFilterImmediate('selectedDaysOfWeek', v)"
+            />
             <CheckboxListFilter
               v-if="options.doorsOpenings.value.length"
               :label="t('anDoorsOpening')"
@@ -253,6 +258,15 @@
               :model-value="filters.selectedShowTimes"
               :counts="advCounts.showTime"
               @update:model-value="(v) => setFilterImmediate('selectedShowTimes', v)"
+            />
+            <WeatherTemperatureFilters
+              ref="weatherFilterRef"
+              :selected-weather="filters.selectedWeather"
+              :temperature-range="filters.temperatureRange"
+              :weather-counts="advCounts.weather"
+              :missing="eventsWithoutWeather"
+              @update:selected-weather="(v) => setFilterImmediate('selectedWeather', v)"
+              @update:temperature-range="(v) => setFilter('temperatureRange', v)"
             />
             <!-- Sports : Équipe à domicile + équipe visiteur -->
             <CheckboxListFilter
@@ -556,6 +570,9 @@ import { useFilters } from '@/composables/useFilters'
 import { getDateRangePresets, PRESET_I18N_KEYS } from '@/constants/dateRangePresets'
 import CheckboxListFilter from './CheckboxListFilter.vue'
 import ArticleDimensionFilters from './ArticleDimensionFilters.vue'
+import DayOfWeekFilter from './DayOfWeekFilter.vue'
+import WeatherTemperatureFilters from './WeatherTemperatureFilters.vue'
+import { dayOfWeekKey, weatherCategory, isTemperatureFilterActive } from '@/utils/eventDayWeatherFilters'
 import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
 import { Search } from 'lucide-vue-next'
 import { resolveShopType } from '@/utils/analyseDimensions'
@@ -692,7 +709,18 @@ function revealDates() {
     datesHighlightTimer = setTimeout(() => { datesHighlight.value = false }, 2600)
   })
 }
-defineExpose({ revealDates })
+// Puce « Température » du bandeau : ouvre le panneau des filtres avancés et amène le champ
+// météo / température à l'écran. Appelé par AnalyseView via defineExpose.
+const weatherFilterRef = ref(null)
+function revealTemperature() {
+  if (!openPanels.value.includes('advanced')) {
+    openPanels.value = [...openPanels.value, 'advanced']
+  }
+  nextTick(() => {
+    weatherFilterRef.value?.$el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  })
+}
+defineExpose({ revealDates, revealTemperature })
 const eventSearch = ref('')
 const shopSearch = ref('')
 
@@ -713,8 +741,11 @@ const advancedActiveCount = computed(() => {
     f.selectedOpeningActs,
     f.selectedSponsors,
     f.selectedIntermissions,
+    f.selectedDaysOfWeek,
+    f.selectedWeather,
   ]
   for (const l of lists) if (Array.isArray(l) && l.length) n++
+  if (isTemperatureFilterActive(f.temperatureRange)) n++
   return n
 })
 // Sync local toolbox with store so dropdown reflects external changes (e.g.
@@ -847,14 +878,25 @@ const advCounts = computed(() => {
   const fields = ['category', 'eventType', 'team', 'sponsor', 'subcategory', 'session', 'doorsOpening', 'showTime', 'performer', 'visitingTeam', 'openingAct']
   const maps = {}
   for (const f of fields) maps[f] = new Map()
+  maps.dayOfWeek = new Map()
+  maps.weather = new Map()
   for (const e of evs) {
     for (const f of fields) {
       const v = e?.[f]
       if (v) maps[f].set(v, (maps[f].get(v) || 0) + 1)
     }
+    // Dimensions dérivées : jour de la semaine (date) et catégorie météo (code WMO).
+    const day = dayOfWeekKey(e)
+    if (day) maps.dayOfWeek.set(day, (maps.dayOfWeek.get(day) || 0) + 1)
+    const wx = weatherCategory(e?.weatherCode)
+    if (wx) maps.weather.set(wx, (maps.weather.get(wx) || 0) + 1)
   }
   return maps
 })
+// Events du périmètre sans météo / température, exclus quand le filtre est actif.
+const eventsWithoutWeather = computed(
+  () => store.getters['analyse/eventsWithoutWeatherCount'] || { weather: 0, temperature: 0 },
+)
 const filteredMenuItemNames = computed(() => {
   const q = menuItemFilterSearch.value.trim().toLowerCase()
   const list = options.menuItemNames.value || []

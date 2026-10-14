@@ -20,6 +20,8 @@
         :items="items"
         :model-value="modelValue"
         :counts="counts"
+        :label-fn="labelFn"
+        :icon-fn="iconFn"
         @update:model-value="(v) => $emit('update:modelValue', v)"
       />
     </div>
@@ -42,6 +44,9 @@ defineProps({
   items: { type: Array, default: () => [] },
   modelValue: { type: Array, default: () => [] },
   counts: { type: Object, default: null },
+  // Libellé / pictogramme d'une valeur technique (jours, météo), transmis à la liste.
+  labelFn: { type: Function, default: null },
+  iconFn: { type: Function, default: null },
 })
 defineEmits(['update:modelValue', 'close'])
 </script>

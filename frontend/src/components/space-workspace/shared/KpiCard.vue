@@ -24,8 +24,15 @@
           <v-icon v-bind="tip" size="15" class="kpi-warn-icon" :aria-label="warning">mdi-alert-circle-outline</v-icon>
         </template>
       </v-tooltip>
+      <!-- Écart du rapport de comparaison : REMPLACE la variation Précédent / N-1. -->
+      <DeltaPill
+        v-if="!loading && delta"
+        :delta="delta"
+        size="sm"
+        class="kpi-delta"
+      />
       <span
-        v-if="!loading && variation != null"
+        v-else-if="!loading && variation != null"
         class="kpi-variation d-flex align-center"
         :style="{ color: variationColor }"
       >
@@ -46,9 +53,11 @@
 <script>
 import { computed } from 'vue'
 import { useTheme } from 'vuetify'
+import DeltaPill from './DeltaPill.vue'
 
 export default {
   name: 'KpiCard',
+  components: { DeltaPill },
   props: {
     config: { type: Object, required: true },
     value: { type: String, required: true },
@@ -57,6 +66,9 @@ export default {
     warning: { type: String, default: '' },
     variation: { type: Number, default: null },
     variationUnit: { type: String, default: '%' }, // % | pp
+    // Écart du rapport de comparaison ({ text, tone, kind, title? }, cf. computeReportDeltas) :
+    // quand il est fourni, il remplace `variation` (décision 4 du chantier Comparaison).
+    delta: { type: Object, default: null },
     // BUG-350-01 — squelette au lieu d'une valeur provisoire.
     loading: { type: Boolean, default: false },
   },
@@ -131,6 +143,9 @@ export default {
   font-size: var(--fs-xs);
   font-weight: 700;
   white-space: nowrap;
+}
+.kpi-delta {
+  margin-left: auto;
 }
 .kpi-value {
   color: #212121;
