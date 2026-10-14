@@ -37,17 +37,19 @@ let _warnedBatchKo = false
  * le cache et ne fetch que les events manquants.
  *
  * @param {import('vue').ComputedRef<Array<{id:string}>>} filteredEvents
- * @param {{ maxEvents?: number }} [options] — cap de fetch (défaut MAX_EVENTS) ;
+ * @param {{ maxEvents?: number, reconciliationContext?: import('vue').Ref<object> }} [options] — cap de fetch (défaut MAX_EVENTS) ;
  *   l'instance comparaison (fenêtres prev∪N-1 jusqu'à 24 mois) passe un cap élevé.
  * @returns {{ itemRecords: import('vue').ComputedRef<Array<object>>, loading: import('vue').Ref<boolean>, loadedEventIds: import('vue').ComputedRef<Set<string>>, fetchError: import('vue').Ref<string|null>, refresh: () => Promise<void>, truncatedEventCount: import('vue').ComputedRef<number>, sourceState: import('vue').ComputedRef<'loading'|'ready'|'empty'> }}
  */
-export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS } = {}) {
+export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS, reconciliationContext = null } = {}) {
   const route = useRoute()
   // Contexte de réconciliation PARTAGÉ (cf. useReconciliationContext) — surtout
   // pas reconstruit ici : la timeline et les records de scénario Predict se
   // réconcilient avec le même, sinon une même ligne peut recevoir deux
   // catégories différentes selon le consommateur.
-  const reconciliationCtx = useReconciliationContext()
+  // Option `reconciliationContext` : le drawer Comparaison fournit un contexte élargi aux
+  // configurations de ses events (défaut : le contexte partagé, inchangé pour le principal).
+  const reconciliationCtx = reconciliationContext || useReconciliationContext()
   // eventId -> records[] (preprocessés, GELÉS). [] = tenté/vide.
   // BUG-284 : shallowRef + Object.freeze — avec un ref() profond, chaque lecture
   // de propriété dans les ~20 agrégations aval traversait un Proxy Vue (surcoût

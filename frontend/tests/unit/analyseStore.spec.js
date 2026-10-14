@@ -554,3 +554,39 @@ describe('analyse store, filtres jour / météo / température', () => {
     expect(chips.some((c) => ['selectedDaysOfWeek', 'selectedWeather', 'temperatureRange'].includes(c.key))).toBe(false)
   })
 })
+
+
+describe('analyse store — spaceAnalysableEvents (drawer Comparaison)', () => {
+  const g = analyse.getters
+  const day = (n) => {
+    const d = new Date()
+    d.setDate(d.getDate() + n)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+  const events = [
+    { id: 'a', date: day(-10), configurationId: 'cfg1' },
+    { id: 'b', date: day(-5), configurationId: 'cfg2' },
+    { id: 'c', date: day(30), configurationId: 'cfg2' },
+    { id: 'd', date: day(-1) },
+  ]
+
+  it('garde les events de TOUTES les configurations, moins les events à venir en mode analyse', () => {
+    const state = { ...analyse.state(), events, selectedToolbox: 'analyse' }
+    expect(g.spaceAnalysableEvents(state).map((e) => e.id)).toEqual(['a', 'b', 'd'])
+  })
+
+  it('mode predict : events à venir conservés', () => {
+    const state = { ...analyse.state(), events, selectedToolbox: 'predict' }
+    expect(g.spaceAnalysableEvents(state).map((e) => e.id)).toEqual(['a', 'b', 'c', 'd'])
+  })
+
+  it('le principal est inchangé : analysableEvents reste limité à la configuration choisie', () => {
+    const state = { ...analyse.state(), events, selectedToolbox: 'analyse', filters: { ...analyse.state().filters, selectedConfigurationId: 'cfg1' } }
+    const getters = {
+      activeConfiguration: { id: 'cfg1', eventIds: [] },
+      get eventsInActiveConfiguration() { return g.eventsInActiveConfiguration(state, getters) },
+    }
+    expect(g.analysableEvents(state, getters).map((e) => e.id)).toEqual(['a'])
+    expect(g.spaceAnalysableEvents(state).map((e) => e.id)).toEqual(['a', 'b', 'd'])
+  })
+})

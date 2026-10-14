@@ -28,6 +28,7 @@
     :exporting="exporting"
     :copying="copying"
     :sharing="sharing"
+    :mobile="mobile"
     @export-csv="emit('export-csv')"
     @copy="emit('copy')"
     @share="emit('share')"
@@ -47,6 +48,8 @@ defineProps({
   exporting: { type: Boolean, default: false },
   copying: { type: Boolean, default: false },
   sharing: { type: Boolean, default: false },
+  // Mobile : relayé au bandeau du rapport (bouton fermer).
+  mobile: { type: Boolean, default: false },
   // Retour de useComparisonDrawer (vue, modèle appliqué, actions).
   comparison: { type: Object, required: true },
   // Retour de useComparisonForm (brouillon et calculs du formulaire).

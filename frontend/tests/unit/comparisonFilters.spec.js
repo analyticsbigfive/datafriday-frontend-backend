@@ -140,6 +140,15 @@ describe('buildComparisonFilters', () => {
 
 describe('describeComparisonFilters', () => {
   const T = (k) => k
+  it('dates personnalisées affichées en JJ/MM/AAAA, jamais en ISO', () => {
+    const m = mainFilters()
+    const c = buildComparisonFilters(m, { kind: 'period', period: 'custom', from: '2025-01-01', to: '2025-10-14' }, ctx)
+    const range = describeComparisonFilters(m, c, T, {}).find((x) => x.key === 'timeRange')
+    expect(range.label).toBe('anChipDates : 01/01/2025 → 14/10/2025')
+    const open = buildComparisonFilters(m, { kind: 'period', period: 'custom', from: '2025-01-01', to: '' }, ctx)
+    expect(describeComparisonFilters(m, open, T, {}).find((x) => x.key === 'timeRange').label).toBe('anChipDates : 01/01/2025 → —')
+  })
+
   it('own = valeur propre à la comparaison, sinon reprise du principal', () => {
     const m = mainFilters()
     const c = buildComparisonFilters(m, { kind: 'period', period: 'lastyear', selectedDaysOfWeek: ['fri'] }, ctx)

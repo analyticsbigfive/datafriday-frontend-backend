@@ -125,6 +125,31 @@ describe('ComparisonBanner', () => {
   })
 })
 
+describe('ComparisonBanner : mobile et bureau', () => {
+  it('mobile : bouton fermer (émet close, cible 44 px), pas de bouton d\'extension', async () => {
+    const w = mount(ComparisonBanner, { props: { label: 'Saison 2025', eventCount: 3, mobile: true }, global })
+    expect(w.find('[aria-pressed]').exists()).toBe(false)
+    const close = w.find('button.cb__ico--touch')
+    expect(close.exists()).toBe(true)
+    expect(close.attributes('aria-label')).toBe('Fermer la comparaison')
+    expect(close.classes()).toContain('cb__ico--touch')
+    await close.trigger('click')
+    expect(w.emitted('close')).toHaveLength(1)
+    expect(w.emitted('toggle-expand')).toBeUndefined()
+  })
+
+  it('bureau : bouton d\'extension, pas de bouton fermer', async () => {
+    const w = mount(ComparisonBanner, { props: { label: 'Saison 2025', eventCount: 3 }, global })
+    expect(w.find('button.cb__ico--touch').exists()).toBe(false)
+    expect(w.find('[aria-pressed]').exists()).toBe(true)
+  })
+
+  it('showEventCount faux : le nombre d\'events n\'est pas répété', () => {
+    const w = mount(ComparisonBanner, { props: { label: '1 événement(s)', eventCount: 1, showEventCount: false }, global })
+    expect(w.find('.cb__label').text()).toBe('1 événement(s)')
+  })
+})
+
 describe('ComparisonBanner : états des actions', () => {
   it('désactive l\'export pendant le chargement et n\'émet pas', async () => {
     const w = mount(ComparisonBanner, { props: { exportDisabled: true }, global })

@@ -150,7 +150,8 @@ export function useComparisonForm({
   const advancedActiveCount = computed(() => advancedCount(model))
 
   // ── Options des listes ───────────────────────────────────────────────────
-  const analysableEvents = computed(() => getters()['analyse/analysableEvents'] || [])
+  // Tous les events de l'espace : la comparaison n'est pas limitée à la configuration du principal.
+  const analysableEvents = computed(() => getters()['analyse/spaceAnalysableEvents'] || [])
   const loc = () => unref(locale) || 'fr'
 
   const eventOptions = computed(() => eventPickerOptions(analysableEvents.value, loc()))

@@ -203,10 +203,15 @@ onBeforeUnmount(() => {
   font-size: var(--fs-sm, 13px);
   color: rgba(var(--v-theme-on-surface), 0.55);
 }
-/* Mobile : overlay plein écran (z-index des overlays d'Analyse), glissé depuis la droite. */
+/* Mobile : overlay plein écran SOUS l'app bar (z-index des overlays d'Analyse), glissé depuis la
+   droite. `top` = hauteur réelle de la barre (variable posée par Vuetify, 64 px par défaut) :
+   l'en-tête du drawer (fermer, sélecteur) reste visible même si un ancêtre confine l'empilement. */
 .cmp-drawer--mobile {
   position: fixed;
-  inset: 0;
+  top: var(--v-layout-top, 64px);
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 3000;
   width: 100%;
   max-height: none;

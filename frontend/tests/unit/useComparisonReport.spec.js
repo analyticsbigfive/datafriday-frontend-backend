@@ -21,6 +21,11 @@ jest.mock('@/store', () => ({
     dispatch: jest.fn(),
   },
 }))
+jest.mock('@/store/modules/analyse', () => ({
+  __esModule: true,
+  buildConfigShopEntryReadOnly: jest.fn(),
+  mergeShopEntries: (entries) => ({ floorElements: entries.flatMap((e) => e?.floorElements || []) }),
+}))
 jest.mock('vuex', () => ({ useStore: () => require('@/store').default }))
 jest.mock('vue-router', () => ({ useRoute: () => ({ params: { spaceId: 's1' } }) }))
 jest.mock('@/api/endpoints/space.api', () => ({
@@ -40,6 +45,7 @@ jest.mock('@/utils/timelineBucketing', () => ({
 }))
 
 import { createApp, ref, nextTick } from 'vue'
+import { buildConfigShopEntryReadOnly } from '@/store/modules/analyse'
 import store from '@/store'
 import { getSpaceEventTimelineBatch, getSpaceTransactionBasketsBatch } from '@/api/endpoints/space.api'
 import { listEventPredictVersions } from '@/api/endpoints/eventPredict.api'
@@ -91,9 +97,10 @@ function setupApis({ delay = false } = {}) {
   getSpaceTransactionBasketsBatch.mockImplementation(async (spaceId, ids) => new Map(ids.map((id) => [id, [basket(id)]])))
 }
 
-function build({ input, mainEvents = [], mainSnapshot = null, canView = false, analysable = EVENTS, mainFilters = MAIN_FILTERS } = {}) {
+function build({ input, mainEvents = [], mainSnapshot = null, canView = false, analysable = EVENTS, spaceEvents = null, mainFilters = MAIN_FILTERS } = {}) {
   store.getters = {
     'analyse/analysableEvents': analysable,
+    'analyse/spaceAnalysableEvents': spaceEvents || analysable,
     'analyse/filteredEvents': mainEvents,
     'analyse/activeConfiguration': null,
   }
@@ -159,6 +166,34 @@ describe('useComparisonReport', () => {
     expect(report.snapshot.value.sections.shopChartRevenue).toBe(240)
     expect(report.eventRevenueSeries.value.map((s) => s.eventId)).toEqual(['e1', 'e2'])
     expect(report.appliedFilters.value.find((f) => f.key === 'selectedEventIds').own).toBe(true)
+  })
+
+  it('principal sur une config précise : un event d\'une AUTRE config est sélectionnable et chargé, PdV réconciliés sans écriture', async () => {
+    const other = ev('e9', '2026-03-01', { configurationId: 'cfg2' })
+    store.state.analyse = {
+      ...store.state.analyse,
+      spaceId: 's1',
+      configurations: [{ id: 'cfg1', eventIds: ['e1'] }, { id: 'cfg2', eventIds: ['e9'] }],
+      filters: { selectedConfigurationId: 'cfg1' },
+      configShopContext: { configId: 'cfg1', floorElements: [{ id: 'f1', name: 'Bar', shopType: ['beverages'] }] },
+    }
+    buildConfigShopEntryReadOnly.mockResolvedValue({ floorElements: [{ id: 'f2', name: 'Snack', shopType: ['food'], floorName: 'Nord' }] })
+    const { report } = build({
+      input: { kind: 'event', eventIds: ['e9'] },
+      mainEvents: [ev('e1', '2026-01-10')],
+      analysable: [ev('e1', '2026-01-10')],
+      spaceEvents: [ev('e1', '2026-01-10'), other],
+    })
+    await settle()
+    expect(report.status.value).toBe('ready')
+    expect(report.events.value.map((e) => e.id)).toEqual(['e9'])
+    expect(getSpaceEventTimelineBatch).toHaveBeenCalledTimes(1)
+    expect(getSpaceEventTimelineBatch.mock.calls[0][1]).toEqual(['e9'])
+    // Le contexte PdV de cfg2 a été demandé en lecture seule, et les PdV de cfg2 sont typés.
+    expect(buildConfigShopEntryReadOnly).toHaveBeenCalledWith('s1', 'cfg2', expect.any(Object))
+    const snack = report.chartRecords.value.find((r) => r.shopName === 'Snack')
+    expect(snack.shopType).toBeTruthy()
+    expect(store.commit).not.toHaveBeenCalled()
   })
 
   it('applique les filtres du principal (PdV) au rapport de comparaison', async () => {

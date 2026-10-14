@@ -3,12 +3,15 @@
     <ComparisonBanner
       :label="summaryLabel"
       :event-count="runtime.events.value.length"
+      :show-event-count="comparison.applied.value?.kind !== 'event'"
+      :mobile="mobile"
       :layout="comparison.layout.value"
       :exporting="exporting"
       :copying="copying"
       :sharing="sharing"
       :export-disabled="runtime.refreshing.value || runtime.pending.value"
       @toggle-expand="comparison.toggleExpandDrawer()"
+      @close="comparison.closeDrawer()"
       @export-csv="emit('export-csv')"
       @copy="emit('copy')"
       @share="emit('share')"
@@ -51,6 +54,13 @@
           />
         </v-card>
 
+        <ShopDistributionPieChart
+          v-can="'stats.financial.view'"
+          readonly
+          :records="report.chartRecords.value"
+          :deltas="runtime.deltasVsMain.value"
+        />
+
         <MenuItemRevenueDistribution
           v-can="'stats.financial.view'"
           readonly
@@ -90,7 +100,7 @@
 
 <script setup>
 // Rapport de comparaison (vue 'ready' du drawer), de haut en bas : bandeau rouge, filtres
-// appliqués, notices, 5 widgets, CA par shop (avec tendance du principal), répartition du CA par
+// appliqués, notices, 5 widgets, CA par shop (avec tendance du principal), répartition des PdV par CA, répartition du CA par
 // article + Promotion, tableau Article par PdV. La bande des 8 puces est dans l'en-tête du
 // drawer (ComparisonDrawerHead). Les composants du principal sont montés en lecture seule.
 // Racine #comparison-capture-root : cible de la copie / du partage (useAnalyseCapture).
@@ -104,6 +114,7 @@ import ComparisonFilterList from './ComparisonFilterList.vue'
 import ComparisonNotices from './ComparisonNotices.vue'
 import FinancialMetricsGrid from '../panels/FinancialMetricsGrid.vue'
 import EventRevenueByShopChart from '../charts/EventRevenueByShopChart.vue'
+import ShopDistributionPieChart from '../charts/ShopDistributionPieChart.vue'
 import MenuItemRevenueDistribution from '../tables/MenuItemRevenueDistribution.vue'
 import PromotionSection from '../tables/PromotionSection.vue'
 import MenuItemsByShopTable from '../tables/MenuItemsByShopTable.vue'
@@ -117,6 +128,8 @@ const props = defineProps({
   exporting: { type: Boolean, default: false },
   copying: { type: Boolean, default: false },
   sharing: { type: Boolean, default: false },
+  // Mobile : le bandeau porte un bouton fermer au lieu du bouton d'extension.
+  mobile: { type: Boolean, default: false },
 })
 const emit = defineEmits(['export-csv', 'copy', 'share'])
 
