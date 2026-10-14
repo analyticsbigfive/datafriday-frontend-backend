@@ -12,10 +12,18 @@
     style="cursor: pointer"
   >
     <div class="kpi-head">
-      <v-icon :color="config.accent" size="15" class="mr-1">{{ config.icon }}</v-icon>
+      <v-icon :color="config.accent" size="15" class="mr-1 kpi-icon">{{ config.icon }}</v-icon>
       <span class="kpi-label" :style="{ color: config.labelColor }">
         {{ config.label }}
       </span>
+      <!-- Mention de périmètre (filtre non appliqué, effectifs saisis par event) : icône +
+           info-bulle plutôt qu'un bloc de texte, pour garder toutes les cartes à la même
+           hauteur (retour Bertrand 2026-10-14). -->
+      <v-tooltip v-if="!loading && warning" :text="warning" location="bottom" max-width="260">
+        <template #activator="{ props: tip }">
+          <v-icon v-bind="tip" size="15" class="kpi-warn-icon" :aria-label="warning">mdi-alert-circle-outline</v-icon>
+        </template>
+      </v-tooltip>
       <span
         v-if="!loading && variation != null"
         class="kpi-variation d-flex align-center"
@@ -32,11 +40,6 @@
          squelette — JAMAIS une valeur de repli destinée à bouger. -->
     <div v-if="loading" class="kpi-value kpi-skeleton" aria-hidden="true"></div>
     <div v-else class="kpi-value">{{ value }}</div>
-    <!-- Widgets rendement : ligne de contexte + mention de périmètre. `subtext` reste
-         ignoré (pied « Total » retiré) ; ces deux props sont réservées aux cartes qui
-         doivent dire ce qu'elles couvrent. -->
-    <div v-if="!loading && detail" class="kpi-detail">{{ detail }}</div>
-    <div v-if="!loading && warning" class="kpi-warn">{{ warning }}</div>
   </v-card>
 </template>
 
@@ -50,9 +53,7 @@ export default {
     config: { type: Object, required: true },
     value: { type: String, required: true },
     subtext: { type: String, default: '' },
-    // Ligne de contexte sous la valeur (ex. « 4/6 events renseignés · 112 TPE »).
-    detail: { type: String, default: '' },
-    // Mention de périmètre / filtre non appliqué, en teinte d'avertissement.
+    // Mention de périmètre / filtre non appliqué : icône d'avertissement + info-bulle.
     warning: { type: String, default: '' },
     variation: { type: Number, default: null },
     variationUnit: { type: String, default: '%' }, // % | pp
@@ -116,6 +117,10 @@ export default {
   margin-bottom: 6px;
 }
 .kpi-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.75rem;
   font-weight: var(--fw-bold);
   text-transform: uppercase;
@@ -137,20 +142,13 @@ export default {
   white-space: nowrap;
 }
 
-.kpi-detail {
-  margin-top: 4px;
-  font-size: var(--fs-xs);
-  color: #6b7280;
-  line-height: 1.3;
+.kpi-icon {
+  flex: none;
 }
-.kpi-warn {
-  margin-top: 6px;
-  padding: 3px 6px;
-  border-radius: 6px;
-  font-size: var(--fs-xs);
-  line-height: 1.3;
-  background: #fff7e6;
-  color: #8a5a00;
+.kpi-warn-icon {
+  flex: none;
+  margin-left: 4px;
+  color: #b7791f;
 }
 
 /* BUG-350-01 — squelette de valeur (même gabarit que .kpi-value pour éviter le
@@ -184,11 +182,7 @@ export default {
 .kpi-card--dark .kpi-value {
   color: #f9fafb;
 }
-.kpi-card--dark .kpi-detail {
-  color: #94a3b8;
-}
-.kpi-card--dark .kpi-warn {
-  background: #33270f;
+.kpi-card--dark .kpi-warn-icon {
   color: #f2c46b;
 }
 .kpi-card--dark .kpi-skeleton {

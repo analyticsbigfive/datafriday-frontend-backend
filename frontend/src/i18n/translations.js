@@ -4806,9 +4806,9 @@ export const translations = {
     anNoResults: 'No results',
 
     // ── Analyse : rendement, valorisation stock, dimensions article, promotion ──
-    anKpiCardRevenuePerTpe: 'Revenue / TPE',
-    anKpiCardRevenuePerCollaborator: 'Revenue / staff',
-    anKpiCardStockValue: 'Stock valuation',
+    anKpiCardRevenuePerTpe: 'REV/TPE',
+    anKpiCardRevenuePerCollaborator: 'REV/COLLAB',
+    anKpiCardStockValue: 'Stock value',
     anMetricRevenuePerTpe: 'Revenue / TPE',
     anMetricRevenuePerCollaborator: 'Revenue / staff member',
     anMetricStockValue: 'Stock valuation',
@@ -9740,9 +9740,9 @@ export const translations = {
     anNoResults: 'Aucun résultat',
 
     // ── Analyse : rendement, valorisation stock, dimensions article, promotion ──
-    anKpiCardRevenuePerTpe: 'CA / TPE',
-    anKpiCardRevenuePerCollaborator: 'CA / collaborateur',
-    anKpiCardStockValue: 'Valorisation stock',
+    anKpiCardRevenuePerTpe: 'CA/TPE',
+    anKpiCardRevenuePerCollaborator: 'CA/COLLAB',
+    anKpiCardStockValue: 'Valo stock',
     anMetricRevenuePerTpe: 'CA / TPE',
     anMetricRevenuePerCollaborator: 'CA / collaborateur',
     anMetricStockValue: 'Valorisation stock',
