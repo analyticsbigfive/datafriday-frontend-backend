@@ -2770,9 +2770,18 @@ async function ensureAuthAndLoad(spaceId) {
   --cr: 340px;
   --cm: 1fr;
   --cd: 1fr;
-  grid-template-columns: var(--cl) minmax(0, var(--cm)) var(--cr) minmax(0, var(--cd));
   column-gap: 0;
   transition: grid-template-columns 0.25s ease;
+}
+// Le gabarit à 4 pistes doit battre les règles de repli du principal, dont
+// `.an-body.an-side-collapsed.an-summary-collapsed` (3 classes) : à l'ouverture du drawer les
+// deux panneaux se replient, et sans ces sélecteurs plus spécifiques la grille retombait à 3
+// pistes et le drawer glissait sur une 2e ligne, à largeur nulle.
+.an-body.has-d,
+.an-body.has-d.an-side-collapsed,
+.an-body.has-d.an-summary-collapsed,
+.an-body.has-d.an-side-collapsed.an-summary-collapsed {
+  grid-template-columns: var(--cl) minmax(0, var(--cm)) var(--cr) minmax(0, var(--cd));
 }
 .an-body.has-d.an-side-collapsed { --cl: 0px; }
 .an-body.has-d.an-summary-collapsed { --cr: 0px; }
@@ -2854,7 +2863,8 @@ async function ensureAuthAndLoad(spaceId) {
   .av-cmp-edge { display: none; }
   .an-body.has-d,
   .an-body.has-d.an-side-collapsed,
-  .an-body.has-d.an-summary-collapsed {
+  .an-body.has-d.an-summary-collapsed,
+  .an-body.has-d.an-side-collapsed.an-summary-collapsed {
     grid-template-columns: 1fr;
   }
   .an-body.has-d > .an-main { padding-right: 0; margin-left: 0; }
