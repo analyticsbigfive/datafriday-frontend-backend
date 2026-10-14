@@ -17,6 +17,7 @@ function snap(over = {}) {
       supplierCost: over.supplierCost === undefined ? null : over.supplierCost,
       discount: over.discount === undefined ? null : over.discount,
     },
+    shopDistribution: over.shopDistribution,
     itemsByShop: over.itemsByShop || [],
     sections: { shopChartRevenue: 0, articleDistributionRevenue: 0, itemsByShopRevenue: 0, ...(over.sections || {}) },
   }
@@ -136,6 +137,27 @@ describe('computeReportDeltas', () => {
     expect(d.item.get('Bière').delta).toBeCloseTo(50)
     expect(d.item.get('Pizza').isNew).toBe(true)
     expect(d.brand.size).toBe(0)
+  })
+
+  it('répartition des PdV par CA : écart par PdV / type / zone, nouveau, mode quantité, snapshot sans la clé', () => {
+    const dims = (shop, type = [], area = []) => ({ shop, type, area })
+    const a = snap({ shopDistribution: {
+      revenue: dims([{ key: 'Buvette', value: 150 }, { key: 'Grill', value: 10 }], [{ key: 'food', value: 80 }], [{ key: 'Nord', value: 5 }]),
+      quantity: dims([{ key: 'Buvette', value: 30 }]),
+    } })
+    const b = snap({ shopDistribution: {
+      revenue: dims([{ key: 'Buvette', value: 100 }], [{ key: 'food', value: 0 }], [{ key: 'Nord', value: 10 }]),
+      quantity: dims([{ key: 'Buvette', value: 60 }]),
+    } })
+    const d = computeReportDeltas(a, b).shopDistribution
+    expect(d.revenue.shop.get('Buvette').delta).toBeCloseTo(50)
+    expect(d.revenue.shop.get('Grill').isNew).toBe(true)
+    expect(d.revenue.type.get('food').kind).toBe('none')
+    expect(d.revenue.area.get('Nord').delta).toBeCloseTo(-50)
+    expect(d.quantity.shop.get('Buvette').delta).toBeCloseTo(-50)
+    const none = computeReportDeltas(snap(), snap()).shopDistribution
+    expect(none.revenue.shop.size).toBe(0)
+    expect(none.quantity.area.size).toBe(0)
   })
 
   it('coût fournisseur inversé, remise accordée inversée', () => {

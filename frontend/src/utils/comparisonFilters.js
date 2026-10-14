@@ -9,6 +9,7 @@
  */
 import { resolveDateBounds, previousPeriodBoundsOf, yearOverYearBoundsOf } from '@/utils/analyseDateBounds'
 import { buildActiveFilterChips } from '@/utils/analyseFilterChips'
+import { formatDateShort } from '@/utils/dateFr'
 import {
   isTemperatureFilterActive,
   DEFAULT_TEMPERATURE_RANGE,
@@ -139,7 +140,8 @@ export function describeComparisonFilters(mainFilters, comparisonFilters, transl
       own: !sameValue(cmp.selectedEventIds, main.selectedEventIds),
     })
   }
-  const chips = buildActiveFilterChips(cmp, translate, context)
+  // Dates en JJ/MM/AAAA comme le reste de l'application (jamais en ISO à l'écran).
+  const chips = buildActiveFilterChips(cmp, translate, { formatDate: formatDateShort, ...context })
   for (const chip of chips) {
     const own = chip.key === 'timeRange'
       ? !(sameValue(cmp.timeRange, main.timeRange)

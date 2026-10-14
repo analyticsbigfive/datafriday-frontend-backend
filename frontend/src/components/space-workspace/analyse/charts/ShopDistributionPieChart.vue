@@ -3,10 +3,24 @@
     <!-- Header -->
     <div class="d-flex align-center justify-space-between mb-2 flex-wrap">
       <div>
-        <div class="section-title">{{ t('anPieDistributionTitle') }}</div>
+        <div class="section-title">
+          {{ t('anPieDistributionTitle') }}
+          <!-- Rapport de comparaison : les sélections ne filtrent pas (même badge que la répartition par article). -->
+          <span v-if="readonly" class="sdp-lock">
+            <v-icon size="12" aria-hidden="true">mdi-lock-outline</v-icon>{{ t('anReadOnly') }}
+          </span>
+        </div>
         <div class="section-subtitle">
           <template v-if="loading">{{ t('anDonutLoading') }}</template>
-          <template v-else>{{ t('anPieTotalRevenue') }} {{ formatCurrencyDetailed(totalRevenue) }}</template>
+          <template v-else>
+            {{ t('anPieTotalRevenue') }} {{ formatCurrencyDetailed(totalRevenue) }}
+            <DeltaPill
+              v-if="deltas?.sections?.shopChartRevenue"
+              :delta="deltas.sections.shopChartRevenue"
+              size="sm"
+              class="sdp-delta"
+            />
+          </template>
         </div>
       </div>
       <v-btn-toggle
@@ -32,6 +46,8 @@
           :max-legend="5"
           clickable
           :loading="loading"
+          :readonly="readonly"
+          :deltas="modeDeltas?.shop || null"
           :selected-labels="selectedShopIds"
           @slice-click="(label) => emit('shop-click', label)"
         />
@@ -48,6 +64,8 @@
           :max-legend="6"
           clickable
           :loading="loading"
+          :readonly="readonly"
+          :deltas="modeDeltas?.type || null"
           :selected-labels="selectedShopTypes"
           @slice-click="(label) => emit('shop-type-click', label)"
         />
@@ -63,6 +81,8 @@
           :max-legend="6"
           clickable
           :loading="loading || areaPending"
+          :readonly="readonly"
+          :deltas="modeDeltas?.area || null"
           :selected-labels="selectedShopAreas"
           @slice-click="(label) => emit('shop-area-click', label)"
         />
@@ -75,13 +95,12 @@
 import { ref, computed } from 'vue'
 import { useTheme } from 'vuetify'
 import DonutChartCard from './DonutChartCard.vue'
+import DeltaPill from '@/components/space-workspace/shared/DeltaPill.vue'
 import { SHOP_COLORS, SHOP_TYPE_COLORS, SHOP_AREA_COLORS } from '@/constants/analyseColors'
-import { SHOP_TYPE_LABEL_KEYS } from '@/constants/shopTypes'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
-import { resolveShopType } from '@/utils/analyseDimensions'
-import { groupBy as sharedGroupBy } from '@/utils/analyseAggregations'
+import { buildShopDistributionGroups, shopTypeLabel } from '@/utils/shopDistribution'
 import { UNATTACHED_SHOP_KEY } from '@/utils/analyseReconciliation'
 
 const { t } = useI18n()
@@ -99,45 +118,42 @@ const props = defineProps({
   // Phase 2 (records) encore en vol → les 3 donuts affichent leur skeleton dans la
   // carte réelle, au lieu du rectangle générique qui remplaçait toute la carte.
   loading: { type: Boolean, default: false },
+  // Mode lecture seule (drawer Comparaison) : aucun clic ne filtre, le store du principal
+  // n'est lu ni pour la sélection (surlignage vide) ni pour l'attente du contexte des zones.
+  readonly: { type: Boolean, default: false },
+  // Écarts vs le rapport de référence : objet complet de computeReportDeltas (ou null).
+  // Légendes (shopDistribution[mode].shop|type|area) et total CA (sections.shopChartRevenue).
+  deltas: { type: Object, default: null },
 })
 
 const emit = defineEmits(['shop-click', 'shop-type-click', 'shop-area-click'])
 
 const store = useStore()
-const selectedShopIds = computed(() => store.state.analyse.filters.selectedShopIds || [])
-const selectedShopTypes = computed(() => store.state.analyse.filters.selectedShopTypes || [])
-const selectedShopAreas = computed(() => store.state.analyse.filters.selectedShopAreas || [])
+// Lecture seule : la sélection du store appartient au rapport principal, on ne la lit pas.
+const selectedShopIds = computed(() => (props.readonly ? [] : store.state.analyse.filters.selectedShopIds || []))
+const selectedShopTypes = computed(() => (props.readonly ? [] : store.state.analyse.filters.selectedShopTypes || []))
+const selectedShopAreas = computed(() => (props.readonly ? [] : store.state.analyse.filters.selectedShopAreas || []))
 
 const localMode = ref('revenue')
 
 const totalRevenue = computed(() => props.records.reduce((a, r) => a + (r.revenue || 0), 0))
 
-// Le groupement vit dans `utils/analyseAggregations` : l'export xlsx/csv et
-// l'assistant produisent leurs tables avec CETTE fonction, pas une copie. Deux
-// implémentations du même regroupement, c'est deux chiffres différents pour le
-// même donut le jour où l'une des deux bouge.
-function groupBy(keyFn, valueFn, colorMap, labelFn = null) {
-  return sharedGroupBy(props.records, keyFn, valueFn, colorMap, labelFn, SHOP_COLORS)
-}
+// Le regroupement vit dans `utils/shopDistribution` : le moteur de comparaison (écarts
+// réciproques) et l'export produisent leurs tables avec CETTE fonction, pas une copie.
+// Data-driven : le bucket sentinelle « PdV non rattachés » reste visible (part grise
+// cliquable), c'est de la vente réelle d'un PdV sans type connu.
+const groups = computed(() => buildShopDistributionGroups(props.records, localMode.value, {
+  palette: SHOP_COLORS,
+  typeColors: SHOP_TYPE_COLOR_MAP,
+  areaColors: SHOP_AREA_COLORS,
+  typeLabel: (key) => shopTypeLabel(key, t),
+}))
+const byShop = computed(() => groups.value.shop)
+const byType = computed(() => groups.value.type)
+const byArea = computed(() => groups.value.area)
 
-const valueFn = (r) => (localMode.value === 'quantity' ? r.quantity || 0 : r.revenue || 0)
-
-// Clé canonique (simple ou composite 'food, beverages') → libellé localisé.
-// Composite : on traduit chaque token et on joint avec ' & '.
-function shopTypeLabel(key) {
-  if (!key) return ''
-  if (key === UNATTACHED_SHOP_KEY) return t('anUnmatchedShops')
-  return String(key)
-    .split(', ')
-    .map((token) => (SHOP_TYPE_LABEL_KEYS[token] ? t(SHOP_TYPE_LABEL_KEYS[token]) : token))
-    .join(' & ')
-}
-
-// Data-driven : le bucket sentinelle « PdV non rattachés » reste visible (part
-// grise cliquable) — c'est de la vente réelle d'un PdV sans type connu.
-const byShop = computed(() => groupBy((r) => r.shopName, valueFn))
-const byType = computed(() => groupBy(resolveShopType, valueFn, SHOP_TYPE_COLOR_MAP, shopTypeLabel))
-const byArea = computed(() => groupBy((r) => r.shopArea, valueFn, SHOP_AREA_COLORS))
+// Écarts des légendes : suivent le toggle Quantité / CA.
+const modeDeltas = computed(() => props.deltas?.shopDistribution?.[localMode.value === 'quantity' ? 'quantity' : 'revenue'] || null)
 
 // `shopArea` n'existe sur un record QU'APRÈS réconciliation avec les FloorElements
 // du contexte config — contexte que AnalyseView charge en DIFFÉRÉ (union « All
@@ -147,6 +163,7 @@ const byArea = computed(() => groupBy((r) => r.shopArea, valueFn, SHOP_AREA_COLO
 // Le skeleton ne remplace QU'UN donut vide : jamais de flash par-dessus des zones
 // déjà affichées (changement de config = les anciennes valeurs restent visibles).
 const areaPending = computed(() => {
+  if (props.readonly) return false
   const st = store.state.analyse
   if (byArea.value.labels.length || !props.records.length) return false
   if (st.configContextError) return false
@@ -168,6 +185,26 @@ const areaPending = computed(() => {
 
 /* ── Dark mode (autonome via isDark) : overrides additifs des couleurs claires
    en dur. Mode clair inchangé. Les donuts internes gèrent leur propre dark. ── */
+.sdp-lock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 99px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  vertical-align: middle;
+}
+.sdp-delta {
+  margin-left: 6px;
+}
+.sdp--dark .sdp-lock {
+  background: #273549;
+  color: #94a3b8;
+}
 .sdp--dark .section-title {
   color: #f9fafb;
 }
