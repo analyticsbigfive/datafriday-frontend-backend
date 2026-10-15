@@ -138,7 +138,7 @@ const report = computed(() => props.runtime.report)
 const distributionMode = ref('revenue')
 const { chips: kpiChips, hasValues } = useComparisonKpiChips(props.runtime)
 const summaryLabel = computed(() => comparisonSummaryLabel(
-  props.comparison.applied.value, props.runtime.appliedFilters.value, t,
+  props.comparison.applied.value, props.runtime.appliedFilters.value, t, props.runtime.events.value,
 ))
 </script>
 
