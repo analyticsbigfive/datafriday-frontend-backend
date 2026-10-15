@@ -185,6 +185,9 @@ const props = defineProps({
   // qu'ÉMETTRE (le parent décide, rien n'est écrit dans le store) et « Moyenne » trace en plus
   // une ligne de moyenne locale.
   readonly: { type: Boolean, default: false },
+  // Lecture seule : « Moyenne » n'ajoute plus la ligne de moyenne, elle ÉMET seulement `show-average` et le
+  // parent affiche la timeline moyenne (rapport de comparaison, hors Predict).
+  averageAsTimeline: { type: Boolean, default: false },
   // Tendance du principal : [{ value, label }] en ordre chronologique (cf. utils/comparisonTrend,
   // trendFromEventSeries). Alignée PAR RANG sur les barres, dans l'ordre du tri courant.
   // null = pas de bouton ni de courbe.
@@ -813,7 +816,7 @@ function toggleSort() {
 }
 
 function onAverageClick() {
-  if (props.readonly) showAverage.value = !showAverage.value
+  if (props.readonly && !props.averageAsTimeline) showAverage.value = !showAverage.value
   emit('show-average')
 }
 </script>

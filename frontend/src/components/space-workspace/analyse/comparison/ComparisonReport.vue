@@ -43,16 +43,11 @@
           :deltas="runtime.widgetDeltas.value"
         />
 
-        <v-card v-can="'stats.financial.view'" flat rounded="lg" class="pa-4">
-          <EventRevenueByShopChart
-            embedded
-            readonly
-            :records="report.chartRecords.value"
-            :events="report.events.value"
-            :is-predict-mode="report.isPredict.value"
-            :trend="runtime.trend.value"
-          />
-        </v-card>
+        <ComparisonRevenueChartCard
+          v-can="'stats.financial.view'"
+          :report="report"
+          :trend="runtime.trend.value"
+        />
 
         <ShopDistributionPieChart
           v-can="'stats.financial.view'"
@@ -113,7 +108,7 @@ import ComparisonKpiStrip from './ComparisonKpiStrip.vue'
 import ComparisonFilterList from './ComparisonFilterList.vue'
 import ComparisonNotices from './ComparisonNotices.vue'
 import FinancialMetricsGrid from '../panels/FinancialMetricsGrid.vue'
-import EventRevenueByShopChart from '../charts/EventRevenueByShopChart.vue'
+import ComparisonRevenueChartCard from './ComparisonRevenueChartCard.vue'
 import ShopDistributionPieChart from '../charts/ShopDistributionPieChart.vue'
 import MenuItemRevenueDistribution from '../tables/MenuItemRevenueDistribution.vue'
 import PromotionSection from '../tables/PromotionSection.vue'

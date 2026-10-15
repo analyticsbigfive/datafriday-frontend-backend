@@ -12,16 +12,12 @@
         {{ f.label }}
       </span>
     </div>
-    <div class="cfl__legend">
-      <span><i class="cfl__sq"></i>{{ t('anCmpLegendOwn') }}</span>
-      <span class="cfl__shared"><v-icon size="14" aria-hidden="true">mdi-link-variant</v-icon>{{ t('anCmpLegendShared') }}</span>
-    </div>
   </div>
 </template>
 
 <script setup>
 // Filtres appliqués au rapport de comparaison : puces violettes pour ceux propres à la
-// comparaison, puces grises avec maillon pour ceux repris du principal, puis la légende.
+// comparaison, puces grises avec maillon pour ceux repris du principal.
 import { useI18n } from '@/i18n/useI18n'
 
 defineProps({
@@ -52,22 +48,4 @@ const { t } = useI18n()
   color: var(--cr-cmp);
 }
 .cfl__link { opacity: 0.7; }
-.cfl__legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-  font-size: var(--fs-xs);
-  color: var(--cr-muted);
-}
-.cfl__sq {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  margin-right: 4px;
-  border-radius: 3px;
-  background: var(--cr-cmp);
-  vertical-align: -1px;
-}
-.cfl__shared { display: inline-flex; align-items: center; gap: 3px; }
 </style>
