@@ -23,6 +23,7 @@ describe('BuilderV2ConfigurationService.createConfiguration (clonage)', () => {
         createMany: jest.fn().mockResolvedValue({ count: 2 }),
       },
     };
+    prisma.$transaction = jest.fn((cb: any) => cb(prisma));
     ({ builderV2SupportService, builderV2ConfigurationService } = createBuilderV2Services({ prisma: prisma, spaceCacheService: {} as any, storage: {} as any, staffingCalculator: {} as any, spaceAccess: {} as any }));
     jest.spyOn(builderV2SupportService as any, 'getSpaceOrThrow').mockResolvedValue({ id: 'space-1' });
     jest.spyOn(builderV2SupportService as any, 'getConfigOrThrow').mockResolvedValue({ id: 'cfg-src', spaceId: 'space-1', capacity: 2000 });
@@ -48,5 +49,15 @@ describe('BuilderV2ConfigurationService.createConfiguration (clonage)', () => {
     await builderV2ConfigurationService.createConfiguration('space-1', 'tenant-1', { name: 'Vide' } as any);
     expect(prisma.configurationElement.findMany).not.toHaveBeenCalled();
     expect(prisma.menuAssignment.findMany).not.toHaveBeenCalled();
+  });
+
+  it('atomicité : si la copie des menus échoue, la config entière est annulée', async () => {
+    prisma.menuAssignment.createMany.mockRejectedValue(new Error('boom'));
+    // Simule le rollback Prisma : l'erreur du callback remonte, rien n'est invalidé ni renvoyé.
+    await expect(
+      builderV2ConfigurationService.createConfiguration('space-1', 'tenant-1', { name: 'X', cloneFromConfigId: 'cfg-src' } as any),
+    ).rejects.toThrow('boom');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(builderV2SupportService.invalidate).not.toHaveBeenCalled();
   });
 });

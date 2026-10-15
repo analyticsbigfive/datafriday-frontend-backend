@@ -38,7 +38,7 @@
         <div class="elv-filter-pills">
           <select v-model="selectedLocation" class="elv-filter-select">
             <option value="">{{ t('eventsList.allLocations') }}</option>
-            <option v-for="opt in locationOptions" :key="opt" :value="opt">{{ opt }}</option>
+            <option v-for="opt in locationOptions" :key="opt.key" :value="opt.key">{{ opt.label }}</option>
           </select>
           <select v-model="selectedType" class="elv-filter-select">
             <option value="">{{ locale === 'fr' ? 'Tous les types' : 'All types' }}</option>
@@ -483,7 +483,7 @@ export default {
           const sessions = this.parseEventSessions(e.sessions);
           const firstSession = sessions[0] || {};
           return [
-            e.spaceName || '',
+            row.spaceName === '-' ? '' : row.spaceName,
             (e.configurationId && configNameById.get(e.configurationId)) || '',
             this.formatDate(e.eventDate),
             e.eventEndDate ? this.formatDate(e.eventEndDate) : '',
@@ -558,7 +558,11 @@ export default {
     mappedEvents() {
       return (this.events || []).map((e) => {
         const spaceFromId = this.spacesById.get(e.spaceId);
-        const spaceName = e.spaceName || spaceFromId?.name || e.space || e.location || "-";
+        // Source de vérité = spaceId (le nom courant de l'espace). Event.spaceName est un libellé
+        // figé à la création : il survit aux renommages (« Adidas Arena » / « Adidas arena » en
+        // double), il ne sert donc que de repli pour un event sans espace.
+        const spaceName = spaceFromId?.name || e.spaceName || e.space || e.location || "-";
+        const spaceKey = e.spaceId ? `id:${e.spaceId}` : `name:${spaceName}`;
         const eventDate = e.eventDate || e.date || e.startsAt || e.startDate;
         // Repli sur eventDate : des événements créés avant que ce champ ne soit envoyé à la
         // création (ex. import CSV, BUG-270) ont eventStartDate=null en base — sans ce repli,
@@ -581,6 +585,7 @@ export default {
         return {
           id: e.id || `${name}-${eventDate || ""}-${spaceName}`,
           spaceName,
+          spaceKey,
           eventDate,
           eventStartDate,
           eventEndDate,
@@ -599,8 +604,11 @@ export default {
       });
     },
     locationOptions() {
-      const list = (this.mappedEvents || []).map((r) => r.spaceName).filter((v) => v && v !== "-");
-      return Array.from(new Set(list)).sort((a, b) => String(a).localeCompare(String(b)));
+      const byKey = new Map();
+      for (const r of this.mappedEvents || []) {
+        if (r.spaceName && r.spaceName !== "-" && !byKey.has(r.spaceKey)) byKey.set(r.spaceKey, r.spaceName);
+      }
+      return Array.from(byKey, ([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label));
     },
     typeOptions() {
       const list = (this.mappedEvents || []).map((r) => r.eventType).filter((v) => v && v !== "-");
@@ -617,7 +625,7 @@ export default {
       const q = (this.search || "").trim().toLowerCase();
 
       return (this.mappedEvents || []).filter((row) => {
-        if (this.selectedLocation && String(row.spaceName) !== String(this.selectedLocation)) return false;
+        if (this.selectedLocation && row.spaceKey !== this.selectedLocation) return false;
         if (this.selectedType && String(row.eventType) !== String(this.selectedType)) return false;
         if (this.selectedCategory && String(row.eventCategory) !== String(this.selectedCategory)) return false;
 

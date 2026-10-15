@@ -38,7 +38,11 @@
     class="ep-menus-empty flex flex-col items-center justify-center py-12 text-muted-foreground"
   >
     <v-icon size="48" class="opacity-50 mb-4">mdi-alert-circle-outline</v-icon>
-    <p class="text-center">{{ t('epNoItemsPrediction') }}</p>
+    <p class="text-center mb-4">{{ t('epNoItemsConfigNoMenu') }}</p>
+    <Button size="sm" @click="goToSpaceMenus">
+      <v-icon size="16" class="mr-1">mdi-storefront-plus-outline</v-icon>
+      {{ t('epmAddShopsSpaceMenus') }}
+    </Button>
   </div>
 
   <!-- Empty state : prédiction pas encore calculée. Event futur SANS historique
