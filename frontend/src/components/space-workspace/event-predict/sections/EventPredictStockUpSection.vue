@@ -13,8 +13,11 @@
         {{ t('epsSelectMenuItemsHint') }}
       </p>
     </template>
+    <template v-else-if="itemsContext === 'no-mapping'">
+      <p>{{ t('epNoItemsConfigNoMenu') }}</p>
+    </template>
     <template v-else>
-      <!-- no-mapping / not-calculated : prédiction indisponible -->
+      <!-- not-calculated : prédiction indisponible -->
       <p>{{ t('epNoItemsPrediction') }}</p>
     </template>
   </div>

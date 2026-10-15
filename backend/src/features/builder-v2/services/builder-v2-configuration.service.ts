@@ -72,36 +72,38 @@ export class BuilderV2ConfigurationService {
       sourceCapacity = source.capacity || 0;
     }
 
-    const config = await this.prisma.config.create({
-      data: { name: dto.name, spaceId, capacity: sourceCapacity, isSystem: false },
-      select: { id: true, name: true, isSystem: true, capacity: true, createdAt: true },
-    });
+    // Config + adhésions + menus dans UNE transaction : un échec au milieu ne doit jamais
+    // laisser une config à moitié clonée (PdV sans articles = Event Predict « Aucun article »,
+    // Adidas arena / Aix Arena sept. 2026).
+    const config = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.config.create({
+        data: { name: dto.name, spaceId, capacity: sourceCapacity, isSystem: false },
+        select: { id: true, name: true, isSystem: true, capacity: true, createdAt: true },
+      });
+      if (!dto.cloneFromConfigId) return created;
 
-    // Clone = copie des adhésions (1 requête) — la raison d'être du modèle v2 (doc §2.2).
-    if (dto.cloneFromConfigId) {
-      const sourceMemberships = await this.prisma.configurationElement.findMany({
+      // Clone = copie des adhésions (1 requête), la raison d'être du modèle v2 (doc §2.2).
+      const sourceMemberships = await tx.configurationElement.findMany({
         where: { configId: dto.cloneFromConfigId },
         select: { elementId: true },
       });
       if (sourceMemberships.length > 0) {
-        await this.prisma.configurationElement.createMany({
-          data: sourceMemberships.map((m) => ({ configId: config.id, elementId: m.elementId })),
+        await tx.configurationElement.createMany({
+          data: sourceMemberships.map((m) => ({ configId: created.id, elementId: m.elementId })),
           skipDuplicates: true,
         });
       }
 
       // Menus (Space Menu) des PdV : scopés par configuration (MenuAssignment.configId),
-      // donc NON portés par les adhésions. Sans cette copie, une config clonée avait ses
-      // PdV mais aucun article (Aix Arena 2026-09-23/24 : 10 configs vides, Event Predict
-      // « No items available »). Copie à l'identique, cochés comme décochés.
-      const sourceAssignments = await this.prisma.menuAssignment.findMany({
+      // donc NON portés par les adhésions. Copie à l'identique, cochés comme décochés.
+      const sourceAssignments = await tx.menuAssignment.findMany({
         where: { configId: dto.cloneFromConfigId, elementId: { not: null } },
         select: { elementId: true, menuItemId: true, enabled: true },
       });
       if (sourceAssignments.length > 0) {
-        await this.prisma.menuAssignment.createMany({
+        await tx.menuAssignment.createMany({
           data: sourceAssignments.map((a) => ({
-            configId: config.id,
+            configId: created.id,
             elementId: a.elementId,
             menuItemId: a.menuItemId,
             enabled: a.enabled,
@@ -109,7 +111,8 @@ export class BuilderV2ConfigurationService {
           skipDuplicates: true,
         });
       }
-    }
+      return created;
+    });
 
     await this.builderV2SupportService.invalidate(tenantId, spaceId);
     return config;
