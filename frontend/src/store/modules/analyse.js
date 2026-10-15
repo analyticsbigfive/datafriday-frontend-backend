@@ -35,7 +35,7 @@ import {
 } from '@/utils/eventDayWeatherFilters'
 import { filterEvents, eventDateOf } from '@/utils/analyseEventFilter'
 import { resolveDateBounds, previousPeriodBoundsOf, yearOverYearBoundsOf } from '@/utils/analyseDateBounds'
-import { buildActiveFilterChips } from '@/utils/analyseFilterChips'
+import { buildActiveFilterChips, buildPeriodChip } from '@/utils/analyseFilterChips'
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 // getConfiguration : MIGRÉ vers l'API NestJS (projet Supabase alsgd VIVANT) au lieu
 // du make-server Edge Function (projet uvxx MORT → 500/522). Import DYNAMIQUE au
@@ -1280,6 +1280,16 @@ const getters = {
     const T = (k) => translate(k, getCurrentLocale())
     return buildActiveFilterChips(state.filters, T, {
       activeConfiguration: g.activeConfiguration,
+      seasons: rootState.seasons?.seasons || [],
+      defaultTimeRange: DEFAULT_FILTERS().timeRange,
+    })
+  },
+
+  // Puce « Période : X » du bandeau Analyse : toujours présente, y compris sur le preset par
+  // défaut (activeFilterChips, lui, ne la porte que si la période diffère du défaut).
+  periodChip(state, g, rootState) {
+    const T = (k) => translate(k, getCurrentLocale())
+    return buildPeriodChip(state.filters, T, {
       seasons: rootState.seasons?.seasons || [],
       defaultTimeRange: DEFAULT_FILTERS().timeRange,
     })
