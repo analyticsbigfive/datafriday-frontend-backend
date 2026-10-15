@@ -1,4 +1,4 @@
-import { buildActiveFilterChips } from '@/utils/analyseFilterChips'
+import { buildActiveFilterChips, buildPeriodChip } from '@/utils/analyseFilterChips'
 
 // Traduction factice : renvoie la clé, pour tester la structure des puces.
 const T = (k) => k
@@ -53,9 +53,14 @@ describe('buildActiveFilterChips', () => {
   })
   it('période : saison nommée, custom avec dates, preset par défaut sans puce', () => {
     const s = buildActiveFilterChips(baseFilters({ timeRange: 'season:s1' }), T, ctx)
-    expect(s[0]).toEqual({ key: 'timeRange', label: 'anPeriod : Saison 25-26', clearValue: 'last12months' })
+    expect(s[0]).toEqual({ key: 'timeRange', label: 'anPeriod : Saison 25-26', clearValue: 'last12months', isDefault: false })
     const c = buildActiveFilterChips(baseFilters({ timeRange: 'custom', startDate: '2026-01-01' }), T, ctx)
     expect(c[0].label).toBe('anChipDates : 2026-01-01 → —')
+  })
+  it('buildPeriodChip : puce toujours constructible, marquée par défaut (non effaçable)', () => {
+    const d = buildPeriodChip(baseFilters(), T, ctx)
+    expect(d).toEqual({ key: 'timeRange', label: 'anPeriod : anRangeLast12Months', clearValue: 'last12months', isDefault: true })
+    expect(buildPeriodChip(baseFilters({ timeRange: 'all' }), T, ctx).isDefault).toBe(false)
   })
   it('plage horaire intra-event', () => {
     const c = buildActiveFilterChips(baseFilters({ selectedTimeRange: { start: '18:00', end: null } }), T, ctx)

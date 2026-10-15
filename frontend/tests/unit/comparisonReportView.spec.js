@@ -35,6 +35,15 @@ describe('comparisonReportView', () => {
     expect(comparisonSummaryLabel({ kind: 'period' }, [], t)).toBe('anCmpSummaryPeriod')
   })
 
+  it('un seul event : son nom, sinon le compte', () => {
+    const tt = (k) => (k === 'anCmpSummaryEvents' ? '{n} ev' : k)
+    const events = [{ id: 'a', name: 'PFC - Brest' }, { id: 'b', name: 'Autre' }]
+    expect(comparisonSummaryLabel({ kind: 'event', eventIds: ['a'] }, [], tt, events)).toBe('PFC - Brest')
+    expect(comparisonSummaryLabel({ kind: 'event', eventIds: ['zz'] }, [], tt, events)).toBe('1 ev')
+    expect(comparisonSummaryLabel({ kind: 'event', eventIds: ['a'] }, [], tt)).toBe('1 ev')
+    expect(comparisonSummaryLabel({ kind: 'event', eventIds: ['a', 'b'] }, [], tt, events)).toBe('2 ev')
+  })
+
   it('noms exclus tronqués à 3 avec ellipse', () => {
     const l = [{ name: 'A' }, { name: 'B' }, { name: 'C' }, { name: 'D' }]
     expect(excludedNamesText(l)).toBe('A, B, C…')

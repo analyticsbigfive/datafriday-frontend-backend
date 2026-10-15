@@ -16,6 +16,42 @@ import {
 } from '@/utils/eventDayWeatherFilters'
 
 /**
+ * Puce « Période : X » (ou « Dates : début → fin » en période personnalisée).
+ * Extraite pour que le bandeau Analyse puisse l'afficher en permanence, même sur le preset par
+ * défaut, alors que la liste des filtres actifs ne la porte que si elle diffère du défaut.
+ *
+ * @param {object} filters  state.filters ou filtres de comparaison
+ * @param {(key: string) => string} translate
+ * @param {{seasons?: Array, defaultTimeRange?: string, formatDate?: (v: any) => any}} [context]
+ * @returns {{key: string, label: string, clearValue: any, isDefault: boolean}}
+ */
+export function buildPeriodChip(filters, translate, context = {}) {
+  const { seasons = [], defaultTimeRange, formatDate = (v) => v } = context
+  const T = translate
+  // Saison (`season:<id>`) : libellé = nom de la saison.
+  const seasonId = String(filters.timeRange).startsWith('season:')
+    ? String(filters.timeRange).slice('season:'.length)
+    : null
+  const seasonName = seasonId
+    ? (seasons || []).find((s) => s.id === seasonId)?.name || seasonId
+    : null
+  const rangeLabel = seasonName
+    || (PRESET_I18N_KEYS[filters.timeRange] && T(PRESET_I18N_KEYS[filters.timeRange]))
+    || DATE_RANGE_LABEL_FR_MAP[filters.timeRange]
+    || PREDICT_DATE_RANGE_LABEL_FR_MAP[filters.timeRange]
+    || filters.timeRange
+  const label = filters.timeRange === 'custom'
+    ? `${T('anChipDates')} : ${formatDate(filters.startDate) || '—'} → ${formatDate(filters.endDate) || '—'}`
+    : `${T('anPeriod')} : ${rangeLabel}`
+  return {
+    key: 'timeRange',
+    label,
+    clearValue: defaultTimeRange,
+    isDefault: filters.timeRange === defaultTimeRange,
+  }
+}
+
+/**
  * @param {object} filters  state.filters ou filtres de comparaison
  * @param {(key: string) => string} translate  fonction de traduction (clé -> texte)
  * @param {{activeConfiguration?: object|null, seasons?: Array, defaultTimeRange?: string}} [context]
@@ -95,22 +131,7 @@ export function buildActiveFilterChips(filters, translate, context = {}) {
   // Filtre de période (preset dates) : puce visible dès que le preset diffère du
   // défaut, sinon le filtre est invisible dans le bandeau. clearValue = défaut.
   if (filters.timeRange && filters.timeRange !== defaultTimeRange) {
-    // Saison (`season:<id>`) : libellé = nom de la saison.
-    const seasonId = String(filters.timeRange).startsWith('season:')
-      ? String(filters.timeRange).slice('season:'.length)
-      : null
-    const seasonName = seasonId
-      ? (seasons || []).find((s) => s.id === seasonId)?.name || seasonId
-      : null
-    const rangeLabel = seasonName
-      || (PRESET_I18N_KEYS[filters.timeRange] && T(PRESET_I18N_KEYS[filters.timeRange]))
-      || DATE_RANGE_LABEL_FR_MAP[filters.timeRange]
-      || PREDICT_DATE_RANGE_LABEL_FR_MAP[filters.timeRange]
-      || filters.timeRange
-    const label = filters.timeRange === 'custom'
-      ? `${T('anChipDates')} : ${formatDate(filters.startDate) || '—'} → ${formatDate(filters.endDate) || '—'}`
-      : `${T('anPeriod')} : ${rangeLabel}`
-    chips.push({ key: 'timeRange', label, clearValue: defaultTimeRange })
+    chips.push(buildPeriodChip(filters, translate, { seasons, defaultTimeRange, formatDate }))
   }
   if (filters.selectedTimeRange && (filters.selectedTimeRange.start || filters.selectedTimeRange.end)) {
     const s = filters.selectedTimeRange.start || '—'

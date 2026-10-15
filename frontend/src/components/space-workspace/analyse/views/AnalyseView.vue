@@ -2,7 +2,7 @@
   <v-app class="analyse-app" :class="{ 'analyse-app--dark': isDark }">
     <WorkspaceAppHeader
       :space-name="spaceName"
-      :kpis="headerKpis"
+      :kpis="comparisonMainKpiStrip ? [] : headerKpis"
       show-home
       @kpi-click="onOpenChart"
     />
@@ -29,6 +29,13 @@
         <div v-if="summaryDrawer" class="an-live-summary-backdrop" @click="summaryDrawer = false"></div>
 
         <div class="an-main">
+          <!-- Mode comparaison (desktop) : les KPI quittent le header global et passent au-dessus
+               du bandeau rouge, comme dans la colonne Comparaison. -->
+          <ComparisonMainKpiStrip
+            v-if="comparisonMainKpiStrip"
+            :kpis="headerKpis"
+            :loading="kpiSourceState === 'loading'"
+          />
           <!-- Bloc sticky : bandeau ROUGE (titre + période/comparaison) PUIS la
                rangée de tags sur fond NEUTRE (hors du rouge). -->
           <div class="av-sticky">
@@ -324,23 +331,13 @@
                   </v-list>
                 </v-menu>
               </div>
-              <!-- Ligne 2 : période + comparaison. -->
-              <div v-if="!loading" class="av-header__row2">
-                <FilterSummary
-                  :comparison-mode="filters.comparisonMode"
-                  :comparison-empty="comparisonEmpty"
-                  :comparison-window="comparisonWindowLabel"
-                  :time-range="filters.timeRange"
-                  :date-range-items="dateRangeItems"
-                  :locked="comparisonLocked"
-                  @update:comparison-mode="(v) => setFilterImmediate('comparisonMode', v)"
-                  @update:time-range="(v) => setFilterImmediate('timeRange', v)"
-                />
+              <!-- Ligne 2 : effectifs de l'event (la période est dans les tags, sous le bandeau). -->
+              <div v-if="!loading && singleSelectedEventOps" class="av-header__row2">
                 <!-- Effectifs opérationnels de l'évènement (retour Bertrand) : nombre de
-                     collaborateurs + nombre de TPE, sur la même rangée que « Tout
-                     l'historique », poussés tout à droite du bandeau. Seulement quand UN
+                     collaborateurs + nombre de TPE, poussés tout à droite
+                     du bandeau. Seulement quand UN
                      seul évènement est sélectionné (valeurs propres à cet event). -->
-                <div v-if="singleSelectedEventOps" class="av-header__ops">
+                <div class="av-header__ops">
                   <span v-if="singleSelectedEventOps.collaborators != null" class="av-header__ops-line">
                     {{ t('eventsListLabelNumberOfCollaborators') }} : {{ singleSelectedEventOps.collaborators }}
                   </span>
@@ -353,7 +350,7 @@
 
             <!-- Tags des filtres actifs — fond neutre, sous le bandeau rouge. -->
             <div
-              v-if="!loading && ((filters.selectedEventIds || []).length || activeFilterChips.length)"
+              v-if="!loading"
               class="av-tags d-flex align-center flex-wrap ga-2"
             >
               <v-chip
@@ -367,9 +364,9 @@
                 {{ (filters.selectedEventIds || []).length }} {{ t('anEventsSelected') }}
               </v-chip>
               <v-chip
-                v-for="chip in activeFilterChips"
+                v-for="chip in tagChips"
                 :key="chip.key"
-                closable
+                :closable="!chip.isDefault"
                 size="small"
                 variant="tonal"
                 class="chip-filter"
@@ -380,6 +377,7 @@
                 {{ chip.label }}
               </v-chip>
               <v-btn
+                v-if="(filters.selectedEventIds || []).length || activeFilterChips.length"
                 icon
                 variant="text"
                 size="small"
@@ -471,8 +469,6 @@
 
 
         <template v-if="!loading">
-          <!-- FilterSummary déplacé dans la 2e ligne du header (extension). -->
-
           <!-- Scope event strict : config sélectionnée sans event rattaché. -->
           <v-alert
             v-if="noEventsForConfig"
@@ -875,7 +871,6 @@ import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 import FilterPanel from '../filters/FilterPanel.vue'
-import FilterSummary from '../filters/FilterSummary.vue'
 import FinancialMetricsGrid from '../panels/FinancialMetricsGrid.vue'
 import EventRevenueByShopChart from '../charts/EventRevenueByShopChart.vue'
 import EventTimelineChart from '@/components/space-workspace/shared/EventTimelineChart.vue'
@@ -886,7 +881,7 @@ import MenuItemsByShopTable from '../tables/MenuItemsByShopTable.vue'
 import SummaryPanel from '../panels/SummaryPanel.vue'
 import FilterEditorPanel from '../panels/FilterEditorPanel.vue'
 import ShopPerformanceByTransactionRate from '../charts/ShopPerformanceByTransactionRate.vue'
-import { getDateRangePresets, PRESET_I18N_KEYS, VALID_DATE_RANGE_VALUES } from '@/constants/dateRangePresets'
+import { getDateRangePresets, VALID_DATE_RANGE_VALUES } from '@/constants/dateRangePresets'
 import { asyncComponentWithChunkReload } from '@/utils/chunkReload'
 // PERF: chargé en async → le chunk de la monolithe EventPredictView (~71KB gz JS
 // + 13KB gz CSS) n'est téléchargé QUE lorsque l'overlay s'ouvre (v-if
@@ -911,6 +906,7 @@ import ComparisonDrawerContent from '@/components/space-workspace/analyse/compar
 import ComparisonMobileSwitch from '@/components/space-workspace/analyse/comparison/ComparisonMobileSwitch.vue'
 import ComparisonMenuItem from '@/components/space-workspace/analyse/comparison/ComparisonMenuItem.vue'
 import { useComparisonSwipe } from '@/composables/useComparisonSwipe'
+import ComparisonMainKpiStrip from '@/components/space-workspace/analyse/comparison/ComparisonMainKpiStrip.vue'
 import ComparisonDrawerHead from '@/components/space-workspace/analyse/comparison/ComparisonDrawerHead.vue'
 import { useComparisonRuntime } from '@/composables/useComparisonRuntime'
 import { useMainReportSnapshot } from '@/composables/useMainReportSnapshot'
@@ -1475,48 +1471,7 @@ const {
   clearCache: clearComparisonCache,
 } = useAnalyseItemRecords(comparisonEventsGated, { maxEvents: 100 })
 
-// État explicite « pas de données de comparaison » (au lieu du silence) : bornes
-// de comparaison nulles OU aucun event dans la fenêtre du mode courant.
-const comparisonEmpty = computed(() => {
-  if (isPredictRecords.value || comparisonLoading.value) return false
-  const mode = filters.value.comparisonMode
-  if (!mode) return false
-  const b = store.getters[
-    mode === 'year_over_year' ? 'analyse/yearOverYearBounds' : 'analyse/previousPeriodBounds'
-  ] || {}
-  if (!b.start || !b.end) return true
-  const base = store.getters['analyse/eventsMatchingFiltersExceptDate'] || []
-  return !base.some((e) => {
-    const d = parseEventDateLocal(e.date || e.eventDate)
-    return d && d >= b.start && d <= b.end
-  })
-})
-
-// Fenêtres de comparaison rendues VISIBLES (infobulle ⓘ) : période courante
-// (dateBounds du preset) ET période comparée (dates réelles + nb d'events).
-// Vide → la note comparisonEmpty prend le relais.
-const comparisonWindowLabel = computed(() => {
-  if (isPredictRecords.value) return ''
-  const mode = filters.value.comparisonMode
-  if (!mode) return ''
-  const b = store.getters[
-    mode === 'year_over_year' ? 'analyse/yearOverYearBounds' : 'analyse/previousPeriodBounds'
-  ] || {}
-  if (!b.start || !b.end) return ''
-  const base = store.getters['analyse/eventsMatchingFiltersExceptDate'] || []
-  let count = 0
-  for (const e of base) {
-    const d = parseEventDateLocal(e.date || e.eventDate)
-    if (d && d >= b.start && d <= b.end) count++
-  }
-  if (!count) return ''
-  const cur = store.getters['analyse/dateBounds'] || {}
-  const fmt = (w) => `${formatDateShort(w.start)} → ${formatDateShort(w.end)}`
-  const curPart = cur.start && cur.end ? `${t('anPeriod')} : ${fmt(cur)} · ` : ''
-  return `${curPart}${t('anComparedToWindow')} ${fmt(b)} (${count} ${t('anEventsWord')})`
-})
-
-// « Tout l'historique » : toggle de comparaison MASQUÉ (FilterSummary/FilterPanel)
+// « Tout l'historique » : toggle de comparaison MASQUÉ (FilterPanel)
 // → reset du mode, sinon flèches + infobulle resteraient pilotées par un état
 // devenu invisible.
 // « Période personnalisée » : ouvre le panneau de filtres gauche et met en
@@ -1846,7 +1801,6 @@ function headerVariation(key) {
 // chargé (décision 4). Null tant qu'aucun rapport n'est chargé : rien ne change.
 const {
   mainDeltas,
-  isActive: comparisonLocked,
   chipDeltas,
   widgetDeltas,
 } = useComparisonSession()
@@ -2109,7 +2063,7 @@ const {
 })
 
 // Auto-declenchement de la timeline des qu'un (ou plusieurs) event(s) sont
-// sélectionnés comme filtre via FilterSummary, chip, ou tout autre input.
+// sélectionnés comme filtre via chip, ou tout autre input.
 // Évite à l'utilisateur de devoir cliquer sur une barre du graphe pour voir
 // la timeline minute-par-minute de l'event qu'il a déjà filtré.
 //
@@ -2215,21 +2169,6 @@ const selectedToolbox = computed(() => store.state.analyse.selectedToolbox)
 // Fermer un graph KPI inline dès qu'on change d'outil (Analyse → Predict / EP).
 watch(selectedToolbox, () => { inlineChartVisible.value = false })
 
-// ── Bandeau : sélecteur de période (ligne 2) ──────────────────────────────
-// Presets statiques + saisons de l'espace courant (Rapport Saison), en queue de
-// liste sous la valeur `season:<id>` — résolue par le getter store `dateBounds`.
-const dateRangeItems = computed(() => {
-  const presets = getDateRangePresets(selectedToolbox.value || 'analyse')
-  const items = presets.map((p) => ({
-    title: (PRESET_I18N_KEYS[p.value] && t(PRESET_I18N_KEYS[p.value])) || p.labelFr,
-    value: p.value,
-  }))
-  const spaceId = route.params.spaceId
-  const seasons = spaceId ? store.getters['seasons/seasonsForSpace'](spaceId) : []
-  for (const s of seasons) items.push({ title: s.name, value: `season:${s.id}` })
-  return items
-})
-
 // ── Tags cliquables → éditeur de dimension dans la colonne droite ──────────
 // key (= clé d'état filtre = chip.key) → { labelKey, getter (options analyse/*) }.
 const DIMENSION_EDITORS = {
@@ -2255,9 +2194,15 @@ const DIMENSION_EDITORS = {
 }
 // Plage (pas une liste) : le clic sur la puce ouvre le panneau de gauche sur le champ concerné.
 const PANEL_REVEAL_CHIPS = new Set(['temperatureRange'])
-const editableFilterKeys = new Set([...Object.keys(DIMENSION_EDITORS), ...PANEL_REVEAL_CHIPS])
+const editableFilterKeys = new Set([...Object.keys(DIMENSION_EDITORS), ...PANEL_REVEAL_CHIPS, 'timeRange'])
 const activeFilterDimension = ref(null)
 function onEditChip(key) {
+  // Période : ouvre le panneau de gauche sur l'accordéon Dates (sélecteur de période).
+  if (key === 'timeRange') {
+    drawer.value = true
+    nextTick(() => filterPanelRef.value?.revealDates?.())
+    return
+  }
   if (PANEL_REVEAL_CHIPS.has(key)) {
     drawer.value = true
     nextTick(() => filterPanelRef.value?.revealTemperature?.())
@@ -2273,6 +2218,14 @@ const activeFilterEditor = computed(() => {
   if (!def) return null
   return resolveDimensionEditor(key, def, { t, getters: store.getters, filters: filters.value })
 })
+// Rangée de tags sous le bandeau : la puce Période est toujours présente (même sur le preset par
+// défaut, non effaçable dans ce cas), juste après la puce des events.
+const tagChips = computed(() => [
+  store.getters['analyse/periodChip'],
+  ...(activeFilterChips.value || []).filter((c) => c.key !== 'timeRange'),
+])
+// Mode comparaison desktop : les KPI du principal passent au-dessus du bandeau rouge.
+const comparisonMainKpiStrip = computed(() => comparison.open.value && !isComparisonMobile.value)
 const isPredictMode = computed(() => selectedToolbox.value === 'predict')
 // Libellé « Nom — date » de l'évènement quand la sélection en contient EXACTEMENT
 // un, chaîne vide sinon. Recherche dans `analysableEvents` (et non `events`) avec
@@ -2918,6 +2871,10 @@ async function ensureAuthAndLoad(spaceId) {
 .av-header__row1 {
   padding: 14px 22px 8px;
 }
+/* Sans 2e ligne (pas d'effectifs d'event) : le bas du bandeau garde sa respiration. */
+.av-header__row1:last-child {
+  padding-bottom: 14px;
+}
 .av-header__title {
   font-size: var(--fs-xl);
   font-weight: var(--fw-bold);
@@ -3170,34 +3127,12 @@ async function ensureAuthAndLoad(spaceId) {
     box-shadow: none;
   }
 }
-/* Ligne 2 : période + comparaison, posées SUR le rouge (blanc translucide). */
+/* Ligne 2 : effectifs de l'event, posés SUR le rouge. */
 .av-header__row2 {
   padding: 0 22px 14px;
   display: flex;
   align-items: center;
   gap: 12px;
-}
-.av-header__row2 :deep(.fs-period .v-field) {
-  background: rgba(255, 255, 255, 0.14);
-  border-radius: 999px;
-}
-.av-header__row2 :deep(.fs-period .v-field__outline) { display: none; }
-.av-header__row2 :deep(.fs-period .v-field__input),
-.av-header__row2 :deep(.fs-period .v-select__selection-text),
-.av-header__row2 :deep(.fs-period .v-field .v-icon) {
-  color: #ffffff !important;
-}
-.av-header__row2 :deep(.fs-compare-label) { color: rgba(255, 255, 255, 0.9) !important; }
-.av-header__row2 :deep(.compare-toggle) {
-  background-color: rgba(255, 255, 255, 0.14) !important;
-}
-.av-header__row2 :deep(.compare-pill) { color: #ffffff !important; }
-.av-header__row2 :deep(.compare-pill--active) {
-  background-color: rgba(255, 255, 255, 0.92) !important;
-  color: #ff3131 !important;
-}
-.av-header__row2 :deep(.compare-pill:hover) {
-  background-color: rgba(255, 255, 255, 0.24) !important;
 }
 /* Copier / partager (ligne 1) — ronds blancs sur le rouge. */
 .av-header__row1 :deep(.fs-icon-btn) {
