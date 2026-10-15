@@ -1,17 +1,13 @@
 import { ref, shallowRef, computed, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
 import { useTimelineMode } from '@/composables/useTimelineMode'
-import { parseEventDate as parseEventDateLocal } from '@/utils/dateFr'
 import { getSpaceEventTimelineBatch } from '@/api/endpoints/space.api'
-import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
 import {
-  computeAverageAlignment,
-  alignAndScaleRecords,
-} from '@/composables/analyseTimelineAverage'
-import { t } from '@/i18n/translations'
+  planTimelineLoad,
+  assembleTimelineRecords,
+  timelineHeaderLabelOf,
+} from '@/utils/timelineLoadPlan'
 import store from '@/store'
-
-const MAX_TIMELINE_EVENTS = 50
 
 /**
  * Manages loading, closing, and filter synchronization for the minute-by-minute
@@ -38,19 +34,9 @@ export function useAnalyseTimeline({ setFilterImmediate }) {
   const timelineSkippedEvents = ref([])
   let timelineAbortController = null
 
-  const timelineHeaderLabel = computed(() => {
-    const list = timelineEventsList.value
-    if (list.length > 1) {
-      // K/N : K = events réellement alignés sur le coup d'envoi de l'ancre.
-      const kept = list.filter((e) => e.aligned).length
-      if (kept === 0)
-        return `${t('anTimelineAvgPrefix')} ${list.length} ${t('anEventsPlural')} ${t('anTimelineAvgUnalignedSuffix')}`
-      if (kept < list.length)
-        return `${t('anTimelineAvgPrefix')} ${kept}/${list.length} ${t('anTimelineAvgAlignedEvents')}`
-      return `${t('anTimelineAvgPrefix')} ${list.length} ${t('anEventsPlural')}`
-    }
-    return selectedEventForTimeline.value?.eventName || ''
-  })
+  const timelineHeaderLabel = computed(() =>
+    timelineHeaderLabelOf(timelineEventsList.value, selectedEventForTimeline.value),
+  )
 
   function closeTimeline() {
     if (timelineAbortController) {
@@ -97,51 +83,9 @@ export function useAnalyseTimeline({ setFilterImmediate }) {
     const controller = new AbortController()
     timelineAbortController = controller
 
-    let eventsToLoad = eventList
-    if (eventList.length > MAX_TIMELINE_EVENTS) {
-      eventsToLoad = [...eventList]
-        .sort((a, b) => {
-          const da = parseEventDateLocal(b.eventDate || b.date)?.getTime() || 0
-          const db = parseEventDateLocal(a.eventDate || a.date)?.getTime() || 0
-          return da - db
-        })
-        .slice(0, MAX_TIMELINE_EVENTS)
-      console.warn(
-        `[useAnalyseTimeline] ${eventList.length} evenements selectionnes, limite aux ${MAX_TIMELINE_EVENTS} plus recents.`,
-      )
-    }
-
-    const isSingle = eventsToLoad.length === 1
-    // Alignement parité EventPredict : ancre = coup d'envoi de l'event le plus
-    // récent alignable ; events sans showTime exploitable → courbe skippée.
-    // keptIds vide (aucun coup d'envoi) → repli legacy : somme non alignée.
-    let alignment = null
-    if (!isSingle) {
-      const a = computeAverageAlignment(eventsToLoad)
-      // Events écartés faute de coup d'envoi → alerte + dialog (liens fiche event).
-      const skippedSet = new Set(a.skippedIds)
-      timelineSkippedEvents.value = eventsToLoad
-        .filter((e) => skippedSet.has(e.id))
-        .map((e) => ({ id: e.id, name: e.eventName || e.name || e.id }))
-      if (a.keptIds.length > 0) alignment = a
-      else
-        console.warn(
-          '[useAnalyseTimeline] aucun coup d’envoi exploitable — moyenne non alignée (somme legacy).',
-        )
-    } else {
-      timelineSkippedEvents.value = []
-    }
-    selectedEventForTimeline.value = isSingle
-      ? {
-          eventId: eventsToLoad[0].id,
-          eventName: eventsToLoad[0].eventName || eventsToLoad[0].name,
-          eventDate: eventsToLoad[0].eventDate || eventsToLoad[0].date,
-        }
-      : {
-          eventId: 'average',
-          eventName: `${t('anTimelineAvgPrefix')} ${eventsToLoad.length} ${t('anEventsPlural')}`,
-          eventDate: '',
-        }
+    const plan = planTimelineLoad(eventList)
+    timelineSkippedEvents.value = plan.skippedEvents
+    selectedEventForTimeline.value = plan.selected
 
     // Bascule en mode timeline au tick SUIVANT. Sélectionner un event change le
     // FILTRE dans le même flush → le graphe à barres (EventRevenueByShopChart) reçoit
@@ -155,56 +99,16 @@ export function useAnalyseTimeline({ setFilterImmediate }) {
     if (controller.signal.aborted) return
     store.commit('analyse/SET_CHART_VIEW_MODE', 'timeline')
     timelineLoading.value = true
-    // En mode aligné, on ne fetch QUE les events alignables (les skippés ne
-    // contribuent à rien) — le compteur de chargement suit ce périmètre réel.
-    const idsToFetch = alignment
-      ? alignment.keptIds
-      : eventsToLoad.map((ev) => ev.id)
-    timelinePendingCount.value = idsToFetch.length
-    timelineEventsList.value = isSingle
-      ? []
-      : eventsToLoad.map((e) => ({
-          eventName: e.eventName || e.name,
-          eventDate: e.eventDate || e.date,
-          aligned: alignment ? alignment.offsets.has(e.id) : false,
-        }))
+    timelinePendingCount.value = plan.idsToFetch.length
+    timelineEventsList.value = plan.eventsList
 
     try {
       const spaceId = route.params.spaceId
-      const byEventId = await getSpaceEventTimelineBatch(spaceId, idsToFetch, { bypassCache })
+      const byEventId = await getSpaceEventTimelineBatch(spaceId, plan.idsToFetch, { bypassCache })
       if (controller.signal.aborted) return
 
-      // Dénominateur = nb d'events alignés, figé AVANT fetch (parité EP : les
-      // poids sont fixés avant fetch — un event gardé sans lignes compte).
-      const flatRecords = alignment
-        ? eventsToLoad.flatMap((ev) => {
-            const off = alignment.offsets.get(ev.id)
-            if (off == null) return [] // sans showTime → courbe SKIPPÉE (jamais offset 0)
-            const data = byEventId.get(ev.id)
-            return Array.isArray(data)
-              ? alignAndScaleRecords(
-                  data,
-                  off,
-                  alignment.keptIds.length,
-                  { eventId: ev.id },
-                  // Coup d'envoi de CET event = ancre − offset (BUG-351-01) :
-                  // sert à lire les ventes en écart au coup d'envoi, donc à
-                  // placer celles d'après minuit en fin de courbe.
-                  alignment.anchorMinutes != null ? alignment.anchorMinutes - off : null,
-                )
-              : []
-          })
-        : eventsToLoad.flatMap((ev) => {
-            // Single + repli legacy : comportement historique intact.
-            const data = byEventId.get(ev.id) || []
-            return Array.isArray(data) ? data.map((r) => ({ ...r, eventId: ev.id })) : []
-          })
-
-      const allRecords = preprocessTimelineRecords(flatRecords, {
-        menuItemCostMap: store.state.analyse.menuItemCostMap || {},
-      })
-      for (const r of allRecords) Object.freeze(r)
-      eventTimelineData.value = Object.freeze(allRecords)
+      const allRecords = assembleTimelineRecords(plan, byEventId, store.state.analyse.menuItemCostMap || {})
+      eventTimelineData.value = allRecords
       if (allRecords.length === 0) {
         console.warn('[useAnalyseTimeline] aucune donnée disponible.')
       }

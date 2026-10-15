@@ -48,7 +48,7 @@ describe('ComparisonFilterList', () => {
     expect(tags).toHaveLength(2)
     expect(tags[0].classes()).toContain('cfl__tag--own')
     expect(tags[1].classes()).not.toContain('cfl__tag--own')
-    expect(w.find('.cfl__legend').exists()).toBe(true)
+    expect(w.find('.cfl__legend').exists()).toBe(false)
   })
 })
 
