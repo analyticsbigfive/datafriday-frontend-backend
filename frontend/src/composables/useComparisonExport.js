@@ -29,7 +29,9 @@ export function useComparisonExport({ comparison, runtime, mainSnapshot, spaceNa
   const report = runtime.report
   const empty = computed(() => [])
 
-  const label = computed(() => comparisonSummaryLabel(comparison.applied.value, runtime.appliedFilters.value, t))
+  const label = computed(() => comparisonSummaryLabel(
+    comparison.applied.value, runtime.appliedFilters.value, t, runtime.events?.value,
+  ))
 
   const dataset = useAnalyseDataset(
     {

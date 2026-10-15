@@ -169,8 +169,8 @@ export default {
   background-color: #353535 !important;
 }
 
-/* FilterSummary — chips et pills de comparaison.
-   Plus de `background-color` ici : à l'époque de cette règle, FilterSummary était
+/* Tags des filtres actifs (AnalyseView, sous le bandeau rouge).
+   Plus de `background-color` ici : à l'époque de cette règle, la barre de filtres était
    un bandeau sticky autonome sur fond de page, d'où un fond sombre + une bordure
    basse. Depuis, il est rendu DANS le bandeau rouge d'AnalyseView
    (.av-header__row2) — le #1A1A1A repeignait donc la ligne « Tout l'historique »
@@ -181,20 +181,6 @@ export default {
 .v-theme--dataFridayDark .chip-events :deep(.v-chip__content) {
   background-color: #2A2F36 !important;
   color: #E5E7EB !important;
-}
-.v-theme--dataFridayDark .compare-toggle {
-  background-color: #1E2A44;
-}
-.v-theme--dataFridayDark .compare-pill {
-  color: #BFDBFE;
-}
-.v-theme--dataFridayDark .compare-pill:hover {
-  background-color: rgba(255, 255, 255, 0.08);
-}
-.v-theme--dataFridayDark .compare-pill--active {
-  background-color: #3B82F6;
-  color: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 .v-theme--dataFridayDark .chip-filter,
 .v-theme--dataFridayDark .chip-filter :deep(.v-chip__content) {

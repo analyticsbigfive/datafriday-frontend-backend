@@ -42,10 +42,17 @@ export function buildKpiChips(chips, chipDeltas, { t, fmt }) {
  * @param {object|null} model  modèle appliqué (kind, eventIds, eventTypes...)
  * @param {Array<{ key: string, label: string }>} appliedFilters  filtres appliqués du moteur
  * @param {Function} t
+ * @param {Array<{ id: string, name?: string }>} [events]  events du rapport (nom de l'event unique)
  */
-export function comparisonSummaryLabel(model, appliedFilters, t) {
+export function comparisonSummaryLabel(model, appliedFilters, t, events = []) {
   if (!model) return ''
   if (model.kind === 'predict') return t('anCmpSummaryPredict')
+  if (model.kind === 'event' && (model.eventIds || []).length === 1) {
+    // Un seul event : son nom plutôt que « 1 événement(s) » (repli sur le compte si introuvable).
+    const ev = (events || []).find((e) => e.id === model.eventIds[0])
+    const name = ev?.name || ev?.eventName
+    if (name) return name
+  }
   if (model.kind === 'event') return t('anCmpSummaryEvents').replace('{n}', String((model.eventIds || []).length))
   if (model.kind === 'category') {
     const parts = [
