@@ -987,7 +987,6 @@ export default {
           sponsor: this.newEvent.sponsor || undefined,
           openingActName: this.newEvent.openingActName || undefined,
           location: this.newEvent.location,
-          spaceName: this.newEvent.spaceName,
           // Le backend fait déjà JSON.stringify(dto.sessions) en une seule passe (DTO :
           // sessions?: any[]) — stringifier ici CHAQUE élément produisait un tableau de
           // chaînes JSON imbriquées ("[\"{\\\"doorsOpening\\\":...}\"]"), que la relecture
