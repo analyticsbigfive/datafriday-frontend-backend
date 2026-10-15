@@ -91,6 +91,16 @@ export function fakeRuntime(over = {}) {
     snapshot: computed(() => ({ version: 1 })),
     widgets: computed(() => ({})),
     totals: computed(() => ({})),
+    filters: computed(() => ({})),
+    timeline: {
+      active: ref(false),
+      loading: ref(false),
+      records: ref([]),
+      selected: ref(null),
+      headerLabel: ref(''),
+      open: jest.fn(),
+      close: jest.fn(),
+    },
     clearCache: jest.fn(),
   }
   const base = {

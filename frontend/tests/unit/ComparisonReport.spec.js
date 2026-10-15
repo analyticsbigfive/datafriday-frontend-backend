@@ -29,7 +29,8 @@ import { globalMountOptions, fakeRuntime, fakeComparison } from './helpers/compa
 import ComparisonReport from '@/components/space-workspace/analyse/comparison/ComparisonReport.vue'
 
 const heavy = {
-  EventRevenueByShopChart: { name: 'EventRevenueByShopChart', props: { records: Array, events: Array, isPredictMode: Boolean, trend: Array, embedded: Boolean, readonly: Boolean }, template: '<div class="stub-chart" />' },
+  EventRevenueByShopChart: { name: 'EventRevenueByShopChart', props: { records: Array, events: Array, isPredictMode: Boolean, trend: Array, embedded: Boolean, readonly: Boolean, averageAsTimeline: Boolean }, emits: ['show-average'], template: '<div class="stub-chart" />' },
+  EventTimelineChart: { name: 'EventTimelineChart', props: { eventId: String, eventName: String, timelineData: Array, closable: Boolean }, emits: ['close'], template: '<div class="stub-timeline" @click="$emit(\'close\')" />' },
   ShopDistributionPieChart: { name: 'ShopDistributionPieChart', props: { records: Array, loading: Boolean, readonly: Boolean, deltas: Object }, template: '<div class="stub-shopdist" />' },
   MenuItemRevenueDistribution: { name: 'MenuItemRevenueDistribution', props: { records: Array, dimensionsIndex: null, dimensionsStatus: String, deltas: Object, readonly: Boolean }, emits: ['mode-change'], template: '<div class="stub-dist" @click="$emit(\'mode-change\', \'quantity\')" />' },
   PromotionSection: { name: 'PromotionSection', props: { records: Array, dimensionsIndex: null, status: String, mode: String, deltas: Object, readonly: Boolean }, template: '<div class="stub-promo">{{ mode }}</div>' },
@@ -84,6 +85,24 @@ describe('ComparisonReport', () => {
     expect(w.find('.stub-promo').exists()).toBe(true)
     expect(w.find('.stub-table').exists()).toBe(true)
     expect(w.text()).toContain('2')
+  })
+
+  it('timeline ouverte : la courbe remplace les barres, fermer rend la main ; « Moyenne » ouvre la courbe', async () => {
+    const { w, runtime } = mountReport()
+    const bars = w.findComponent({ name: 'EventRevenueByShopChart' })
+    expect(bars.props('averageAsTimeline')).toBe(true)
+    bars.vm.$emit('show-average')
+    expect(runtime.report.timeline.open).toHaveBeenCalledTimes(1)
+    runtime.report.timeline.selected.value = { eventId: 'e1', eventDate: '2026-01-10' }
+    runtime.report.timeline.headerLabel.value = 'Match 1'
+    runtime.report.timeline.active.value = true
+    await nextTick()
+    expect(w.find('.stub-chart').exists()).toBe(false)
+    const tl = w.findComponent({ name: 'EventTimelineChart' })
+    expect(tl.props('eventName')).toBe('Match 1')
+    expect(tl.props('closable')).toBe(true)
+    await tl.trigger('click')
+    expect(runtime.report.timeline.close).toHaveBeenCalledTimes(1)
   })
 
   it('transmet les props lecture seule aux cartes', () => {

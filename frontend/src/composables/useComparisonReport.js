@@ -19,6 +19,7 @@ import { useComparisonEvents } from '@/composables/useComparisonEvents'
 import { useComparisonPredictScenarios } from '@/composables/useComparisonPredictScenarios'
 import { useComparisonRecords } from '@/composables/useComparisonRecords'
 import { useComparisonKpis } from '@/composables/useComparisonKpis'
+import { useComparisonTimeline } from '@/composables/useComparisonTimeline'
 import { buildReportSnapshot } from '@/utils/comparisonReportSnapshot'
 import { computeReportDeltas } from '@/utils/comparisonDeltas'
 import { buildEventRevenueSeries } from '@/utils/comparisonEventSeries'
@@ -70,6 +71,16 @@ export function useComparisonReport({
     isPredict,
     scenarioVersions: scenarios.versionByEventId,
     dimensionsIndex: dims.index,
+    store,
+  })
+
+  // Courbe minute par minute (event unique, ou moyenne de plusieurs events), jamais en Predict.
+  const timeline = useComparisonTimeline({
+    events,
+    enabled: computed(() => !isPredict.value && !!unref(canView)),
+    spaceId,
+    reconcile: records.reconcileForTimeline,
+    predicate: records.predicate,
     store,
   })
 
@@ -165,6 +176,7 @@ export function useComparisonReport({
     filteredBaskets: records.filteredBaskets,
     kpiSourceState: records.kpiSourceState,
     eventRevenueSeries,
+    timeline,
     // métriques
     metrics: kpis.metrics,
     totals: kpis.totals,

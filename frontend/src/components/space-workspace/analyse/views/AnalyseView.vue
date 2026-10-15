@@ -331,13 +331,15 @@
                   </v-list>
                 </v-menu>
               </div>
-              <!-- Ligne 2 : effectifs de l'event (la période est dans les tags, sous le bandeau). -->
-              <div v-if="!loading && singleSelectedEventOps" class="av-header__row2">
+              <!-- Ligne 2 : périmètre (nombre d'events ou nom de l'event) à gauche, effectifs de l'event à
+                   droite. La période est dans les tags, sous le bandeau. -->
+              <div v-if="!loading && (bannerScopeLabel || singleSelectedEventOps)" class="av-header__row2">
+                <span v-if="bannerScopeLabel" class="av-header__scope">{{ bannerScopeLabel }}</span>
                 <!-- Effectifs opérationnels de l'évènement (retour Bertrand) : nombre de
                      collaborateurs + nombre de TPE, poussés tout à droite
                      du bandeau. Seulement quand UN
                      seul évènement est sélectionné (valeurs propres à cet event). -->
-                <div class="av-header__ops">
+                <div v-if="singleSelectedEventOps" class="av-header__ops">
                   <span v-if="singleSelectedEventOps.collaborators != null" class="av-header__ops-line">
                     {{ t('eventsListLabelNumberOfCollaborators') }} : {{ singleSelectedEventOps.collaborators }}
                   </span>
@@ -2218,6 +2220,20 @@ const activeFilterEditor = computed(() => {
   if (!def) return null
   return resolveDimensionEditor(key, def, { t, getters: store.getters, filters: filters.value })
 })
+// Périmètre affiché sous le titre du bandeau : le nom de l'event quand un seul est sélectionné, sinon le
+// nombre d'events (sélectionnés, à défaut ceux du périmètre filtré). Hors comparaison, le titre porte
+// déjà le nom de l'event unique : pas de répétition.
+const bannerScopeLabel = computed(() => {
+  const ids = filters.value.selectedEventIds || []
+  if (ids.length === 1) {
+    if (!comparison.open.value) return ''
+    const ev = singleSelectedEvent.value
+    const name = ev?.name || ev?.eventName || ''
+    if (name) return name
+  }
+  const n = ids.length || (filteredEvents.value || []).length
+  return n ? t('anCmpSummaryEvents').replace('{n}', String(n)) : ''
+})
 // Rangée de tags sous le bandeau : la puce Période est toujours présente (même sur le preset par
 // défaut, non effaçable dans ce cas), juste après la puce des events.
 const tagChips = computed(() => [
@@ -2888,6 +2904,15 @@ async function ensureAuthAndLoad(spaceId) {
 }
 /* Effectifs opérationnels (nb collaborateurs / nb TPE) à droite du bandeau — desktop
    uniquement (masqué au palier ≤600 avec les autres éléments desktop). */
+.av-header__scope {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: rgba(255, 255, 255, 0.92);
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .av-header__ops {
   display: flex;
   flex-direction: column;

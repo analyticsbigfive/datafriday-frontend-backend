@@ -48,6 +48,9 @@ export function useComparisonRecords({
     articleDimensions: dimensionsIndex.value,
   }))
 
+  // Pour la timeline minute par minute du rapport : mêmes réconciliation et filtres que ci-dessus.
+  const reconcileForTimeline = (r) => reconcileRecord(r, reconciliationCtx.value)
+
   // ── Réel (mode Analyse) ──
   const itemLevelRecords = computed(() => {
     if (isPredict.value || !filters.value) return []
@@ -100,6 +103,8 @@ export function useComparisonRecords({
   return {
     itemLevelRecords,
     scenarioRecords,
+    reconcileForTimeline,
+    predicate,
     chartRecords,
     articleRecords,
     filteredBaskets,
