@@ -82,7 +82,7 @@ const actions = {
       setAccessToken(persisted.token)
       setGuestSessionActive(true)
       try {
-        const session = { ...(await getGuestSession()), slug: persisted.session?.slug ?? null }
+        const session = { ...(await getGuestSession()), slug: persisted.session?.slug ?? null, vendorName: persisted.session?.vendorName ?? null }
         commit('SET_SESSION', { token: persisted.token, session })
         writePersistedSession({ token: persisted.token, session })
       } catch {
@@ -99,11 +99,11 @@ const actions = {
   /**
    * @returns {{state:'ok'}|{state:'inactive'}|{state:'not_found', attemptsRemaining:number}|{state:'locked', retryAfter:number}}
    */
-  async login({ commit }, { pin, slug }) {
+  async login({ commit }, { pin, slug, vendorName }) {
     commit('SET_LOADING', true)
     try {
       const deviceId = getOrCreateDeviceId()
-      const result = await loginWithPin(pin, deviceId, slug)
+      const result = await loginWithPin(pin, deviceId, slug, vendorName)
       if (result.state === 'ok') {
         const { token, state: _discriminant, ...session } = result
         session.slug = slug
@@ -127,7 +127,7 @@ const actions = {
   /** Rafraîchit la session courante (ex. après "J'ai terminé", pour refléter submittedAt). */
   async refreshSession({ commit, state }) {
     if (!state.token) return
-    const session = { ...(await getGuestSession()), slug: state.session?.slug ?? null }
+    const session = { ...(await getGuestSession()), slug: state.session?.slug ?? null, vendorName: state.session?.vendorName ?? null }
     commit('SET_SESSION', { token: state.token, session })
     writePersistedSession({ token: state.token, session })
   },

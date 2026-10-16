@@ -14,8 +14,8 @@
     v-else
     :icon="Lock"
     icon-color="#ff3131"
-    :title="t('pinLoginTitle')"
-    :subtitle="t('pinLoginSubtitle')"
+    :title="posActive ? t('guestPosLoginTitle') : t('pinLoginTitle')"
+    :subtitle="posActive ? t('guestPosLoginSubtitle') : t('pinLoginSubtitle')"
   >
     <div class="pin-login__form">
       <!-- PDV identifié par le lien scanné (slug dans l'URL, un seul lien pour les
@@ -27,9 +27,28 @@
         {{ pdvName }}
       </span>
 
-      <PinInputPad :error="hasError" :disabled="submitting" @change="onPinChange" @complete="handleSubmit" />
+      <!-- Caisse POS ouverte pour ce PDV : le nom du vendeur est enregistré sur chaque ticket
+           (traçabilité). Les PIN d'inventaire du même PDV l'ignorent, le flux inventaire reste
+           identique. -->
+      <label v-if="posActive" class="pin-login__vendor">
+        <span class="pin-login__vendor-label">{{ t('guestPosLoginVendorLabel') }}</span>
+        <input
+          ref="vendorInput"
+          v-model="vendorName"
+          class="pin-login__vendor-input"
+          :class="{ 'pin-login__vendor-input--error': nameError }"
+          type="text"
+          autocomplete="name"
+          :maxlength="vendorNameMax"
+          :placeholder="t('guestPosLoginVendorPlaceholder')"
+          :disabled="submitting"
+          @input="onVendorInput"
+        />
+      </label>
 
-      <div v-if="hasError" class="pin-login__error">
+      <PinInputPad :error="hasError" :disabled="submitting" @change="onPinChange" @complete="onPinComplete" />
+
+      <div v-if="hasError || nameError" class="pin-login__error">
         <AlertCircle :size="16" color="#FF6E4A" />
         <span>{{ errorMessage }}</span>
       </div>
@@ -58,6 +77,9 @@ import PinInactiveState from '@/components/guest-pin/PinInactiveState.vue';
 import PinRedirectingState from '@/components/guest-pin/PinRedirectingState.vue';
 import { rememberGuestSlug } from '@/utils/guestPinLanding';
 import { guestRouteForPhase } from '@/router/guards';
+import { POS_ERROR_CODES, POS_VENDOR_NAME_MAX, POS_PHASE } from '@/api/endpoints/pos.contracts';
+import { requestPosFullscreen } from '@/utils/posFullscreen';
+import { posErrorCode } from '@/utils/posErrors';
 
 /** Cadence de vérification de la reprise sur la page d'attente. */
 const AUTO_CHECK_MS = 30 * 1000;
@@ -78,7 +100,7 @@ export default {
 
   setup() {
     const { t } = useI18n();
-    return { t, Lock };
+    return { t, Lock, vendorNameMax: POS_VENDOR_NAME_MAX };
   },
 
   data() {
@@ -90,6 +112,10 @@ export default {
       submitting: false,
       pdvName: null,
       checking: false,
+      // Caisse POS ouverte pour ce PDV (contexte public) : le nom du vendeur est demandé.
+      posActive: false,
+      vendorName: '',
+      nameError: false,
     };
   },
 
@@ -128,6 +154,8 @@ export default {
     async resetForSlug() {
       this.pdvName = null;
       this.hasError = false;
+      this.nameError = false;
+      this.posActive = false;
       this.currentPin = '';
       // Sans slug (lien perdu) : page d'attente générique, seul le scan est proposé.
       if (!this.slug) {
@@ -147,6 +175,7 @@ export default {
         const context = await this.$store.dispatch('guestPin/getContext', { slug: this.slug });
         // QR Ventilation : pas d'élément, le nom de l'espace confirme le bon lien.
         this.pdvName = context?.elementName ?? context?.spaceName ?? null;
+        this.posActive = !!context?.posActive;
         if (!context?.active) this.uiState = 'inactive';
         else if (this.uiState === 'inactive') this.uiState = 'form';
       } catch {
@@ -187,22 +216,58 @@ export default {
       if (this.hasError) this.hasError = false;
     },
 
+    onVendorInput() {
+      if (this.nameError) {
+        this.nameError = false;
+        this.errorMessage = '';
+      }
+    },
+
+    /** Saisie du 6e chiffre : sur une caisse, on attend le nom du vendeur avant d'envoyer. */
+    onPinComplete(pin) {
+      if (this.posActive && !this.vendorName.trim()) {
+        this.currentPin = pin;
+        this.showNameRequired();
+        return;
+      }
+      this.handleSubmit(pin);
+    },
+
+    showNameRequired() {
+      this.nameError = true;
+      this.errorMessage = this.t('guestPosLoginVendorRequired');
+      this.$refs.vendorInput?.focus();
+    },
+
     async handleSubmit(pin) {
       if (this.submitting || pin.length !== 6) return;
       this.submitting = true;
       try {
-        const result = await this.$store.dispatch('guestPin/login', { pin, slug: this.slug });
+        const vendorName = this.posActive ? this.vendorName.trim().slice(0, POS_VENDOR_NAME_MAX) : undefined;
+        const result = await this.$store.dispatch('guestPin/login', { pin, slug: this.slug, vendorName });
         this.applyResult(result);
       } catch (error) {
-        this.showError(this.t('pinLoginErrorIncorrect'));
+        this.applyLoginError(error);
       } finally {
         this.submitting = false;
       }
     },
 
+    /** Erreurs HTTP du login : codes POS explicites, sinon le message historique « PIN incorrect ». */
+    applyLoginError(error) {
+      const code = posErrorCode(error);
+      if (code === POS_ERROR_CODES.VENDOR_NAME_REQUIRED) this.showNameRequired();
+      else if (code === POS_ERROR_CODES.EVENT_NOT_SELLABLE) this.showError(this.t('guestPosErrorEventEnded'));
+      else if (code === POS_ERROR_CODES.PDV_STOPPED) this.showError(this.t('guestPosErrorStopped'));
+      else this.showError(this.t('pinLoginErrorIncorrect'));
+    },
+
     applyResult(result) {
       switch (result.state) {
         case 'ok': {
+          // Geste de l'utilisateur encore valide : le plein écran de la caisse démarre ici (repli
+          // silencieux si le navigateur refuse, la caisse retente au premier toucher).
+          if (result.phase === POS_PHASE) requestPosFullscreen();
           this.uiState = 'redirecting';
           const targetName = guestRouteForPhase(result.phase);
           setTimeout(() => this.$router.replace({ name: targetName }), 700);
@@ -218,13 +283,20 @@ export default {
           break;
         case 'inactive':
         default:
-          this.uiState = 'inactive';
+          if (this.posActive) {
+            // Caisse arrêtée entre-temps : message clair, puis le contexte rebascule sur la page d'attente.
+            this.showError(this.t('guestPosErrorStopped'));
+            this.checkContext();
+          } else {
+            this.uiState = 'inactive';
+          }
           break;
       }
     },
 
     showError(message) {
       this.errorMessage = message;
+      this.nameError = false;
       this.hasError = true;
     },
   },
@@ -253,6 +325,40 @@ export default {
   color: #ff3131;
   font-size: 0.75rem;
   font-weight: 700;
+}
+
+.pin-login__vendor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.pin-login__vendor-label {
+  color: #94a3b8;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.pin-login__vendor-input {
+  height: 52px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 14px;
+  border-radius: 10px;
+  background: rgba(30, 41, 59, 0.7);
+  border: 1.5px solid rgba(51, 65, 85, 0.8);
+  color: #fff;
+  font-size: 1rem;
+  outline: none;
+}
+
+.pin-login__vendor-input:focus {
+  border-color: #ff3131;
+}
+
+.pin-login__vendor-input--error {
+  border-color: #ff6e4a;
 }
 
 .pin-login__error {

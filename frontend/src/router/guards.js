@@ -184,6 +184,7 @@ export async function requireGuestPinSession(to, from, next) {
 /** Écran invité d'une phase de session PIN. */
 export function guestRouteForPhase(phase) {
   if (phase === 'ventilation') return 'guest-ventilation'
+  if (phase === 'pos') return 'guest-pos'
   if (phase === 'post-event') return 'guest-inventory'
   return 'guest-pre-inventory'
 }
