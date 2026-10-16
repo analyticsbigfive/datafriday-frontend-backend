@@ -15,6 +15,8 @@ import { StorageTypesModule } from '../storage-types/storage-types.module';
 import { LogisticsModule } from '../logistics/logistics.module';
 import { VentilationAccessService } from './ventilation-access.service';
 import { VentilationAdminController } from './ventilation-admin.controller';
+import { PosAccessService } from './pos-access.service';
+import { PosAdminController } from './pos-admin.controller';
 import { GuestPinCountingService } from './services/guest-pin-counting.service';
 import { GuestPinCredentialService } from './services/guest-pin-credential.service';
 import { GuestPinSessionService } from './services/guest-pin-session.service';
@@ -48,7 +50,7 @@ import { GuestPinPhaseService } from './services/guest-pin-phase.service';
       }),
     }),
   ],
-  controllers: [GuestPinAuthController, GuestPinAdminController, VentilationAdminController],
+  controllers: [GuestPinAuthController, GuestPinAdminController, VentilationAdminController, PosAdminController],
   providers: [
     JwtGuestPinStrategy,
     GuestPinCredentialService,
@@ -57,8 +59,9 @@ import { GuestPinPhaseService } from './services/guest-pin-phase.service';
     GuestPinWindowService,
     GuestPinPhaseService,
     VentilationAccessService,
+    PosAccessService,
   ],
   // Crons des fenêtres (GuestPinAccessJobsModule) : clôture, préparation, démarrages et arrêts.
-  exports: [GuestPinWindowService, GuestPinPhaseService],
+  exports: [GuestPinWindowService, GuestPinPhaseService, PosAccessService],
 })
 export class GuestPinAccessModule {}

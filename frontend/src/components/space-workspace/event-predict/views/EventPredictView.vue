@@ -1483,6 +1483,7 @@ const TOOLBOX_ITEMS = [
   { value: 'space-inventory', labelKey: 'epToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'epToolLogistic', icon: 'mdi-forklift', permission: 'front.fb.logistic' },
   { value: 'restock', labelKey: 'epToolRestock', icon: 'mdi-truck-delivery-outline', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
+  { value: 'pos', labelKey: 'srToolPos', icon: 'mdi-point-of-sale', permission: 'front.fb.pos' },
 ];
 
 /**
@@ -5485,7 +5486,7 @@ export default {
         // Analyse avec un toolbox inconnu.
         safePush(this.$router, { name: 'space-live', params: { spaceId } });
         this.$emit('close');
-      } else if (tool.value === 'space-inventory' || tool.value === 'space-pre-inventory' || tool.value === 'restock' || tool.value === 'logistic') {
+      } else if (tool.value === 'space-inventory' || tool.value === 'space-pre-inventory' || tool.value === 'restock' || tool.value === 'logistic' || tool.value === 'pos') {
         // Inventaire/Réarmement scopent sur la config de l'event. On la joint
         // EXPLICITEMENT (?configuration=) : la config courante d'EventPredict vit
         // dans this.events LOCAL (change live sans Save) et n'est PAS reflétée dans
@@ -5506,7 +5507,9 @@ export default {
               ? 'space-pre-inventory'
               : tool.value === 'logistic'
                 ? 'space-logistic'
-                : 'space-restock';
+                : tool.value === 'pos'
+                  ? 'space-pos'
+                  : 'space-restock';
         safePush(this.$router, { name: routeName, params: { spaceId }, query: scopedQuery });
       }
     },

@@ -1,7 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue, Job } from 'bullmq';
-import { QUEUES } from './queue.constants';
+import { AGGREGATION_JOB_PRIORITY, QUEUES } from './queue.constants';
 
 // Job types for type safety
 export type WeezeventSyncType =
@@ -119,6 +119,7 @@ export class QueueService {
       {
         removeOnComplete: 50,
         removeOnFail: 50,
+        priority: data.type === 'process-event-minutes' ? AGGREGATION_JOB_PRIORITY.MINUTES : AGGREGATION_JOB_PRIORITY.REBUILD,
       },
     );
     this.logger.log(

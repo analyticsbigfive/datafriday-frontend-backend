@@ -156,10 +156,8 @@ export class LiveSyncSchedulerService implements OnModuleInit {
     }
 
     private async queueLiveAggregation(integration: { id: string; tenantId: string }, events: LiveEvent[]): Promise<void> {
-        const own = events.filter(
-            (e) => e.integrationId === integration.id || (!e.integrationId && e.tenantId === integration.tenantId),
-        );
-        const groups: LiveGroup[] = LiveEventWindowService.groupBySpaceAndIntegration(own);
+        // Uniquement les groupes de la source qui vient d'écrire (ADR 4.4), pas ceux des autres sources de l'event.
+        const groups: LiveGroup[] = LiveEventWindowService.groupsForIntegration(events, integration.id, integration.tenantId);
         for (const group of groups) {
             try {
                 // eslint-disable-next-line no-await-in-loop -- ordonnancement par intégration (quelques-unes), état partagé et erreur isolée par groupe

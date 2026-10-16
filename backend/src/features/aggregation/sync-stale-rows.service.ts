@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { selectDatabaseNow } from './sync-stale-rows.queries';
+import { protectedAggregateWhere } from './protected-aggregate-where';
 
 /** Event du run qui n'a pas pu être retraité : ses lignes existantes sont conservées. */
 export interface FailedSyncEvent {
@@ -40,13 +41,19 @@ export class SyncStaleRowsService {
     integrationId: string | undefined,
     syncStartedAt: Date,
     failedEvents: ReadonlyArray<FailedSyncEvent>,
+    protectedIntegrationIds: ReadonlyArray<string> = [],
   ): Promise<number> {
-    const base = {
-      tenantId,
-      spaceId,
-      updatedAt: { lt: syncStartedAt },
-      ...(integrationId ? { integrationId } : {}),
-    };
+    // ADR_MULTI_SOURCE 4.3 : sans integrationId, le balayage épargne les lignes des sources
+    // déclarées (un autre job les réécrit). Liste vide = `where` strictement inchangé.
+    const base = protectedAggregateWhere(
+      {
+        tenantId,
+        spaceId,
+        updatedAt: { lt: syncStartedAt },
+        ...(integrationId ? { integrationId } : {}),
+      },
+      integrationId ? [] : protectedIntegrationIds,
+    );
     const failedIds = failedEvents.map((e) => e.eventId);
     const failedDays = failedEvents.map((e) => utcDay(e.date)).filter((d): d is Date => d !== null);
 

@@ -1,12 +1,12 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
-import { Prisma } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { QueueService } from '../../../core/queue/queue.service';
 import { QUEUES } from '../../../core/queue/queue.constants';
 import { MenuItemPricingService } from '../../../shared/pricing/menu-item-pricing.service';
+import { resolveListUnitPrice, resolveVatRate } from '../../../shared/sales/sale-line-pricing';
 import { SpaceAccessService } from '../../../core/auth/space-access.service';
 import { SimulateSaleLineDto } from '../dto/logistics.dto';
 import { StartSimulationRunDto } from '../dto/simulation-run.dto';
@@ -121,8 +121,8 @@ export class SalesSimulationService {
       const mapping = mappingByMenuItemId.get(line.menuItemId)!;
       const product = productById.get(mapping.salesProductId);
       const spaceOverride = spaceOverrideById.get(line.menuItemId);
-      const unitPrice = spaceOverride?.priceTtc ?? menuItem?.basePrice ?? new Prisma.Decimal(0);
-      const vat = spaceOverride?.vatRate ?? menuItem?.vatRate ?? tenantDefaultVatRate ?? 0;
+      const unitPrice = resolveListUnitPrice(spaceOverride, menuItem);
+      const vat = resolveVatRate(spaceOverride, menuItem, tenantDefaultVatRate);
       return {
         menuItemId: line.menuItemId,
         productId: mapping.salesProductId,

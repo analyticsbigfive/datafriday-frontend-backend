@@ -47,7 +47,7 @@ describe('InventoryWindowLifecycleCronService', () => {
     expect(guestPin.closeWindowRecord.mock.calls[0][2]).toEqual({ pushToLogistic: false, reason: 'period-end' });
     // Le post-event n'est jamais lu : il est clôturé par l'utilisateur.
     expect(prisma.inventoryWindow.findMany).toHaveBeenCalledWith({
-      where: { phase: { in: ['pre-event', 'ventilation'] }, OR: [{ status: 'open' }, { guestAccesses: { some: { status: 'active' } } }] },
+      where: { phase: { in: ['pre-event', 'ventilation', 'pos'] }, OR: [{ status: 'open' }, { guestAccesses: { some: { status: 'active' } } }] },
     });
   });
 
@@ -93,5 +93,28 @@ describe('InventoryWindowLifecycleCronService', () => {
     const { cron, guestPin } = setup([window('w-orphan', 'deleted', 'pre-event')], events);
     await cron.closeExpiredWindows(now);
     expect(guestPin.closeWindowRecord).toHaveBeenCalledTimes(1);
+  });
+
+  it("caisse pos : ouverte jusqu'à la fin réelle + 3 h de grâce, fermée ensuite sans push", async () => {
+    const pos = { ...window('w-pos', 'sfp-lyon', 'pos'), selectionKey: 'pdv-a' };
+    const { cron, guestPin } = setup([pos], events);
+    // Avant les portes (15:00 Paris) comme pendant : jamais fermée, pas d'ouverture automatique non plus.
+    await cron.closeExpiredWindows(new Date('2026-09-26T08:00:00Z'));
+    // Fin 23:00 Paris (21:00Z) : encore ouverte pendant la grâce (jusqu'à 00:00Z).
+    await cron.closeExpiredWindows(new Date('2026-09-26T21:30:00Z'));
+    await cron.closeExpiredWindows(new Date('2026-09-26T23:59:00Z'));
+    expect(guestPin.closeWindowRecord).not.toHaveBeenCalled();
+    await expect(cron.closeExpiredWindows(new Date('2026-09-27T00:00:00Z'))).resolves.toBe(1);
+    expect(guestPin.closeWindowRecord.mock.calls[0][2]).toEqual({ pushToLogistic: false, reason: 'period-end' });
+  });
+
+  it("caisse pos arrêtée dont l'évènement est fini : les accès encore actifs sont révoqués", async () => {
+    const pos = { ...window('w-pos', 'sfp-lyon', 'pos'), status: 'closed' };
+    const { cron, guestPin, prisma } = setup([pos], events);
+    await expect(cron.closeExpiredWindows(new Date('2026-09-27T00:00:00Z'))).resolves.toBe(1);
+    expect(guestPin.closeWindowRecord).not.toHaveBeenCalled();
+    expect(prisma.guestPinAccess.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { windowId: { in: ['w-pos'] }, status: 'active' } }),
+    );
   });
 });

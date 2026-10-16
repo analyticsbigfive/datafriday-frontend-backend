@@ -47,6 +47,11 @@ import { DisplayNamesModule } from './features/display-names/display-names.modul
 import { IndustrialsModule } from './features/industrials/industrials.module';
 import { InventoryModule } from './features/inventory/inventory.module';
 import { GuestPinAccessModule } from './features/guest-pin-access/guest-pin-access.module';
+import { PosModule } from './features/pos/pos.module';
+import { PosAvailabilityModule } from './features/pos/availability/pos-availability.module';
+import { PosConfigModule } from './features/pos/config/pos-config.module';
+import { PaymentMethodsModule } from './features/payment-methods/payment-methods.module';
+import { EventSalesSourcesModule } from './features/event-sales-sources/event-sales-sources.module';
 import { LogisticsModule } from './features/logistics/logistics.module';
 import { LogisticTasksModule } from './features/logistic-tasks/logistic-tasks.module';
 import { NotificationsModule } from './features/notifications/notifications.module';
@@ -165,6 +170,11 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     // 20260811090000_add_menu_item_history_alias AVANT de déployer (ADR-0002)
     // — sinon 500 P2021 au premier appel.
     GuestPinAccessModule,
+    PosModule,
+    PosAvailabilityModule,
+    PosConfigModule,
+    PaymentMethodsModule,
+    EventSalesSourcesModule,
     HistoryAliasesModule,
     HrSettingsModule,
     SeasonsModule,

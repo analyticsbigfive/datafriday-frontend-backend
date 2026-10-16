@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { VENTILATION_PHASE, inventoryWindowPeriod, inventoryWindowPeriodState } from '../inventory-window-period';
+import { POS_PHASE } from '../../pos/pos.contracts';
+import { posSellableUntil } from '../pos-period';
 import { revokeWindowAccesses } from '../../inventory/inventory-window-closure';
 import { TenantContextService } from '../../../core/tenant/tenant-context.service';
 import { GuestPinWindowService } from '../services/guest-pin-window.service';
@@ -52,7 +54,8 @@ export class InventoryWindowLifecycleCronService {
     const windows = await this.prisma.inventoryWindow.findMany({
       where: {
         // Ventilation (décision #75) : fermée à la fin réelle du match, comme le pre-event.
-        phase: { in: ['pre-event', VENTILATION_PHASE] },
+        // Caisse POS : fermée à la fin réelle + grâce du Live (cf. pos-period.ts).
+        phase: { in: ['pre-event', VENTILATION_PHASE, POS_PHASE] },
         OR: [{ status: 'open' }, { guestAccesses: { some: { status: 'active' } } }],
       },
     });
@@ -82,6 +85,7 @@ export class InventoryWindowLifecycleCronService {
         .map((id) => eventById.get(id))
         .filter((e): e is NonNullable<typeof e> => !!e);
       const stillRunning = windowEvents.some((event) => {
+        if (window.phase === POS_PHASE) return now < posSellableUntil(event, event.space?.timezone || 'Europe/Paris');
         const period = inventoryWindowPeriod(event, 'pre-event', event.space?.timezone || 'Europe/Paris');
         return inventoryWindowPeriodState(period, now) !== 'over';
       });

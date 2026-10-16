@@ -3,6 +3,8 @@ import { EventWindowResolverService } from './event-window-resolver.service';
 import { BasketAggregationService } from './basket-aggregation.service';
 import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
+import { EventSalesSourceService } from '../event-sales-sources/event-sales-source.service';
+import { EventSourceResolverService } from './event-source-resolver.service';
 import { liveWatermarkKey } from '../../shared/constants/live-aggregation';
 
 const sqlText = (sql: any): string => (sql?.strings ?? []).join('?');
@@ -38,6 +40,8 @@ describe('LiveMinuteAggregationService (BUG-379-02)', () => {
             event: { findMany: jest.fn().mockResolvedValue([event]), update: jest.fn() },
             space: { findFirst: jest.fn().mockResolvedValue({ timezone: 'Europe/Paris' }) },
             salesEvent: { findMany: jest.fn().mockResolvedValue([]) },
+            // Sources de ventes déclarées (ADR multi-source) : aucune, source historique dérivée.
+            eventSalesSource: { findMany: jest.fn().mockResolvedValue([]) },
             spaceRevenueMinuteAgg: { deleteMany: jest.fn(), aggregate: jest.fn().mockResolvedValue({ _sum: { revenueHt: 100, transactionsCount: 10 } }) },
             spaceRevenueMinuteItemAgg: { deleteMany: jest.fn() },
             spaceBasketMinuteAgg: { deleteMany: jest.fn() },
@@ -60,14 +64,18 @@ describe('LiveMinuteAggregationService (BUG-379-02)', () => {
                 { minute: minute1, lastUpdatedAt: new Date('2026-09-12T17:01:30Z') },
                 { minute: minute2, lastUpdatedAt: new Date('2026-09-12T17:03:40Z') },
             ]);
+        const salesSources = new EventSalesSourceService(prisma);
+        const windowResolver = new EventWindowResolverService(prisma, redis, salesSources);
+        const sourceResolver = new EventSourceResolverService(windowResolver, salesSources);
         service = new LiveMinuteAggregationService(
             prisma,
             redis,
-            new EventWindowResolverService(prisma, redis),
+            windowResolver,
             new EventRollupService(prisma),
             new SpaceIntegrationScopeService(prisma),
             // Paniers pré-agrégés : même mock Prisma ($executeRaw), purge via spaceBasketMinuteAgg.
-            new BasketAggregationService(prisma, new EventWindowResolverService(prisma, redis), new SpaceIntegrationScopeService(prisma)),
+            new BasketAggregationService(prisma, windowResolver, new SpaceIntegrationScopeService(prisma), sourceResolver),
+            sourceResolver,
         );
     });
 

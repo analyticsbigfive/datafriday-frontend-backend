@@ -7,10 +7,13 @@ import { AggregationJobEnqueueData } from '../../core/queue/queue.service';
 import { eventBatchCachePatterns } from '../../shared/constants/event-batch-cache';
 import { EventDayFields } from '../../shared/utils/event-window.util';
 import { livePendingKey, liveWatermarkKey } from '../../shared/constants/live-aggregation';
+import { DeclaredSalesSource } from '../event-sales-sources/event-sales-source.types';
 import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { BasketAggregationService } from './basket-aggregation.service';
+import { EventSourceResolverService } from './event-source-resolver.service';
+import { sourceDeleteWhere } from './event-source-routing';
 import {
   buildIntegrationClause,
   buildMatchClause,
@@ -43,6 +46,7 @@ export class LiveMinuteAggregationService {
     private readonly eventRollup: EventRollupService,
     private readonly spaceIntegrationScope: SpaceIntegrationScopeService,
     private readonly basketAgg: BasketAggregationService,
+    private readonly sourceResolver: EventSourceResolverService,
   ) {}
 
   async execute(job: Job<AggregationJobEnqueueData>) {
@@ -61,6 +65,8 @@ export class LiveMinuteAggregationService {
     });
     // BUG-384-02 : même frontière que le rebuild complet (clause de repli + scope du rollup).
     const spaceIntegrationIds = await this.spaceIntegrationScope.resolve(tenantId, spaceId);
+    // ADR_MULTI_SOURCE : sources déclarées des évènements du job (vide pour les évènements existants).
+    const declaredByEvent = await this.sourceResolver.loadDeclared(tenantId, events.map((e) => e.id), spaceIntegrationIds);
 
     let minutesProcessed = 0;
     const errors: string[] = [];
@@ -77,6 +83,7 @@ export class LiveMinuteAggregationService {
             seasonContainerIds,
             allSpaceEvents,
             spaceIntegrationIds,
+            declared: declaredByEvent.get(event.id) ?? [],
           });
         } catch (err) {
           errors.push(`${event.name || event.id}: ${(err as Error).message}`);
@@ -128,23 +135,37 @@ export class LiveMinuteAggregationService {
     seasonContainerIds: Set<string>;
     allSpaceEvents: EventDayFields[];
     spaceIntegrationIds: string[];
+    declared: DeclaredSalesSource[];
   }): Promise<number> {
     const { tenantId, spaceId, integrationId, event, spaceIntegrationIds } = input;
-    const window = this.windowResolver.resolveEventWindow(event, input.spaceTimezone, input.seasonContainerIds, input.allSpaceEvents);
-    if (isUnscopedRangeWindow(integrationId, window, spaceIntegrationIds)) {
+    const decision = this.sourceResolver.decide({
+      event, jobIntegrationId: integrationId, declared: input.declared, spaceTimezone: input.spaceTimezone,
+      seasonContainerIds: input.seasonContainerIds, allSpaceEvents: input.allSpaceEvents, spaceIntegrationIds,
+    });
+    // Évènement sans source pour ce job (ex. 100 % source déclarée vu par le job historique).
+    if (decision.status === 'no-source') return 0;
+    const { plan } = decision;
+    const window = plan.window;
+    if (isUnscopedRangeWindow(plan.clauseIntegrationId, window, plan.fallbackIntegrationIds)) {
       throw new BadRequestException(`Aucune intégration mappée à l'espace ${spaceId} : event ${event.id} non rattachable (BUG-384-02)`);
     }
     const matchClause = buildMatchClause(window, input.seasonContainerIds);
-    const integrationClause = buildIntegrationClause(integrationId, window, spaceIntegrationIds);
+    const integrationClause = buildIntegrationClause(plan.clauseIntegrationId, window, plan.fallbackIntegrationIds);
 
-    const watermark = await this.readWatermark(event.id, event.calculatedAt);
+    // Un watermark PAR SOURCE : une source déclarée repart de ses propres minutes, jamais de
+    // Event.calculatedAt (mis à jour par le rollup de CHAQUE source).
+    const watermark = await this.readWatermark(event.id, plan.kind === 'explicit' ? null : event.calculatedAt, plan.watermarkIntegrationId);
     const since = watermark ? new Date(watermark.getTime() - LiveMinuteAggregationService.OVERLAP_MS) : null;
     const touched = await touchedMinutes(this.prisma, tenantId, { integrationClause, matchClause, since });
     if (!touched.length) return 0;
 
     const minutes = touched.map((r) => new Date(r.minute));
-    const deleteWhere: Prisma.SpaceRevenueMinuteAggWhereInput = { tenantId, spaceId, weezeventEventId: event.id, minute: { in: minutes } };
-    if (window.mode !== 'integration-range' && integrationId) deleteWhere.integrationId = integrationId;
+    // Règle unique de suppression (ADR 4.3) : scopée à la source, jamais les lignes des autres sources.
+    const deleteWhere: Prisma.SpaceRevenueMinuteAggWhereInput = sourceDeleteWhere(
+      plan,
+      { tenantId, spaceId, weezeventEventId: event.id, minute: { in: minutes } } as Prisma.SpaceRevenueMinuteAggWhereInput,
+      integrationId,
+    );
     await this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere });
     await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere as Prisma.SpaceRevenueMinuteItemAggWhereInput });
 
@@ -156,14 +177,14 @@ export class LiveMinuteAggregationService {
     await this.eventRollup.refresh(tenantId, spaceId, event, spaceIntegrationIds);
 
     const newWatermark = touched.reduce((max, r) => (new Date(r.lastUpdatedAt) > max ? new Date(r.lastUpdatedAt) : max), new Date(0));
-    await this.redis.set(liveWatermarkKey(event.id), newWatermark.toISOString(), { ttl: LiveMinuteAggregationService.WATERMARK_TTL_SEC });
+    await this.redis.set(liveWatermarkKey(event.id, plan.watermarkIntegrationId), newWatermark.toISOString(), { ttl: LiveMinuteAggregationService.WATERMARK_TTL_SEC });
 
     this.logger.log(`Live minutes: event ${event.id}, ${minutes.length} minute(s) recomputed since ${since?.toISOString() ?? 'start'}`);
     return minutes.length;
   }
 
-  private async readWatermark(eventId: string, calculatedAt: Date | null): Promise<Date | null> {
-    const stored = await this.redis.get<string>(liveWatermarkKey(eventId));
+  private async readWatermark(eventId: string, calculatedAt: Date | null, sourceIntegrationId: string | null): Promise<Date | null> {
+    const stored = await this.redis.get<string>(liveWatermarkKey(eventId, sourceIntegrationId));
     if (stored) return new Date(stored);
     return calculatedAt;
   }

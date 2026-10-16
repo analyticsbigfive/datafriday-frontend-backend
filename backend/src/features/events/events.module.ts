@@ -5,6 +5,7 @@ import { PredictVersionsController, PredictVersionsStandaloneController } from '
 import { PredictVersionsSummaryController } from './predict-versions-summary.controller';
 import { PredictVersionsService } from './predict-versions.service';
 import { PrismaModule } from '../../core/database/prisma.module';
+import { EventSalesSourcesModule } from '../event-sales-sources/event-sales-sources.module';
 import { EventTaxonomyService } from './services/event-taxonomy.service';
 import { EventTeamService } from './services/event-team.service';
 import { EventsService } from './events.service';
@@ -13,7 +14,7 @@ import { EventWeatherFillService } from './weather/event-weather-fill.service';
 import { EventWeatherCronService } from './weather/event-weather.cron';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, EventSalesSourcesModule],
   controllers: [
     EventsController,
     EventTypesController,

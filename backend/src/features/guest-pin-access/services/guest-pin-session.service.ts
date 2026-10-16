@@ -20,6 +20,8 @@ export type GuestLoginResult =
       elementId: string;
       elementName: string | null;
       eventId: string;
+      /** Phase `pos` uniquement : nom du vendeur de la session. */
+      vendorName?: string;
     }
   // PIN qui ne correspond pas au PIN partagé de la fenêtre ouverte pour ce PDV —
   // l'écran "Code PIN incorrect" des maquettes (distinct de 'inactive' : ce dernier
@@ -227,7 +229,11 @@ export class GuestPinSessionService {
   }
 
   /** Dernière connexion vue (diagnostic, jamais un verrou) puis jeton invité signé. */
-  async issueGuestToken(accessId: string, deviceId: string | undefined): Promise<string> {
+  async issueGuestToken(
+    accessId: string,
+    deviceId: string | undefined,
+    claims: { vendorName?: string } = {},
+  ): Promise<string> {
     await this.prisma.guestPinAccess.update({
       where: { id: accessId },
       data: {
@@ -236,8 +242,9 @@ export class GuestPinSessionService {
         lastLoginAt: new Date(),
       },
     });
+    // Jetons inventaire et ventilation : `{ sub }` seul, strictement inchangé.
     return this.jwt.signAsync(
-      { sub: accessId },
+      claims.vendorName ? { sub: accessId, vendorName: claims.vendorName } : { sub: accessId },
       {
         secret: this.configService.getOrThrow<string>('GUEST_PIN_JWT_SECRET'),
         expiresIn: this.configService.get<string>('GUEST_PIN_JWT_TTL') || '1d',

@@ -222,6 +222,7 @@ model Tenant {
 enum IntegrationProvider {
   WEEZEVENT
   DIGIFOOD
+  POS // caisse Data Friday (chantier POS MVP), une Integration par tenant créée à la demande
 }
 
 // Intégration de ventes (multi-provider). Table physique historique "Integration",
@@ -3759,4 +3760,85 @@ model UnmappedDataMetrics {
 
   @@unique([tenantId, entityType, entityId])
   @@index([lastSeenAt])
+}
+
+// POS MVP (lot L1) : réglages de la caisse par PdV et par évènement. Scalaires indexés sans FK,
+// comme InventoryWindow (spaceId / eventId / elementId ne sont pas des relations Prisma).
+model PosPdvSetting {
+  id                    String   @id @default(cuid())
+  tenantId              String
+  spaceId               String
+  eventId               String
+  elementId             String // SpaceElement.id du PdV
+  responsibleHrPersonId String? // HrPerson.id, traçabilité seulement en V1
+  createdBy             String
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([eventId, elementId])
+  @@index([tenantId, spaceId])
+}
+
+// POS MVP (lot L1) : réglages de la caisse par évènement (moyens de paiement, promos, annulation).
+// paymentMethodIds : moyens de paiement ACTIVÉS pour cet évènement, choisis dans le référentiel
+// PaymentMethod du tenant (jamais une liste figée dans le code). Vide = tous les moyens actifs.
+model PosEventSetting {
+  id               String   @id @default(cuid())
+  tenantId         String
+  spaceId          String
+  eventId          String   @unique
+  paymentMethodIds String[] @default([])
+  promosEnabled    Boolean  @default(true)
+  cancelEnabled    Boolean  @default(true)
+  lowStockUnits    Int      @default(5) // seuil « stock bas » en unités encore vendables, réglable par évènement
+  tipsEnabled      Boolean  @default(false) // pourboires acceptés (hors CA et hors TVA), désactivés par défaut
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([tenantId, spaceId])
+}
+
+/// Moyen de paiement (référentiel de configuration, comme PromotionType), géré dans
+/// Configuration > Moyens de paiement. `kind` est une catégorie OUVERTE (cash, card, voucher,
+/// cashless, other...) : le comportement de la caisse en dépend (ex. rendu de monnaie pour cash),
+/// pas le nom. Les deux premiers (Espèces, Carte) sont créés à la demande, `isSystem` = non
+/// supprimables mais désactivables. Une vente garde une COPIE du nom et du kind au moment de la
+/// vente (SalesTransaction.metadata) : renommer un moyen ne réécrit pas l'historique.
+model PaymentMethod {
+  id        String   @id @default(cuid())
+  tenantId  String
+  name      String
+  kind      String // 'cash' | 'card' | 'voucher' | 'cashless' | 'other' (liste ouverte)
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  isSystem  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([tenantId, name])
+  @@index([tenantId, active])
+}
+
+/// Source de ventes d'un évènement (ADR_MULTI_SOURCE, lot L4). Un évènement a une LISTE de sources :
+/// le calcul des agrégats est écrit une fois pour « une source », sans cas par logiciel de caisse.
+/// Tant qu'un évènement n'a aucune ligne, sa source historique est DÉRIVÉE de Event.weezeventEventId,
+/// Event.integrationId et des mappings d'espace (aucune écriture pour les évènements existants).
+/// `windowMode` (ouvert) : sales-event | sales-event-range | integration-range | date-range.
+/// `origin` : auto | pos | manual. `active=false` : agrégats conservés, plus recalculés.
+/// Unicité (eventId, integrationId) : les lignes d'agrégats portent integrationId, pas salesEventId.
+model EventSalesSource {
+  id            String   @id @default(cuid())
+  tenantId      String
+  eventId       String
+  integrationId String
+  salesEventId  String?
+  windowMode    String   @default("sales-event-range")
+  origin        String   @default("manual")
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([eventId, integrationId])
+  @@index([tenantId, eventId])
+  @@index([salesEventId])
 }
