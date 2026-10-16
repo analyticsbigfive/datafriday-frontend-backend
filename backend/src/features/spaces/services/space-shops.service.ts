@@ -196,22 +196,16 @@ export class SpaceShopsService {
     });
     const eventStart = event ? resolveEventTransactionWindow(event, tz).start : null;
 
-    const [locationMapping, shopIds] = await Promise.all([
-      this.prisma.locationSpaceMapping.findFirst({
-        where: { tenantId, spaceId },
-        select: { salesLocationId: true },
-      }),
+    const [integrationIds, shopIds] = await Promise.all([
+      this.spaceIntegrationIds(spaceId, tenantId),
       this.spaceSalesScopeService.resolveShopIdsForSpace(spaceId, tenantId),
     ]);
     if (shopIds.length === 0) return { isLive: false, eventId: event?.id ?? null, since: null };
 
-    const integrationId = locationMapping?.salesLocationId ?? null;
-    const integrationClause = integrationId
-      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
-      : Prisma.sql``;
+    const integrationClause = this.integrationClauseOf(integrationIds);
     // Même repli "unmapped = gardé" que getEventTimelineBatch (§ ci-dessus) — un PdV pas encore
     // mappé shop-level ne doit pas faire manquer un vrai signal live.
-    const shopScopeClause = integrationId
+    const shopScopeClause = integrationIds.length
       ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))`
       : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
 
@@ -235,20 +229,33 @@ export class SpaceShopsService {
    * (retour Bertrand 2026-10-07, choix Ulrich : « on part sur 1, test ou pas »).
    */
   async firstValidSaleByElementSince(spaceId: string, tenantId: string, since: Date): Promise<Map<string, Date>> {
-    const [locationMapping, shopIds] = await Promise.all([
-      this.prisma.locationSpaceMapping.findFirst({
-        where: { tenantId, spaceId },
-        select: { salesLocationId: true },
-      }),
+    // Constat L2 : TOUTES les intégrations mappées à l'espace (Weezevent, Digifood, caisse Data
+    // Friday...), plus « la première » au hasard : une première vente d'une source ou d'une autre
+    // arrête le pre-event du PdV.
+    const [integrationIds, shopIds] = await Promise.all([
+      this.spaceIntegrationIds(spaceId, tenantId),
       this.spaceSalesScopeService.resolveShopIdsForSpace(spaceId, tenantId),
     ]);
     if (shopIds.length === 0) return new Map();
-    const integrationId = locationMapping?.salesLocationId ?? null;
-    const integrationClause = integrationId
-      ? Prisma.sql`AND t."integrationId" = ${integrationId}`
-      : Prisma.sql``;
+    const integrationClause = this.integrationClauseOf(integrationIds);
     const rows = await firstValidSaleByElementRows(this.prisma, tenantId, integrationClause, since, shopIds);
     return new Map(rows.map((r) => [r.elementId, r.firstAt]));
+  }
+
+  /** Intégrations mappées à l'espace (un espace peut en avoir plusieurs, BUG-136-01). */
+  private async spaceIntegrationIds(spaceId: string, tenantId: string): Promise<string[]> {
+    const rows = await this.prisma.locationSpaceMapping.findMany({
+      where: { tenantId, spaceId },
+      select: { salesLocationId: true },
+    });
+    return rows.map((r) => r.salesLocationId).filter(Boolean);
+  }
+
+  /** Une seule intégration : `=` (SQL historique inchangé) ; plusieurs : `= ANY(...)` ; aucune : tout le tenant. */
+  private integrationClauseOf(integrationIds: ReadonlyArray<string>): Prisma.Sql {
+    if (integrationIds.length === 0) return Prisma.sql``;
+    if (integrationIds.length === 1) return Prisma.sql`AND t."integrationId" = ${integrationIds[0]}`;
+    return Prisma.sql`AND t."integrationId" = ANY(${[...integrationIds]})`;
   }
 
   /**

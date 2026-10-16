@@ -6,6 +6,8 @@ import { resolveEventTransactionWindow } from '../../../shared/utils/event-windo
 import { Semaphore } from '../../../shared/utils/semaphore';
 import { SpaceCacheService } from './space-cache.service';
 import { SpaceCrudService } from './space-crud.service';
+import { EventSalesSourceService } from '../../event-sales-sources/event-sales-source.service';
+import { ExtraSourceWindow, hasExtraSources, rawEvValues } from '../event-extra-sources.sql';
 
 /**
  * Périmètre de ventes d'un espace pour un lot d'events (PdV, intégrations, fenêtres), cache
@@ -18,6 +20,7 @@ export class SpaceSalesScopeService {
     private readonly redis: RedisService,
     private readonly spaceCacheService: SpaceCacheService,
     private readonly spaceCrudService: SpaceCrudService,
+    private readonly salesSources: EventSalesSourceService,
   ) {}
 
   // BUG-144-01 : borne de concurrence de la section SQL des 3 endpoints batch Analyse —
@@ -78,7 +81,19 @@ export class SpaceSalesScopeService {
     spaceId: string,
     uniqueIds: string[],
     tenantId: string,
-  ): Promise<{ integrationClause: Prisma.Sql; shopScopeClause: Prisma.Sql; valuesSql: Prisma.Sql; spaceTimezone: string; shopIds: string[]; windows: { id: string; windowStart: Date; windowEnd: Date; tagId: string | null; eventIntegrationId: string | null }[] } | null> {
+  ): Promise<{
+    integrationClause: Prisma.Sql;
+    shopScopeClause: Prisma.Sql;
+    /** VALUES à 5 colonnes (timeline pré-agrégée). */
+    valuesSql: Prisma.Sql;
+    /** VALUES des lecteurs bruts : 6e colonne `extraSalesEventIds` seulement si `extraSources`. */
+    rawValuesSql: Prisma.Sql;
+    /** Au moins un évènement du lot a une source de ventes déclarée (ADR multi-source 4.5). */
+    extraSources: boolean;
+    spaceTimezone: string;
+    shopIds: string[];
+    windows: ExtraSourceWindow[];
+  } | null> {
     // All independent queries run in parallel: ownership check, event dates (tried
     // against both DataFriday Event and WeezeventEvent so the frontend can pass
     // either a DataFriday UUID or a WeezeventEvent CUID), integration scope,
@@ -115,7 +130,16 @@ export class SpaceSalesScopeService {
               select: { timezone: true },
             }),
           ]);
+          // ADR_MULTI_SOURCE 4.5 : sources de ventes déclarées des évènements de l'espace.
+          const declaredSources = await this.salesSources.listActiveByEvent(tenantId, allSpaceEvents.map(e => e.id));
+          // SalesEvent des sources déclarées non `auto`, par évènement ({} pour les évènements existants).
+          const extraSalesEventIds: Record<string, string[]> = {};
+          for (const [eventId, sources] of declaredSources) {
+            const ids = sources.filter(src => src.origin !== 'auto' && src.salesEventId).map(src => src.salesEventId as string);
+            if (ids.length) extraSalesEventIds[eventId] = ids;
+          }
           return {
+            extraSalesEventIds,
             allSpaceEvents,
             integrationIds: locationMapping.map(m => m.salesLocationId).filter(Boolean),
             spaceTimezone: spaceRow?.timezone || 'Europe/Paris',
@@ -133,6 +157,8 @@ export class SpaceSalesScopeService {
     // déjà `new Date(...)` avant usage (fenêtres, voisins — resolveEventTransactionWindow
     // tolère aussi les ISO strings directement).
     const { allSpaceEvents, integrationIds, spaceTimezone } = statics;
+    // Entrées cachées avant ce champ : absent = aucune source déclarée.
+    const extraByEvent: Record<string, string[]> = statics.extraSalesEventIds ?? {};
 
     if (shopIds.length === 0) return null;
 
@@ -166,7 +192,7 @@ export class SpaceSalesScopeService {
     // la fenêtre de PFC absorbait le CA de SFP-Toulouse, 48k€ → 184k€, BUG-339-02).
     // MÊME logique que l'agrégation (resolveEventTransactionWindow, event-window.util) : la
     // divergence lecteur/writer était la cause des trois CA différents de la fiche 145-01.
-    const windows: { id: string; windowStart: Date; windowEnd: Date; tagId: string | null; eventIntegrationId: string | null }[] = [];
+    const windows: ExtraSourceWindow[] = [];
     for (const id of uniqueIds) {
       const df = dfMap.get(id);
       const wz = wzMap.get(id);
@@ -202,7 +228,11 @@ export class SpaceSalesScopeService {
       // retombent sur la fenêtre seule, comportement d'avant.
       // BUG-368-02 : eventIntegrationId — mode prioritaire, robuste, ne dépend pas d'un
       // conteneur de saison ; coexiste avec tagId (legacy) pour les events pas encore migrés.
-      windows.push({ id, windowStart, windowEnd, tagId: df?.weezeventEventId ?? null, eventIntegrationId: df?.integrationId ?? null });
+      const extraSalesEventIds = extraByEvent[id];
+      windows.push({
+        id, windowStart, windowEnd, tagId: df?.weezeventEventId ?? null, eventIntegrationId: df?.integrationId ?? null,
+        ...(extraSalesEventIds?.length ? { extraSalesEventIds } : {}),
+      });
     }
     if (!windows.length) return null;
 
@@ -234,7 +264,11 @@ export class SpaceSalesScopeService {
       ', ',
     );
 
-    return { integrationClause, shopScopeClause, valuesSql, spaceTimezone, shopIds, windows };
+    // Lecteurs bruts : 6e colonne (SalesEvent des sources déclarées) seulement si le lot en a.
+    const extraSources = hasExtraSources(windows);
+    const rawValuesSql = extraSources ? rawEvValues(windows, true) : valuesSql;
+
+    return { integrationClause, shopScopeClause, valuesSql, rawValuesSql, extraSources, spaceTimezone, shopIds, windows };
   }
 
   /**

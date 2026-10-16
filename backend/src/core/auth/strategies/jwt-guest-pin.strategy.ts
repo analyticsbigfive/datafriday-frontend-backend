@@ -6,6 +6,10 @@ import { PrismaService } from '../../database/prisma.service';
 
 export interface GuestPinJwtPayload {
   sub: string; // GuestPinAccess.id
+  // Phase `pos` uniquement : nom du vendeur saisi à la connexion (plusieurs vendeurs
+  // partagent la GuestPinAccess du PdV, le nom vit donc dans la session). Absent des
+  // jetons inventaire et ventilation.
+  vendorName?: string;
   iat?: number;
   exp?: number;
 }
@@ -25,6 +29,8 @@ export interface GuestPinUser {
   submittedAt: Date | null;
   // Verrou réel (lecture seule), posé uniquement par le directeur (validateAccess).
   validatedAt: Date | null;
+  // Phase `pos` : nom du vendeur de la session ; null pour toute autre phase.
+  vendorName: string | null;
 }
 
 /**
@@ -67,6 +73,14 @@ export class JwtGuestPinStrategy extends PassportStrategy(Strategy, 'jwt-guest-p
       throw new UnauthorizedException('Accès invité révoqué ou fenêtre clôturée');
     }
 
+    // Caisse POS : une seule voie d'accès, la fenêtre du PdV ouverte. Contrairement à
+    // l'inventaire, aucun PdV ne se rouvre seul sur une fenêtre arrêtée : ■ ferme la
+    // fenêtre ET révoque l'accès, ce garde double la révocation (relue à chaque requête).
+    const isPos = access.window.phase === 'pos';
+    if (isPos && access.window.status !== 'open') {
+      throw new UnauthorizedException('Caisse arrêtée');
+    }
+
     return {
       id: access.id,
       type: 'guest-pin',
@@ -79,6 +93,7 @@ export class JwtGuestPinStrategy extends PassportStrategy(Strategy, 'jwt-guest-p
       showExpected: access.window.showExpected,
       submittedAt: access.submittedAt,
       validatedAt: access.validatedAt,
+      vendorName: isPos && typeof payload.vendorName === 'string' && payload.vendorName.trim() ? payload.vendorName : null,
     };
   }
 }

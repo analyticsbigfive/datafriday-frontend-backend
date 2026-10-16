@@ -19,6 +19,7 @@ import { LoginPinDto } from './dto/login-pin.dto';
 import { SaveGuestCountDto } from './dto/save-guest-count.dto';
 import { GuestVentilationDepositDto } from './dto/ventilation.dto';
 import { VentilationAccessService } from './ventilation-access.service';
+import { PosAccessService } from './pos-access.service';
 import { GuestPinCountingService } from './services/guest-pin-counting.service';
 import { GuestPinSessionService } from './services/guest-pin-session.service';
 
@@ -39,6 +40,7 @@ export class GuestPinAuthController {
     private readonly guestPinCountingService: GuestPinCountingService,
     private readonly guestPinSessionService: GuestPinSessionService,
     private readonly ventilation: VentilationAccessService,
+    private readonly pos: PosAccessService,
   ) {}
 
   @Get('context/:slug')
@@ -47,7 +49,10 @@ export class GuestPinAuthController {
     // QR « Ventilation » d'un espace (slug préfixé, jamais celui d'un élément).
     const space = await this.ventilation.findSpaceBySlug(slug);
     if (space) return this.ventilation.getPublicContext(space);
-    return this.guestPinSessionService.getPublicContext(slug);
+    const inventory = await this.guestPinSessionService.getPublicContext(slug);
+    // Caisse POS ouverte pour ce PdV : l'écran de connexion demande le nom du vendeur.
+    const { posActive } = await this.pos.getPublicContext(slug);
+    return { ...inventory, active: inventory.active || posActive, posActive };
   }
 
   @Post('login/:slug')
@@ -61,7 +66,12 @@ export class GuestPinAuthController {
   ) {
     const space = await this.ventilation.findSpaceBySlug(slug);
     if (space) return this.ventilation.login(space, dto.pin, deviceId, ip);
-    return this.guestPinSessionService.login(dto.pin, deviceId, ip, slug);
+    const inventoryLogin = () => this.guestPinSessionService.login(dto.pin, deviceId, ip, slug);
+    // Caisse POS ouverte pour ce PdV : son PIN (propre au PdV) ouvre une session pos, avec le
+    // nom du vendeur. Sinon le flux inventaire est strictement celui d'avant.
+    const pdv = await this.pos.findOpenPdvBySlug(slug);
+    if (pdv) return this.pos.login(pdv, dto.pin, dto.vendorName, deviceId, ip, inventoryLogin);
+    return inventoryLogin();
   }
 
   @Get('ventilation')

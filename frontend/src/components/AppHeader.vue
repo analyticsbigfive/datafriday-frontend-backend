@@ -12,6 +12,7 @@ const SECTION_KEY_BY_ROUTE = {
   "space-inventory": "hdrSecInventory",
   "space-pre-inventory": "hdrSecPreInventory",
   "space-restock": "invToolRestock",
+  "space-pos": "srToolPos",
   SpaceBuilder: "hdrSecBuilder",
   spaces: "hdrSecSpaces",
   "spaces-overview": "hdrSecSpaces",

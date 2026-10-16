@@ -95,6 +95,20 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
       'Démarrer/clôturer une fenêtre pré/post-event, définir et révoquer les PIN par PDV pour ' +
       "les managers invités (sans compte), consulter leur tableau de statut.",
   },
+  {
+    code: 'front.fb.pos',
+    name: 'POS',
+    category: 'F&B Front',
+    description:
+      "Outil POS du workspace : démarrer/arrêter la caisse d'un PdV pour un évènement, réglages " +
+      "de caisse, responsable RH, historique et export des ventes POS (chantier POS 2026-10-16).",
+  },
+  {
+    code: 'front.fb.posManage',
+    name: 'POS — PIN des caisses',
+    category: 'F&B Front',
+    description: "Voir en clair et régénérer le PIN de la caisse d'un PdV (un PIN par PdV).",
+  },
 
   // Edit F&B Menu (écrans de configuration back)
   { code: 'menu.fb.suppliers', name: 'Suppliers', category: 'Edit F&B Menu' },
@@ -228,6 +242,10 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       // Accès invité PIN (managers PDV sans compte) ajouté 2026-09-07 : seul le
       // Directeur de site démarre/clôture les fenêtres et gère les PIN pour l'instant.
       'front.fb.guestPinManage',
+      // Caisse POS (2026-10-16) : comme les PIN invités, le Directeur de site démarre les
+      // caisses et voit leurs PIN. ADMIN les reçoit via ALL_CODES.
+      'front.fb.pos',
+      'front.fb.posManage',
       'stats.financial.view',
     ],
   },

@@ -55,7 +55,21 @@ export class GuestPinCredentialService {
       where: { slug },
       select: this.elementSpaceSelect,
     });
-    if (!element) return null;
+    return element ? this.toElementRef(element) : null;
+  }
+
+  /** Même résolution depuis l'id du PdV (accès POS lancé par le staff, sans slug). */
+  async resolveElementById(
+    id: string,
+  ): Promise<{ id: string; name: string; spaceId: string | null } | null> {
+    const element = await this.prisma.spaceElement.findUnique({
+      where: { id },
+      select: this.elementSpaceSelect,
+    });
+    return element ? this.toElementRef(element) : null;
+  }
+
+  private toElementRef(element: unknown): { id: string; name: string; spaceId: string | null } {
     const el = element as any;
     const config = el.floor?.config ?? el.forecourt?.config ?? el.externalMerch?.config ?? null;
     const spaceId = config?.spaceId ?? el.zone?.spaceId ?? null;

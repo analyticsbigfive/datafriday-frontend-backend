@@ -7,6 +7,8 @@ import { EventWeezeventLinkService } from './services/event-weezevent-link.servi
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { EventTaxonomyService } from './services/event-taxonomy.service';
 import { EventTeamService } from './services/event-team.service';
+import { EventSalesSourceService } from '../event-sales-sources/event-sales-source.service';
+import { protectedAggregateWhere } from '../aggregation/protected-aggregate-where';
 import { weatherResetFor } from './weather/event-weather-reset';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
@@ -28,6 +30,7 @@ export class EventsService {
     private spaceAccess: SpaceAccessService,
     private readonly eventTaxonomyService: EventTaxonomyService,
     private readonly eventTeamService: EventTeamService,
+    private readonly salesSources: EventSalesSourceService,
   ) {}
 
   private readonly logger = new Logger(EventsService.name);
@@ -511,7 +514,13 @@ export class EventsService {
     // ici aux DEUX tables (SpaceRevenueMinuteAgg pour le step 4, SpaceRevenueMinuteItemAgg pour
     // l'Analyse — la seconde n'était jamais purgée, cf. constat du 2026-08-25).
     if (existing.spaceId) {
-      const deleteWhere = { tenantId, spaceId: existing.spaceId, weezeventEventId: id };
+      // ADR_MULTI_SOURCE 4.3 : « Démapper » le lien Weezevent n'efface pas les lignes des sources
+      // déclarées de l'évènement (caisse Data Friday...), seulement celles de l'ancien rattachement.
+      const declaredSources = await this.salesSources.listActive(tenantId, id);
+      const deleteWhere = protectedAggregateWhere(
+        { tenantId, spaceId: existing.spaceId, weezeventEventId: id },
+        declaredSources.map((s) => s.integrationId),
+      );
       await Promise.all([
         this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere }),
         this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere }),

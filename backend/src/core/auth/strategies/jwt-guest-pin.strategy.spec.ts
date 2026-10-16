@@ -47,4 +47,20 @@ describe('JwtGuestPinStrategy.validate', () => {
         prisma.guestPinAccess.findUnique.mockResolvedValue(null);
         await expect(strategy.validate({ sub: 'access-1' } as any)).rejects.toThrow(UnauthorizedException);
     });
+
+    it('jeton inventaire : vendorName toujours null, même si le jeton en portait un', async () => {
+        const user = await strategy.validate({ sub: 'access-1', vendorName: 'Intrus' } as any);
+        expect(user.vendorName).toBeNull();
+    });
+
+    it('caisse pos : le nom du vendeur de la session est relayé', async () => {
+        prisma.guestPinAccess.findUnique.mockResolvedValue({ ...baseAccess, window: { ...baseAccess.window, phase: 'pos' } });
+        const user = await strategy.validate({ sub: 'access-1', vendorName: 'Awa' } as any);
+        expect(user).toMatchObject({ phase: 'pos', vendorName: 'Awa' });
+    });
+
+    it('caisse pos : fenêtre arrêtée, accès rejeté même si la ligne est restée active', async () => {
+        prisma.guestPinAccess.findUnique.mockResolvedValue({ ...baseAccess, window: { ...baseAccess.window, phase: 'pos', status: 'closed' } });
+        await expect(strategy.validate({ sub: 'access-1', vendorName: 'Awa' } as any)).rejects.toThrow(UnauthorizedException);
+    });
 });

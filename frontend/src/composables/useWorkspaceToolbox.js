@@ -19,6 +19,7 @@ export const WORKSPACE_TOOLBOX_ITEMS = [
   { value: 'space-inventory', labelKey: 'srToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'srToolLogistic', icon: 'mdi-forklift', permission: 'front.fb.logistic' },
   { value: 'restock', labelKey: 'srToolRestock', icon: 'mdi-truck-delivery-outline', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
+  { value: 'pos', labelKey: 'srToolPos', icon: 'mdi-point-of-sale', permission: 'front.fb.pos' },
 ]
 
 /**
@@ -61,6 +62,8 @@ export function useWorkspaceToolbox(currentValue) {
       safePush(router, { name: 'space-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
     } else if (tool.value === 'space-pre-inventory') {
       safePush(router, { name: 'space-pre-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
+    } else if (tool.value === 'pos') {
+      safePush(router, { name: 'space-pos', params: { spaceId }, query: ev ? { event: ev } : {} })
     } else if (tool.value === 'restock') {
       safePush(router, { name: 'space-restock', params: { spaceId }, query: ev ? { event: ev } : {} })
     } else {

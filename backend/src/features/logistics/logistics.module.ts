@@ -46,6 +46,8 @@ import { PricingModule } from '../../shared/pricing/pricing.module';
   // (simulation). Aucun cycle : ni ce module ni ses dépendances n'importent SpacesModule.
   // VentilationDepositsService / VentilationEventsService : accès PIN des logisticiens (GuestPinAccessModule).
   exports: [
+    // Partagé avec le POS (disponibilité des articles), plutôt qu'une 2e instance.
+    RecipeExplosionService,
     StockItemIdentityService,
     StockMovementService,
     StockLevelService,

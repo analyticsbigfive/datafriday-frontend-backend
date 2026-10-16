@@ -4,6 +4,7 @@ import { RedisService } from '../../core/redis/redis.service';
 import { EventDayFields, resolveEventTransactionWindow } from '../../shared/utils/event-window.util';
 import { EventWindow } from './event-aggregation.queries';
 import { observedEventSpans } from './event-window.queries';
+import { EventSalesSourceService } from '../event-sales-sources/event-sales-source.service';
 
 // BUG-338-02 : même seuil que resolveEventSalesScope (spaces.service.ts). Un SalesEvent dont
 // les transactions liées s'étalent sur plus de 2 jours est un conteneur de saison, pas un match.
@@ -33,6 +34,7 @@ export class EventWindowResolverService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
+    private readonly salesSources: EventSalesSourceService,
   ) {}
 
   /**
@@ -69,6 +71,11 @@ export class EventWindowResolverService {
       select: { id: true },
     });
     digifoodEvents.forEach((e) => containerIds.add(e.id));
+
+    // ADR_MULTI_SOURCE 4.1 : un SalesEvent déclaré source (non `auto`) est le SalesEvent d'UN
+    // évènement, jamais un conteneur de saison, même si ses ventes de test s'étalent sur plusieurs
+    // jours. Sinon ses transactions entreraient dans la fenêtre de tout évènement en mode `range`.
+    (await this.salesSources.listDeclaredSalesEventIds(tenantId)).forEach((id) => containerIds.delete(id));
 
     return containerIds;
   }

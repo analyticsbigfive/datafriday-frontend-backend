@@ -5,7 +5,8 @@ describe('LiveEventWindowService (BUG-379-02)', () => {
         event: { findMany: jest.fn() },
         integration: { findMany: jest.fn() },
     };
-    const service = new LiveEventWindowService(prisma as any);
+    // Aucune source de ventes déclarée (ADR multi-source) : source historique dérivée seule.
+    const service = new LiveEventWindowService(prisma as any, { listActiveForEvents: async () => new Map() } as any);
 
     // PFC-Lyon 12/09 : eventDate/eventEndDate à minuit, eventEndTime 23:50 (fuseau Paris, UTC+2).
     const pfcLyon = {

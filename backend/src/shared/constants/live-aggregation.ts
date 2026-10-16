@@ -8,10 +8,17 @@
  *  - webhook last ok : dernier webhook Weezevent traité sans erreur pour une intégration.
  *  - heartbeat : dernier passage réussi de chaque boucle du worker.
  */
-export const liveWatermarkKey = (eventId: string) => `live:agg:watermark:${eventId}`;
+/**
+ * Un watermark PAR SOURCE (ADR_MULTI_SOURCE 4.4) : sans `sourceIntegrationId` (source historique
+ * dérivée ou `auto`), la clé est celle d'avant le multi-source ; une source déclarée reçoit un
+ * suffixe, pour qu'un job ne fasse jamais avancer la référence d'une autre source.
+ */
+export const liveWatermarkKey = (eventId: string, sourceIntegrationId?: string | null) =>
+  sourceIntegrationId ? `live:agg:watermark:${eventId}:${sourceIntegrationId}` : `live:agg:watermark:${eventId}`;
 export const livePendingKey = (spaceId: string, integrationId: string | null | undefined) =>
   `live:agg:pending:${spaceId}:${integrationId ?? ''}`;
-export const liveFullRebuildKey = (eventId: string) => `live:agg:full:${eventId}`;
+export const liveFullRebuildKey = (eventId: string, sourceIntegrationId?: string | null) =>
+  sourceIntegrationId ? `live:agg:full:${eventId}:${sourceIntegrationId}` : `live:agg:full:${eventId}`;
 export const webhookLastOkKey = (integrationId: string) => `live:webhook:last-ok:${integrationId}`;
 export const liveHeartbeatKey = (name: string) => `live:heartbeat:${name}`;
 export const liveSyncStateKey = (integrationId: string) => `live:sync:state:${integrationId}`;

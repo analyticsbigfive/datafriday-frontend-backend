@@ -21,6 +21,8 @@ import displayNames from './modules/displayNames'
 import industrials from './modules/industrials'
 import packingTypes from './modules/packingTypes'
 import promotionTypes from './modules/promotionTypes'
+import paymentMethods from './modules/paymentMethods'
+import pos from './modules/pos'
 import storageTypes from './modules/storageTypes'
 import departments from './modules/departments'
 import permissions from './modules/permissions'
@@ -46,6 +48,7 @@ import seasons from './modules/seasons'
 import storageInventory from './modules/storageInventory'
 import guestPin from './modules/guestPin'
 import guestPinAdmin from './modules/guestPinAdmin'
+import guestPos from './modules/guestPos'
 
 export default createStore({
   state: {
@@ -79,6 +82,8 @@ export default createStore({
     industrials,
     packingTypes,
     promotionTypes,
+    paymentMethods,
+    pos,
     storageTypes,
     departments,
     permissions,
@@ -104,5 +109,6 @@ export default createStore({
     storageInventory,
     guestPin,
     guestPinAdmin,
+    guestPos,
   }
 })

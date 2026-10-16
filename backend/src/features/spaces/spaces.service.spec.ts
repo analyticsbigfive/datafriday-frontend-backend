@@ -19,6 +19,7 @@ import { SpaceWeezeventEventService } from './services/space-weezevent-event.ser
 import { SpaceElementLayoutService } from './services/space-element-layout.service';
 import { SpaceElementPlacementService } from './services/space-element-placement.service';
 import { SpaceSalesScopeService } from './services/space-sales-scope.service';
+import { EventSalesSourceService } from '../event-sales-sources/event-sales-source.service';
 import { SpaceAnalyseBatchService } from './services/space-analyse-batch.service';
 import { SpaceShopsService } from './services/space-shops.service';
 import { SpaceConfigurationSaveService } from './services/space-configuration-save.service';
@@ -132,6 +133,8 @@ describe('Services des espaces', () => {
     event: {
       findMany: jest.fn(),
     },
+    // Sources de ventes déclarées (ADR multi-source) : aucune, source historique dérivée.
+    eventSalesSource: { findMany: jest.fn().mockResolvedValue([]) },
     locationSpaceMapping: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
@@ -159,6 +162,7 @@ describe('Services des espaces', () => {
         SpaceAnalyseBatchService,
         SpaceShopsService,
         SpaceWeezeventEventService,
+        EventSalesSourceService,
         {
           provide: PrismaService,
           useValue: mockPrismaService,
@@ -1720,6 +1724,7 @@ describe('Services des espaces', () => {
 
     beforeEach(() => {
       mockPrismaService.locationSpaceMapping.findFirst.mockResolvedValue(null);
+      mockPrismaService.locationSpaceMapping.findMany.mockResolvedValue([]);
       mockPrismaService.config.findMany.mockResolvedValue([]);
       mockPrismaService.spaceElement.findMany.mockResolvedValue([]);
       mockPrismaService.$queryRaw.mockResolvedValue([]);

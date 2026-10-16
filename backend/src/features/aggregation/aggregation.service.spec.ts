@@ -7,6 +7,8 @@ import { SpaceIntegrationScopeService } from './space-integration-scope.service'
 import { IntegrationTransactionStatsService } from './integration-transaction-stats.service';
 import { BasketAggregationService } from './basket-aggregation.service';
 import { SyncStaleRowsService } from './sync-stale-rows.service';
+import { EventSalesSourceService } from '../event-sales-sources/event-sales-source.service';
+import { EventSourceResolverService } from './event-source-resolver.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { QueueService } from '../../core/queue/queue.service';
 import { RedisService } from '../../core/redis/redis.service';
@@ -54,6 +56,8 @@ const mockPrisma: any = {
   locationShopMapping: { findMany: jest.fn(), count: jest.fn() },
   salesTransaction: { findMany: jest.fn() },
   salesEvent: { findMany: jest.fn() },
+  // Sources de ventes déclarées (ADR multi-source) : aucune, source historique dérivée.
+  eventSalesSource: { findMany: jest.fn().mockResolvedValue([]) },
   $queryRaw: jest.fn(),
   $executeRaw: jest.fn(),
   $transaction: jest.fn(),
@@ -138,6 +142,8 @@ describe('AggregationService', () => {
         IntegrationTransactionStatsService,
         BasketAggregationService,
         SyncStaleRowsService,
+        EventSalesSourceService,
+        EventSourceResolverService,
       ],
     }).compile();
 

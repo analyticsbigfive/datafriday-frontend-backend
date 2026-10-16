@@ -51,6 +51,7 @@ const DisplayNameListView = () => import('@/components/display-name/views/Displa
 const IndustrialListView = () => import('@/components/industrial/views/IndustrialListView.vue')
 const PackingTypeListView = () => import('@/components/packing-type/views/PackingTypeListView.vue')
 const PromotionTypeListView = () => import('@/components/promotion-type/views/PromotionTypeListView.vue')
+const PaymentMethodListView = () => import('@/components/payment-method/views/PaymentMethodListView.vue')
 const StorageTypeListView = () => import('@/components/storage-type/views/StorageTypeListView.vue')
 const SeasonsListView = () => import('@/components/seasons/views/SeasonsListView.vue')
 const DepartmentListView = () => import('@/components/departments/views/DepartmentListView.vue')
@@ -114,6 +115,15 @@ const routes = [
     component: () => import('@/views/GuestVentilationView.vue'),
     beforeEnter: requireGuestPinSession,
     meta: { title: 'Ventilation', guestMode: true, noindex: true }
+  },
+  {
+    // Caisse POS du vendeur (QR du PdV + PIN du PdV + nom du vendeur), session invité de phase
+    // `pos` : écran plein écran, tout le périmètre (PdV, évènement) vient du jeton.
+    path: '/pdv/pos',
+    name: 'guest-pos',
+    component: () => import('@/components/guest-pos/views/GuestPosView.vue'),
+    beforeEnter: requireGuestPinSession,
+    meta: { title: 'Caisse', guestMode: true, noindex: true }
   },
   {
     path: '/signup',
@@ -266,6 +276,14 @@ const routes = [
         name: 'space-live',
         component: () => import('@/components/space-workspace/live/views/LiveView.vue'),
         meta: { title: 'Live', keepAlive: true, permission: 'front.fb.live' }
+      },
+
+      {
+        // Outil POS (chantier pos_mvp, lot L6) : configuration des caisses par PdV et par évènement.
+        path: '/spaces/:spaceId/pos',
+        name: 'space-pos',
+        component: () => import('@/components/space-workspace/pos/views/SpacePosView.vue'),
+        meta: { title: 'POS', permission: 'front.fb.pos' }
       },
 
       {
@@ -470,6 +488,13 @@ const routes = [
         meta: { title: 'Liste des types de promotion', keepAlive: true, permission: 'menu.config.manage' }
       },
       { path: '/promotion-types', redirect: '/configurations/promotion-types' },
+      {
+        path: '/configurations/payment-methods',
+        name: 'payment-methods',
+        component: PaymentMethodListView,
+        meta: { title: 'Moyens de paiement', keepAlive: true, permission: 'menu.config.manage' }
+      },
+      { path: '/payment-methods', redirect: '/configurations/payment-methods' },
       {
         path: '/configurations/storage-types',
         name: 'storage-types',
