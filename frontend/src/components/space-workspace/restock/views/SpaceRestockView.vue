@@ -1839,6 +1839,7 @@ const TOOLBOX_ITEMS = [
   { value: 'space-inventory', labelKey: 'srToolSpaceInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic', labelKey: 'srToolLogistic', icon: 'mdi-forklift' },
   { value: 'restock', labelKey: 'srToolRestock', icon: 'mdi-truck-delivery-outline', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
+  { value: 'pos', labelKey: 'srToolPos', icon: 'mdi-point-of-sale', permission: 'front.fb.pos' },
 ]
 
 // Slug d'étape de l'assistant dans l'URL (?step=) — deep-link / refresh / partage
@@ -4259,6 +4260,9 @@ export default {
         // router/index.js) : sans cette branche le `else` ci-dessous envoyait
         // sur Analyse avec un toolbox inconnu.
         safePush(this.router, { name: 'space-live', params: { spaceId } })
+      } else if (tool.value === 'pos') {
+        const ev = this.selectedEventId || null
+        safePush(this.router, { name: 'space-pos', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else {
         safePush(this.router, {
           name: 'space-analyse',

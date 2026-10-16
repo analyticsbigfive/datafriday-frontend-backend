@@ -633,6 +633,11 @@ function onToolboxSelect(v) {
     safePush(router, livePath.value)
     return
   }
+  if (v === 'pos') {
+    const id = route.params?.spaceId
+    safePush(router, id ? `/spaces/${id}/pos` : '/spaces')
+    return
+  }
   // 'analyse' / 'predict' / 'event-predict' are display modes of the SAME
   // route (space-analyse), toggled via `?toolbox=` (AnalyseView.vue
   // onToolboxChange).
@@ -650,6 +655,8 @@ const toolboxItems = computed(() => [
   { value: 'space-inventory', label: t('anToolInventory'), icon: 'mdi-package-variant' },
   { value: 'logistic', label: t('anToolLogistic'), icon: 'mdi-forklift' },
   { value: 'restock', label: t('anToolRestock'), icon: 'mdi-truck-delivery-outline' },
+  // POS : seulement pour qui a le droit (cette liste locale n'est pas filtrée par permission).
+  ...(store.getters['auth/can']('front.fb.pos') ? [{ value: 'pos', label: t('srToolPos'), icon: 'mdi-point-of-sale' }] : []),
 ])
 
 const props = defineProps({
