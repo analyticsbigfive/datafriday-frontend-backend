@@ -1,6 +1,6 @@
-import { Body, Controller, Get, Header, Param, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, Query, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { FastifyReply } from 'fastify';
 import { JwtDatabaseGuard } from '../../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../../core/auth/decorators/permissions.decorator';
 import { CurrentUser } from '../../../core/auth/decorators/current-user.decorator';
@@ -89,14 +89,13 @@ export class PosConfigController {
   }
 
   @Get(':spaceId/events/:eventId/sales/export')
-  @Header('Content-Type', 'text/csv; charset=utf-8')
   @ApiOperation({ summary: 'Export CSV de l\'historique (séparateur ;, BOM UTF-8), mêmes filtres' })
   async exportSales(
     @Param() p: EventParams,
     @Query() query: PosSalesQueryDto,
     @CurrentUser() user: CurrentUserData,
-    @Res({ passthrough: true }) res: Response,
-  ): Promise<string> {
+    @Res() reply: FastifyReply,
+  ): Promise<void> {
     await this.spaceAccess.assertCanAccessSpace(user, p.spaceId);
     const scope = this.scope(user, p);
     const rows: PosSalesPage['rows'] = [];
@@ -108,8 +107,11 @@ export class PosConfigController {
       if (!result.nextCursor) break;
       cursor = result.nextCursor;
     }
-    res.setHeader('Content-Disposition', `attachment; filename="ventes-pos-${p.eventId}.csv"`);
-    return buildSalesCsv(rows);
+    // Fastify (comme l'export CSV de réconciliation Logistic) : reply.header().send(), pas res.setHeader.
+    reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="ventes-pos-${p.eventId}.csv"`)
+      .send(buildSalesCsv(rows));
   }
 
   private scope(user: CurrentUserData, p: EventParams) {

@@ -50,13 +50,16 @@ describe('PosConfigController', () => {
     sales.list
       .mockResolvedValueOnce({ rows: [row(1)], nextCursor: 'c2', totals: {} })
       .mockResolvedValueOnce({ rows: [row(2)], nextCursor: null, totals: {} });
-    const res = { setHeader: jest.fn() } as any;
-    const csv = await controller.exportSales(params, { elementId: 'e1' }, ADMIN, res);
+    // Fastify : reply.header(...).header(...).send(csv) (le POS tourne sur Fastify, pas Express).
+    const reply: any = { header: jest.fn().mockReturnThis(), send: jest.fn() };
+    await controller.exportSales(params, { elementId: 'e1' }, ADMIN, reply);
+    const csv: string = reply.send.mock.calls[0][0];
     expect(sales.list).toHaveBeenCalledTimes(2);
     expect(sales.list.mock.calls[1][1]).toMatchObject({ elementId: 'e1', cursor: 'c2', limit: 200 });
     expect(sales.list.mock.calls[0][0]).toEqual({ tenantId: 't1', spaceId: 's1', eventId: 'ev1' });
     expect(csv.charCodeAt(0)).toBe(0xfeff);
     expect(csv.split('\r\n').filter(Boolean)).toHaveLength(3);
-    expect(res.setHeader).toHaveBeenCalledWith('Content-Disposition', expect.stringContaining('.csv'));
+    expect(reply.header).toHaveBeenCalledWith('Content-Type', 'text/csv; charset=utf-8');
+    expect(reply.header).toHaveBeenCalledWith('Content-Disposition', expect.stringContaining('.csv'));
   });
 });
