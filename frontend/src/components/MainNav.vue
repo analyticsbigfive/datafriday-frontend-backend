@@ -107,7 +107,7 @@
       <v-list-item
         v-if="canAny(RESTOCK_CODES)"
         prepend-icon="mdi-truck-delivery-outline"
-        title="Réarmement"
+        title="Commandes"
         @click="trigger('restock')"
       />
       <v-list-item

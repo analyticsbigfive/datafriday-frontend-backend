@@ -258,7 +258,7 @@ const routes = [
         path: '/spaces/:spaceId/restock',
         name: 'space-restock',
         component: () => import('@/components/space-workspace/restock/views/SpaceRestockView.vue'),
-        meta: { title: 'Réarmement', keepAlive: true, permission: ['front.fb.restock', 'front.fb.restockBoard'] }
+        meta: { title: 'Commandes', keepAlive: true, permission: ['front.fb.restock', 'front.fb.restockBoard'] }
       },
 
       // Accès PIN invité : plus une page à part (orpheline, jamais reliée à aucun
