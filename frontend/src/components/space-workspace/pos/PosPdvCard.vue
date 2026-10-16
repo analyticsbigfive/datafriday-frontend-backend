@@ -17,6 +17,8 @@
     </div>
 
     <div class="pos-pdv__side">
+      <PosPdvQrActions :slug="pdv.qrSlug" :name="pdv.name" />
+
       <PosPinBadge
         v-if="active && pdv.pin"
         :pin="pdv.pin"
@@ -50,6 +52,7 @@
 <script setup>
 import { computed } from 'vue'
 import { POS_STATUS_LABEL_KEYS, usePosFormat } from '@/composables/usePosFormat'
+import PosPdvQrActions from './PosPdvQrActions.vue'
 import PosPinBadge from './PosPinBadge.vue'
 import PosResponsibleSelect from './PosResponsibleSelect.vue'
 
