@@ -169,6 +169,7 @@
 <script setup>
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useStore } from 'vuex'
 import { safePush } from '@/utils/chunkReload'
 import { useI18n } from '@/i18n/useI18n'
 import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
@@ -179,6 +180,7 @@ import { UNATTACHED_SHOP_KEY } from '@/utils/analyseReconciliation'
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const store = useStore()
 
 const props = defineProps({
   records: { type: Array, default: () => [] },
@@ -292,6 +294,7 @@ function onToolboxSelect(v) {
   if (v === 'space-inventory') return safePush(router, spacePath('/inventory'))
   if (v === 'logistic') return safePush(router, spacePath('/logistic'))
   if (v === 'restock') return safePush(router, spacePath('/restock'))
+  if (v === 'pos') return safePush(router, spacePath('/pos'))
   safePush(router, { path: spacePath(''), query: v === 'analyse' ? {} : { toolbox: v } })
 }
 const toolboxItems = computed(() => [
@@ -303,6 +306,8 @@ const toolboxItems = computed(() => [
   { value: 'space-inventory', label: t('anToolInventory'), icon: 'mdi-package-variant' },
   { value: 'logistic', label: t('anToolLogistic'), icon: 'mdi-forklift' },
   { value: 'restock', label: t('anToolRestock'), icon: 'mdi-truck-delivery-outline' },
+  // POS : seulement pour qui a le droit (cette liste locale n'est pas filtrée par permission).
+  ...(store.getters['auth/can']('front.fb.pos') ? [{ value: 'pos', label: t('srToolPos'), icon: 'mdi-point-of-sale' }] : []),
 ])
 </script>
 

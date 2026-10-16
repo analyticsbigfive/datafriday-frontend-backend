@@ -633,22 +633,22 @@ export default {
     },
 
     isFocusWorkspaceRouteName(name) {
-      return ['space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock'].includes(name);
+      return ['space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock', 'space-pos'].includes(name);
     },
     // Doit rester aligné avec le computed isSelfHeadedRoute.
     isSelfHeadedRouteName(name) {
       // Pages plein écran avec leur propre header (pas de barre/drawer Dashboard).
-      // space-restock inclus : il rend son propre WorkspaceAppHeader (sinon la
-      // barre Dashboard s'empilait AU-DESSUS → header dupliqué).
+      // space-restock et space-pos inclus : ils rendent leur propre WorkspaceAppHeader (sinon la
+      // barre Dashboard s'empilait AU-DESSUS, header dupliqué).
       // 'hr' RETIRÉ : HrSuppliersView est une page Settings classique (comme
       // /menu-fb/suppliers), sans header propre → elle garde la barre Dashboard.
       // 'hr-settings' RETIRÉ aussi (refonte charte HR) : HrSettingsView est rendue
       // dans le chrome Dashboard (header hsl sticky dans le flux), comme Suppliers.
-      return ['space-analyse', 'space-live', 'space-predict', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock'].includes(name);
+      return ['space-analyse', 'space-live', 'space-predict', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock', 'space-pos'].includes(name);
     },
     // Doit rester aligné avec le computed isRailPushRoute (partie route).
     isRailPushRouteName(name) {
-      return ['space-analyse', 'space-live', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock'].includes(name);
+      return ['space-analyse', 'space-live', 'space-inventory', 'space-pre-inventory', 'space-logistic', 'space-restock', 'space-pos'].includes(name);
     },
 
     applyRouteSidebarMode(routeName) {

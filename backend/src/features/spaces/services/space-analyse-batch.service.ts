@@ -4,6 +4,7 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { RedisService } from '../../../core/redis/redis.service';
 import { queryWithWorkMem } from '../../../core/database/query-with-work-mem';
 import { readBasketAggSql } from '../basket-agg-read.sql';
+import { hasExtraSources, orDeclaredSource, rawEvColumns, rawEvValues } from '../event-extra-sources.sql';
 import { hasPermission, PermissionCheckableUser } from '../../../core/rbac/permission.util';
 import { SpaceCacheService } from './space-cache.service';
 import { SpaceCrudService } from './space-crud.service';
@@ -134,10 +135,9 @@ export class SpaceAnalyseBatchService {
       await this.writeBasketsCache(tenantId, spaceId, missing, out, scope.windows);
       return out;
     }
-    const valuesSql = Prisma.join(
-      rawWindows.map(w => Prisma.sql`(${w.id}::text, ${w.windowStart}::timestamp, ${w.windowEnd}::timestamp, ${w.tagId}::text, ${w.eventIntegrationId}::text)`),
-      ', ',
-    );
+    // ADR_MULTI_SOURCE 4.5 : 6e colonne (SalesEvent des sources déclarées) seulement si le lot en a.
+    const extra = hasExtraSources(rawWindows);
+    const valuesSql = rawEvValues(rawWindows, extra);
 
     // CTE `tx` : UNE ligne par transaction, avec ses deux ensembles de libellés.
     // `ARRAY_AGG(DISTINCT … ORDER BY …)` garantit que « Bières, Consigne » et
@@ -148,7 +148,7 @@ export class SpaceAnalyseBatchService {
     // évite le double comptage au dénominateur.
     // BUG-144-01 : même sémaphore que getEventTimelineBatch.
     const rows: any[] = await this.spaceSalesScopeService.analyseBatchSemaphore.run(() => queryWithWorkMem<any[]>(this.prisma, Prisma.sql`
-      WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql}),
+      WITH ev(${rawEvColumns(extra)}) AS (VALUES ${valuesSql}),
       tx AS (
         SELECT
           t.id                                                            AS "txId",
@@ -181,10 +181,10 @@ export class SpaceAnalyseBatchService {
          -- par aucun pipeline et devient périmé à chaque rollover de saison (le conteneur
          -- change), ce qui viderait le paniers/timeline sans que rien d'autre à l'écran ne
          -- le signale (constaté sur SFP-Perpignan, tag encore sur la saison 25-26).
-         AND (ev."eventIntegrationId" IS NOT NULL OR ev."tagId" IS NULL OR t."eventId" = ev."tagId")
+         AND (ev."eventIntegrationId" IS NOT NULL OR ev."tagId" IS NULL OR t."eventId" = ev."tagId"${orDeclaredSource(extra)})
          -- BUG-368-02 : eventIntegrationId explicite, prioritaire et robuste — même rôle que
          -- tagId ci-dessus mais sans dépendre d'un conteneur de saison Weezevent.
-         AND (ev."eventIntegrationId" IS NULL OR t."integrationId" = ev."eventIntegrationId")
+         AND (ev."eventIntegrationId" IS NULL OR t."integrationId" = ev."eventIntegrationId"${orDeclaredSource(extra)})
          AND t."tenantId" = ${tenantId}
          ${integrationClause}
          AND t.status = 'V'
@@ -296,11 +296,11 @@ export class SpaceAnalyseBatchService {
 
     const scope = await this.spaceSalesScopeService.resolveEventSalesScope(spaceId, missing, tenantId);
     if (!scope) return out;
-    const { integrationClause, valuesSql, shopIds } = scope;
+    const { integrationClause, rawValuesSql: valuesSql, extraSources: extra, shopIds } = scope;
 
     // BUG-144-01 : même sémaphore que les deux autres endpoints batch.
     const rows: any[] = await this.spaceSalesScopeService.analyseBatchSemaphore.run(() => queryWithWorkMem<any[]>(this.prisma, Prisma.sql`
-      WITH ev("eventId", "windowStart", "windowEnd", "tagId", "eventIntegrationId") AS (VALUES ${valuesSql})
+      WITH ev(${rawEvColumns(extra)}) AS (VALUES ${valuesSql})
       SELECT
         ev."eventId"                                                        AS "eventId",
         COUNT(ti."id")::int                                                 AS "unmappedLines",
@@ -316,8 +316,8 @@ export class SpaceAnalyseBatchService {
        -- event-timeline/transaction-baskets, y compris le bypass du tag dès que
        -- eventIntegrationId est posé (tag non rafraîchi au rollover de saison, cf. commentaire
        -- détaillé sur getTransactionBasketsBatchRaw).
-       AND (ev."eventIntegrationId" IS NOT NULL OR ev."tagId" IS NULL OR t."eventId" = ev."tagId")
-       AND (ev."eventIntegrationId" IS NULL OR t."integrationId" = ev."eventIntegrationId")
+       AND (ev."eventIntegrationId" IS NOT NULL OR ev."tagId" IS NULL OR t."eventId" = ev."tagId"${orDeclaredSource(extra)})
+       AND (ev."eventIntegrationId" IS NULL OR t."integrationId" = ev."eventIntegrationId"${orDeclaredSource(extra)})
        AND t."tenantId" = ${tenantId}
        ${integrationClause}
        AND t.status = 'V'

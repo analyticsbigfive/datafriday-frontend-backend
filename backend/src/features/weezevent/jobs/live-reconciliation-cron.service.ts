@@ -48,7 +48,10 @@ export class LiveReconciliationCronService {
     }
 
     private async isDue(event: LiveEvent, now: Date): Promise<boolean> {
-        const last = await this.trigger.lastFullRebuildAt(event.id);
+        // Un event sans source historique est reconstruit par sa première source déclarée : c'est sa clé.
+        const last = event.declaredOnly
+            ? await this.trigger.lastFullRebuildAt(event.id, event.sourceIntegrationIds?.[0])
+            : await this.trigger.lastFullRebuildAt(event.id);
         if (now < event.windowEnd) {
             return !last || now.getTime() - last.getTime() >= LiveReconciliationCronService.RECONCILE_INTERVAL_MS;
         }

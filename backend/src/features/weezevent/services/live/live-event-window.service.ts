@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../../core/database/prisma.service';
 import { resolveEventTransactionWindow } from '../../../../shared/utils/event-window.util';
+import { EventSalesSourceService } from '../../../event-sales-sources/event-sales-source.service';
 
 /** Un event en direct, avec sa fenêtre de transactions réelle (fuseau du space appliqué). */
 export interface LiveEvent {
@@ -13,6 +14,17 @@ export interface LiveEvent {
     windowEnd: Date;
     /** windowEnd + marge : au-delà, l'event n'est plus considéré en direct. */
     graceEnd: Date;
+    /**
+     * Intégrations des sources de ventes DÉCLARÉES de l'event (EventSalesSource, ADR multi-source).
+     * Absent pour tous les évènements existants (source historique dérivée seule).
+     */
+    sourceIntegrationIds?: string[];
+    /**
+     * Présent (true) seulement pour un event SANS source historique mais avec des sources
+     * déclarées : il n'est plus « sans intégration connue » (pas de mise en direct de toutes les
+     * intégrations Weezevent du tenant, pas de groupe sans intégration).
+     */
+    declaredOnly?: true;
 }
 
 /** Events en direct regroupés par (space, intégration), grain d'un job d'agrégation. */
@@ -21,6 +33,11 @@ export interface LiveGroup {
     spaceId: string;
     integrationId: string | null;
     eventIds: string[];
+    /**
+     * Évènements du groupe dont l'intégration du groupe est une source DÉCLARÉE (et non la source
+     * historique) : leur clé de reconstruction est propre à la source. Absent sinon.
+     */
+    declaredEventIds?: string[];
 }
 
 /**
@@ -39,7 +56,10 @@ export class LiveEventWindowService {
     /** Borne DB : un event ne peut pas être en direct s'il a commencé il y a plus de 2 jours. */
     private static readonly LOOKBACK_MS = 2 * 24 * 60 * 60 * 1000;
 
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly salesSources: EventSalesSourceService,
+    ) {}
 
     async findLiveEvents(now: Date = new Date()): Promise<LiveEvent[]> {
         const candidates = await this.prisma.event.findMany({
@@ -81,25 +101,66 @@ export class LiveEventWindowService {
                 graceEnd,
             });
         }
+        await this.attachDeclaredSources(live, candidates);
         this.logger.debug(`${live.length} live event(s) at ${now.toISOString()}`);
         return live;
     }
 
-    /** Un groupe par (space, intégration) : BUG-365-02, jamais un job multi-intégrations. */
+    /**
+     * Une seule lecture de EventSalesSource pour les events réellement en direct (jamais pour les
+     * candidats). Sans source déclarée, l'event n'est pas modifié (sortie identique à l'existant).
+     */
+    private async attachDeclaredSources(live: LiveEvent[], candidates: ReadonlyArray<{ id: string; integrationId: string | null; weezeventEvent: unknown }>): Promise<void> {
+        if (!live.length) return;
+        const declared = await this.salesSources.listActiveForEvents(live.map((e) => e.id));
+        if (!declared.size) return;
+        const candidateById = new Map(candidates.map((c) => [c.id, c]));
+        for (const event of live) {
+            const sources = declared.get(event.id);
+            if (!sources?.length) continue;
+            event.sourceIntegrationIds = [...new Set(sources.map((s) => s.integrationId))];
+            const candidate = candidateById.get(event.id);
+            if (!event.integrationId && !candidate?.weezeventEvent) event.declaredOnly = true;
+        }
+    }
+
+    /**
+     * Un groupe par (space, intégration) : BUG-365-02, jamais un job multi-intégrations. Un event
+     * qui a des sources déclarées entre dans un groupe PAR source (historique + déclarées) ; sans
+     * source déclarée, la sortie est celle d'avant le multi-source.
+     */
     static groupBySpaceAndIntegration(events: ReadonlyArray<LiveEvent>): LiveGroup[] {
         const groups = new Map<string, LiveGroup>();
-        for (const e of events) {
-            const key = `${e.spaceId}::${e.integrationId ?? ''}`;
-            const group = groups.get(key) ?? {
-                tenantId: e.tenantId,
-                spaceId: e.spaceId,
-                integrationId: e.integrationId,
-                eventIds: [],
-            };
-            group.eventIds.push(e.id);
+        const add = (e: LiveEvent, integrationId: string | null, declared: boolean) => {
+            const key = `${e.spaceId}::${integrationId ?? ''}`;
+            const group = groups.get(key) ?? { tenantId: e.tenantId, spaceId: e.spaceId, integrationId, eventIds: [] };
+            if (!group.eventIds.includes(e.id)) group.eventIds.push(e.id);
+            if (declared) group.declaredEventIds = [...(group.declaredEventIds ?? []), e.id];
             groups.set(key, group);
+        };
+        for (const e of events) {
+            if (!e.declaredOnly) add(e, e.integrationId, false);
+            for (const sourceIntegrationId of e.sourceIntegrationIds ?? []) {
+                if (sourceIntegrationId !== e.integrationId) add(e, sourceIntegrationId, true);
+            }
         }
         return [...groups.values()];
+    }
+
+    /**
+     * Groupes à déclencher quand UNE intégration vient d'écrire des ventes (webhook, polling) :
+     * jamais les groupes des autres sources de l'event (une vente d'une source ne déclenche pas
+     * le job d'une autre, ADR 4.4). Sans source déclarée : identique à l'ancien filtre.
+     */
+    static groupsForIntegration(events: ReadonlyArray<LiveEvent>, integrationId: string, tenantId: string): LiveGroup[] {
+        const own = events.filter(
+            (e) =>
+                e.tenantId === tenantId &&
+                (e.integrationId === integrationId || (!e.integrationId && !e.declaredOnly) || !!e.sourceIntegrationIds?.includes(integrationId)),
+        );
+        return LiveEventWindowService.groupBySpaceAndIntegration(own).filter(
+            (g) => g.integrationId === integrationId || !g.integrationId,
+        );
     }
 
     /**
@@ -112,7 +173,9 @@ export class LiveEventWindowService {
         const tenantsWithUnknown = new Set<string>();
         for (const e of events) {
             if (e.integrationId) ids.add(e.integrationId);
-            else tenantsWithUnknown.add(e.tenantId);
+            else if (!e.declaredOnly) tenantsWithUnknown.add(e.tenantId);
+            // Sources déclarées : une 2e intégration de ventes de l'event est aussi en direct.
+            e.sourceIntegrationIds?.forEach((id) => ids.add(id));
         }
         if (tenantsWithUnknown.size) {
             const rows = await this.prisma.integration.findMany({

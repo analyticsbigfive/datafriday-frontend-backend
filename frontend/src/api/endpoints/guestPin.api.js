@@ -21,10 +21,12 @@ export async function getGuestContext(slug) {
  * pour piloter les maquettes. Un PIN valide mais pour un AUTRE PDV répond aussi
  * 'not_found' (jamais de redirection silencieuse vers le bon PDV).
  */
-export async function loginWithPin(pin, deviceId, slug) {
+export async function loginWithPin(pin, deviceId, slug, vendorName) {
+  // `vendorName` : caisse POS uniquement (nom du vendeur, ignoré par les autres phases).
+  const body = vendorName ? { pin, vendorName } : { pin }
   const response = await api.post(
     `/guest-pin/login/${slug}`,
-    { pin },
+    body,
     { headers: deviceId ? { 'X-Guest-Device-Id': deviceId } : {} },
   )
   return response.data

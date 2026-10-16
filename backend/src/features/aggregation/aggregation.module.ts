@@ -11,6 +11,8 @@ import { SyncStaleRowsService } from './sync-stale-rows.service';
 import { PrismaModule } from '../../core/database/prisma.module';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { MappingsModule } from '../mappings/mappings.module';
+import { EventSalesSourcesModule } from '../event-sales-sources/event-sales-sources.module';
+import { EventSourceResolverService } from './event-source-resolver.service';
 import { AggregationService } from './aggregation.service';
 import { AggregationStatusService } from './aggregation-status.service';
 import { EventAggregateReadService } from './event-aggregate-read.service';
@@ -19,6 +21,7 @@ import { EventAggregateReadService } from './event-aggregate-read.service';
   imports: [
     PrismaModule,
     MappingsModule,
+    EventSalesSourcesModule,
     // La connexion Redis est configurée globalement par QueueModule (BullModule.forRootAsync).
     // On n'enregistre ici que la queue dont ce module a besoin.
     BullModule.registerQueue({ name: QUEUES.AGGREGATION }),
@@ -26,6 +29,7 @@ import { EventAggregateReadService } from './event-aggregate-read.service';
   controllers: [AggregationController],
   providers: [
     EventWindowResolverService,
+    EventSourceResolverService,
     EventRollupService,
     LiveMinuteAggregationService,
     IntegrationTransactionStatsService,

@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventsService } from './events.service';
+import { EventSalesSourceService } from '../event-sales-sources/event-sales-source.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { EventWeezeventLinkService } from './services/event-weezevent-link.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
@@ -100,6 +101,8 @@ describe('EventsService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EventWeezeventLinkService, useValue: mockWeezeventLinkService },
         { provide: SpaceAccessService, useValue: spaceAccessStub() },
+        // Sources de ventes déclarées (ADR multi-source) : aucune, « Démapper » inchangé.
+        { provide: EventSalesSourceService, useValue: { listActive: jest.fn().mockResolvedValue([]) } },
       ],
     }).compile();
 

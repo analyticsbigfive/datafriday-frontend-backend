@@ -17,6 +17,8 @@ import { PrismaClient } from '@prisma/client';
 import { BasketAggregationService } from '../src/features/aggregation/basket-aggregation.service';
 import { EventWindowResolverService } from '../src/features/aggregation/event-window-resolver.service';
 import { SpaceIntegrationScopeService } from '../src/features/aggregation/space-integration-scope.service';
+import { EventSourceResolverService } from '../src/features/aggregation/event-source-resolver.service';
+import { EventSalesSourceService } from '../src/features/event-sales-sources/event-sales-source.service';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const APPLY = process.argv.includes('--apply');
@@ -25,10 +27,13 @@ const ONLY_SPACE = spaceArgIdx > -1 ? process.argv[spaceArgIdx + 1] : null;
 
 // Pas de Redis hors application : le cache des conteneurs de saison est simplement absent.
 const redisStub = { get: async () => null, set: async () => undefined } as any;
+const salesSources = new EventSalesSourceService(prisma as any);
+const windowResolver = new EventWindowResolverService(prisma as any, redisStub, salesSources);
 const service = new BasketAggregationService(
   prisma as any,
-  new EventWindowResolverService(prisma as any, redisStub),
+  windowResolver,
   new SpaceIntegrationScopeService(prisma as any),
+  new EventSourceResolverService(windowResolver, salesSources),
 );
 
 async function main() {

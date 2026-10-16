@@ -165,10 +165,9 @@ export class WebhookEventHandler {
      */
     private async queueLiveAggregation(tenantId: string, integrationId: string, reason: string): Promise<void> {
         try {
-            const events = (await this.liveWindow.findLiveEvents()).filter(
-                (e) => e.tenantId === tenantId && (e.integrationId === integrationId || !e.integrationId),
-            );
-            for (const group of LiveEventWindowService.groupBySpaceAndIntegration(events)) {
+            // Uniquement les groupes de la source qui vient d'écrire (ADR_MULTI_SOURCE 4.4).
+            const events = await this.liveWindow.findLiveEvents();
+            for (const group of LiveEventWindowService.groupsForIntegration(events, integrationId, tenantId)) {
                 // eslint-disable-next-line no-await-in-loop -- quelques groupes live, mise en file une par une
                 await this.liveTrigger.queueMinuteAggregation(group, 'webhook-live');
             }

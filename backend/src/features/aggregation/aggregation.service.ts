@@ -10,6 +10,8 @@ import { EventWindowResolverService } from './event-window-resolver.service';
 import { EventRollupService } from './event-rollup.service';
 import { SpaceIntegrationScopeService } from './space-integration-scope.service';
 import { BasketAggregationService } from './basket-aggregation.service';
+import { EventSourceResolverService } from './event-source-resolver.service';
+import { JobSourcePlan, sourceDeleteWhere } from './event-source-routing';
 import { SyncStaleRowsService } from './sync-stale-rows.service';
 import {
   buildIntegrationClause,
@@ -34,6 +36,7 @@ export class AggregationService {
     private spaceIntegrationScope: SpaceIntegrationScopeService,
     private basketAgg: BasketAggregationService,
     private syncStaleRows: SyncStaleRowsService,
+    private sourceResolver: EventSourceResolverService,
   ) {}
 
   private readonly logger = new Logger(AggregationService.name);
@@ -95,7 +98,54 @@ export class AggregationService {
       integrationId,
     });
 
-    return { jobId: jobLog.id, status: 'queued', total: events.length };
+    const extraJobIds = await this.queueDeclaredSourceJobs({
+      type: 'process-events', tenantId, spaceId, eventIds: allEventIds, primaryIntegrationId: integrationId,
+      fromDate: events[0].eventDate, toDate: events[events.length - 1].eventDate,
+    });
+    return { jobId: jobLog.id, status: 'queued', total: events.length, ...(extraJobIds.length ? { extraJobIds } : {}) };
+  }
+
+  /**
+   * ADR_MULTI_SOURCE 4.2 : un clic « Agréger » / « Synchroniser » doit aussi rafraîchir les sources
+   * DÉCLARÉES des évènements visés. Un job par intégration de source (jobs toujours mono-intégration,
+   * BUG-365), en plus du job historique. Rien à mettre en file sans source déclarée.
+   */
+  private async queueDeclaredSourceJobs(input: {
+    type: 'process-events' | 'synchronize';
+    tenantId: string;
+    spaceId: string;
+    eventIds: string[];
+    primaryIntegrationId: string | undefined;
+    fromDate: Date;
+    toDate: Date;
+  }): Promise<string[]> {
+    const { type, tenantId, spaceId, eventIds, primaryIntegrationId, fromDate, toDate } = input;
+    const declaredByEvent = await this.sourceResolver.loadDeclared(
+      tenantId, eventIds, () => this.spaceIntegrationScope.resolve(tenantId, spaceId),
+    );
+    const eventsByIntegration = new Map<string, string[]>();
+    for (const [eventId, sources] of declaredByEvent) {
+      for (const source of sources) {
+        if (source.integrationId === primaryIntegrationId) continue;
+        eventsByIntegration.set(source.integrationId, [...(eventsByIntegration.get(source.integrationId) ?? []), eventId]);
+      }
+    }
+    const extraJobIds: string[] = [];
+    for (const [sourceIntegrationId, sourceEventIds] of eventsByIntegration) {
+      // eslint-disable-next-line no-await-in-loop -- quelques sources par évènement : mise en file séquentielle
+      const jobLog = await this.prisma.aggregationJobLog.create({
+        data: {
+          tenantId, spaceId, jobType: type === 'synchronize' ? 'full' : 'incremental', status: 'pending', fromDate, toDate,
+          metadata: { eventIds: sourceEventIds, integrationId: sourceIntegrationId },
+        },
+      });
+      // eslint-disable-next-line no-await-in-loop -- idem
+      await this.queueService.queueAggregationJob({
+        type, tenantId, spaceId, jobLogId: jobLog.id, eventIds: sourceEventIds, integrationId: sourceIntegrationId,
+      });
+      extraJobIds.push(jobLog.id);
+    }
+    return extraJobIds;
   }
 
   /** Champs stables du metadata (trigger, integrationId) à préserver à chaque réécriture. */
@@ -145,6 +195,10 @@ export class AggregationService {
     // lignes étrangères déjà écrites (résidu d'un job non scopé — un delete scopé par
     // l'intégration du job, BUG-317-02, ne les touchait jamais).
     const spaceIntegrationIds = await this.spaceIntegrationScope.resolve(tenantId, spaceId);
+
+    // ADR_MULTI_SOURCE : sources de ventes déclarées des évènements du lot (une lecture par job ;
+    // vide pour tous les évènements existants, qui gardent leur source historique dérivée).
+    const declaredByEvent = await this.sourceResolver.loadDeclared(tenantId, events.map((e) => e.id), spaceIntegrationIds);
 
     // Fiche 147-01 : la frontière de fenêtre (fin déclarée d'un voisin qui se termine le jour de
     // début) a besoin de TOUS les events de l'espace, pas seulement du batch — en re-agrégation
@@ -203,74 +257,42 @@ export class AggregationService {
           // est lié à un SalesEvent qui n'est pas un conteneur de saison, sinon fenêtre
           // minuit local → fin déclarée (repli journée pleine) avec frontière au voisin —
           // voir resolveEventWindow / resolveEventTransactionWindow.
-          const window = this.windowResolver.resolveEventWindow(event, spaceTimezone, seasonContainerIds, allSpaceEvents);
-          if (isUnscopedRangeWindow(integrationId, window, spaceIntegrationIds)) {
-            throw new BadRequestException(
-              `Aucune intégration mappée à l'espace ${spaceId} : l'event ${event.id} (fenêtre de dates seule) ` +
-                `ne peut pas être rattaché à des ventes sans agréger tout le tenant (BUG-384-02). Compléter l'étape 1 du wizard.`,
-            );
-          }
-          const matchClause = buildMatchClause(window, seasonContainerIds);
-
-          // Efface les anciennes lignes de cet event avant re-agrégation — scopé par
-          // integrationId quand il est fourni (BUG-317-02) : sinon, retraiter l'intégration B
-          // effaçait aussi la contribution déjà écrite par l'intégration A pour ce même event
-          // partagé (un Event DataFriday est partagé au niveau de l'espace, pas de l'intégration).
-          // BUG-372-02 (2026-08-25) : même défaut que resolveSeasonContainerEventIds/matchClause
-          // — en mode `integration-range`, c'est `window.integrationId` (celui de L'EVENT,
-          // autoritaire) qu'il faut utiliser pour scoper la purge, jamais celui du JOB.
-          // BUG-376-02 (2026-08-26) : en mode `integration-range`, ne PAS scoper la purge du
-          // tout — un event avec `Event.integrationId` posé appartient désormais EXCLUSIVEMENT
-          // à cette intégration (BUG-368-02) ; toute ligne taguée avec une AUTRE intégration
-          // pour ce MÊME weezeventEventId est forcément un résidu de l'ancien pipeline (avant
-          // que cet event ait son propre `integrationId`), jamais une contribution légitime à
-          // "partager". Scoper par `window.integrationId` (comme avant ce fix) préservait ce
-          // résidu indéfiniment : re-tagger PFC-Dijon avec son intégration ne purgeait que les
-          // vieilles lignes déjà PFC, laissant 869 lignes historiques taguées SFP à côté des
-          // nouvelles PFC — 985 points affichés = 869 (garbage) + 116 (vrai), jamais nettoyé.
-          const deleteWhere: any = { tenantId, spaceId, weezeventEventId: event.id };
-          if (window.mode !== 'integration-range' && integrationId) deleteWhere.integrationId = integrationId;
-          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
-          await this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere });
-          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
-          await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere });
-
-          const integrationClause = buildIntegrationClause(integrationId, window, spaceIntegrationIds);
-          const sqlInput = { tenantId, spaceId, eventId: event.id, integrationClause, matchClause };
-
-          // Requêtes partagées avec le job live par minute (event-aggregation-sql.ts).
-          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
-          const dataPoints = await insertMinuteAgg(this.prisma, sqlInput);
-          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
-          await updateEventSubProgress(1);
-
-          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
-          await insertDailyProductAgg(this.prisma, { ...sqlInput, eventDate });
-          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
-          await updateEventSubProgress(2);
-
-          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
-          await insertMinuteItemAgg(this.prisma, sqlInput);
-          // Paniers pré-agrégés (Analyse) : même purge scopée, même fenêtre que les tables minute.
-          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
-          await this.basketAgg.replaceForEvent(deleteWhere, sqlInput);
-          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
-          await updateEventSubProgress(3);
-
-          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
-          await this.eventRollup.refresh(tenantId, spaceId, event, spaceIntegrationIds);
-          // Rebuild complet = référence : le job live par minute repart d'ici.
-          // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
-          await this.redis.set(liveWatermarkKey(event.id), new Date().toISOString(), { ttl: 3 * 24 * 3600 });
-
-          processedCount++;
-          results.push({
-            eventId: event.id, eventName: event.name, date: event.eventDate,
-            dataPoints, status: 'success',
-            // BUG-372-02 : intégration RÉELLE de cet event (jamais celle du job) — utilisée
-            // ci-dessous par le sync auto des présences, qui a le même défaut historique.
-            integrationId: window.mode === 'integration-range' ? window.integrationId : integrationId,
+          // ADR_MULTI_SOURCE : le routage choisit la source que CE job exécute (historique dérivée,
+          // ou source déclarée dont l'intégration est celle du job). Sans source déclarée, c'est
+          // exactement l'ancien code.
+          const decision = this.sourceResolver.decide({
+            event, jobIntegrationId: integrationId, declared: declaredByEvent.get(event.id) ?? [],
+            spaceTimezone, seasonContainerIds, allSpaceEvents, spaceIntegrationIds,
           });
+          if (decision.status === 'no-source') {
+            // Évènement sans source pour ce job (ex. 100 % source déclarée vu par le job historique) : ignoré, sans erreur.
+            processedCount++;
+            results.push({ eventId: event.id, eventName: event.name, date: event.eventDate, status: 'no-source', reason: decision.reason });
+          } else {
+            const { plan } = decision;
+            if (isUnscopedRangeWindow(plan.clauseIntegrationId, plan.window, plan.fallbackIntegrationIds)) {
+              throw new BadRequestException(
+                `Aucune intégration mappée à l'espace ${spaceId} : l'event ${event.id} (fenêtre de dates seule) ` +
+                  `ne peut pas être rattaché à des ventes sans agréger tout le tenant (BUG-384-02). Compléter l'étape 1 du wizard.`,
+              );
+            }
+
+            // eslint-disable-next-line no-await-in-loop -- events agrégés un par un : grosses requêtes SQL, charge base bornée et progression suivie
+            const dataPoints = await this.rebuildEventSource({
+              tenantId, spaceId, event, eventDate, jobIntegrationId: integrationId, plan, seasonContainerIds,
+              spaceIntegrationIds, updateEventSubProgress,
+            });
+
+            processedCount++;
+            results.push({
+              eventId: event.id, eventName: event.name, date: event.eventDate,
+              dataPoints, status: 'success',
+              // BUG-372-02 : intégration RÉELLE de cet event (jamais celle du job), utilisée
+              // ci-dessous par le sync auto des présences, qui a le même défaut historique.
+              // Une source déclarée ne déclenche pas cette synchro (présences = billetterie de la source historique).
+              integrationId: plan.kind === 'explicit' ? undefined : plan.window.mode === 'integration-range' ? plan.window.integrationId : integrationId,
+            });
+          }
         } catch (err) {
           results.push({ eventId: event.id, eventName: event.name, date: event.eventDate, status: 'error', error: err.message });
         }
@@ -386,6 +408,67 @@ export class AggregationService {
   }
 
   /**
+   * Efface puis réécrit les agrégats d'UN évènement pour UNE source (écrit une fois, sans cas par
+   * logiciel de caisse). Les suppressions suivent la règle unique `sourceDeleteWhere` (ADR 4.3).
+   */
+  private async rebuildEventSource(input: {
+    tenantId: string;
+    spaceId: string;
+    event: { id: string; ticketsScanned: number | null; ticketsSold: number | null };
+    eventDate: Date;
+    jobIntegrationId: string | undefined;
+    plan: JobSourcePlan;
+    seasonContainerIds: ReadonlySet<string>;
+    spaceIntegrationIds: string[];
+    updateEventSubProgress: (step: number) => Promise<unknown>;
+  }): Promise<number> {
+    const { tenantId, spaceId, event, eventDate, jobIntegrationId, plan, seasonContainerIds, spaceIntegrationIds } = input;
+    const matchClause = buildMatchClause(plan.window, seasonContainerIds);
+
+    // Efface les anciennes lignes de cet event avant re-agrégation, scopé par
+    // integrationId quand il est fourni (BUG-317-02) : sinon, retraiter l'intégration B
+    // effaçait aussi la contribution déjà écrite par l'intégration A pour ce même event
+    // partagé (un Event DataFriday est partagé au niveau de l'espace, pas de l'intégration).
+    // BUG-372-02 (2026-08-25) : même défaut que resolveSeasonContainerEventIds/matchClause
+    //, en mode `integration-range`, c'est `window.integrationId` (celui de L'EVENT,
+    // autoritaire) qu'il faut utiliser pour scoper la purge, jamais celui du JOB.
+    // BUG-376-02 (2026-08-26) : en mode `integration-range`, ne PAS scoper la purge du
+    // tout, un event avec `Event.integrationId` posé appartient désormais EXCLUSIVEMENT
+    // à cette intégration (BUG-368-02) ; toute ligne taguée avec une AUTRE intégration
+    // pour ce MÊME weezeventEventId est forcément un résidu de l'ancien pipeline (avant
+    // que cet event ait son propre `integrationId`), jamais une contribution légitime à
+    // "partager". Scoper par `window.integrationId` (comme avant ce fix) préservait ce
+    // résidu indéfiniment : re-tagger PFC-Dijon avec son intégration ne purgeait que les
+    // vieilles lignes déjà PFC, laissant 869 lignes historiques taguées SFP à côté des
+    // nouvelles PFC, 985 points affichés = 869 (garbage) + 116 (vrai), jamais nettoyé.
+    // ADR_MULTI_SOURCE : ce nettoyage de résidu ne touche JAMAIS les lignes d'une source déclarée.
+    const deleteWhere: any = sourceDeleteWhere(plan, { tenantId, spaceId, weezeventEventId: event.id }, jobIntegrationId);
+    await this.prisma.spaceRevenueMinuteAgg.deleteMany({ where: deleteWhere });
+    await this.prisma.spaceRevenueMinuteItemAgg.deleteMany({ where: deleteWhere });
+
+    const integrationClause = buildIntegrationClause(plan.clauseIntegrationId, plan.window, plan.fallbackIntegrationIds);
+    const sqlInput = { tenantId, spaceId, eventId: event.id, integrationClause, matchClause };
+
+    // Requêtes partagées avec le job live par minute (event-aggregation-sql.ts).
+    const dataPoints = await insertMinuteAgg(this.prisma, sqlInput);
+    await input.updateEventSubProgress(1);
+
+    await insertDailyProductAgg(this.prisma, { ...sqlInput, eventDate });
+    await input.updateEventSubProgress(2);
+
+    await insertMinuteItemAgg(this.prisma, sqlInput);
+    // Paniers pré-agrégés (Analyse) : même purge scopée, même fenêtre que les tables minute.
+    await this.basketAgg.replaceForEvent(deleteWhere, sqlInput);
+    await input.updateEventSubProgress(3);
+
+    // Le rollup somme TOUTES les sources mappées à l'espace (liste complète, pas le repli).
+    await this.eventRollup.refresh(tenantId, spaceId, event, spaceIntegrationIds);
+    // Rebuild complet = référence : le job live par minute de CETTE source repart d'ici.
+    await this.redis.set(liveWatermarkKey(event.id, plan.watermarkIntegrationId), new Date().toISOString(), { ttl: 3 * 24 * 3600 });
+    return dataPoints;
+  }
+
+  /**
    * Synchronize: rebuild all aggregation data for a space, puis retrait des lignes non réécrites.
    * Version BullMQ — enqueue un job full rebuild. Retourne immédiatement.
    */
@@ -418,7 +501,11 @@ export class AggregationService {
       integrationId,
     });
 
-    return { jobId: jobLog.id, status: 'queued' };
+    const extraJobIds = await this.queueDeclaredSourceJobs({
+      type: 'synchronize', tenantId, spaceId, eventIds: events.map((e) => e.id), primaryIntegrationId: integrationId,
+      fromDate: events[0]?.eventDate ?? new Date(), toDate: events[events.length - 1]?.eventDate ?? new Date(),
+    });
+    return { jobId: jobLog.id, status: 'queued', ...(extraJobIds.length ? { extraJobIds } : {}) };
   }
 
   /**
@@ -449,7 +536,10 @@ export class AggregationService {
     const failedEvents = result.results
       .filter((r) => r.status === 'error')
       .map((r) => ({ eventId: r.eventId, date: r.date }));
-    const swept = await this.syncStaleRows.purge(tenantId, spaceId, integrationId, syncStartedAt, failedEvents);
+    // ADR 4.3 : sans integrationId, le balayage ne doit pas retirer les lignes des sources déclarées
+    // des évènements de l'espace (ce run ne les réécrit pas, ce sont d'autres jobs qui s'en chargent).
+    const protectedIntegrationIds = integrationId ? [] : await this.declaredIntegrationIdsOfSpace(tenantId, spaceId);
+    const swept = await this.syncStaleRows.purge(tenantId, spaceId, integrationId, syncStartedAt, failedEvents, protectedIntegrationIds);
     if (swept) this.logger.log(`Synchronize ${jobLogId}: ${swept} stale aggregate row(s) removed after rebuild`);
 
     // Phase 3: résumé
@@ -468,6 +558,14 @@ export class AggregationService {
         aggregationRecords: summary._count,
       },
     };
+  }
+
+  private async declaredIntegrationIdsOfSpace(tenantId: string, spaceId: string): Promise<string[]> {
+    const spaceEvents = await this.prisma.event.findMany({ where: { tenantId, spaceId }, select: { id: true } });
+    const declared = await this.sourceResolver.loadDeclared(
+      tenantId, spaceEvents.map((e: { id: string }) => e.id), () => this.spaceIntegrationScope.resolve(tenantId, spaceId),
+    );
+    return [...new Set([...declared.values()].flat().map((s) => s.integrationId))];
   }
 
   /**

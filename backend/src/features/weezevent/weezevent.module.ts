@@ -23,6 +23,7 @@ import { EventsModule } from '../events/events.module';
 import { SyncTrackerService } from './services/sync-tracker.service';
 import { WeezeventCollectWorkerService } from './services/weezevent-collect-worker.service';
 import { WeezeventInsertWorkerService } from './services/weezevent-insert-worker.service';
+import { EventSalesSourcesModule } from '../event-sales-sources/event-sales-sources.module';
 import { LiveEventWindowService } from './services/live/live-event-window.service';
 import { LiveAggregationTriggerService } from './services/live/live-aggregation-trigger.service';
 import { WebhookHealthService } from './services/live/webhook-health.service';
@@ -44,6 +45,7 @@ import { WeezeventTransactionBatchWriterService } from './services/sync/transact
         OnboardingModule,
         PricingModule,
         EventsModule,
+        EventSalesSourcesModule,
     ],
     controllers: [WeezeventController, WebhookController, WeezeventAnalyticsController],
     providers: [

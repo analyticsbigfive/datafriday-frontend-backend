@@ -876,6 +876,7 @@ const TOOLBOX_ITEMS = [
   { value: 'space-inventory', labelKey: 'invToolInventory', icon: 'mdi-package-variant', permission: 'front.fb.spaceInventory' },
   { value: 'logistic',        labelKey: 'invToolLogistic',     icon: 'mdi-forklift' },
   { value: 'restock', labelKey: 'invToolRestock', icon: 'mdi-truck-delivery-outline', permission: ['front.fb.restock', 'front.fb.restockBoard'] },
+  { value: 'pos', labelKey: 'srToolPos', icon: 'mdi-point-of-sale', permission: 'front.fb.pos' },
 ]
 
 export default {
@@ -3112,6 +3113,8 @@ export default {
         safePush(this.router, { name: 'space-logistic', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else if (tool.value === 'restock') {
         safePush(this.router, { name: 'space-restock', params: { spaceId }, query: ev ? { event: ev } : {} })
+      } else if (tool.value === 'pos') {
+        safePush(this.router, { name: 'space-pos', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else {
         // predict, event-predict → AnalyseView consomme ?toolbox=<value>
         const query = { toolbox: tool.value }

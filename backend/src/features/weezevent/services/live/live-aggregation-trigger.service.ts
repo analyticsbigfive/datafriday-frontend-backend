@@ -60,12 +60,20 @@ export class LiveAggregationTriggerService {
             integrationId: group.integrationId ?? undefined,
         });
         const at = new Date().toISOString();
-        await Promise.all(group.eventIds.map((eventId) => this.redis.set(liveFullRebuildKey(eventId), at, { ttl: 2 * 24 * 3600 })));
+        // Une clé par (event, source) : la source historique garde la clé d'avant le multi-source,
+        // une source déclarée a la sienne (la reconstruction de l'une ne décale pas celle de l'autre).
+        await Promise.all(
+            group.eventIds.map((eventId) => {
+                const declared = group.declaredEventIds?.includes(eventId) ? group.integrationId : null;
+                return this.redis.set(liveFullRebuildKey(eventId, declared), at, { ttl: 2 * 24 * 3600 });
+            }),
+        );
         this.logger.log(`Full rebuild queued (${trigger}) for space ${group.spaceId}, events ${group.eventIds.join(',')}`);
     }
 
-    async lastFullRebuildAt(eventId: string): Promise<Date | null> {
-        const stored = await this.redis.get<string>(liveFullRebuildKey(eventId));
+    /** `declaredIntegrationId` : clé d'une source déclarée (event sans source historique), absent sinon. */
+    async lastFullRebuildAt(eventId: string, declaredIntegrationId?: string): Promise<Date | null> {
+        const stored = await this.redis.get<string>(liveFullRebuildKey(eventId, declaredIntegrationId));
         return stored ? new Date(stored) : null;
     }
 

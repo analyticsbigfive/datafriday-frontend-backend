@@ -101,6 +101,7 @@ export const SETTINGS_NAVIGATION = [
           { title: 'navIndustrials', route: '/configurations/industrials', permission: 'menu.config.manage' },
           { title: 'navPackingTypes', route: '/configurations/packing-types', permission: 'menu.config.manage' },
           { title: 'navPromotionTypes', route: '/configurations/promotion-types', permission: 'menu.config.manage' },
+          { title: 'navPaymentMethods', route: '/configurations/payment-methods', permission: 'menu.config.manage' },
           { title: 'navStorageTypes', route: '/configurations/storage-types', permission: 'menu.config.manage' },
           { title: 'navSeasons', route: '/configurations/seasons', permission: 'menu.config.manage' },
           // GLOBAL (pas de scoping tenant), réservé au super-admin PLATEFORME — `requiresSuperAdmin`
