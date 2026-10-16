@@ -1,6 +1,6 @@
 /**
- * PosPdvCard : statut, sources de vente (ajout aux autres sources), PIN, ▶ / ■ et ouverture de
- * la caisse. Vuetify est neutralisé par des stubs minimaux.
+ * PosPdvCard : nom du PdV, statut porté par la pastille, PIN, ▶ / ■ et ouverture de la caisse.
+ * Ni le libellé du statut ni les sources de vente ne sont écrits sur la carte. Vuetify est neutralisé par des stubs minimaux.
  */
 import { mount } from '@vue/test-utils'
 import PosPdvCard from '@/components/space-workspace/pos/PosPdvCard.vue'
@@ -25,20 +25,22 @@ const mountCard = (pdv, props = {}) =>
   mount(PosPdvCard, { props: { pdv, canEditResponsible: false, ...props }, global: { stubs } })
 
 describe('PosPdvCard', () => {
-  it('caisse arrêtée : statut inactif, source existante, invite à démarrer, pas de PIN', () => {
+  it('caisse arrêtée : nom en premier, pastille inactive, invite à démarrer, pas de PIN', () => {
     const w = mountCard(row())
-    expect(w.text()).toContain('Buvette Tribune Nord')
+    expect(w.find('.pos-pdv__name').text()).toBe('Buvette Tribune Nord')
     expect(w.text()).toContain('Espace Tribune Nord · Menu Buvette Standard · 21 articles')
-    expect(w.find('.pos-pdv__status').classes()).toContain('pos-pdv__status--inactive')
-    expect(w.text()).toContain('Source : Weezevent')
+    expect(w.find('.pos-pdv__dot').classes()).toContain('pos-pdv__dot--inactive')
+    expect(w.find('.pos-pdv__status').exists()).toBe(false)
+    expect(w.find('.pos-pdv__sources').exists()).toBe(false)
+    expect(w.text()).not.toContain('Source')
     expect(w.text()).toContain('Démarrer pour ouvrir')
     expect(w.find('.pos-pin').exists()).toBe(false)
     expect(w.find('.pos-pdv__open').exists()).toBe(false)
   })
 
-  it('caisse démarrée : la caisse POS s ajoute aux autres sources et affiche le PIN', () => {
+  it('caisse démarrée : affiche le PIN et la pastille de statut, sans libellé de statut', () => {
     const w = mountCard(row({ status: 'selling', pin: '482913' }))
-    expect(w.text()).toContain('Source : Data Friday POS + Weezevent')
+    expect(w.find('.pos-pdv__status').exists()).toBe(false)
     expect(w.find('.pos-pin__code').text()).toBe('482913')
     expect(w.find('.pos-pdv__open').exists()).toBe(true)
     expect(w.find('.pos-pdv__dot--selling').exists()).toBe(true)

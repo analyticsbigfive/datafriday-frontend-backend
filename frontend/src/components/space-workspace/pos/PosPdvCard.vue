@@ -1,10 +1,10 @@
 <template>
   <div class="pos-pdv" :class="{ 'pos-pdv--active': active }">
     <div class="pos-pdv__main">
-      <span class="pos-pdv__dot" :class="`pos-pdv__dot--${pdv.status}`" />
+      <span class="pos-pdv__dot" :class="`pos-pdv__dot--${pdv.status}`" :title="statusLabel" role="img" :aria-label="statusLabel" />
       <div class="pos-pdv__info">
-        <div class="pos-pdv__name">{{ pdv.name }}</div>
-        <div class="pos-pdv__meta">{{ metaLine }}</div>
+        <div class="pos-pdv__name" :title="pdv.name">{{ pdv.name }}</div>
+        <div class="pos-pdv__meta" :title="metaLine">{{ metaLine }}</div>
         <PosResponsibleSelect
           :responsible-id="pdv.responsibleHrPersonId"
           :responsible-name="pdv.responsibleName"
@@ -17,11 +17,6 @@
     </div>
 
     <div class="pos-pdv__side">
-      <div class="pos-pdv__state">
-        <div class="pos-pdv__status" :class="`pos-pdv__status--${pdv.status}`">{{ statusLabel }}</div>
-        <div class="pos-pdv__sources">{{ sourceLine }}</div>
-      </div>
-
       <PosPinBadge
         v-if="active && pdv.pin"
         :pin="pdv.pin"
@@ -54,12 +49,14 @@
 
 <script setup>
 import { computed } from 'vue'
-import { POS_STATUS_LABEL_KEYS, pdvSourceCodes, usePosFormat } from '@/composables/usePosFormat'
+import { POS_STATUS_LABEL_KEYS, usePosFormat } from '@/composables/usePosFormat'
 import PosPinBadge from './PosPinBadge.vue'
 import PosResponsibleSelect from './PosResponsibleSelect.vue'
 
-// Carte d'un PdV : statut de la caisse, autres sources de vente, PIN, ▶ / ■, responsable RH,
-// ouverture de la caisse.
+// Carte d'un PdV : le nom d'abord (c'est l'information principale, il prend toute la place libre),
+// statut de la caisse porté par la pastille de couleur (libellé en infobulle), PIN, ▶ / ■,
+// responsable RH, ouverture de la caisse. Les sources de vente et le libellé du statut ne sont
+// plus écrits sur la carte.
 const props = defineProps({
   pdv: { type: Object, required: true }, // PosPdvRow
   hrOptions: { type: Array, default: () => [] },
@@ -69,7 +66,7 @@ const props = defineProps({
 })
 defineEmits(['toggle', 'open-cashier', 'set-responsible', 'reset-pin'])
 
-const { t, sourceLabel } = usePosFormat()
+const { t } = usePosFormat()
 const active = computed(() => props.pdv.status !== 'inactive')
 const statusLabel = computed(() => t(POS_STATUS_LABEL_KEYS[props.pdv.status] || POS_STATUS_LABEL_KEYS.inactive))
 const toggleLabel = computed(() => t(active.value ? 'posStopPdv' : 'posStartPdv'))
@@ -78,11 +75,6 @@ const metaLine = computed(() =>
     .filter(Boolean)
     .join(' · ')
 )
-const sourceLine = computed(() => {
-  const codes = pdvSourceCodes(props.pdv)
-  const names = codes.length ? codes.map(sourceLabel).join(' + ') : t('posSourceNone')
-  return t('posSourcePrefix').replace('{sources}', names)
-})
 </script>
 
 <style scoped>
@@ -103,6 +95,7 @@ const sourceLine = computed(() => {
 }
 .pos-pdv__main {
   display: flex;
+  flex: 1 1 auto;
   align-items: center;
   gap: 14px;
   min-width: 0;
@@ -121,41 +114,28 @@ const sourceLine = computed(() => {
   background: var(--fb-success, #16a34a);
 }
 .pos-pdv__info {
+  flex: 1 1 auto;
   min-width: 0;
 }
+/* Le nom reste lisible en entier (retour à la ligne si vraiment trop long) ; le détail est tronqué. */
 .pos-pdv__name {
   font-size: var(--fs-md);
   font-weight: var(--fw-bold);
+  overflow-wrap: anywhere;
 }
 .pos-pdv__meta {
   margin-top: 2px;
+  overflow: hidden;
   color: var(--fb-muted, #6b7280);
   font-size: var(--fs-base);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .pos-pdv__side {
   display: flex;
   align-items: center;
   flex-shrink: 0;
   gap: 12px;
-}
-.pos-pdv__state {
-  text-align: right;
-}
-.pos-pdv__status {
-  color: var(--fb-muted, #6b7280);
-  font-size: var(--fs-base);
-  font-weight: var(--fw-bold);
-}
-.pos-pdv__status--ready {
-  color: var(--fb-warning, #d97706);
-}
-.pos-pdv__status--selling {
-  color: var(--fb-success, #16a34a);
-}
-.pos-pdv__sources {
-  margin-top: 2px;
-  color: var(--fb-faint, #9ca3af);
-  font-size: var(--fs-sm);
 }
 .pos-pdv__toggle {
   display: flex;
@@ -196,7 +176,7 @@ const sourceLine = computed(() => {
   white-space: nowrap;
 }
 .pos-pdv__hint {
-  width: 142px;
+  width: 120px;
   color: var(--fb-faint, #9ca3af);
   font-size: var(--fs-sm);
   text-align: center;

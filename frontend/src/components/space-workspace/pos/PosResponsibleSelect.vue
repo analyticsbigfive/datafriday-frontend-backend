@@ -62,6 +62,7 @@ const label = computed(() =>
   color: var(--fb-text, #212121);
   font-size: var(--fs-base);
   font-weight: var(--fw-semibold);
+  white-space: nowrap;
   cursor: pointer;
 }
 .pos-resp--readonly {
