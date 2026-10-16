@@ -62,16 +62,12 @@ describe('PosPdvCard', () => {
   })
 })
 
-describe('PosPdvCard : QR code et lien', () => {
+describe('PosPdvCard : QR code', () => {
   const qrStubs = { ...stubs, GuestPinQrDialog: { template: '<div class="qr-dialog-stub" />' } }
 
-  it('propose le QR code et la copie du lien, même caisse arrêtée', async () => {
-    const writeText = jest.fn().mockResolvedValue()
-    Object.assign(navigator, { clipboard: { writeText } })
+  it('propose le QR code (le lien est dans sa fenêtre), même caisse arrêtée, sans bouton lien', () => {
     const w = mount(PosPdvCard, { props: { pdv: row({ qrSlug: 'buvette-d-xyz' }), canEditResponsible: false }, global: { stubs: qrStubs } })
-    const buttons = w.findAll('.pos-qr__btn')
-    expect(buttons).toHaveLength(2)
-    await buttons[1].trigger('click')
-    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/login/pin/buvette-d-xyz`)
+    expect(w.findAll('.pos-qr__btn')).toHaveLength(1)
+    expect(w.find('.pos-qr__btn').attributes('aria-label')).toBe('Afficher le QR code')
   })
 })
