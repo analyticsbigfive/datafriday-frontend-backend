@@ -4,6 +4,7 @@ import { WeezeventClientService } from '../../weezevent/services/weezevent-clien
 import { UpdateWeezeventEventMetadataDto } from '../dto/update-weezevent-event-metadata.dto';
 import { SpaceCrudService } from './space-crud.service';
 import { upsertQueuedEntities } from '../../weezevent/services/sync/queued-entity.queries';
+import { EventSalesSourceService } from '../../event-sales-sources/event-sales-source.service';
 
 /**
  * Events Weezevent d'un espace : liste, intégrations, métadonnées, participants.
@@ -14,6 +15,7 @@ export class SpaceWeezeventEventService {
     private readonly prisma: PrismaService,
     private readonly weezeventClient: WeezeventClientService,
     private readonly spaceCrudService: SpaceCrudService,
+    private readonly salesSources: EventSalesSourceService,
   ) {}
 
   /**
@@ -43,10 +45,15 @@ export class SpaceWeezeventEventService {
     } else {
       // Fallback legacy sans integrationId — comportement historique, correct seulement si
       // l'espace n'a qu'une seule intégration mappée (voir BUG-319-02 pour le cas à plusieurs).
-      const locationMapping = await this.prisma.locationSpaceMapping.findFirst({
+      // ADR_MULTI_SOURCE (S2) : parmi les intégrations mappées, on préfère une intégration qui n'est
+      // PAS une source de ventes déclarée (caisse Data Friday...) : le wizard liste les SalesEvent
+      // de la source historique, pas ceux d'une source ajoutée. Une seule intégration : inchangé.
+      const mappings = await this.prisma.locationSpaceMapping.findMany({
         where: { tenantId, spaceId },
         select: { salesLocationId: true },
       });
+      const declared = await this.salesSources.listDeclaredIntegrationIds(tenantId, mappings.map((m) => m.salesLocationId));
+      const locationMapping = mappings.find((m) => !declared.has(m.salesLocationId)) ?? mappings[0];
 
       if (!locationMapping) {
         return [];
@@ -115,7 +122,11 @@ export class SpaceWeezeventEventService {
       where: { tenantId, spaceId },
       select: { salesLocationId: true },
     });
-    const integrationIds = [...new Set(mappings.map((m) => m.salesLocationId).filter(Boolean))];
+    // ADR 7.1 point 3 : une intégration qui n'est qu'une source de ventes déclarée n'est pas
+    // configurable dans le wizard : masquée de cette liste.
+    const mappedIds = [...new Set(mappings.map((m) => m.salesLocationId).filter(Boolean))];
+    const declared = await this.salesSources.listDeclaredIntegrationIds(tenantId, mappedIds);
+    const integrationIds = mappedIds.filter((id) => !declared.has(id));
     if (!integrationIds.length) return [];
 
     const integrations = await this.prisma.integration.findMany({

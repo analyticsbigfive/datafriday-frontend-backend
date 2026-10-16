@@ -1,0 +1,292 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`Baseline Live (S0, ne pas modifier) déclencheur : clés Redis, jobs mis en file et journaux, groupe Weezevent et groupe Digifood 1`] = `
+{
+  "coalesced": false,
+  "first": true,
+  "log": [
+    {
+      "key": "live:agg:pending:space-1:int-W",
+      "op": "redis.set",
+      "ttl": 900,
+    },
+    {
+      "data": {
+        "fromDate": 2026-09-12T00:00:00.000Z,
+        "jobType": "incremental",
+        "metadata": {
+          "eventIds": [
+            "a",
+            "c",
+          ],
+          "integrationId": "int-W",
+          "trigger": "live-sync",
+        },
+        "spaceId": "space-1",
+        "status": "pending",
+        "tenantId": "tenant",
+        "toDate": 2026-09-12T00:00:00.000Z,
+      },
+      "op": "jobLog.create",
+    },
+    {
+      "data": {
+        "eventIds": [
+          "a",
+          "c",
+        ],
+        "integrationId": "int-W",
+        "jobLogId": "log-1",
+        "spaceId": "space-1",
+        "tenantId": "tenant",
+        "type": "process-event-minutes",
+      },
+      "op": "queue",
+    },
+    {
+      "key": "live:agg:pending:space-1:int-D",
+      "op": "redis.set",
+      "ttl": 900,
+    },
+    {
+      "data": {
+        "fromDate": 2026-09-12T00:00:00.000Z,
+        "jobType": "incremental",
+        "metadata": {
+          "eventIds": [
+            "d",
+          ],
+          "integrationId": "int-D",
+          "trigger": "live-sync",
+        },
+        "spaceId": "space-1",
+        "status": "pending",
+        "tenantId": "tenant",
+        "toDate": 2026-09-12T00:00:00.000Z,
+      },
+      "op": "jobLog.create",
+    },
+    {
+      "data": {
+        "eventIds": [
+          "d",
+        ],
+        "integrationId": "int-D",
+        "jobLogId": "log-1",
+        "spaceId": "space-1",
+        "tenantId": "tenant",
+        "type": "process-event-minutes",
+      },
+      "op": "queue",
+    },
+    {
+      "data": {
+        "fromDate": 2026-09-12T00:00:00.000Z,
+        "jobType": "incremental",
+        "metadata": {
+          "eventIds": [
+            "a",
+            "c",
+          ],
+          "integrationId": "int-W",
+          "trigger": "live-reconciliation",
+        },
+        "spaceId": "space-1",
+        "status": "pending",
+        "tenantId": "tenant",
+        "toDate": 2026-09-12T00:00:00.000Z,
+      },
+      "op": "jobLog.create",
+    },
+    {
+      "data": {
+        "eventIds": [
+          "a",
+          "c",
+        ],
+        "integrationId": "int-W",
+        "jobLogId": "log-1",
+        "spaceId": "space-1",
+        "tenantId": "tenant",
+        "type": "process-events",
+      },
+      "op": "queue",
+    },
+    {
+      "key": "live:agg:full:a",
+      "op": "redis.set",
+      "ttl": 172800,
+    },
+    {
+      "key": "live:agg:full:c",
+      "op": "redis.set",
+      "ttl": 172800,
+    },
+  ],
+  "other": true,
+}
+`;
+
+exports[`Baseline Live (S0, ne pas modifier) findLiveEvents, groupes et intégrations en direct : espace 100 % Digifood 1`] = `
+{
+  "groups": [
+    {
+      "eventIds": [
+        "d",
+        "e",
+      ],
+      "integrationId": "int-D",
+      "spaceId": "space-1",
+      "tenantId": "tenant",
+    },
+  ],
+  "ids": [
+    "int-D",
+  ],
+  "integrationQuery": [],
+  "live": [
+    {
+      "graceEnd": 2026-09-13T00:50:00.000Z,
+      "id": "d",
+      "integrationId": "int-D",
+      "spaceId": "space-1",
+      "tenantId": "tenant",
+      "windowEnd": 2026-09-12T21:50:00.000Z,
+      "windowStart": 2026-09-11T22:00:00.000Z,
+    },
+    {
+      "graceEnd": 2026-09-13T00:50:00.000Z,
+      "id": "e",
+      "integrationId": "int-D",
+      "spaceId": "space-1",
+      "tenantId": "tenant",
+      "windowEnd": 2026-09-12T21:50:00.000Z,
+      "windowStart": 2026-09-11T22:00:00.000Z,
+    },
+  ],
+}
+`;
+
+exports[`Baseline Live (S0, ne pas modifier) findLiveEvents, groupes et intégrations en direct : espace 100 % Weezevent (Event.integrationId et SalesEvent lié) 1`] = `
+{
+  "groups": [
+    {
+      "eventIds": [
+        "a",
+        "c",
+      ],
+      "integrationId": "int-W",
+      "spaceId": "space-1",
+      "tenantId": "tenant",
+    },
+    {
+      "eventIds": [
+        "b",
+      ],
+      "integrationId": "int-W2",
+      "spaceId": "space-1",
+      "tenantId": "tenant",
+    },
+  ],
+  "ids": [
+    "int-W",
+    "int-W2",
+  ],
+  "integrationQuery": [],
+  "live": [
+    {
+      "graceEnd": 2026-09-13T00:50:00.000Z,
+      "id": "a",
+      "integrationId": "int-W",
+      "spaceId": "space-1",
+      "tenantId": "tenant",
+      "windowEnd": 2026-09-12T21:50:00.000Z,
+      "windowStart": 2026-09-11T22:00:00.000Z,
+    },
+    {
+      "graceEnd": 2026-09-13T00:50:00.000Z,
+      "id": "b",
+      "integrationId": "int-W2",
+      "spaceId": "space-1",
+      "tenantId": "tenant",
+      "windowEnd": 2026-09-12T21:50:00.000Z,
+      "windowStart": 2026-09-11T22:00:00.000Z,
+    },
+    {
+      "graceEnd": 2026-09-13T00:50:00.000Z,
+      "id": "c",
+      "integrationId": "int-W",
+      "spaceId": "space-1",
+      "tenantId": "tenant",
+      "windowEnd": 2026-09-12T21:50:00.000Z,
+      "windowStart": 2026-09-11T22:00:00.000Z,
+    },
+  ],
+}
+`;
+
+exports[`Baseline Live (S0, ne pas modifier) findLiveEvents, groupes et intégrations en direct : event sans intégration connue 1`] = `
+{
+  "groups": [
+    {
+      "eventIds": [
+        "f",
+      ],
+      "integrationId": null,
+      "spaceId": "space-1",
+      "tenantId": "tenant",
+    },
+    {
+      "eventIds": [
+        "g",
+      ],
+      "integrationId": "int-W",
+      "spaceId": "space-2",
+      "tenantId": "tenant",
+    },
+  ],
+  "ids": [
+    "all-1",
+    "all-2",
+    "int-W",
+  ],
+  "integrationQuery": [
+    [
+      {
+        "select": {
+          "id": true,
+        },
+        "where": {
+          "enabled": true,
+          "provider": "WEEZEVENT",
+          "tenantId": {
+            "in": [
+              "tenant",
+            ],
+          },
+        },
+      },
+    ],
+  ],
+  "live": [
+    {
+      "graceEnd": 2026-09-13T00:50:00.000Z,
+      "id": "f",
+      "integrationId": null,
+      "spaceId": "space-1",
+      "tenantId": "tenant",
+      "windowEnd": 2026-09-12T21:50:00.000Z,
+      "windowStart": 2026-09-11T22:00:00.000Z,
+    },
+    {
+      "graceEnd": 2026-09-13T00:50:00.000Z,
+      "id": "g",
+      "integrationId": "int-W",
+      "spaceId": "space-2",
+      "tenantId": "tenant",
+      "windowEnd": 2026-09-12T21:50:00.000Z,
+      "windowStart": 2026-09-11T22:00:00.000Z,
+    },
+  ],
+}
+`;

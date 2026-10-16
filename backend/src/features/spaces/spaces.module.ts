@@ -18,6 +18,7 @@ import { PrismaModule } from '../../core/database/prisma.module';
 import { RedisModule } from '../../core/redis/redis.module';
 import { WeezeventModule } from '../weezevent/weezevent.module';
 import { LogisticsModule } from '../logistics/logistics.module';
+import { EventSalesSourcesModule } from '../event-sales-sources/event-sales-sources.module';
 import { SpaceAnalyticsController } from './space-analytics.controller';
 import { SpaceShopsController } from './space-shops.controller';
 import { SpaceIntegrationsController } from './space-integrations.controller';
@@ -27,7 +28,7 @@ import { SpaceConfigurationSaveService } from './services/space-configuration-sa
 import { SpaceConfigurationService } from './services/space-configuration.service';
 
 @Module({
-  imports: [PrismaModule, RedisModule, WeezeventModule, LogisticsModule],
+  imports: [PrismaModule, RedisModule, WeezeventModule, LogisticsModule, EventSalesSourcesModule],
   controllers: [
     SpacesController,
     ConfigurationsController,
