@@ -1853,7 +1853,7 @@ export const translations = {
     anLiveHistoryPurgeError: 'Could not purge the selected sales',
     anToolInventory: 'Post-event Inventory',
     anToolLogistic: 'Logistic',
-    anToolRestock: 'Restock',
+    anToolRestock: 'Orders',
     // Donut « catégories de produits par transaction » (TransactionCategoryMixChart)
     anTxMixTitle: 'Product category mix per transaction',
     anTxMixSubtitle: 'transactions',
@@ -2416,7 +2416,7 @@ export const translations = {
     invToolLive: 'Live',
     invToolInventory: 'Post-event Inventory',
     invToolLogistic: 'Logistic',
-    invToolRestock: 'Restock',
+    invToolRestock: 'Orders',
 
     // ── Logistic (stock temps réel par PDV/Storage) ──
     logiPageTitle: 'Logistic',
@@ -3434,7 +3434,7 @@ export const translations = {
     epToolLive: 'Live',
     epToolSpaceInventory: 'Post-event Inventory',
     epToolLogistic: 'Logistic',
-    epToolRestock: 'Restock',
+    epToolRestock: 'Orders',
     edeDateTimeAt: 'at',
     epActivateThisVersion: 'Activate this version',
     epActive: 'Active',
@@ -3650,7 +3650,7 @@ export const translations = {
 
     // sr — SpaceRestockView
     srBack: 'Back',
-    srTitle: 'Restock',
+    srTitle: 'Orders',
     srObjectiveSalesPrefix: 'Objective: sales from',
     srEventSingular: 'event',
     srEventPlural: 'events',
@@ -3826,7 +3826,7 @@ export const translations = {
     srToolLive: 'Live',
     srToolSpaceInventory: 'Post-event Inventory',
     srToolLogistic: 'Logistic',
-    srToolRestock: 'Restock',
+    srToolRestock: 'Orders',
     srMetricEvents: 'Events',
     srMetricStockItems: 'Stock items',
     srMetricShopsToDeliver: 'Shops to deliver',
@@ -7198,7 +7198,7 @@ export const translations = {
     anLiveHistoryPurgeError: 'Impossible de purger la sélection',
     anToolInventory: 'Inventaire post-événement',
     anToolLogistic: 'Logistique',
-    anToolRestock: 'Réarmement',
+    anToolRestock: 'Commandes',
     // Donut « catégories de produits par transaction » (TransactionCategoryMixChart)
     anTxMixTitle: 'Répartition des catégories de produits par transaction',
     anTxMixSubtitle: 'transactions',
@@ -7761,7 +7761,7 @@ export const translations = {
     invToolLive: 'Live',
     invToolInventory: 'Inventaire post-événement',
     invToolLogistic: 'Logistique',
-    invToolRestock: 'Réarmement',
+    invToolRestock: 'Commandes',
 
     // ── Logistic (stock temps réel par PDV/Storage) ──
     logiPageTitle: 'Logistique',
@@ -8762,7 +8762,7 @@ export const translations = {
     epToolLive: 'Live',
     epToolSpaceInventory: 'Inventaire post-événement',
     epToolLogistic: 'Logistique',
-    epToolRestock: 'Réarmement',
+    epToolRestock: 'Commandes',
     edeDateTimeAt: 'à',
     epActivateThisVersion: 'Activer cette version',
     epActive: 'Active',
@@ -8978,7 +8978,7 @@ export const translations = {
 
     // sr — SpaceRestockView
     srBack: 'Retour',
-    srTitle: 'Réarmement',
+    srTitle: 'Commandes',
     srObjectiveSalesPrefix: 'Objectif : ventes de',
     srEventSingular: 'événement',
     srEventPlural: 'événements',
@@ -9154,7 +9154,7 @@ export const translations = {
     srToolLive: 'Live',
     srToolSpaceInventory: 'Inventaire post-événement',
     srToolLogistic: 'Logistique',
-    srToolRestock: 'Réarmement',
+    srToolRestock: 'Commandes',
     srMetricEvents: 'Événements',
     srMetricStockItems: 'Items stock',
     srMetricShopsToDeliver: 'Shops à livrer',
