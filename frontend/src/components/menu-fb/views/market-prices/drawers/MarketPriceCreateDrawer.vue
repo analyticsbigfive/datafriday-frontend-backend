@@ -88,16 +88,12 @@
             <div class="mb-3">
               <div v-if="itemNameMode === 'select'" class="mpcd-field-row">
                 <label class="mpcd-field-label">{{ t('itemName') }} <span class="mpcd-required">*</span></label>
-                <v-select
+                <MarketPriceSearchSelect
                   v-model="form.itemName"
                   :items="existingItemNames"
-                  density="compact"
-                  variant="outlined"
-                  hide-details="auto"
                   :placeholder="t('selectExistingItem')"
-                  :menu-props="{ zIndex: 10000 }"
-                  class="mpcd-item-select"
-                ></v-select>
+                  :is-dark="isDark"
+                />
               </div>
               <div v-else class="mpcd-field-row">
                 <label class="mpcd-field-label" for="mpcd-itemName">{{ t('itemName') }} <span class="mpcd-required">*</span></label>
@@ -106,46 +102,26 @@
             </div>
           <div class="mpcd-field-row mb-3">
             <label class="mpcd-field-label">{{ t('goodType') }} <span class="mpcd-required">*</span></label>
-            <v-select
+            <MarketPriceSearchSelect
               v-model="form.goodType"
               :items="localGoodTypeOptions"
-              density="compact"
-              variant="outlined"
-              hide-details="auto"
-              :menu-props="{ zIndex: 10000 }"
-              class="mpcd-item-select"
-            >
-              <template #prepend-item>
-                <v-list-item style="color:#ff3131; font-weight:600;" @click.stop="newTypeOpen = true">
-                  <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
-                  <v-list-item-title>{{ locale === 'fr' ? 'Ajouter un type' : 'Add Good Type' }}</v-list-item-title>
-                </v-list-item>
-                <v-divider class="my-1" />
-              </template>
-            </v-select>
+              :create-label="locale === 'fr' ? 'Ajouter un type' : 'Add Good Type'"
+              @create="newTypeOpen = true"
+              :is-dark="isDark"
+            />
           </div>
 
           <div class="mpcd-field-row">
             <label class="mpcd-field-label">{{ t('goodCategory') }}</label>
-            <v-select
+            <MarketPriceSearchSelect
               v-model="form.category"
               :items="goodCategoryOptions"
-              density="compact"
-              variant="outlined"
-              hide-details="auto"
               clearable
               :disabled="!form.goodType"
-              :menu-props="{ zIndex: 10000 }"
-              class="mpcd-item-select"
-            >
-              <template #prepend-item>
-                <v-list-item style="color:#ff3131; font-weight:600;" @click.stop="newCategoryOpen = true">
-                  <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
-                  <v-list-item-title>{{ locale === 'fr' ? 'Ajouter une catégorie' : 'Add Category' }}</v-list-item-title>
-                </v-list-item>
-                <v-divider class="my-1" />
-              </template>
-            </v-select>
+              :create-label="locale === 'fr' ? 'Ajouter une catégorie' : 'Add Category'"
+              @create="newCategoryOpen = true"
+              :is-dark="isDark"
+            />
           </div>
 
           <!-- Dialogs partagés « Nouvelle catégorie » / « Nouveau type » (extraits — voir composants) -->
@@ -175,29 +151,16 @@
 
             <div class="mpcd-field-row mb-3">
               <label class="mpcd-field-label">{{ t('supplier') }} <span class="mpcd-required">*</span></label>
-              <v-select
+              <MarketPriceSearchSelect
                 v-model="form.supplierId"
                 :items="localSuppliers"
                 item-title="name"
                 item-value="id"
-                density="compact"
-                variant="outlined"
-                hide-details="auto"
                 :placeholder="t('selectSupplier')"
-                :menu-props="{ zIndex: 10000 }"
-                class="mpcd-item-select"
-              >
-                <template #prepend-item>
-                  <v-list-item
-                    style="color: #ff3131; font-weight: 600;"
-                    @click.stop="supplierCreateOpen = true"
-                  >
-                    <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
-                    <v-list-item-title>{{ t('addNewSupplier') }}</v-list-item-title>
-                  </v-list-item>
-                  <v-divider class="my-1" />
-                </template>
-              </v-select>
+                :create-label="t('addNewSupplier')"
+                @create="supplierCreateOpen = true"
+                :is-dark="isDark"
+              />
             </div>
 
             <!-- Dialog — création d'un fournisseur -->
@@ -370,26 +333,16 @@
             <!-- Industrial -->
             <div class="mpcd-field-row mb-3">
               <label class="mpcd-field-label">{{ t('industrial') }}</label>
-              <v-select
+              <MarketPriceSearchSelect
                 v-model="form.industrialId"
                 :items="industrialsOptions"
                 item-title="name"
                 item-value="id"
-                density="compact"
-                variant="outlined"
-                hide-details="auto"
                 clearable
-                :menu-props="{ zIndex: 10000 }"
-                class="mpcd-item-select"
-              >
-                <template #prepend-item>
-                  <v-list-item style="color:#ff3131; font-weight:600;" @click.stop="industrialCreateOpen = true">
-                    <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
-                    <v-list-item-title>{{ locale === 'fr' ? 'Ajouter un industriel' : 'Add Industrial' }}</v-list-item-title>
-                  </v-list-item>
-                  <v-divider class="my-1" />
-                </template>
-              </v-select>
+                :create-label="locale === 'fr' ? 'Ajouter un industriel' : 'Add Industrial'"
+                @create="industrialCreateOpen = true"
+                :is-dark="isDark"
+              />
             </div>
 
             <!-- Dialog partagé « Nouvel industriel » (extrait — voir composant) -->
@@ -524,6 +477,7 @@
 import { AlertCircle, ArrowLeft, ArrowRight, Camera, Check, Image, ImagePlus, List, Package, Pencil, PlusCircle, Save, Shapes, ShoppingBasket, Tag, Trash2, Truck, X } from 'lucide-vue-next';
 import { createMarketPrice, createSupplier } from '@/api/endpoints/menu.api';
 import MarketPriceNewTypeDialog from '../dialogs/MarketPriceNewTypeDialog.vue';
+import MarketPriceSearchSelect from '../components/MarketPriceSearchSelect.vue';
 import MarketPriceNewCategoryDialog from '../dialogs/MarketPriceNewCategoryDialog.vue';
 import MarketPriceNewIndustrialDialog from '../dialogs/MarketPriceNewIndustrialDialog.vue';
 import MarketPriceNewPackagingDialog from '../dialogs/MarketPriceNewPackagingDialog.vue';
@@ -532,7 +486,7 @@ import NumberField from '@/components/common/NumberField.vue';
 
 export default {
   name: 'MarketPriceCreateDrawer',
-  components: { AlertCircle, ArrowLeft, ArrowRight, Camera, Check, Image, ImagePlus, List, Package, Pencil, PlusCircle, Save, Shapes, ShoppingBasket, Tag, Trash2, Truck, X, MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, MarketPriceNewIndustrialDialog, MarketPriceNewPackagingDialog, NumberField },
+  components: { AlertCircle, ArrowLeft, ArrowRight, Camera, Check, Image, ImagePlus, List, Package, Pencil, PlusCircle, Save, Shapes, ShoppingBasket, Tag, Trash2, Truck, X, MarketPriceSearchSelect, MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, MarketPriceNewIndustrialDialog, MarketPriceNewPackagingDialog, NumberField },
   props: {
     modelValue: { type: Boolean, default: false },
     // initialData: when set, pre-fills form for "add supplier to existing item" (step 2)

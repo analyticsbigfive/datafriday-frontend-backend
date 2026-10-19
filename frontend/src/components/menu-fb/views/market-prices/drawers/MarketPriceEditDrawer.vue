@@ -67,45 +67,25 @@
           </div>
           <div class="mped-field-row mb-3">
             <label class="mped-field-label">{{ t('goodType') }} <span class="mped-required">*</span></label>
-            <v-select
+            <MarketPriceSearchSelect
               v-model="form.goodType"
               :items="allGoodTypeOptions"
-              density="compact"
-              variant="outlined"
-              hide-details="auto"
-              :menu-props="{ zIndex: 10000 }"
-              class="mped-item-select"
-            >
-              <template #prepend-item>
-                <v-list-item style="color:#ff3131; font-weight:600;" @click.stop="newTypeOpen = true">
-                  <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
-                  <v-list-item-title>{{ t('addGoodType') }}</v-list-item-title>
-                </v-list-item>
-                <v-divider class="my-1" />
-              </template>
-            </v-select>
+              :create-label="t('addGoodType')"
+              @create="newTypeOpen = true"
+              :is-dark="isDark"
+            />
           </div>
           <div class="mped-field-row">
             <label class="mped-field-label">{{ t('goodCategory') }}</label>
-            <v-select
+            <MarketPriceSearchSelect
               v-model="form.category"
               :items="goodCategoryOptions"
-              density="compact"
-              variant="outlined"
-              hide-details="auto"
               clearable
               :disabled="!form.goodType"
-              :menu-props="{ zIndex: 10000 }"
-              class="mped-item-select"
-            >
-              <template #prepend-item>
-                <v-list-item style="color:#ff3131; font-weight:600;" @click.stop="newCategoryOpen = true">
-                  <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
-                  <v-list-item-title>{{ t('addCategory') }}</v-list-item-title>
-                </v-list-item>
-                <v-divider class="my-1" />
-              </template>
-            </v-select>
+              :create-label="t('addCategory')"
+              @create="newCategoryOpen = true"
+              :is-dark="isDark"
+            />
           </div>
 
           <!-- Dialogs partagés « Nouveau type » / « Nouvelle catégorie » (extraits — voir composants) -->
@@ -166,6 +146,7 @@
 import { AlertCircle, Apple, ArrowLeftRight, Camera, Check, Image, ImagePlus, Pencil, PlusCircle, Save, Scale, Shapes, Tag, X } from 'lucide-vue-next';
 import { updateMarketPrice } from '@/api/endpoints/menu.api';
 import MarketPriceNewTypeDialog from '../dialogs/MarketPriceNewTypeDialog.vue';
+import MarketPriceSearchSelect from '../components/MarketPriceSearchSelect.vue';
 import MarketPriceNewCategoryDialog from '../dialogs/MarketPriceNewCategoryDialog.vue';
 import NumberField from '@/components/common/NumberField.vue';
 
@@ -174,7 +155,7 @@ export default {
   components: {
     AlertCircle, Apple, ArrowLeftRight, Camera, Check, Image, ImagePlus,
     Pencil, PlusCircle, Save, Scale, Shapes, Tag, X,
-    MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, NumberField,
+    MarketPriceSearchSelect, MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, NumberField,
   },
   props: {
     modelValue: { type: Boolean, default: false },
