@@ -46,25 +46,15 @@
             <!-- Supplier -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
               <label class="mpesd-field-label">{{ t('supplier') }} <span class="mpesd-required">*</span></label>
-              <v-select
+              <MarketPriceSearchSelect
                 v-model="form.supplierId"
                 :items="localSuppliers"
                 item-title="name"
                 item-value="id"
-                density="compact"
-                variant="outlined"
-                hide-details
-                :menu-props="{ attach: 'body', zIndex: 10001 }"
-                class="mpesd-item-select"
-              >
-                <template #prepend-item>
-                  <v-list-item style="color:#ff3131; font-weight:600;" @click.stop="supplierCreateOpen = true">
-                    <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
-                    <v-list-item-title>{{ t('addSupplier') }}</v-list-item-title>
-                  </v-list-item>
-                  <v-divider class="my-1" />
-                </template>
-              </v-select>
+                :create-label="t('addSupplier')"
+                @create="supplierCreateOpen = true"
+                :is-dark="isDark"
+              />
             </div>
 
             <!-- Dialog — création fournisseur -->
@@ -193,24 +183,14 @@
             <!-- Good Type -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
               <label class="mpesd-field-label">{{ t('goodType') }} <span class="mpesd-required">*</span></label>
-              <v-select
+              <MarketPriceSearchSelect
                 v-model="form.goodType"
                 :items="localGoodTypeOptions"
-                density="compact"
-                variant="outlined"
-                hide-details
                 clearable
-                :menu-props="{ attach: 'body', zIndex: 10001 }"
-                class="mpesd-item-select"
-              >
-                <template #prepend-item>
-                  <v-list-item style="color:#ff3131; font-weight:600;" @click.stop="goodTypeCreateOpen = true">
-                    <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
-                    <v-list-item-title>{{ t('addGoodType') }}</v-list-item-title>
-                  </v-list-item>
-                  <v-divider class="my-1" />
-                </template>
-              </v-select>
+                :create-label="t('addGoodType')"
+                @create="goodTypeCreateOpen = true"
+                :is-dark="isDark"
+              />
             </div>
 
             <!-- Dialog partagé « Add Good Type » (extrait — voir composant) -->
@@ -223,25 +203,15 @@
             <!-- Good Category -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
               <label class="mpesd-field-label">{{ t('goodCategory') }}</label>
-              <v-select
+              <MarketPriceSearchSelect
                 v-model="form.category"
                 :items="goodCategoryOptions"
-                density="compact"
-                variant="outlined"
-                hide-details
                 clearable
                 :disabled="!form.goodType"
-                :menu-props="{ attach: 'body', zIndex: 10001 }"
-                class="mpesd-item-select"
-              >
-                <template #prepend-item>
-                  <v-list-item style="color:#ff3131; font-weight:600;" @click.stop="goodCategoryCreateOpen = true">
-                    <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
-                    <v-list-item-title>{{ t('addCategory') }}</v-list-item-title>
-                  </v-list-item>
-                  <v-divider class="my-1" />
-                </template>
-              </v-select>
+                :create-label="t('addCategory')"
+                @create="goodCategoryCreateOpen = true"
+                :is-dark="isDark"
+              />
             </div>
 
             <!-- Dialog partagé « Add Category » (extrait — voir composant) -->
@@ -255,26 +225,16 @@
             <!-- Industrial -->
             <div class="mpesd-field-row" style="margin-bottom: 14px;">
               <label class="mpesd-field-label">Industrial</label>
-              <v-select
+              <MarketPriceSearchSelect
                 v-model="form.industrialId"
                 :items="industrialsOptions"
                 item-title="name"
                 item-value="id"
-                density="compact"
-                variant="outlined"
-                hide-details
                 clearable
-                :menu-props="{ attach: 'body', zIndex: 10001 }"
-                class="mpesd-item-select"
-              >
-                <template #prepend-item>
-                  <v-list-item style="color:#ff3131; font-weight:600;" @click.stop="industrialCreateOpen = true">
-                    <template #prepend><PlusCircle :size="16" class="me-2" style="color:#ff3131" /></template>
-                    <v-list-item-title>Add an Industrial</v-list-item-title>
-                  </v-list-item>
-                  <v-divider class="my-1" />
-                </template>
-              </v-select>
+                create-label="Add an Industrial"
+                @create="industrialCreateOpen = true"
+                :is-dark="isDark"
+              />
             </div>
 
             <!-- Dialog partagé « Add an Industrial » (extrait — voir composant) -->
@@ -409,6 +369,7 @@
 import { AlertCircle, Check, ImagePlus, Package, Pencil, PlusCircle, Save, Tag, Truck, X } from 'lucide-vue-next';
 import { updateMarketPrice, createSupplier } from '@/api/endpoints/menu.api';
 import MarketPriceNewTypeDialog from '../dialogs/MarketPriceNewTypeDialog.vue';
+import MarketPriceSearchSelect from '../components/MarketPriceSearchSelect.vue';
 import MarketPriceNewCategoryDialog from '../dialogs/MarketPriceNewCategoryDialog.vue';
 import MarketPriceNewIndustrialDialog from '../dialogs/MarketPriceNewIndustrialDialog.vue';
 import MarketPriceNewPackagingDialog from '../dialogs/MarketPriceNewPackagingDialog.vue';
@@ -417,7 +378,7 @@ import { formatCurrencyDetailed } from '@/composables/useFormatters';
 
 export default {
   name: 'MarketPriceEditSupplierDrawer',
-  components: { AlertCircle, Check, ImagePlus, Package, Pencil, PlusCircle, Save, Tag, Truck, X, MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, MarketPriceNewIndustrialDialog, MarketPriceNewPackagingDialog, NumberField },
+  components: { AlertCircle, Check, ImagePlus, Package, Pencil, PlusCircle, Save, Tag, Truck, X, MarketPriceSearchSelect, MarketPriceNewTypeDialog, MarketPriceNewCategoryDialog, MarketPriceNewIndustrialDialog, MarketPriceNewPackagingDialog, NumberField },
   props: {
     modelValue: { type: Boolean, default: false },
     item: { type: Object, default: null },

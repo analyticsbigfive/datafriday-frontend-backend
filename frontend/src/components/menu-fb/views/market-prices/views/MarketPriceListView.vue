@@ -52,15 +52,9 @@
           :placeholder="locale === 'fr' ? 'Rechercher un article…' : 'Search items…'"
         />
         <div class="mpl-filter-pills">
-          <select v-model="selectedType" class="mpl-filter-select">
-            <option v-for="opt in typeOptions" :key="opt" :value="opt">{{ opt }}</option>
-          </select>
-          <select :value="selectedCategory" @change="onSelectedCategoryChange($event.target.value)" class="mpl-filter-select">
-            <option v-for="opt in categoryOptions" :key="opt" :value="opt">{{ opt }}</option>
-          </select>
-          <select v-model="selectedSupplier" class="mpl-filter-select">
-            <option v-for="opt in supplierOptions" :key="opt" :value="opt">{{ opt }}</option>
-          </select>
+          <MarketPriceSearchSelect v-model="selectedType" :items="typeOptions" variant="pill" :is-dark="isDark" />
+          <MarketPriceSearchSelect :model-value="selectedCategory" :items="categoryOptions" variant="pill" :is-dark="isDark" @update:model-value="onSelectedCategoryChange" />
+          <MarketPriceSearchSelect v-model="selectedSupplier" :items="supplierOptions" variant="pill" :is-dark="isDark" />
         </div>
         <span class="mpl-searchbar__count">{{ filteredItems.length }} {{ locale === 'fr' ? 'articles' : 'items' }}</span>
         <button
@@ -145,6 +139,7 @@ import {
   Upload,
   X,
 } from "lucide-vue-next";
+import MarketPriceSearchSelect from '../components/MarketPriceSearchSelect.vue';
 import MarketPriceTable from '../components/MarketPriceTable.vue';
 import MarketPriceCsvImportDrawer from '../drawers/MarketPriceCsvImportDrawer.vue';
 import MarketPriceCreateDrawer from '../drawers/MarketPriceCreateDrawer.vue';
@@ -164,6 +159,7 @@ export default {
   components: {
     AlertCircle, Download, Pencil, Plus,
     Search, ShoppingBasket, Trash2, Upload, X,
+    MarketPriceSearchSelect,
     MarketPriceTable,
     MarketPriceCsvImportDrawer,
     MarketPriceCreateDrawer,
@@ -931,15 +927,6 @@ export default {
 .mpl--dark .mpl-searchbar__input { color: #e5e7eb; }
 .mpl-searchbar__input::placeholder { color: #9ca3af; }
 .mpl-filter-pills { display: flex; gap: 8px; flex-wrap: wrap; }
-.mpl-filter-select {
-  appearance: none; border: 1.5px solid #e5e7eb;
-  border-radius: 100px; padding: 5px 12px;
-  font-size: 12.5px; font-weight: 500; color: #374151;
-  background: #f9fafb; cursor: pointer; outline: none;
-  transition: border-color .18s;
-}
-.mpl-filter-select:focus { border-color: #ff3131; }
-.mpl--dark .mpl-filter-select { background: #0f172a; border-color: rgba(255,255,255,.12); color: #e5e7eb; }
 .mpl-searchbar__count { font-size: 12px; color: #9ca3af; white-space: nowrap; }
 .mpl-searchbar__clear {
   background: none; border: none; padding: 2px;
