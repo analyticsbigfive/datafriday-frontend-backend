@@ -4941,6 +4941,7 @@ export const translations = {
     anTimelineTitlePrefix: 'Timeline —',
     anSearchMenuItems: 'Search menu items…',
     anNoResults: 'No results',
+    mpssSearchPlaceholder: 'Search…',
 
     // ── Analyse : rendement, valorisation stock, dimensions article, promotion ──
     anKpiCardRevenuePerTpe: 'REV/TPE',
@@ -10269,6 +10270,7 @@ export const translations = {
     anTimelineTitlePrefix: 'Chronologie —',
     anSearchMenuItems: 'Rechercher un article…',
     anNoResults: 'Aucun résultat',
+    mpssSearchPlaceholder: 'Rechercher…',
 
     // ── Analyse : rendement, valorisation stock, dimensions article, promotion ──
     anKpiCardRevenuePerTpe: 'CA/TPE',
