@@ -945,7 +945,7 @@ import { hasActiveRange } from '@/utils/timelineBucketing'
 import { UNATTACHED_ITEM_KEY, reconcileRecord } from '@/utils/analyseReconciliation'
 import { useReconciliationContext } from '@/composables/useReconciliationContext'
 import { useTransactionBaskets } from '@/composables/useTransactionBaskets'
-import { useAnalyseUnmapped } from '@/composables/useAnalyseUnmapped'
+import { computeUnmappedVolume } from '@/utils/unmappedVolume'
 import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
 import { sumShopTransactionRates } from '@/utils/shopPerformanceCompute'
 import { useI18n } from '@/i18n/useI18n'
@@ -1212,13 +1212,14 @@ const {
 // icône ambre dans le bandeau rouge, texte complet au survol, clic → Data
 // Integration. Ne change aucun chiffre : distingue « rien vendu » de « rien de
 // mappé » (piège BUG-300-01) et pointe le travail restant.
-const { unmapped: analyseUnmapped, clearCache: clearUnmappedCache } =
-  useAnalyseUnmapped(filteredEvents)
+// BUG-356-01 : volume non mappé dérivé des records item-level déjà chargés (plus d'appel
+// `analyse-unmapped`, qui rescannait les transactions brutes et saturait l'API).
+const analyseUnmapped = computed(() => computeUnmappedVolume(globalItemRecords.value))
 const unmappedBannerText = computed(() => {
   const x = analyseUnmapped.value
-  if (!x.known || !x.lines) return ''
+  if (!x.known || !x.units) return ''
   return t('anUnmappedInfo')
-    .replace('{lines}', formatNumber(x.lines))
+    .replace('{units}', formatNumber(x.units))
     .replace('{revenue}', formatCurrency(x.revenueHt))
 })
 
@@ -2520,7 +2521,6 @@ onBeforeUnmount(() => {
   clearItemRecordsCache()
   clearComparisonCache()
   clearBasketsCache()
-  clearUnmappedCache()
   shopPerformance.reset()
 })
 
@@ -2557,8 +2557,7 @@ watch(
       clearItemRecordsCache()
       clearComparisonCache()
       clearBasketsCache()
-      clearUnmappedCache()
-      // BUG-300-01 — reset immédiat du latch du différé « All Configurations »
+          // BUG-300-01 — reset immédiat du latch du différé « All Configurations »
       // (le watcher `loading` le remet aussi à false, mais plus tard) : la
       // cause racine du « Par zone » vide était la garde « déjà chargé » de
       // requestDeferredAllConfigsContext, qui voyait le contexte de l'ANCIEN

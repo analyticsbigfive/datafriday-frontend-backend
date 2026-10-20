@@ -151,49 +151,6 @@ export class SpaceAnalyticsController {
   }
 
   /**
-   * Volume NON MAPPÉ des ventes de l'Analyse (BUG-137-01) — informatif, alimente le
-   * bandeau de la page. Ne filtre rien : ces ventes restent comptées, en « Non mappées ».
-   */
-  @Get(':id/analyse-unmapped')
-  @ApiOperation({
-    summary: 'Volume de ventes non mappées (informatif), par événement',
-    description:
-      'Lignes de vente dont le produit externe n\'a pas de WeezeventProductMapping ou dont le ' +
-      'PdV n\'a pas de WeezeventLocationShopMapping vers cet espace. INFORMATIF : ces ventes ' +
-      'restent comptées dans event-timeline et transaction-baskets, affichées « Non mappées » ' +
-      '(décision JLH 2026-08-24). Mêmes fenêtres, même scope d\'intégration et mêmes prédicats ' +
-      '(status V, deletedAt) que ces deux endpoints. Sert à distinguer « rien vendu » de ' +
-      '« rien de mappé » et à pointer le travail restant en Data Integration.',
-  })
-  @ApiParam({ name: 'id', description: 'ID de l\'espace' })
-  @ApiQuery({ name: 'eventIds', required: true, description: 'IDs d\'événements séparés par des virgules (max 100)' })
-  @ApiResponse({
-    status: 200,
-    description: 'Volumes non mappés, par eventId (zéros si tout est mappé)',
-    schema: {
-      type: 'object',
-      additionalProperties: {
-        type: 'object',
-        properties: {
-          unmappedLines:        { type: 'integer', description: 'Lignes de vente non mappées (produit OU PdV)' },
-          unmappedUnits:        { type: 'number',  description: 'Unités non mappées' },
-          unmappedRevenueHt:    { type: 'number',  description: 'CA HT non mappé (€)' },
-          unmappedProductLines: { type: 'integer', description: 'Dont lignes au produit non mappé' },
-          unmappedPosLines:     { type: 'integer', description: 'Dont lignes au PdV non mappé' },
-        },
-      },
-    },
-  })
-  async getAnalyseUnmappedBatch(
-    @Param('id') id: string,
-    @Query('eventIds') eventIds: string,
-    @CurrentUser() user: any,
-  ) {
-    const ids = (eventIds || '').split(',').map((s) => s.trim()).filter(Boolean);
-    return this.spaceAnalyseBatchService.getAnalyseUnmappedBatch(id, ids, user.tenantId);
-  }
-
-  /**
    * Get minute-level timeline for one event: minute × shop × menuItem
    */
   @Get(':id/event-timeline/:eventId')

@@ -6,7 +6,7 @@
 // coût) d'une vente mais n'EXCLUT jamais rien. Toute vente compte dans les vues ;
 // une vente sans mapping est affichée sous « Non mappées » (UNATTACHED_ITEM_KEY),
 // et le volume non mappé est chiffré par le bandeau de la page
-// (useAnalyseUnmapped), pour que ce bucket ne se lise jamais comme un bug.
+// (computeUnmappedVolume), pour que ce bucket ne se lise jamais comme un bug.
 //
 // IDENTITÉ ARTICLE (BUG-353-01) : elle vient EXCLUSIVEMENT du mapping Data Integration,
 // déjà résolu côté backend (`getEventTimelineBatch` : WeezeventProductMapping → MenuItem,
