@@ -34,7 +34,7 @@ export class MenuItemSupportService {
     productCategory: true,
     brand: true,
     displayName: true,
-    season: true,
+    seasonLinks: { select: { seasonId: true } },
     components: {
       include: { component: true },
       orderBy: { id: 'asc' as const },
@@ -88,7 +88,7 @@ export class MenuItemSupportService {
     for (const sid of assignmentSpaceIds) {
       if (!mergedSpaceIds.includes(sid)) mergedSpaceIds.push(sid);
     }
-    const { menuAssignments: _menuAssignments, spaceLinks, promotion, ...rest } = item;
+    const { menuAssignments: _menuAssignments, spaceLinks, promotion, seasonLinks, ...rest } = item;
     const spacePrices = linksToSpacePrices(spaceLinks);
     // Coût PAR PIÈCE dérivé du coût total recette (colonne `totalCost` = fournée entière) ÷ nombre
     // de pièces. C'est la valeur à afficher/comparer au prix de vente d'une portion (cf. pricing).
@@ -98,6 +98,7 @@ export class MenuItemSupportService {
       ...rest,
       costPerPiece,
       spaceIds: mergedSpaceIds,
+      seasonIds: (seasonLinks ?? []).map((l: { seasonId: string }) => l.seasonId),
       spacePrices,
       // Promotion « est en promotion » : contrat plat pour le front (le form lit ces champs).
       isOnPromotion: !!promotion,
