@@ -189,11 +189,11 @@ export class CreateMenuItemDto {
   @Transform(({ value }) => value || undefined)
   displayNameId?: string;
 
-  @ApiPropertyOptional({ description: 'ID de la Saison (Custom Date de Configuration)' })
+  @ApiPropertyOptional({ description: 'IDs des Saisons (Custom Dates de Configuration), multi-choix', type: [String] })
   @IsOptional()
-  @IsString()
-  @Transform(({ value }) => value || undefined)
-  seasonId?: string;
+  @IsArray()
+  @IsString({ each: true })
+  seasonIds?: string[];
 
   @ApiPropertyOptional({ description: '« Cet item EST un combo » (posé quand il a des éléments combo)' })
   @IsOptional()

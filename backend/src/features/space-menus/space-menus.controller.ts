@@ -265,6 +265,7 @@ export class SpaceMenusController {
               picture: { type: 'string', nullable: true },
               type: { type: 'string', nullable: true },
               category: { type: 'string', nullable: true },
+              seasonIds: { type: 'array', items: { type: 'string' }, description: 'Saisons du Menu Item' },
               price: { type: 'number', description: "TTC, prix de l'espace si défini sinon global" },
               vatRate: { type: 'number', nullable: true },
               available: { type: 'boolean' },

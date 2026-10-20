@@ -140,6 +140,8 @@
           {{ t('smmHideUnsold') }}
           <span v-if="unsoldHiddenCount > 0" class="smi-unsold-toggle__count">{{ unsoldHiddenCount }}</span>
         </label>
+        <!-- Filtre saison : restreint les articles proposés au mapping et aux suggestions auto. -->
+        <SeasonMultiFilter v-model="seasonFilters" class="smi-season-filter" />
       </div>
 
       <!-- ── Product list ── -->
@@ -799,6 +801,8 @@ import { getAllMenuItems, createMenuItem, bulkCreateMenuItems, updateMenuItem, a
 import { getWeezeventProducts, refreshWeezeventProduct, syncWeezeventData } from '@/api/endpoints/aggregation.api'
 import { getProductMappings, getProductMappingStats, createProductMapping, deleteProductMapping, bulkProductMappings } from '@/api/endpoints/mapping.api'
 import { createProductType, createProductCategory } from '@/api/endpoints/product.api'
+import SeasonMultiFilter from '@/components/common/SeasonMultiFilter.vue'
+import { matchesSeasonFilter } from '@/utils/menuItemSeasonFilter'
 import { useI18n } from '@/i18n/useI18n'
 import { htFromTtc } from '@/utils/price'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
@@ -820,7 +824,7 @@ export default {
     footerTarget: { type: [Object, String], default: null },
   },
 
-  components: { UtensilsCrossed, Check, X, Search, Zap, Plus, ChevronRight, AlertTriangle, Tag, History, Eye, NumberField },
+  components: { SeasonMultiFilter, UtensilsCrossed, Check, X, Search, Zap, Plus, ChevronRight, AlertTriangle, Tag, History, Eye, NumberField },
 
   emits: ['completed'],
 
@@ -837,6 +841,8 @@ export default {
       mappingStats: null,
       localMappings: {},
       autoSuggestions: {},
+      // Filtre saison (IDs, multi-choix, [] = toutes les saisons).
+      seasonFilters: [],
       autoMappingRunning: false,
       autoMappingMessage: '',
       autoMappingMessageType: 'success',
@@ -962,8 +968,13 @@ export default {
     applicablePriceCount() {
       return this.productRows.filter(row => this.canApplyPrice(row)).length
     },
+    // Articles proposés au mapping : filtre saison appliqué, sans jamais retirer un article déjà
+    // mappé ou suggéré (sinon le <select> d'une ligne perdrait sa valeur courante).
     menuItemOptions() {
-      return this.menuItemsList.map(mi => ({ id: mi.id, label: mi.name }))
+      const keepIds = new Set([...Object.values(this.localMappings), ...Object.values(this.autoSuggestions)])
+      return this.menuItemsList
+        .filter(mi => keepIds.has(mi.id) || matchesSeasonFilter(mi, this.seasonFilters))
+        .map(mi => ({ id: mi.id, label: mi.name }))
     },
     productRows() {
       return this.visibleProducts.map(p => {
@@ -1094,6 +1105,9 @@ export default {
     'location.id'(val) {
       if (val) this.loadData(val)
     },
+    seasonFilters() {
+      this.computeAutoSuggestions()
+    },
     // Revenir page 1 dès que la liste affichée change (onglet / chargement).
     activeTab() {
       this.currentPage = 1
@@ -1186,15 +1200,7 @@ export default {
         this.localMappings = map
         this.savingRows = {}
 
-        const suggestions = {}
-        for (const product of this.products) {
-          if (this.localMappings[product.id]) continue
-          const match = this.findBestMatch(product)
-          if (match && (match.matchScore || 0) >= 70) {
-            suggestions[product.id] = match.id
-          }
-        }
-        this.autoSuggestions = suggestions
+        this.computeAutoSuggestions()
 
         // Parallèle de la reconstruction du badge d'étage (étape 2) : on rattache
         // automatiquement l'espace courant aux items déjà mappés qui ne l'ont pas, dès
@@ -1217,7 +1223,23 @@ export default {
     },
 
     findBestMatch(productOrName) {
-      return matchBestMenuItem(productOrName, this.menuItemsList)
+      const candidates = this.seasonFilters.length
+        ? this.menuItemsList.filter(mi => matchesSeasonFilter(mi, this.seasonFilters))
+        : this.menuItemsList
+      return matchBestMenuItem(productOrName, candidates)
+    },
+
+    // Suggestions auto des produits non mappés, limitées aux articles du filtre saison courant.
+    computeAutoSuggestions() {
+      const suggestions = {}
+      for (const product of this.products) {
+        if (this.localMappings[product.id]) continue
+        const match = this.findBestMatch(product)
+        if (match && (match.matchScore || 0) >= 70) {
+          suggestions[product.id] = match.id
+        }
+      }
+      this.autoSuggestions = suggestions
     },
 
     similarity(a, b) {
@@ -2199,6 +2221,7 @@ export default {
   border: 1.5px solid #e5e7eb; margin-bottom: 10px;
 }
 .smi--dark .smi-toolbar { background: #1f2937; border-color: #374151; }
+.smi-toolbar .smi-season-filter { margin-left: auto; }
 
 .smi-unsold-toggle {
   display: flex; align-items: center; gap: 6px; flex-shrink: 0;
