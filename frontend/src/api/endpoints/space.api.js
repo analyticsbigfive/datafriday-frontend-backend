@@ -251,10 +251,8 @@ const BASKET_CHUNK_SIZE = 6
 // seul l'aller HTTP passe par le portillon global.
 const _GLOBAL_BATCH_CONCURRENCY = 2
 let _globalBatchInFlight = 0
-// Deux files : 'high' pour les sources qui débloquent la bande KPI (event-timeline,
-// transaction-baskets), 'low' pour analyse-unmapped (bandeau informatif, encore en lecture
-// brute). Sans priorité, la file FIFO entrelaçait les trois endpoints et un paquet unmapped
-// pouvait occuper un des deux créneaux pendant que les KPI attendaient leur dernier paquet.
+// Deux files : 'high' (défaut) pour les sources qui débloquent la bande KPI (event-timeline,
+// transaction-baskets), 'low' disponible pour toute source purement informative.
 const _globalBatchQueue = { high: [], low: [] }
 async function _acquireBatchSlot(priority = 'high') {
   if (_globalBatchInFlight < _GLOBAL_BATCH_CONCURRENCY) {
@@ -685,34 +683,6 @@ export async function getSpaceFloorOptions(spaceId, configId = null) {
     return response.data
   } catch (error) {
     console.error(`[SPACES API] Error fetching floor options for space ${spaceId}:`, error)
-    throw error
-  }
-}
-
-/**
- * Volume NON MAPPÉ des ventes de l'Analyse (BUG-137-01 côté api) : lignes dont le
- * produit ou le PdV n'a pas de mapping Data Integration. INFORMATIF — ces ventes
- * restent comptées, en « Non mappées » ; le bandeau distingue « rien vendu » de
- * « rien de mappé ». Pas de cache module : le composable met en cache par event, et
- * un re-mapping en Data Integration doit se voir au prochain chargement de page.
- *
- * @returns {Promise<Map<string, object>>} eventId → { unmappedLines, unmappedUnits,
- *   unmappedRevenueHt, unmappedProductLines, unmappedPosLines }
- */
-export async function getSpaceAnalyseUnmappedBatch(spaceId, eventIds) {
-  const ids = [...new Set((eventIds || []).filter(Boolean))]
-  const result = new Map()
-  if (!ids.length) return result
-  try {
-    // BUG-364-01 : paquets alignés sur BATCH_CHUNK_SIZE (15) — l'endpoint scanne les
-    // transactions brutes (le plus lourd des trois), un paquet de 30 doublait sa
-    // fenêtre SQL par rapport aux deux autres endpoints.
-    // Priorité basse : ne doit jamais retarder les paquets des sources KPI.
-    const data = await _fetchBatchChunked(spaceId, 'analyse-unmapped', ids, BATCH_CHUNK_SIZE, undefined, undefined, 'low')
-    for (const id of ids) result.set(id, data[id] || null)
-    return result
-  } catch (error) {
-    console.error(`[SPACES API] Error fetching analyse unmapped volume for ${spaceId}:`, error)
     throw error
   }
 }

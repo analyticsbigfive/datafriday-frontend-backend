@@ -130,7 +130,20 @@ export class SpaceAnalyseBatchService {
 
     // 2. Repli brut pour les events sans ligne pré-agrégée (pas encore ré-agrégés depuis la
     //    création de la table, ou sans vente) : ancienne requête, inchangée, sur ce reste seul.
-    const rawWindows = scope.windows.filter(w => !preAggregated.has(w.id));
+    //    PERF : un event dont le rollup dit `transactionCount = 0` n'a, par construction, aucune
+    //    ligne pré-agrégée à attendre. Sans cette garde il rejouait le scan brut des
+    //    transactions à chaque visite (résultat vide non distinguable de « pas encore agrégé »),
+    //    seule source des 502 à 30 s sur les lots paniers. `null` (rollup absent) reste en repli.
+    const toResolve = scope.windows.filter(w => !preAggregated.has(w.id));
+    const emptyRollups = toResolve.length
+      ? new Set(
+          (await this.prisma.event.findMany({
+            where: { id: { in: toResolve.map(w => w.id) } },
+            select: { id: true, transactionCount: true },
+          })).filter(e => e.transactionCount === 0).map(e => e.id),
+        )
+      : new Set<string>();
+    const rawWindows = toResolve.filter(w => !emptyRollups.has(w.id));
     if (!rawWindows.length) {
       await this.writeBasketsCache(tenantId, spaceId, missing, out, scope.windows);
       return out;
@@ -231,25 +244,6 @@ export class SpaceAnalyseBatchService {
     return out;
   }
 
-  /**
-   * Volume NON MAPPÉ des ventes de l'Analyse (BUG-137-01) : lignes dont le produit
-   * externe n'a pas de WeezeventProductMapping, ou dont le PdV n'a pas de
-   * WeezeventLocationShopMapping vers cet espace.
-   *
-   * INFORMATIF UNIQUEMENT — décision JLH 2026-08-24 (après aller-retour) : ces ventes
-   * restent COMPTÉES dans toutes les vues, sous le libellé « Non mappées ». Cet
-   * endpoint ne filtre rien ; il alimente le bandeau de la page, qui distingue
-   * « rien vendu » de « rien de mappé » (piège BUG-300-01) et pointe le travail
-   * restant en Data Integration. Cause unique mesurée en base : produit importé au
-   * catalogue mais jamais associé à un menu item à l'étape 3 du wizard (0 ligne à
-   * productId NULL sur 786 882 lignes non mappées).
-   * Mêmes fenêtres, même scope d'intégration et mêmes prédicats de lecture
-   * (status 'V', deletedAt) que event-timeline / transaction-baskets. Les ventes
-   * mappées vers les shops d'un AUTRE espace ne sont pas comptées ici : elles
-   * n'appartiennent pas à cet écran.
-   * Retourne { [eventId]: { unmappedLines, unmappedUnits, unmappedRevenueHt,
-   * unmappedProductLines, unmappedPosLines } } — ids demandés absents → zéros.
-   */
   /** BUG-143-01 : même écriture par event que getEventTimelineBatch. */
   private async writeBasketsCache(
     tenantId: string,
@@ -265,96 +259,5 @@ export class SpaceAnalyseBatchService {
         }),
       ),
     );
-  }
-
-  async getAnalyseUnmappedBatch(spaceId: string, eventIds: string[], tenantId: string): Promise<Record<string, any>> {
-    const uniqueIds = [...new Set(eventIds.filter(Boolean))].slice(0, 100);
-    const zero = () => ({
-      unmappedLines: 0,
-      unmappedUnits: 0,
-      unmappedRevenueHt: 0,
-      unmappedProductLines: 0,
-      unmappedPosLines: 0,
-    });
-    const out: Record<string, any> = Object.fromEntries(uniqueIds.map(id => [id, zero()]));
-    if (!uniqueIds.length) return out;
-
-    // BUG-144-01 : caché par event comme event-timeline/transaction-baskets — REMPLACE la
-    // décision BUG-137-01 (« jamais caché ») : l'endpoint re-scannait 786k lignes brutes à
-    // CHAQUE visite. La fraîcheur d'un re-mapping est désormais garantie par l'invalidation
-    // à l'écriture de mapping (MappingsService → spaces:unmapped:*), plus par l'absence de
-    // cache. TTL long pour un event passé, court sinon — même règle que les deux autres.
-    const cachedEntries = await Promise.all(
-      uniqueIds.map(async id => [id, await this.redis.get<any>(this.spaceCacheService.EVENT_UNMAPPED_CACHE_KEY(tenantId, spaceId, id))] as const),
-    );
-    const missing: string[] = [];
-    for (const [id, cached] of cachedEntries) {
-      if (cached != null) out[id] = cached;
-      else missing.push(id);
-    }
-    if (!missing.length) return out;
-
-    const scope = await this.spaceSalesScopeService.resolveEventSalesScope(spaceId, missing, tenantId);
-    if (!scope) return out;
-    const { integrationClause, rawValuesSql: valuesSql, extraSources: extra, shopIds } = scope;
-
-    // BUG-144-01 : même sémaphore que les deux autres endpoints batch.
-    const rows: any[] = await this.spaceSalesScopeService.analyseBatchSemaphore.run(() => queryWithWorkMem<any[]>(this.prisma, Prisma.sql`
-      WITH ev(${rawEvColumns(extra)}) AS (VALUES ${valuesSql})
-      SELECT
-        ev."eventId"                                                        AS "eventId",
-        COUNT(ti."id")::int                                                 AS "unmappedLines",
-        COALESCE(SUM(ti."quantity"), 0)::float8                             AS "unmappedUnits",
-        COALESCE(SUM(${lineRevenueHtSql('t', 'ti')}), 0)::float8      AS "unmappedRevenueHt",
-        COUNT(ti."id") FILTER (WHERE wpm."menuItemId" IS NULL)::int         AS "unmappedProductLines",
-        COUNT(ti."id") FILTER (WHERE mem."spaceElementId" IS NULL)::int     AS "unmappedPosLines"
-      FROM ev
-      INNER JOIN "WeezeventTransaction" t
-        ON t."transactionDate" >= ev."windowStart"
-       AND t."transactionDate" <  ev."windowEnd"
-       -- BUG-146-01 (legacy) / BUG-368-02 : mêmes clauses tag conteneur + integrationId que
-       -- event-timeline/transaction-baskets, y compris le bypass du tag dès que
-       -- eventIntegrationId est posé (tag non rafraîchi au rollover de saison, cf. commentaire
-       -- détaillé sur getTransactionBasketsBatchRaw).
-       AND (ev."eventIntegrationId" IS NOT NULL OR ev."tagId" IS NULL OR t."eventId" = ev."tagId"${orDeclaredSource(extra)})
-       AND (ev."eventIntegrationId" IS NULL OR t."integrationId" = ev."eventIntegrationId"${orDeclaredSource(extra)})
-       AND t."tenantId" = ${tenantId}
-       ${integrationClause}
-       AND t.status = 'V'
-       AND t."deletedAt" IS NULL
-      INNER JOIN "WeezeventTransactionItem" ti
-        ON ti."transactionId" = t.id
-      LEFT JOIN "WeezeventLocationShopMapping" mem
-        ON mem."weezeventLocationId" = t."locationId"
-       AND mem."tenantId" = ${tenantId}
-      LEFT JOIN "WeezeventProductMapping" wpm
-        ON wpm."weezeventProductId" = ti."productId"
-       AND wpm."tenantId" = ${tenantId}
-      WHERE (mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))
-        AND (wpm."menuItemId" IS NULL OR mem."spaceElementId" IS NULL)
-      GROUP BY ev."eventId"
-    `));
-
-    for (const r of rows) {
-      if (!(r.eventId in out)) continue;
-      out[r.eventId] = {
-        unmappedLines: Number(r.unmappedLines || 0),
-        unmappedUnits: Number(r.unmappedUnits || 0),
-        unmappedRevenueHt: Number(r.unmappedRevenueHt || 0),
-        unmappedProductLines: Number(r.unmappedProductLines || 0),
-        unmappedPosLines: Number(r.unmappedPosLines || 0),
-      };
-    }
-
-    // BUG-144-01 : écriture par event, zéros compris (« rien de non mappé » est un
-    // résultat) — même TTL différencié que les deux autres endpoints batch.
-    await Promise.all(
-      missing.map(id =>
-        this.redis.set(this.spaceCacheService.EVENT_UNMAPPED_CACHE_KEY(tenantId, spaceId, id), out[id], {
-          ttl: this.spaceSalesScopeService.eventBatchCacheTtl(scope.windows, id),
-        }),
-      ),
-    );
-    return out;
   }
 }

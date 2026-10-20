@@ -130,7 +130,7 @@ import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from '@/i18n/useI18n'
 import { useAnalyseCapture } from '@/composables/useAnalyseCapture'
-import { useAnalyseUnmapped } from '@/composables/useAnalyseUnmapped'
+import { computeUnmappedVolume } from '@/utils/unmappedVolume'
 import { useLiveExport } from '@/composables/useLiveExport'
 import { formatCurrency, formatNumber } from '@/composables/useFormatters'
 import { formatDateShort } from '@/utils/dateFr'
@@ -147,6 +147,7 @@ const props = defineProps({
   isDark: { type: Boolean, default: false },
   drawerOpen: { type: Boolean, default: true },
   records: { type: Array, default: () => [] },
+  allRecords: { type: Array, default: () => [] },
 })
 
 const emit = defineEmits(['event-updated', 'toggle-drawer', 'open-tools', 'toggle-summary'])
@@ -166,15 +167,14 @@ function onSubmitted() {
   emit('event-updated')
 }
 
-// Warning « PdV non mappés » (parité BUG-356-01) — scopé au seul event live, composable déjà
-// store-free (appel direct /analyse-unmapped, pas de dépendance au store `analyse`).
-const eventsForUnmapped = computed(() => (props.liveEvent ? [props.liveEvent] : []))
-const { unmapped } = useAnalyseUnmapped(eventsForUnmapped)
+// Warning « Non mappées » (parité BUG-356-01), dérivé des records item-level NON filtrés du
+// live (aucun appel réseau dédié).
+const unmapped = computed(() => computeUnmappedVolume(props.allRecords))
 const unmappedText = computed(() => {
   const x = unmapped.value
-  if (!x.known || !x.lines) return ''
+  if (!x.known || !x.units) return ''
   return t('anUnmappedInfo')
-    .replace('{lines}', formatNumber(x.lines))
+    .replace('{units}', formatNumber(x.units))
     .replace('{revenue}', formatCurrency(x.revenueHt))
 })
 

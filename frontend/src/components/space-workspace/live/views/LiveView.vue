@@ -18,6 +18,7 @@
               :is-dark="isDark"
               :drawer-open="drawer"
               :records="filteredItemRecords"
+              :all-records="itemRecordsSource.itemRecords.value"
               @toggle-drawer="drawer = !drawer"
               @open-tools="showToolDrawer = true"
               @toggle-summary="summaryDrawer = !summaryDrawer"
