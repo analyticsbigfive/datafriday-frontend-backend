@@ -4888,7 +4888,7 @@ export const translations = {
     anAggGapTitle: 'Incomplete sales data',
     anAggGapBody: '{n} event(s) have recorded revenue but no sales detail: charts, cost and outlet breakdowns leave them out. Re-run the synchronization in Data Integration.',
     anAggGapMore: 'and {n} more',
-    anUnmappedInfo: '{lines} sale lines ({revenue}) are not mapped in Data Integration — counted under “Unmapped”.',
+    anUnmappedInfo: '{units} units sold ({revenue}) are not mapped in Data Integration, counted under “Unmapped”.',
     anUnmappedInfoLink: 'Open Data Integration',
     anUnmappedTipAction: 'Click:',
     // Space card tiles (BUG-350-01: moved out of the hardcoded template)
@@ -10216,7 +10216,7 @@ export const translations = {
     anAggGapTitle: 'Données de vente incomplètes',
     anAggGapBody: '{n} évènement(s) ont un CA enregistré mais aucun détail de vente : les graphiques, le coût et la répartition par PdV ne les comptent pas. Relancer la synchronisation dans Data Integration.',
     anAggGapMore: 'et {n} autre(s)',
-    anUnmappedInfo: '{lines} lignes de vente ({revenue}) ne sont pas mappées dans Data Integration — comptées sous « Non mappées ».',
+    anUnmappedInfo: '{units} unités vendues ({revenue}) ne sont pas mappées dans Data Integration, comptées sous « Non mappées ».',
     anUnmappedInfoLink: 'Ouvrir Data Integration',
     anUnmappedTipAction: 'Cliquer :',
     // Tuiles de la carte d'espace (BUG-350-01 : sorties du template en dur).

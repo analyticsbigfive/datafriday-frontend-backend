@@ -1002,6 +1002,18 @@ describe('Services des espaces', () => {
       expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
     });
 
+    it('ne rejoue pas le scan brut pour un event dont le rollup indique zéro transaction', async () => {
+      mockPrismaService.event.findMany.mockResolvedValue([
+        { id: 'ev-1', eventDate: new Date('2026-03-01T18:00:00Z'), eventEndDate: null, transactionCount: 0 },
+      ]);
+
+      const res = await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId);
+
+      expect(res['ev-1']).toEqual([]);
+      // Une seule requête SQL : la lecture pré-agrégée. Aucun repli brut.
+      expect(mockPrismaService.$queryRaw).toHaveBeenCalledTimes(1);
+    });
+
     // 2026-09-21 : la 1re requête lit SpaceBasketMinuteAgg (paniers pré-agrégés) ; les tests
     // ci-dessous la laissent vide (mock []) pour exercer le repli brut, qui reste la référence.
     it('lit d’abord la pré-agrégation SpaceBasketMinuteAgg et ne retombe pas sur le brut pour un event servi', async () => {
@@ -1139,7 +1151,7 @@ describe('Services des espaces', () => {
 
     // Décision JLH 2026-08-24 (BUG-137-01, après aller-retour) : les ventes non
     // mappées restent COMPTÉES, affichées « Non mappées » — jamais filtrées ici. Le
-    // volume non mappé est mesuré à part par getAnalyseUnmappedBatch (bandeau).
+    // volume non mappé : dérivé côté front des records item-level (plus d'endpoint dédié).
     it('n’écarte JAMAIS les lignes non résolues (ni mapping, ni catégorie)', async () => {
       await spaceAnalyseBatchService.getTransactionBasketsBatch(spaceId, ['ev-1'], tenantId).catch(() => {});
 
@@ -1225,66 +1237,6 @@ describe('Services des espaces', () => {
   // PUIS sommer les merchants/locations distincts. Le MAX à un seul niveau du commit
   // perf event-timeline-item-agg plafonnait chaque minute à la plus grosse ligne →
   // timeline réelle aplatie en plateau constant.
-  // BUG-137-01 — volume NON MAPPÉ, informatif (bandeau) : ne filtre rien.
-  describe('getAnalyseUnmappedBatch', () => {
-    const spaceId = 'space-1';
-    const tenantId = 'tenant-1';
-
-    beforeEach(() => {
-      mockPrismaService.space.findFirst.mockResolvedValue({ id: spaceId, tenantId });
-      mockPrismaService.locationSpaceMapping.findMany.mockResolvedValue([{ salesLocationId: 'integ-1' }]);
-      mockPrismaService.config.findMany.mockResolvedValue([]);
-      mockPrismaService.spaceElement.findMany.mockResolvedValue([{ id: 'el-1' }]);
-      mockPrismaService.event.findMany.mockResolvedValue([
-        { id: 'ev-1', eventDate: new Date('2026-03-01T18:00:00Z'), eventEndDate: null },
-      ]);
-      (mockPrismaService as any).salesEvent = { findMany: jest.fn().mockResolvedValue([]) };
-      mockPrismaService.$queryRaw.mockResolvedValue([]);
-    });
-
-    it('retourne des zéros (pas des trous) pour un event entièrement mappé', async () => {
-      const res = await spaceAnalyseBatchService.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
-
-      expect(res['ev-1']).toEqual({
-        unmappedLines: 0,
-        unmappedUnits: 0,
-        unmappedRevenueHt: 0,
-        unmappedProductLines: 0,
-        unmappedPosLines: 0,
-      });
-    });
-
-    it('cible produit OU PdV non mappé, avec les mêmes prédicats de lecture que la page', async () => {
-      await spaceAnalyseBatchService.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
-
-      const sql: string = (mockPrismaService.$queryRaw.mock.calls.at(-1)?.[0]?.strings ?? []).join('');
-      expect(sql).toContain('wpm."menuItemId" IS NULL OR mem."spaceElementId" IS NULL');
-      // Les ventes mappées vers les shops d'un AUTRE espace ne sont pas comptées ici.
-      expect(sql).toContain('mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(');
-      // Mêmes prédicats que event-timeline / transaction-baskets.
-      expect(sql).toContain("t.status = 'V'");
-      expect(sql).toContain('t."deletedAt" IS NULL');
-    });
-
-    it('mappe les lignes SQL par eventId et convertit en nombres', async () => {
-      mockPrismaService.$queryRaw.mockResolvedValue([
-        {
-          eventId: 'ev-1',
-          unmappedLines: 12,
-          unmappedUnits: 30,
-          unmappedRevenueHt: '145.50',
-          unmappedProductLines: 10,
-          unmappedPosLines: 2,
-        },
-      ]);
-
-      const res = await spaceAnalyseBatchService.getAnalyseUnmappedBatch(spaceId, ['ev-1'], tenantId);
-
-      expect(res['ev-1'].unmappedRevenueHt).toBe(145.5);
-      expect(res['ev-1'].unmappedProductLines).toBe(10);
-    });
-  });
-
   describe('getEventTimelineBatch', () => {
     const spaceId = 'space-1';
     const tenantId = 'tenant-1';
