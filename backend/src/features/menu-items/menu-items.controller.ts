@@ -77,7 +77,8 @@ export class MenuItemsController {
   @ApiQuery({ name: 'spaceId', required: false, type: String, description: 'Filtre sur les articles vendus dans cet espace (MenuItem.spaceIds)' })
   @ApiQuery({ name: 'search', required: false, type: String, description: 'Recherche texte (nom, insensible à la casse)' })
   @ApiQuery({ name: 'typeId', required: false, type: String, description: 'Filtre par ProductType' })
-  @ApiQuery({ name: 'categoryId', required: false, type: String, description: 'Filtre par ProductCategory' })
+  @ApiQuery({ name: 'categoryId', required: false, type: String, description: 'Filtre par ProductCategory (plusieurs IDs séparés par des virgules)' })
+  @ApiQuery({ name: 'seasonIds', required: false, type: String, description: 'Filtre par Saison (plusieurs IDs séparés par des virgules, OU)' })
   @ApiQuery({ name: 'readyForSale', required: false, type: String, description: 'Filtre "Yes"/"No"' })
   @ApiResponse({
     status: 200,
@@ -175,12 +176,13 @@ export class MenuItemsController {
     @CurrentTenant() tenantId: string,
     @Query() params: MenuItemsFindAllQueryDto,
   ) {
-    const { page, limit, spaceId, search, typeId, categoryId, readyForSale } = params;
+    const { page, limit, spaceId, search, typeId, categoryId, seasonIds, readyForSale } = params;
     this.logger.log(`GET /menu-items - User: ${user?.id}, Tenant: ${tenantId}, spaceId: ${spaceId ?? 'all'}`);
     return this.menuItemQueryService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100, spaceId, {
       search,
       typeId,
       categoryId,
+      seasonIds,
       readyForSale,
     }, user);
   }

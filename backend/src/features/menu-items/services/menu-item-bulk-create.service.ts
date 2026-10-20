@@ -108,7 +108,6 @@ export class MenuItemBulkCreateService {
         categoryId: dto.categoryId || null,
         brandId: dto.brandId || null,
         displayNameId: dto.displayNameId || null,
-        seasonId: dto.seasonId || null,
         isCombo: dto.isCombo ?? false,
         basePrice: dto.basePrice,
         vatRate: dto.vatRate ?? null,
@@ -136,6 +135,12 @@ export class MenuItemBulkCreateService {
         await this.prisma.menuItem.createMany({
           data: insertedItems as any[],
         });
+        const seasonLinks = toInsert.flatMap(({ dto, id }) =>
+          (dto.seasonIds ?? []).map((seasonId) => ({ menuItemId: id, seasonId })),
+        );
+        if (seasonLinks.length) {
+          await this.prisma.menuItemSeason.createMany({ data: seasonLinks, skipDuplicates: true });
+        }
       }
 
       toInsert.forEach(({ index }, i) => {
