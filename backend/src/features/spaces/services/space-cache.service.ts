@@ -51,12 +51,6 @@ export class SpaceCacheService {
     `spaces:baskets:${tenantId}:${spaceId}:${eventId}`;
   readonly EVENT_BATCH_CACHE_TTL_PAST = 6 * 3600; // 6 h — event terminé, données immuables
   readonly EVENT_BATCH_CACHE_TTL_LIVE = 60; // event du jour/futur ou sans fenêtre résolue
-  // BUG-144-01 : volume non mappé, caché comme les deux autres depuis le 25/08 — REMPLACE
-  // la décision BUG-137-01 (« jamais caché ») : l'invalidation à l'écriture de mapping
-  // (MappingsService) garantit qu'un re-mapping se voit au chargement suivant, sans payer
-  // le re-scan brut des 786k lignes à CHAQUE visite.
-  readonly EVENT_UNMAPPED_CACHE_KEY = (tenantId: string, spaceId: string, eventId: string) =>
-    `spaces:unmapped:${tenantId}:${spaceId}:${eventId}`;
   // BUG-144-01 : entrées STABLES de resolveEventSalesScope (events de l'espace, intégrations,
   // timezone) — recalculées à chaque appel batch alors qu'elles ne varient pas par event.
   readonly SPACE_SALESSCOPE_CACHE_KEY = (tenantId: string, spaceId: string) =>

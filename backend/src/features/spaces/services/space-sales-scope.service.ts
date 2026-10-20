@@ -253,8 +253,8 @@ export class SpaceSalesScopeService {
     // would leak other spaces' sales into this space's date windows — in that
     // degraded mode, require the mapping.
     // Décision JLH 2026-08-24 (BUG-137-01, après aller-retour) : les ventes non
-    // mappées restent COMPTÉES, affichées « Non mappées » — le volume est mesuré à
-    // part (getAnalyseUnmappedBatch → bandeau informatif), jamais filtré ici.
+    // mappées restent COMPTÉES, affichées « Non mappées » — le volume est dérivé
+    // côté front (bandeau informatif), jamais filtré ici.
     const shopScopeClause = integrationIds.length
       ? Prisma.sql`(mem."spaceElementId" IS NULL OR mem."spaceElementId" = ANY(${shopIds}))`
       : Prisma.sql`mem."spaceElementId" = ANY(${shopIds})`;
