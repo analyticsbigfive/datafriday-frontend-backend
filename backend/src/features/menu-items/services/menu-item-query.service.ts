@@ -12,6 +12,9 @@ const ASSERT_SPACE_ACCESS_MESSAGES = {
   denied: "Vous n'avez pas accès à l'espace de cet article.",
 };
 
+const splitIds = (raw?: string): string[] =>
+  (raw ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+
 /**
  * Lecture des articles de menu (liste paginée en cache, détail).
  */
@@ -31,11 +34,11 @@ export class MenuItemQueryService {
     page = 1,
     limit = 100,
     spaceId?: string,
-    filters?: { search?: string; typeId?: string; categoryId?: string; readyForSale?: string },
+    filters?: { search?: string; typeId?: string; categoryId?: string; seasonIds?: string; readyForSale?: string },
     user?: SpaceScopedUser,
   ) {
     const safeLimit = Math.min(Math.max(limit, 1), 500);
-    const { search, typeId, categoryId, readyForSale } = filters || {};
+    const { search, typeId, categoryId, seasonIds, readyForSale } = filters || {};
 
     // Sans spaceId explicite (ex. sélecteur front resté sur "Tous les espaces"), un
     // utilisateur restreint à certains espaces ne doit voir que les articles qui y sont
@@ -50,12 +53,12 @@ export class MenuItemQueryService {
         : `restricted:${[...accessibleSpaceIds].sort().join(',')}`;
 
     this.logger.log(
-      `Fetching menu items for tenant ${tenantId} (page=${page}, limit=${safeLimit}, spaceId=${spaceId ?? 'all'}, search=${search ?? ''}, typeId=${typeId ?? ''}, categoryId=${categoryId ?? ''}, readyForSale=${readyForSale ?? ''})`,
+      `Fetching menu items for tenant ${tenantId} (page=${page}, limit=${safeLimit}, spaceId=${spaceId ?? 'all'}, search=${search ?? ''}, typeId=${typeId ?? ''}, categoryId=${categoryId ?? ''}, seasonIds=${seasonIds ?? ''}, readyForSale=${readyForSale ?? ''})`,
     );
     try {
       const cacheKey = this.menuItemSupportService.listCache.key(
         tenantId,
-        `list:${page}:${safeLimit}:${scopeKey}:${search ?? ''}:${typeId ?? ''}:${categoryId ?? ''}:${readyForSale ?? ''}`,
+        `list:${page}:${safeLimit}:${scopeKey}:${search ?? ''}:${typeId ?? ''}:${categoryId ?? ''}:${seasonIds ?? ''}:${readyForSale ?? ''}`,
       );
       return this.redis.getOrSet(cacheKey, async () => {
         const skip = (page - 1) * safeLimit;
@@ -72,7 +75,12 @@ export class MenuItemQueryService {
         }
         if (search) where.name = { contains: search, mode: 'insensitive' };
         if (typeId) where.typeId = typeId;
-        if (categoryId) where.categoryId = categoryId;
+        // categoryId et seasonIds acceptent une liste séparée par des virgules (filtres multi-choix).
+        const categoryIdList = splitIds(categoryId);
+        if (categoryIdList.length) where.categoryId = { in: categoryIdList };
+        // Un article sans saison n'a aucun lien : il est exclu dès qu'une saison est filtrée.
+        const seasonIdList = splitIds(seasonIds);
+        if (seasonIdList.length) where.seasonLinks = { some: { seasonId: { in: seasonIdList } } };
         if (readyForSale) where.readyForSale = readyForSale;
         const [items, total, tenantVatRate] = await Promise.all([
           this.prisma.menuItem.findMany({

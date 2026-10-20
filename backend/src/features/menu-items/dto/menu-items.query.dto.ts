@@ -22,6 +22,12 @@ export class MenuItemsFindAllQueryDto extends PageLimitSearchQueryDto {
   @MaxLength(2000)
   categoryId?: string;
 
+  /** IDs de saisons séparés par des virgules (multi-choix, OU). Un article sans saison est exclu. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  seasonIds?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(2000)

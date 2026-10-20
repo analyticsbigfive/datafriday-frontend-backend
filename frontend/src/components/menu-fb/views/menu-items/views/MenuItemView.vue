@@ -82,18 +82,14 @@
             class="mil-filter-sel"
           />
 
-          <v-select
-            :model-value="categoryFilter"
-            @update:model-value="onCategoryFilterInput"
+          <PillMultiSelect
+            :model-value="categoryFilters"
             :items="categoryOptions"
-            item-title="title"
-            item-value="value"
-            density="compact"
-            variant="outlined"
-            hide-details
-            :menu-props="{ contentClass: 'mil-filter-menu' }"
-            class="mil-filter-sel"
+            :placeholder="t('categoryFilterPlaceholder')"
+            @update:model-value="onCategoryFilterInput"
           />
+
+          <SeasonMultiFilter v-model="seasonFilters" />
 
           <v-select
             v-model="readyFilter"
@@ -113,7 +109,7 @@
       </div>
 
       <!-- Active filter chips -->
-      <div v-if="spaceFilter !== 'All Spaces' || typeFilter !== 'All Types' || categoryFilter !== 'All Categories' || readyFilter !== 'All'" class="mil-filterbar__chips">
+      <div v-if="spaceFilter !== 'All Spaces' || typeFilter !== 'All Types' || categoryFilters.length || pinnedCategoryId || seasonFilters.length || readyFilter !== 'All'" class="mil-filterbar__chips">
         <span v-if="spaceFilter !== 'All Spaces'" class="mil-chip mil-chip--blue">
           {{ (spaceOptions.find(o => o.value === spaceFilter) || {}).title || spaceFilter }}
           <button class="mil-chip__x" @click="spaceFilter = 'All Spaces'"><X :size="10" /></button>
@@ -122,9 +118,17 @@
           {{ typeFilter }}
           <button class="mil-chip__x" @click="typeFilter = 'All Types'"><X :size="10" /></button>
         </span>
-        <span v-if="categoryFilter !== 'All Categories' || pinnedCategoryId" class="mil-chip mil-chip--orange">
-          {{ categoryFilter }}
-          <button class="mil-chip__x" @click="pinnedCategoryId = null; categoryFilter = 'All Categories'"><X :size="10" /></button>
+        <span v-for="cat in categoryFilters" :key="'cat-' + cat" class="mil-chip mil-chip--orange">
+          {{ cat }}
+          <button class="mil-chip__x" @click="categoryFilters = categoryFilters.filter(c => c !== cat)"><X :size="10" /></button>
+        </span>
+        <span v-if="pinnedCategoryId" class="mil-chip mil-chip--orange">
+          {{ pinnedCategoryName }}
+          <button class="mil-chip__x" @click="pinnedCategoryId = null"><X :size="10" /></button>
+        </span>
+        <span v-for="seasonId in seasonFilters" :key="'season-' + seasonId" class="mil-chip mil-chip--green">
+          {{ seasonNameById(seasonId) }}
+          <button class="mil-chip__x" @click="seasonFilters = seasonFilters.filter(id => id !== seasonId)"><X :size="10" /></button>
         </span>
         <span v-if="readyFilter !== 'All'" class="mil-chip mil-chip--green">
           {{ readyFilter }}
@@ -532,6 +536,9 @@ import { duplicateMenuItemById } from "@/composables/useMenuItemDuplicate";
 import { getProductMappings, deleteProductMapping } from "@/api/endpoints/mapping.api";
 import MenuItemDeleteDialog from '../dialogs/MenuItemDeleteDialog.vue';
 import BulkDeleteDialog from '@/components/common/BulkDeleteDialog.vue';
+import PillMultiSelect from '@/components/common/PillMultiSelect.vue';
+import SeasonMultiFilter from '@/components/common/SeasonMultiFilter.vue';
+import { matchesSeasonFilter } from '@/utils/menuItemSeasonFilter';
 import MenuItemCsvImportDrawer from '../drawers/MenuItemCsvImportDrawer.vue';
 import RecipeImportDrawer from '../drawers/RecipeImportDrawer.vue';
 import {
@@ -555,6 +562,8 @@ import {
 export default {
   name: "MenuItemView",
   components: {
+    PillMultiSelect,
+    SeasonMultiFilter,
     ChevronDown,
     ChevronRight,
     Copy,
@@ -589,7 +598,8 @@ export default {
       searchQuery: "",
       spaceFilter: "All Spaces",
       typeFilter: "All Types",
-      categoryFilter: "All Categories",
+      categoryFilters: [], // noms de catégories (multi-choix, [] = toutes)
+      seasonFilters: [], // IDs de saisons (multi-choix, [] = toutes)
       // Filtre catégorie « épinglé » par un lien de taxonomie : la categoryId EXACTE (non ambiguë,
       // et indépendante du type de l'article). Prime sur le filtre par nom tant qu'elle est posée ;
       // effacée dès que l'utilisateur change le dropdown catégorie (onCategoryFilterInput).
@@ -640,7 +650,7 @@ export default {
     // vers la liste déjà filtrée, plutôt que de laisser l'utilisateur chercher la bonne ligne à la
     // main parmi potentiellement des milliers.
     if (this.$route.query.type) this.typeFilter = String(this.$route.query.type);
-    if (this.$route.query.category) this.categoryFilter = String(this.$route.query.category);
+    if (this.$route.query.category) this.categoryFilters = [String(this.$route.query.category)];
     if (this.$route.query.categoryId) this.pinnedCategoryId = String(this.$route.query.categoryId);
     this.ensureDataLoaded();
   },
@@ -652,7 +662,7 @@ export default {
     // (ex. suppression bloquée d'une catégorie) n'a aucun effet une fois la vue déjà montée
     // (même classe de bug que BUG-154/122).
     if (this.$route.query.type) this.typeFilter = String(this.$route.query.type);
-    if (this.$route.query.category) this.categoryFilter = String(this.$route.query.category);
+    if (this.$route.query.category) this.categoryFilters = [String(this.$route.query.category)];
     if (this.$route.query.categoryId) this.pinnedCategoryId = String(this.$route.query.categoryId);
     this.ensureDataLoaded();
   },
@@ -665,7 +675,8 @@ export default {
     },
     spaceFilter() { this.persistFilters(); if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
     typeFilter() { this.persistFilters(); if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
-    categoryFilter() { this.persistFilters(); if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
+    categoryFilters() { this.persistFilters(); if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
+    seasonFilters() { this.persistFilters(); if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
     readyFilter() { this.persistFilters(); if (!this.needsFullCatalog) this.reloadServerFirstPage(); },
     viewMode() { this.ensureDataLoaded(); },
     groupByEnabled() { this.ensureDataLoaded(); },
@@ -762,14 +773,16 @@ export default {
       ];
     },
     categoryOptions() {
-      const cats = (this.productCategories || [])
+      // Dédoublonné : le même nom peut exister sous plusieurs types (le filtre matche par nom).
+      const cats = [...new Set((this.productCategories || [])
         .map((c) => String(c?.name || c?.category || "").trim())
-        .filter(Boolean)
+        .filter(Boolean))]
         .sort((a, b) => String(a).localeCompare(String(b)));
-      return [
-        { title: this.t("menuItemLib.allCategories"), value: "All Categories" },
-        ...cats.map(cat => ({ title: cat, value: cat })),
-      ];
+      return cats.map(cat => ({ id: cat, name: cat }));
+    },
+    pinnedCategoryName() {
+      const cat = (this.productCategories || []).find((c) => String(c?.id) === String(this.pinnedCategoryId));
+      return String(cat?.name || cat?.category || this.pinnedCategoryId || '');
     },
     readyOptions() {
       return [
@@ -789,9 +802,10 @@ export default {
         const matchesType = this.typeFilter === "All Types" || String(i?.type || "") === this.typeFilter;
         const matchesCategory = this.pinnedCategoryId
           ? String(i?.categoryId || "") === this.pinnedCategoryId
-          : (this.categoryFilter === "All Categories" || String(i?.category || "") === this.categoryFilter);
+          : (this.categoryFilters.length === 0 || this.categoryFilters.includes(String(i?.category || "")));
         const matchesReady = this.readyFilter === "All" || String(i?.readyForSale || "") === this.readyFilter;
-        return matchesSearch && matchesSpace && matchesType && matchesCategory && matchesReady;
+        const matchesSeason = matchesSeasonFilter(i, this.seasonFilters);
+        return matchesSearch && matchesSpace && matchesType && matchesCategory && matchesSeason && matchesReady;
       });
     },
   },
@@ -800,7 +814,8 @@ export default {
       this.searchQuery = "";
       this.spaceFilter = "All Spaces";
       this.typeFilter = "All Types";
-      this.categoryFilter = "All Categories";
+      this.categoryFilters = [];
+      this.seasonFilters = [];
       this.pinnedCategoryId = null;
       this.readyFilter = "All";
     },
@@ -810,24 +825,26 @@ export default {
     // persisté (artefact de deep-link) : la catégorie est mémorisée par son nom.
     persistFilters() {
       try {
-        localStorage.setItem('menuItems.filters.v1', JSON.stringify({
+        localStorage.setItem('menuItems.filters.v2', JSON.stringify({
           searchQuery: this.searchQuery,
           spaceFilter: this.spaceFilter,
           typeFilter: this.typeFilter,
-          categoryFilter: this.categoryFilter,
+          categoryFilters: this.categoryFilters,
+          seasonFilters: this.seasonFilters,
           readyFilter: this.readyFilter,
         }));
       } catch (e) { /* localStorage indisponible : on ignore */ }
     },
     restoreFilters() {
       try {
-        const raw = localStorage.getItem('menuItems.filters.v1');
+        const raw = localStorage.getItem('menuItems.filters.v2');
         if (!raw) return;
         const f = JSON.parse(raw) || {};
         if (typeof f.searchQuery === 'string') this.searchQuery = f.searchQuery;
         if (typeof f.spaceFilter === 'string') this.spaceFilter = f.spaceFilter;
         if (typeof f.typeFilter === 'string') this.typeFilter = f.typeFilter;
-        if (typeof f.categoryFilter === 'string') this.categoryFilter = f.categoryFilter;
+        if (Array.isArray(f.categoryFilters)) this.categoryFilters = f.categoryFilters.map(String);
+        if (Array.isArray(f.seasonFilters)) this.seasonFilters = f.seasonFilters.map(String);
         if (typeof f.readyFilter === 'string') this.readyFilter = f.readyFilter;
       } catch (e) { /* JSON corrompu : on ignore */ }
     },
@@ -835,7 +852,7 @@ export default {
     // (@update:model-value ne se déclenche que sur interaction utilisateur, pas sur set programmatique).
     onCategoryFilterInput(val) {
       this.pinnedCategoryId = null;
-      this.categoryFilter = val;
+      this.categoryFilters = Array.isArray(val) ? val : [];
     },
     // Charge soit le catalogue complet (vue grille / tableau regroupé), soit la page
     // serveur courante (vue tableau à plat) — à appeler à chaque fois que l'écran doit
@@ -856,17 +873,26 @@ export default {
       const found = (this.productTypes || []).find((t) => String(t?.name || t?.type || '') === name);
       return found?.id || null;
     },
-    resolveCategoryId(name) {
-      if (!name || name === 'All Categories') return null;
+    // Noms de catégories sélectionnés → IDs séparés par des virgules (le même nom peut exister
+    // sous plusieurs types : le filtre client matche par nom, le serveur doit donc les inclure tous).
+    resolveCategoryIds(names) {
+      const ids = (names || []).flatMap((name) => this.resolveCategoryIdsForName(name));
+      return ids.length ? [...new Set(ids)].join(',') : null;
+    },
+    resolveCategoryIdsForName(name) {
+      if (!name) return [];
       // Les noms de catégorie ne sont uniques QUE par type (@@unique[tenantId, typeId, name]).
       // On scoppe donc par le type sélectionné pour ne pas résoudre vers la catégorie d'un AUTRE
       // type portant le même nom (→ mauvais categoryId → liste vide).
       const typeId = this.resolveTypeId(this.typeFilter);
       const cats = this.productCategories || [];
-      const found = typeId
-        ? cats.find((c) => String(c?.name || c?.category || '') === name && String(c?.typeId || c?.type?.id || '') === String(typeId))
-        : cats.find((c) => String(c?.name || c?.category || '') === name);
-      return found?.id || null;
+      return cats
+        .filter((c) => String(c?.name || c?.category || '') === name
+          && (!typeId || String(c?.typeId || c?.type?.id || '') === String(typeId)))
+        .map((c) => String(c.id));
+    },
+    seasonNameById(id) {
+      return this.$store.getters['seasons/seasonById'](id)?.name || id;
     },
     async loadServerPage() {
       this.serverLoading = true;
@@ -877,7 +903,8 @@ export default {
           spaceId: this.spaceFilter !== 'All Spaces' ? this.spaceFilter : null,
           search: this.searchQuery,
           typeId: this.resolveTypeId(this.typeFilter),
-          categoryId: this.pinnedCategoryId || this.resolveCategoryId(this.categoryFilter),
+          categoryId: this.pinnedCategoryId || this.resolveCategoryIds(this.categoryFilters),
+          seasonIds: this.seasonFilters.length ? this.seasonFilters.join(',') : null,
           readyForSale: this.readyFilter !== 'All' ? this.readyFilter : null,
         });
         this.serverRawItems = res.data;
@@ -917,7 +944,7 @@ export default {
         ? Number(item.costPerPiece)
         : recipeTotalCost / pieces;
       const spaceIds = Array.isArray(item?.spaceIds) ? item.spaceIds : (item?.spaceId ? [item.spaceId] : []);
-      const seasonNames = this.getSeasonsForSpaceIds(spaceIds);
+      const seasonNames = (Array.isArray(item?.seasonIds) ? item.seasonIds : []).map((id) => this.seasonNameById(id));
 
       // Prix de chaque espace (ou prix global si aucun espace), puis on retient l'espace le plus cher.
       const priced = (spaceIds.length ? spaceIds : [null]).map((sid) => {
@@ -960,17 +987,6 @@ export default {
     getSpaceName(spaceId) {
       const s = (this.spaces || []).find(x => String(x?.id || x?._id) === String(spaceId));
       return s ? String(s.name || s.title || s.label || spaceId) : String(spaceId);
-    },
-    // Saisons (Custom Dates de Configuration) applicables à un article : un Menu Item n'a pas de
-    // saison propre, on la déduit de ses espaces. Une saison s'applique si elle couvre tous les
-    // espaces (allSpaces) ou si l'un de ses espaces est vendu par l'article.
-    getSeasonsForSpaceIds(spaceIds) {
-      const ids = (Array.isArray(spaceIds) ? spaceIds : []).map((x) => String(x));
-      const seasons = this.$store.getters['seasons/seasons'] || [];
-      return seasons
-        .filter((s) => s?.allSpaces || (Array.isArray(s?.spaceIds) && s.spaceIds.some((id) => ids.includes(String(id)))))
-        .map((s) => String(s?.name || '').trim())
-        .filter(Boolean);
     },
     /**
      * Prix (TTC/HT/TVA/marge) d'un article DANS un espace : décomposition `spacePricing[spaceId]`

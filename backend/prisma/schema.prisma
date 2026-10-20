@@ -466,16 +466,16 @@ model RolePermission {
 // ==================== SPACE & CONFIG ====================
 
 model Space {
-  id        String   @id @default(cuid())
-  name      String
-  image     String?  @db.Text
-  tenantId  String
+  id              String   @id @default(cuid())
+  name            String
+  image           String?  @db.Text
+  tenantId        String
   // Slug du QR code « Ventilation » des logisticiens (/login/pin/:slug), un par espace,
   // généré à la première ouverture de l'accès et jamais recalculé : le QR affiché en zone
   // logistique reste valable de match en match, seul le PIN change (décision #77).
-  ventilationSlug String? @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  ventilationSlug String?  @unique
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   // Contact Info
   tel               String?
@@ -620,8 +620,9 @@ model Season {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  spaces    SeasonSpace[]
-  menuItems MenuItem[]
+  spaces        SeasonSpace[]
+  menuItems     MenuItem[]       @relation("LegacyMenuItemSeason")
+  menuItemLinks MenuItemSeason[]
 
   @@index([tenantId])
 }
@@ -635,6 +636,19 @@ model SeasonSpace {
 
   @@id([seasonId, spaceId])
   @@index([spaceId])
+}
+
+/// Rattachement N-N Menu Item <-> Saison (un article peut appartenir à plusieurs saisons).
+/// Pas de tenantId : même patron que SeasonSpace / SpaceMenuItem, le tenant est porté par les deux parents.
+model MenuItemSeason {
+  menuItemId String
+  seasonId   String
+
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+  season   Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@id([menuItemId, seasonId])
+  @@index([seasonId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2340,7 +2354,7 @@ model MenuItem {
   categoryId             String? // FK to ProductCategory (optional)
   brandId                String? // FK to Brand (optional)
   displayNameId          String? // FK to DisplayName (optional)
-  seasonId               String? // FK to Season (Custom Date de Configuration, optional)
+  seasonId               String? // DEPRECATED : remplacé par seasonLinks (N-N), colonne conservée le temps du déploiement
   diet                   Diet[]
   allergens              String[]
   picture                String?
@@ -2373,20 +2387,21 @@ model MenuItem {
   updatedAt              DateTime     @updatedAt
   deletedAt              DateTime?
 
-  tenant          Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  productType     ProductType?                @relation(fields: [typeId], references: [id])
-  productCategory ProductCategory?            @relation(fields: [categoryId], references: [id])
-  brand           Brand?                      @relation(fields: [brandId], references: [id])
-  displayName     DisplayName?                @relation(fields: [displayNameId], references: [id])
-  season          Season?                     @relation(fields: [seasonId], references: [id], onDelete: SetNull)
-  kitchen         Kitchen?                    @relation(fields: [kitchenId], references: [id], onDelete: SetNull)
-  components      MenuItemComponent[]
-  ingredients     MenuItemIngredient[]
-  packagings      MenuItemPackaging[]
-  menuAssignments MenuAssignment[]
-  salesMappings   ProductMapping[]
-  priceHistory    MenuItemPriceHistory[]
-  spaceLinks      SpaceMenuItem[]
+  tenant                 Tenant                      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  productType            ProductType?                @relation(fields: [typeId], references: [id])
+  productCategory        ProductCategory?            @relation(fields: [categoryId], references: [id])
+  brand                  Brand?                      @relation(fields: [brandId], references: [id])
+  displayName            DisplayName?                @relation(fields: [displayNameId], references: [id])
+  season                 Season?                     @relation("LegacyMenuItemSeason", fields: [seasonId], references: [id], onDelete: SetNull)
+  seasonLinks            MenuItemSeason[]
+  kitchen                Kitchen?                    @relation(fields: [kitchenId], references: [id], onDelete: SetNull)
+  components             MenuItemComponent[]
+  ingredients            MenuItemIngredient[]
+  packagings             MenuItemPackaging[]
+  menuAssignments        MenuAssignment[]
+  salesMappings          ProductMapping[]
+  priceHistory           MenuItemPriceHistory[]
+  spaceLinks             SpaceMenuItem[]
   // Composition "Combo"/"Menu" par d'autres MenuItem vendables (ex. "Burger + Frites" = composé
   // de "Burger" + "Frites"), distincte de `comboItem` (flag scalaire "cet item est réutilisable
   // tel quel dans un combo") et de `components[]` (qui pointe vers MenuComponent, pas MenuItem).

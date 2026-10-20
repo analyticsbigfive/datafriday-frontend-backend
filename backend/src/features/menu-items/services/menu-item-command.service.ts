@@ -90,7 +90,9 @@ export class MenuItemCommandService {
           categoryId: dto.categoryId || null,
           brandId: dto.brandId || null,
           displayNameId: dto.displayNameId || null,
-          seasonId: dto.seasonId || null,
+          ...(dto.seasonIds?.length
+            ? { seasonLinks: { create: dto.seasonIds.map((seasonId) => ({ seasonId })) } }
+            : {}),
           isCombo: dto.isCombo ?? false,
           basePrice: dto.basePrice,
           vatRate: dto.vatRate ?? null,
@@ -221,7 +223,9 @@ export class MenuItemCommandService {
     if (dto.categoryId !== undefined) updateData.categoryId = dto.categoryId;
     if (dto.brandId !== undefined) updateData.brandId = dto.brandId || null;
     if (dto.displayNameId !== undefined) updateData.displayNameId = dto.displayNameId || null;
-    if (dto.seasonId !== undefined) updateData.seasonId = dto.seasonId || null;
+    if (dto.seasonIds !== undefined) {
+      updateData.seasonLinks = { deleteMany: {}, create: dto.seasonIds.map((seasonId) => ({ seasonId })) };
+    }
     if (dto.isCombo !== undefined) updateData.isCombo = dto.isCombo;
     if (dto.basePrice !== undefined) updateData.basePrice = dto.basePrice;
     if (dto.vatRate !== undefined) updateData.vatRate = dto.vatRate ?? null;

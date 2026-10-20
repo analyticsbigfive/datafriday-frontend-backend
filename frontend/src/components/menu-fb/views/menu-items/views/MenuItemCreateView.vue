@@ -343,10 +343,14 @@
               <div class="mb-3">
                 <label class="field-label">{{ t('menuItemCreate.labelSeason') }}</label>
                 <v-select
-                  v-model="form.seasonId"
+                  v-model="form.seasonIds"
                   :items="seasonOptions"
                   item-title="name"
                   item-value="id"
+                  multiple
+                  chips
+                  closable-chips
+                  :chip-props="{ size: 'small' }"
                   variant="outlined"
                   density="compact"
                   hide-details
@@ -919,7 +923,7 @@ export default {
         spacePrices: {},
         brandId: null,
         displayNameId: null,
-        seasonId: null,
+        seasonIds: [],
         typeName: "",
         typeId: null,
         categoryName: "",
@@ -1550,7 +1554,7 @@ export default {
           spacePrices: this.form.spacePrices || {},
           brandId: this.form.brandId || null,
           displayNameId: this.form.displayNameId || null,
-          seasonId: this.form.seasonId || null,
+          seasonIds: this.form.seasonIds || [],
           // Promotion « est en promotion » : le produit remisé + le type ne sont envoyés que si actif.
           isOnPromotion: !!this.form.isOnPromotion,
           discountedProductId: this.form.isOnPromotion ? (this.form.discountedProductId || null) : null,
@@ -1824,7 +1828,7 @@ export default {
         );
         this.form.brandId = menuItem.brandId || menuItem.brand?.id || null;
         this.form.displayNameId = menuItem.displayNameId || menuItem.displayName?.id || null;
-        this.form.seasonId = menuItem.seasonId || menuItem.season?.id || null;
+        this.form.seasonIds = Array.isArray(menuItem.seasonIds) ? [...menuItem.seasonIds] : [];
 
         // Resolve typeId → typeName
         if (menuItem.typeId) {

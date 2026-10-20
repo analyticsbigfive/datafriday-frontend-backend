@@ -75,7 +75,8 @@ export async function getAllMenuItems(spaceId = null) {
  * @param {string|null} [opts.spaceId]
  * @param {string} [opts.search] - Recherche texte sur le nom (insensible à la casse)
  * @param {string} [opts.typeId]
- * @param {string} [opts.categoryId]
+ * @param {string} [opts.categoryId] - un ID ou plusieurs séparés par des virgules
+ * @param {string} [opts.seasonIds] - IDs de saisons séparés par des virgules (OU)
  * @param {string} [opts.readyForSale] - 'Yes' | 'No'
  * @returns {Promise<{data: Array, meta: {total: number, page: number, limit: number, totalPages: number}}>}
  */
@@ -86,6 +87,7 @@ export async function getMenuItemsPage({
   search = '',
   typeId = null,
   categoryId = null,
+  seasonIds = null,
   readyForSale = null,
 } = {}) {
   const params = new URLSearchParams({ page: String(page), limit: String(limit) })
@@ -93,6 +95,7 @@ export async function getMenuItemsPage({
   if (search) params.set('search', search)
   if (typeId) params.set('typeId', typeId)
   if (categoryId) params.set('categoryId', categoryId)
+  if (seasonIds) params.set('seasonIds', seasonIds)
   if (readyForSale) params.set('readyForSale', readyForSale)
   const res = await api.get(`/menu-items?${params.toString()}`)
   return {

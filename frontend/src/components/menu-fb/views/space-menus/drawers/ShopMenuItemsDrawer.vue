@@ -98,6 +98,11 @@
                 </span>
               </div>
 
+              <!-- Filtre saison multi-choix : un article sans saison est masqué dès qu'une saison est choisie. -->
+              <div class="smi-season-filter">
+                <SeasonMultiFilter v-model="seasonFilters" />
+              </div>
+
               <!-- Classification par type (pills) — filtre la liste de l'onglet courant. -->
               <div v-if="typeOptions.length" class="smi-type-pills">
                 <button
@@ -214,10 +219,12 @@ import { useI18n } from "@/i18n/useI18n";
 import { X, UtensilsCrossed, Package, Check, Minus, AlertCircle } from 'lucide-vue-next';
 import { assignMenuItemsToShop, getShopAvailableMenuItems } from "@/api/endpoints/menu.api";
 import { formatCurrencyDetailed } from "@/composables/useFormatters";
+import { matchesSeasonFilter } from "@/utils/menuItemSeasonFilter";
+import SeasonMultiFilter from "@/components/common/SeasonMultiFilter.vue";
 
 export default {
   name: 'ShopMenuItemsDrawer',
-  components: { X, UtensilsCrossed, Package, Check, Minus, AlertCircle },
+  components: { X, UtensilsCrossed, Package, Check, Minus, AlertCircle, SeasonMultiFilter },
   setup() {
     const { t } = useI18n();
     return { t, formatCurrency: formatCurrencyDetailed };
@@ -247,6 +254,8 @@ export default {
       availabilityTab: 'available',
       // Filtre de classification par type (pills). 'all' = tous les types.
       typeFilter: 'all',
+      // Filtre saison (IDs, multi-choix, [] = toutes).
+      seasonFilters: [],
       selectedMenuItemIds: [],
       initialSelectedIds: [],
       attachLoading: false,
@@ -266,6 +275,7 @@ export default {
         this.selectedMenuItemIds = [];
         this.availabilityTab = 'available';
         this.typeFilter = 'all';
+        this.seasonFilters = [];
         this.loadMenuItems();
       } else if (!isOpen) {
         this._clearTimer = setTimeout(() => {
@@ -282,13 +292,18 @@ export default {
     },
   },
   computed: {
-    availableMenuItems()    { return (this.allMenuItems || []).filter(item => item.available === true); },
-    notAvailableMenuItems() { return (this.allMenuItems || []).filter(item => item.available !== true); },
+    // Items restant après le filtre saison : alimente onglets, compteurs et « Tout sélectionner »
+    // (sélectionner tout avec une saison filtrée ne touche que les articles de cette saison).
+    seasonScopedItems() {
+      return (this.allMenuItems || []).filter(item => matchesSeasonFilter(item, this.seasonFilters));
+    },
+    availableMenuItems()    { return this.seasonScopedItems.filter(item => item.available === true); },
+    notAvailableMenuItems() { return this.seasonScopedItems.filter(item => item.available !== true); },
     // Items de l'onglet de disponibilité courant, AVANT le filtre par type.
     tabBaseItems() {
       if (this.availabilityTab === 'available')     return this.availableMenuItems;
       if (this.availabilityTab === 'not-available') return this.notAvailableMenuItems;
-      return this.allMenuItems;
+      return this.seasonScopedItems;
     },
     // Types présents dans l'onglet courant (pills), triés. Vide → pas de rangée de pills.
     typeOptions() {
@@ -340,6 +355,7 @@ export default {
           name: item.name || '-',
           type: item.type || '',
           category: item.category || '',
+          seasonIds: (item.seasonIds || []).map(String),
           price: item.price,
           image: item.picture || '',
           available: item.available === true,
@@ -509,6 +525,10 @@ export default {
 .smi-panel--dark .smi-check-box { border-color: #475569; background: #1e293b; }
 .smi-panel--dark .smi-check-box.checked,
 .smi-panel--dark .smi-check-box.indeterminate { background: #ff3131; border-color: #ff3131; }
+
+/* ── Filtre saison (multi-choix) ── */
+.smi-season-filter { display: flex; padding: 12px 12px 0; background: #fff; }
+.smi-panel--dark .smi-season-filter { background: #111827; }
 
 /* ── Type pills (classification par type) ── */
 .smi-type-pills {
