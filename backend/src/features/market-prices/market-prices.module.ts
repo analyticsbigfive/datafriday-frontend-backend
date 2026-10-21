@@ -8,10 +8,13 @@ import {
 import { PrismaModule } from '../../core/database/prisma.module';
 import { MarketPriceQueryService } from './services/market-price-query.service';
 import { MarketPriceRecipeSyncService } from './services/market-price-recipe-sync.service';
+import { MarketPriceCostPropagationService } from './services/market-price-cost-propagation.service';
+import { MenuComponentsModule } from '../menu-components/menu-components.module';
+import { MenuItemsModule } from '../menu-items/menu-items.module';
 import { MarketPricesService } from './market-prices.service';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, MenuComponentsModule, MenuItemsModule],
   controllers: [
     MarketPricesController,
     MarketPriceTypesController,
@@ -20,6 +23,7 @@ import { MarketPricesService } from './market-prices.service';
   providers: [ MarketPriceTaxonomyService,
     MarketPriceQueryService,
     MarketPriceRecipeSyncService,
+    MarketPriceCostPropagationService,
     MarketPricesService,
   ],
   exports: [ MarketPriceTaxonomyService,

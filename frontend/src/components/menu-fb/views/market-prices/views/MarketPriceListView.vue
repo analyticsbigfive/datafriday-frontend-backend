@@ -141,6 +141,7 @@ import {
 } from "lucide-vue-next";
 import MarketPriceSearchSelect from '../components/MarketPriceSearchSelect.vue';
 import MarketPriceTable from '../components/MarketPriceTable.vue';
+import { groupMarketPriceRows, MARKET_PRICE_TABLE_HEADERS, MARKET_PRICE_SUPPLIER_HEADERS } from '../utils/groupMarketPriceRows';
 import MarketPriceCsvImportDrawer from '../drawers/MarketPriceCsvImportDrawer.vue';
 import MarketPriceCreateDrawer from '../drawers/MarketPriceCreateDrawer.vue';
 import MarketPriceEditDrawer from '../drawers/MarketPriceEditDrawer.vue';
@@ -221,30 +222,8 @@ export default {
       bulkProgress: 0,
       bulkTotal: 0,
 
-      tableHeaders: [
-        { title: "", key: "expand", sortable: false, width: 44 },
-        { title: "Image", key: "image", sortable: false, width: 80 },
-        { title: "Item Name", key: "name" },
-        { title: "Recipe Unit", key: "recipeUnit" },
-        { title: "Purchase Unit Conversion", key: "purchaseUnitConversion" },
-        { title: "Good Type", key: "goodType" },
-        { title: "Category", key: "category" },
-        { title: "Actions", key: "actions", sortable: false, align: "end", width: 140 },
-      ],
-
-      supplierHeaders: [
-        { title: "Supplier", key: "supplierName" },
-        { title: "Supplier Item", key: "supplierItemName" },
-        { title: "Storage", key: "storageType" },
-        { title: "Unit", key: "unit" },
-        { title: "Units/Purchase", key: "unitsPerPurchase" },
-        { title: "Price", key: "price" },
-        { title: "Price/Unit", key: "pricePerUnit" },
-        { title: "Recipe Unit Cost", key: "recipeUnitCost" },
-        { title: "Packaging", key: "purchasePackaging" },
-        { title: "Added", key: "addedAt" },
-        { title: "Actions", key: "actions" },
-      ],
+      tableHeaders: MARKET_PRICE_TABLE_HEADERS,
+      supplierHeaders: MARKET_PRICE_SUPPLIER_HEADERS,
 
     };
   },
@@ -309,133 +288,7 @@ export default {
       return this.$store.getters['marketPrices/rows'];
     },
     items() {
-      const rows = this.marketPriceRows;
-      const supplierNameById = new Map((this.suppliers || []).map((s) => [s.id, s.name]));
-      const industrialNameById = new Map((this.industrials || []).map((ind) => [ind.id, ind.name]));
-      const map = new Map();
-
-      for (const r of rows) {
-        const itemName = String(r?.itemName || r?.name || '').trim();
-        if (!itemName) continue;
-
-        const id = r?.id || r?._id || itemName;
-        const goodType = r?.goodType || '';
-        const category = r?.category || '';
-        const marketPriceTypeId = r?.marketPriceTypeId || '';
-        const marketPriceCategoryId = r?.marketPriceCategoryId || '';
-        const recipeUnit = r?.recipeUnit || '';
-        const purchaseUnitConversion = r?.purchaseUnitConversion ?? '';
-        const image = r?.image || '';
-        const unit = r?.unit || '';
-        const inventoryPackaging = r?.inventoryPackaging || '';
-        const packedUnits = r?.packedUnits ?? 0;
-        const numberOfUnits = r?.numberOfUnits ?? 0;
-        const packingLength = r?.packingLength ?? 0;
-        const packingWidth = r?.packingWidth ?? 0;
-        const packingHeight = r?.packingHeight ?? 0;
-
-        const supplierId = r?.supplierId || '';
-        // supplierRel.name = relation API ; supplierNameById = lookup par FK ;
-        // r.supplier = nom brut (lignes importées par CSV sans FK fournisseur).
-        const supplierName =
-          r?.supplierName ||
-          r?.supplierRel?.name ||
-          (supplierId ? supplierNameById.get(supplierId) : '') ||
-          r?.supplier || '';
-
-        const computedRecipeUnitCost = (() => {
-          const ppu = Number(r?.pricePerUnit);
-          const rawConv = Number(r?.purchaseUnitConversion);
-          const conv = Number.isFinite(rawConv) && rawConv > 0 ? rawConv : 1;
-          if (!Number.isFinite(ppu)) return null;
-          const val = ppu * conv;
-          return Number.isFinite(val) && val > 0 ? val : null;
-        })();
-
-        const supplierRow = {
-          id,
-          supplierId,
-          supplierName,
-          supplierItemName: r?.supplierItem || '',
-          storageType: r?.storageType || '',
-          unit: r?.unit || '',
-          unitsPerPurchase: r?.unitsPerPurchase ?? null,
-          price: r?.price ?? null,
-          pricePerUnit: r?.pricePerUnit ?? null,
-          purchaseUnitConversion: r?.purchaseUnitConversion ?? null,
-          recipeUnitCost:
-            r?.recipeUnitCost ??
-            r?.costPerRecipeUnit ??
-            r?.cost_per_recipe_unit ??
-            computedRecipeUnitCost,
-          purchasePackaging: r?.purchasePackaging || '',
-          addedAt: r?.createdAt || r?.updatedAt || '-',
-          inventoryPackaging: r?.inventoryPackaging || '',
-          packedUnits: r?.packedUnits ?? 0,
-          numberOfUnits: r?.numberOfUnits ?? 0,
-          packingLength: r?.packingLength ?? 0,
-          packingWidth: r?.packingWidth ?? 0,
-          packingHeight: r?.packingHeight ?? 0,
-          industrialId: r?.industrialId || r?.industrial?.id || '',
-          industrialName:
-            r?.industrial?.name ||
-            (r?.industrialId ? industrialNameById.get(r.industrialId) : '') || '',
-        };
-
-        if (!map.has(itemName)) {
-          map.set(itemName, {
-            id: itemName,
-            name: itemName,
-            suppliersCount: 0,
-            recipeUnit,
-            purchaseUnitConversion,
-            goodType,
-            category,
-            marketPriceTypeId,
-            marketPriceCategoryId,
-            type: goodType,
-            image,
-            unit,
-            inventoryPackaging,
-            packedUnits,
-            numberOfUnits,
-            packingLength,
-            packingWidth,
-            packingHeight,
-            supplierRows: [],
-            supplierNames: [],
-          });
-        }
-
-        const agg = map.get(itemName);
-        agg.supplierRows.push(supplierRow);
-        if (image && !agg.image) agg.image = image;
-        if (goodType && !agg.goodType) agg.goodType = goodType;
-        if (category && !agg.category) agg.category = category;
-        if (marketPriceTypeId && !agg.marketPriceTypeId) agg.marketPriceTypeId = marketPriceTypeId;
-        if (marketPriceCategoryId && !agg.marketPriceCategoryId) agg.marketPriceCategoryId = marketPriceCategoryId;
-        if (recipeUnit && !agg.recipeUnit) agg.recipeUnit = recipeUnit;
-        if (purchaseUnitConversion !== '' && agg.purchaseUnitConversion === '') {
-          agg.purchaseUnitConversion = purchaseUnitConversion;
-        }
-        if (unit && !agg.unit) agg.unit = unit;
-        if (inventoryPackaging && !agg.inventoryPackaging) agg.inventoryPackaging = inventoryPackaging;
-        if (packedUnits && !agg.packedUnits) agg.packedUnits = packedUnits;
-        if (numberOfUnits && !agg.numberOfUnits) agg.numberOfUnits = numberOfUnits;
-        if (packingLength && !agg.packingLength) agg.packingLength = packingLength;
-        if (packingWidth && !agg.packingWidth) agg.packingWidth = packingWidth;
-        if (packingHeight && !agg.packingHeight) agg.packingHeight = packingHeight;
-        if (supplierName) agg.supplierNames.push(supplierName);
-      }
-
-      return Array.from(map.values()).map((i) => {
-        const uniqueSupplierNames = Array.from(new Set(i.supplierNames.filter(Boolean)));
-        return {
-          ...i,
-          supplierNames: uniqueSupplierNames,
-          suppliersCount: uniqueSupplierNames.length || (i.supplierRows || []).length,
-        };
-      }).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+      return groupMarketPriceRows(this.marketPriceRows, { suppliers: this.suppliers, industrials: this.industrials });
     },
     goodTypeOptions() {
       const list = (this.productTypes || []).map((t) => t?.name).filter(Boolean);
@@ -695,7 +548,11 @@ export default {
         // conditionnement d'achat) — PAS un prix par unité malgré l'ancien libellé "Price Per
         // Unit". `pricePerUnit` reste dérivé (price / Units Per Purchase), jamais réimporté en
         // direct, cf. `MarketPriceCsvImportDrawer.vue`.
+        // `Product ID` = identifiant du produit (plus ancienne ligne de prix de l'article, stable
+        // tant qu'elle existe) ; `Market Price ID` = identifiant de la ligne fournisseur, utilisé à
+        // l'import pour mettre à jour la ligne plutôt que la recréer.
         const headers = [
+          'Product ID', 'Market Price ID',
           'Item Name', 'Good Type', 'Category', 'Image URL',
           'Supplier Name', 'Supplier Item', 'Industrial',
           'Recipe Unit', 'Purchase Unit', 'Purchase Unit Conversion', 'Units Per Purchase',
@@ -721,9 +578,12 @@ export default {
           const imageUrl  = String(item?.image || '');
 
           const rows = item?.supplierRows || [];
+          const productId = rows.map((sr) => String(sr?.id || '')).filter(Boolean).sort()[0] || '';
           if (rows.length > 0) {
             for (const sr of rows) {
               csvData.push([
+                productId,
+                String(sr?.id || ''),
                 itemName,
                 goodType,
                 category,
@@ -747,7 +607,7 @@ export default {
               ]);
             }
           } else {
-            csvData.push([itemName, goodType, category, imageUrl, '', '', '', recipeUnit, '', '', '', '', '', '', '', '', '', '', '', '']);
+            csvData.push([productId, '', itemName, goodType, category, imageUrl, '', '', '', recipeUnit, '', '', '', '', '', '', '', '', '', '', '', '']);
           }
         }
 

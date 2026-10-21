@@ -406,6 +406,9 @@ export default {
         { key: 'packingLength',          required: false },
         { key: 'packingWidth',           required: false },
         { key: 'packingHeight',          required: false },
+        // Market Price ID (export CSV) : si connu du tenant, la ligne est mise à jour au lieu
+        // d'être recréée (upsert par id côté backend, cf. bulkCreate).
+        { key: 'id',                     required: false },
       ],
 
       // Champs niveau Item du format « packé » — un seul par article, appliqués à tous les prix
@@ -453,6 +456,7 @@ export default {
           importAnother: 'Import another file',
           close: 'Close',
           f_itemName: 'Item Name',
+          f_id: 'Market Price ID (update if known)',
           f_unit: 'Purchase Unit (kg, l, pcs…)',
           f_price: 'Price (Package Total)',
           f_goodType: 'Good Type',
@@ -519,6 +523,7 @@ export default {
           importAnother: 'Importer un autre fichier',
           close: 'Fermer',
           f_itemName: "Nom de l'article",
+          f_id: 'Market Price ID (mise à jour si connu)',
           f_unit: "Unité d'achat (kg, l, pcs…)",
           f_price: 'Prix (total du conditionnement)',
           f_goodType: 'Type de produit',
@@ -765,6 +770,7 @@ export default {
         packingLength:          ['packinglength', 'packinglengthcm', 'longueuremballage', 'longueur', 'length'],
         packingWidth:           ['packingwidth', 'packingwidthcm', 'largeuremballage', 'largeur', 'width'],
         packingHeight:          ['packingheight', 'packingheightcm', 'hauteuremballage', 'hauteur', 'height'],
+        id:                     ['marketpriceid', 'idprixmarche', 'idprixdumarche', 'idprix'],
       };
       // Initialiser toutes les clés à null pour que v-select soit réactif dès le départ
       const newMapping = {};
@@ -1291,6 +1297,7 @@ export default {
           const pricePerUnit = unitsPerPurchase && unitsPerPurchase > 0 ? priceNum / unitsPerPurchase : priceNum;
 
           const payload = {
+            id:                     get('id') || undefined,
             itemName,
             unit:                   unitVal,
             price:                  priceNum,
