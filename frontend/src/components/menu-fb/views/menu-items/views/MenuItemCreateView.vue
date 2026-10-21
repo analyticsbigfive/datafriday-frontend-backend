@@ -136,6 +136,14 @@
 
                   <template #item.actions="{ item }">
                     <div class="mic-actions-cell">
+                      <v-btn
+                        v-if="item.type === 'Ingredient' || item.type === 'Packaging'"
+                        icon variant="tonal" size="small"
+                        :title="marketPricesLabel"
+                        @click="onOpenMarketPrices(item)"
+                      >
+                        <Tags :size="14" />
+                      </v-btn>
                       <v-btn icon variant="tonal" size="small" :title="t('menuItemCreate.actionEdit')" @click="onEditItem(item)">
                         <Pencil :size="14" />
                       </v-btn>
@@ -800,6 +808,9 @@
     <!-- Ingredient Picker Drawer -->
     <IngredientPickerDrawer v-model="ingredientDrawer" :is-dark="isDark" @add="onIngredientsAdded" />
 
+    <!-- Prix du marché de l'ingrédient (même bloc que la Market Price List) -->
+    <MarketPriceItemDrawer v-model="marketPriceDrawer" :item-name="marketPriceItemName" :is-dark="isDark" @changed="onMarketPricesChanged" />
+
     <!-- Component Picker Drawer -->
     <ComponentPickerDrawer v-model="componentDrawer" :is-dark="isDark" @add="onComponentsAdded" />
 
@@ -873,10 +884,12 @@ import { createMenuItem, getMenuItemById, updateMenuItem } from "@/api/endpoints
 import { createProductType, createProductCategory } from "@/api/endpoints/product.api";
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from "@/composables/useFormatters.js";
 import NumberField from "@/components/common/NumberField.vue";
-import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, Recycle } from "lucide-vue-next";
+import { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, Recycle, Tags } from "lucide-vue-next";
 import { confirmDialog, leaveDialog } from '@/composables/useConfirmDialog';
 import { duplicateMenuItemById } from "@/composables/useMenuItemDuplicate";
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
+import MarketPriceItemDrawer from '@/components/menu-fb/views/market-prices/drawers/MarketPriceItemDrawer.vue';
+import { getIngredient } from "@/api/endpoints/ingredient.api";
 import ComponentPickerDrawer from '../drawers/ComponentPickerDrawer.vue';
 import ComboItemPickerDrawer from '../drawers/ComboItemPickerDrawer.vue';
 import PackagingPickerDrawer from '../drawers/PackagingPickerDrawer.vue';
@@ -892,7 +905,7 @@ import { buildKitchenOptions, kitchenChoiceFrom, kitchenPayloadFrom } from '@/co
 
 export default {
   name: "MenuItemCreateView",
-  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, Recycle, NumberField, IngredientPickerDrawer, ComponentPickerDrawer, ComboItemPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog, CreatePromotionTypeDialog, AllergenCheckboxes },
+  components: { Plus, X, Save, Trash2, Upload, ImageIcon, UtensilsCrossed, Pencil, Copy, Recycle, Tags, NumberField, IngredientPickerDrawer, MarketPriceItemDrawer, ComponentPickerDrawer, ComboItemPickerDrawer, PackagingPickerDrawer, SpaceGroupDrawer, CreateTypeDialog, CreateCategoryDialog, BrandNameFormDrawer, DisplayNameFormDrawer, CreatePackingTypeDialog, CreatePromotionTypeDialog, AllergenCheckboxes },
   setup() {
     const theme = useTheme();
     const { t } = useI18n();
@@ -987,6 +1000,10 @@ export default {
       // Ingredient drawer
       ingredientDrawer: false,
 
+      // Prix du marché de l'ingrédient (tiroir)
+      marketPriceDrawer: false,
+      marketPriceItemName: "",
+
       // Component drawer
       componentDrawer: false,
 
@@ -1071,6 +1088,9 @@ export default {
     },
   },
   computed: {
+    marketPricesLabel() {
+      return (localStorage.getItem('appLocale') || 'en') === 'fr' ? 'Prix du marché' : 'Market prices';
+    },
     // CFG-2 : Storage Type est un référentiel CRUD-éditable (Configurations, store
     // storageTypes) — remplace les 3 checkboxes Dry/Cold/Frozen figées.
     // Résolution supplierId -> nom : le backend renvoie supplierId (et parfois le champ texte
@@ -1213,7 +1233,7 @@ export default {
         { title: this.t("menuItemCreate.colUnitCost"), key: "unitCost", sortable: false, width: 110 },
         { title: this.t("menuItemCreate.colTotalCost"), key: "totalCost", sortable: false, width: 120 },
         { title: this.t("menuItemCreate.colSupplier"), key: "supplierName", sortable: false, width: 140 },
-        { title: this.t("menuItemCreate.colActions"), key: "actions", sortable: false, align: "end", width: 80 },
+        { title: this.t("menuItemCreate.colActions"), key: "actions", sortable: false, align: "end", width: 130 },
       ];
     },
     productTypeNamesWithCreate() {
@@ -1636,6 +1656,35 @@ export default {
       if (item.type === 'Ingredient') this.ingredientDrawer = true;
       else if (item.type === 'Component') this.componentDrawer = true;
       else if (item.type === 'Packaging') this.packagingDrawer = true;
+    },
+    onOpenMarketPrices(item) {
+      this.marketPriceItemName = String(item?.name || "").trim();
+      this.marketPriceDrawer = true;
+    },
+    // Le backend a déjà répercuté le nouveau prix sur les coûts ; on réaligne ici le coût affiché
+    // des lignes sans toucher aux quantités ni aux autres champs en cours d'édition.
+    async onMarketPricesChanged() {
+      try {
+        if (this.menuItemId) {
+          const res = await getMenuItemById(this.menuItemId);
+          const fresh = res?.data || res;
+          const byIngredient = new Map((fresh?.ingredients || []).map((l) => [l.ingredientId, Number(l.unitCost) || 0]));
+          const byPackaging = new Map((fresh?.packagings || []).map((l) => [l.packagingId, Number(l.unitCost) || 0]));
+          this.items.forEach((it) => {
+            if (it.type === 'Ingredient' && byIngredient.has(it.ingredientId)) it.unitCost = byIngredient.get(it.ingredientId);
+            if (it.type === 'Packaging' && byPackaging.has(it.packagingId)) it.unitCost = byPackaging.get(it.packagingId);
+          });
+          return;
+        }
+        // Fiche pas encore enregistrée : pas de GET possible, on relit les ingrédients concernés.
+        await Promise.all(this.items.filter((it) => it.type === 'Ingredient' && it.ingredientId).map(async (it) => {
+          const res = await getIngredient(it.ingredientId);
+          const ing = res?.data || res;
+          if (ing?.costPerRecipeUnit != null) it.unitCost = Number(ing.costPerRecipeUnit) || 0;
+        }));
+      } catch (e) {
+        console.error('Failed to refresh line costs after market price change', e);
+      }
     },
     onAddIngredient() {
       this.editingItemIndex = null;
