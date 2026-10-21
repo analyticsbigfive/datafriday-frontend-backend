@@ -5,6 +5,7 @@ import { UpdateMarketPriceDto } from './dto/update-market-price.dto';
 import { SupabaseStorageService } from '../../core/supabase/supabase-storage.service';
 import { MarketPriceQueryService } from './services/market-price-query.service';
 import { MarketPriceRecipeSyncService } from './services/market-price-recipe-sync.service';
+import { MarketPriceCostPropagationService } from './services/market-price-cost-propagation.service';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
@@ -19,6 +20,7 @@ export class MarketPricesService {
     private storage: SupabaseStorageService,
     private readonly marketPriceQueryService: MarketPriceQueryService,
     private readonly marketPriceRecipeSyncService: MarketPriceRecipeSyncService,
+    private readonly costPropagation: MarketPriceCostPropagationService,
   ) {}
 
   private readonly logger = new Logger(MarketPricesService.name);
@@ -127,6 +129,7 @@ export class MarketPricesService {
         await this.marketPriceRecipeSyncService.syncRecipeRecordForGoodType(price, dto.goodType, tenantId);
       }
       await this.marketPriceRecipeSyncService.resyncLinkedRecipeCosts(price, tenantId);
+      await this.costPropagation.propagate([price.id], tenantId);
 
       return this.marketPriceQueryService.serialize(price);
     } catch (error) {
@@ -190,6 +193,7 @@ export class MarketPricesService {
       errors: [] as Array<{ index: number; itemName?: string; message: string }>,
     };
 
+    const updatedIds: string[] = [];
     for (let index = 0; index < items.length; index++) {
       const dto = items[index];
       try {
@@ -215,6 +219,7 @@ export class MarketPricesService {
             });
             // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
             await this.marketPriceRecipeSyncService.resyncLinkedRecipeCosts(updated, tenantId);
+            updatedIds.push(updated.id);
             result.updated.push(this.marketPriceQueryService.serialize(updated));
             continue;
           }
@@ -318,6 +323,9 @@ export class MarketPricesService {
         result.errors.push({ index, itemName: dto?.itemName, message: error.message || 'Unknown error' });
       }
     }
+
+    // Un seul recalcul groupé des coûts de recettes pour tout le lot (cf. propagation).
+    await this.costPropagation.propagate(updatedIds, tenantId);
 
     this.logger.log(
       `Bulk create complete: ${result.created.length} created, ${result.updated.length} updated, ` +

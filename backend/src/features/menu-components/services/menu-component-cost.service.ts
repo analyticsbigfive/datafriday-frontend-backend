@@ -46,7 +46,7 @@ export class MenuComponentCostService {
     }
     const ingredientIds = [
       ...new Set(
-        [...components.values()].flatMap((c) => c.ingredients.filter((l) => !Number(l.unitCost || 0)).map((l) => l.ingredientId)),
+        [...components.values()].flatMap((c) => c.ingredients.map((l) => l.ingredientId)),
       ),
     ];
     const ingredients = ingredientIds.length
@@ -62,13 +62,18 @@ export class MenuComponentCostService {
     };
   }
 
-  /** Coût unitaire d'une ligne ingrédient : celui de la ligne, sinon celui de l'ingrédient. */
+  /**
+   * Coût unitaire d'une ligne ingrédient : celui de l'ingrédient (vivant, mis à jour par les prix
+   * du marché), sinon celui figé sur la ligne. Préférer la ligne figée empêchait un nouveau prix
+   * de se répercuter sur les composants.
+   */
   private ingredientLineUnitCost(ctx: CostContext, line: ComponentWithLines['ingredients'][number]): number {
+    const live = ctx.ingredientCost.get(line.ingredientId);
+    if (live) return live;
     const own = Number(line.unitCost || 0);
     if (own) return own;
-    const cost = ctx.ingredientCost.get(line.ingredientId);
-    if (cost === undefined) throw new BadRequestException(`Ingredient ${line.ingredientId} not found`);
-    return cost;
+    if (live === undefined) throw new BadRequestException(`Ingredient ${line.ingredientId} not found`);
+    return live;
   }
 
   /** Coût unitaire d'un composant à partir du contexte chargé (mémoïsé, cycles refusés). */

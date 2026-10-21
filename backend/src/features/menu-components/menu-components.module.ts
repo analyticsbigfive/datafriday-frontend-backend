@@ -20,6 +20,7 @@ import { MenuComponentsService } from './menu-components.service';
   ],
   exports: [ ComponentTaxonomyService,
     MenuComponentsService,
+    MenuComponentCostService,
   ],
 })
 export class MenuComponentsModule {}

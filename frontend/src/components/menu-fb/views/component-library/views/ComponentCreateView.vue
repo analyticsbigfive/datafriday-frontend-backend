@@ -138,9 +138,20 @@
                   </template>
 
                   <template #item.actions="{ item }">
-                    <button class="cc-del-btn" type="button" @click.stop="onRemoveSubItem(item?.raw || item)">
-                      <Trash2 :size="14" />
-                    </button>
+                    <div class="cc-row-actions">
+                      <button
+                        v-if="(item?.raw?.itemType || item?.itemType) === 'Ingredient'"
+                        class="cc-del-btn cc-del-btn--neutral"
+                        type="button"
+                        :title="marketPricesLabel"
+                        @click.stop="onOpenMarketPrices(item?.raw || item)"
+                      >
+                        <Tags :size="14" />
+                      </button>
+                      <button class="cc-del-btn" type="button" @click.stop="onRemoveSubItem(item?.raw || item)">
+                        <Trash2 :size="14" />
+                      </button>
+                    </div>
                   </template>
                 </v-data-table>
               </v-card>
@@ -384,6 +395,9 @@
     </div>
 
     <IngredientPickerDrawer v-model="ingredientDrawer" :is-dark="isDark" @add="onIngredientsAdded" />
+
+    <!-- Prix du marché de l'ingrédient (même bloc que la Market Price List) -->
+    <MarketPriceItemDrawer v-model="marketPriceDrawer" :item-name="marketPriceItemName" :is-dark="isDark" @changed="onMarketPricesChanged" />
     <ComponentPickerDrawer v-model="componentDrawer" :is-dark="isDark" @add="onComponentsAdded" />
     <NewCategoryDialog v-model="newCategoryDialog" :is-dark="isDark" :type-id="selectedComponentTypeId" :type-name="form.type" @created="onCategoryCreated" />
     <NewTypeDialog v-model="newTypeDialog" :is-dark="isDark" @created="onTypeCreated" />
@@ -415,7 +429,7 @@
 <script>
 import { computed } from "vue";
 import { useTheme } from "vuetify";
-import { Boxes, Copy, Plus, Save, Trash2, X, Package } from "lucide-vue-next";
+import { Boxes, Copy, Plus, Save, Trash2, X, Package, Tags } from "lucide-vue-next";
 import { useI18n } from '@/i18n/useI18n';
 import { createMenuComponent, getMenuComponent, updateMenuComponent } from "@/api/endpoints/menu.api";
 import { getIngredient } from "@/api/endpoints/ingredient.api";
@@ -431,6 +445,7 @@ import SpaceMultiSelect from '@/components/menu-fb/common/SpaceMultiSelect.vue';
 import KitchenSelect from '@/components/menu-fb/common/KitchenSelect.vue';
 import { kitchenChoiceFrom, kitchenPayloadFrom } from '@/composables/useKitchenOptions';
 import IngredientPickerDrawer from '../drawers/IngredientPickerDrawer.vue';
+import MarketPriceItemDrawer from '@/components/menu-fb/views/market-prices/drawers/MarketPriceItemDrawer.vue';
 import ComponentPickerDrawer from '../drawers/ComponentPickerDrawer.vue';
 import NewCategoryDialog from '../dialogs/NewCategoryDialog.vue';
 import NewTypeDialog from '../dialogs/NewTypeDialog.vue';
@@ -447,6 +462,8 @@ export default {
     Package,
     NumberField,
     IngredientPickerDrawer,
+    MarketPriceItemDrawer,
+    Tags,
     ComponentPickerDrawer,
     NewCategoryDialog,
     NewTypeDialog,
@@ -479,6 +496,8 @@ export default {
       saveSuccess: null,
 
       ingredientDrawer: false,
+      marketPriceDrawer: false,
+      marketPriceItemName: "",
 
       componentDrawer: false,
       _prefillingForm: false,
@@ -521,6 +540,9 @@ export default {
     };
   },
   computed: {
+    marketPricesLabel() {
+      return (localStorage.getItem('appLocale') || 'en') === 'fr' ? 'Prix du marché' : 'Market prices';
+    },
     /** Fiche modifiée depuis le chargement ou le dernier enregistrement. */
     hasUnsavedChanges() {
       return this.isDirty(this.form);
@@ -589,7 +611,7 @@ export default {
         { title: 'Storage',    key: 'storage',       sortable: false, width: 90 },
         { title: 'Supplier',   key: 'suppliers',     sortable: false, width: 140 },
         { title: 'Added',      key: 'addedAt',       sortable: false, width: 90 },
-        { title: '',           key: 'actions',       sortable: false, width: 50 },
+        { title: '',           key: 'actions',       sortable: false, width: 90 },
       ];
     },
     subItemsTableItems() {
@@ -689,6 +711,26 @@ export default {
     },
     onAddIngredient() {
       this.ingredientDrawer = true;
+    },
+    onOpenMarketPrices(item) {
+      this.marketPriceItemName = String(item?.ingredientName || item?.itemName || "").trim();
+      this.marketPriceDrawer = true;
+    },
+    // Le backend a déjà répercuté le nouveau prix ; on réaligne le coût affiché des lignes
+    // ingrédient sans toucher aux quantités en cours d'édition.
+    async onMarketPricesChanged() {
+      const lines = (this.form.ingredients || []).filter((i) => i?.ingredientId);
+      await Promise.all(lines.map(async (line) => {
+        try {
+          const res = await getIngredient(line.ingredientId);
+          const ing = res?.data || res;
+          if (ing?.costPerRecipeUnit == null) return;
+          line.unitCost = Number(ing.costPerRecipeUnit) || 0;
+          line.cost = Math.round(line.unitCost * (Number(line.quantity) || 0) * 10000) / 10000;
+        } catch (e) {
+          console.error('Failed to refresh ingredient cost after market price change', e);
+        }
+      }));
     },
     onAddSubComponent() {
       this.componentDrawer = true;
@@ -887,6 +929,9 @@ export default {
                   ingredientId: ingredientId,
                   marketPriceId: ingredientId,
                   itemName: marketPrice.supplierItem || ingredientDetails.name || ing.itemName || ing.name || "-",
+                  // Nom réel de l'article (celui des prix du marché) : `itemName` ci-dessus peut
+                  // afficher la référence fournisseur à la place.
+                  ingredientName: ingredientDetails.name || ing.itemName || ing.name || "",
                   category: marketPrice.category || ing.category || "-",
                   quantity: Number(ing.quantity || ing.numberOfUnits || 0),
                   unit: ing.unit || ing.recipeUnit || ingredientDetails.unit || "-",
@@ -1535,6 +1580,9 @@ export default {
   transition: all .15s;
 }
 .cc-del-btn:hover { background: #fee2e2; box-shadow: 0 2px 8px rgba(255,49,49,.2); }
+.cc-row-actions { display: flex; gap: 6px; justify-content: flex-end; }
+.cc-del-btn--neutral { background: #f1f5f9; color: #475569; }
+.cc-del-btn--neutral:hover { background: #e2e8f0; box-shadow: none; }
 
 /* ── Right panel ── */
 .cc-right-section {

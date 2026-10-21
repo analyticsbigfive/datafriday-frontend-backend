@@ -29,6 +29,7 @@ import { MenuItemQueryService } from './services/menu-item-query.service';
   ],
   exports: [
     MenuItemRecipeService,
+    MenuItemCostService,
   ],
 })
 export class MenuItemsModule {}

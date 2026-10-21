@@ -7,12 +7,13 @@
         :loading="loading"
         item-value="id"
         :model-value="selected"
-        show-select
+        :show-select="selectable"
         density="compact"
         class="market-table"
         :expanded="expanded"
         @update:model-value="$emit('update:selected', $event)"
-        :items-per-page="25"
+        :items-per-page="hideFooter ? -1 : 25"
+        :hide-default-footer="hideFooter"
         :items-per-page-options="[
           { value: 25, title: '25' },
           { value: 50, title: '50' },
@@ -171,6 +172,16 @@ export default {
     selected: {
       type: Array,
       default: () => [],
+    },
+    // Cases à cocher de sélection multiple (masquées dans le panneau d'une fiche recette).
+    selectable: {
+      type: Boolean,
+      default: true,
+    },
+    // Masque la pagination, utile quand le tableau n'affiche qu'un article.
+    hideFooter: {
+      type: Boolean,
+      default: false,
     },
   },
   emits: ['update:expanded', 'update:selected', 'toggle-expand', 'add-supplier', 'edit-item', 'delete-item', 'edit-supplier-row', 'delete-supplier-row'],
