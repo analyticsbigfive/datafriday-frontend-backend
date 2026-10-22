@@ -35,7 +35,7 @@ export const recipeLineKey = lineKey
 /** Famille d'affichage d'une cause : 'market' | 'recipe' | 'base'. */
 export function reasonKind(reason) {
   if (reason === 'market_price' || reason === 'price_sync') return 'market'
-  if (reason === 'recipe_edit' || reason === 'component_edit' || reason === 'combo_edit') return 'recipe'
+  if (reason === 'recipe_edit' || reason === 'component_edit' || reason === 'ingredient_edit' || reason === 'packaging_edit' || reason === 'combo_edit') return 'recipe'
   return 'base'
 }
 
@@ -45,6 +45,8 @@ const REASON_KEYS = {
   market_price: 'ctReasonMarketPrice',
   recipe_edit: 'ctReasonRecipeEdit',
   component_edit: 'ctReasonComponentEdit',
+  ingredient_edit: 'ctReasonIngredientEdit',
+  packaging_edit: 'ctReasonPackagingEdit',
   combo_edit: 'ctReasonComboEdit',
   manual_refresh: 'ctReasonManualRefresh',
   price_sync: 'ctReasonPriceSync',

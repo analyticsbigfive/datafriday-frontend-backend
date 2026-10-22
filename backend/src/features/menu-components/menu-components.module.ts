@@ -8,19 +8,23 @@ import {
 import { PrismaModule } from '../../core/database/prisma.module';
 import { MenuComponentCostService } from './services/menu-component-cost.service';
 import { MenuComponentValidationService } from './services/menu-component-validation.service';
+import { MenuComponentItemPropagationService } from './services/menu-component-item-propagation.service';
+import { MenuItemsModule } from '../menu-items/menu-items.module';
 import { MenuComponentsService } from './menu-components.service';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, MenuItemsModule],
   controllers: [MenuComponentsController, ComponentTypesController, ComponentCategoriesController],
   providers: [ ComponentTaxonomyService,
     MenuComponentValidationService,
     MenuComponentCostService,
+    MenuComponentItemPropagationService,
     MenuComponentsService,
   ],
   exports: [ ComponentTaxonomyService,
     MenuComponentsService,
     MenuComponentCostService,
+    MenuComponentItemPropagationService,
   ],
 })
 export class MenuComponentsModule {}

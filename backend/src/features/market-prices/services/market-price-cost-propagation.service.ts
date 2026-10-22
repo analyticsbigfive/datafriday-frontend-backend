@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { withAncestorComponents, withAncestorItems } from '../../../shared/cost-propagation/cost-ancestry';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MenuComponentCostService } from '../../menu-components/services/menu-component-cost.service';
 import { MenuItemCostService } from '../../menu-items/services/menu-item-cost.service';
@@ -46,7 +47,7 @@ export class MarketPriceCostPropagationService {
             select: { componentId: true },
           })
         : [];
-      const componentIds = await this.withAncestorComponents(directComponents.map((c) => c.componentId));
+      const componentIds = await withAncestorComponents(this.prisma, directComponents.map((c) => c.componentId));
 
       const [viaIngredient, viaPackaging, viaComponent] = await Promise.all([
         ingredientIds.length
@@ -60,7 +61,7 @@ export class MarketPriceCostPropagationService {
           : [],
       ]);
       const directItems = [...viaIngredient, ...viaPackaging, ...viaComponent].map((l) => l.menuItemId);
-      const itemIds = await this.withAncestorItems(directItems);
+      const itemIds = await withAncestorItems(this.prisma, directItems);
 
       if (componentIds.length) {
         await this.componentCostService.refreshCosts(tenantId, { componentIds });
@@ -87,37 +88,5 @@ export class MarketPriceCostPropagationService {
       this.logger.warn(`Cost propagation failed for ${ids.length} market price(s): ${error.message}`);
       return { components: 0, menuItems: 0 };
     }
-  }
-
-  /** Composants donnés + tous leurs parents (sous-composants), niveau par niveau. */
-  private async withAncestorComponents(seed: string[]): Promise<string[]> {
-    const all = new Set(seed);
-    let pending = [...all];
-    while (pending.length) {
-      // eslint-disable-next-line no-await-in-loop -- une requête par niveau de parents
-      const parents = await this.prisma.componentComponent.findMany({
-        where: { childId: { in: pending } },
-        select: { parentId: true },
-      });
-      pending = parents.map((p) => p.parentId).filter((id) => !all.has(id));
-      pending.forEach((id) => all.add(id));
-    }
-    return [...all];
-  }
-
-  /** Menu items donnés + tous leurs parents de combo, niveau par niveau. */
-  private async withAncestorItems(seed: string[]): Promise<string[]> {
-    const all = new Set(seed);
-    let pending = [...all];
-    while (pending.length) {
-      // eslint-disable-next-line no-await-in-loop -- une requête par niveau de combos
-      const parents = await this.prisma.menuItemCombo.findMany({
-        where: { childId: { in: pending } },
-        select: { parentId: true },
-      });
-      pending = parents.map((p) => p.parentId).filter((id) => !all.has(id));
-      pending.forEach((id) => all.add(id));
-    }
-    return [...all];
   }
 }
