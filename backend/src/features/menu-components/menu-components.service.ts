@@ -11,6 +11,7 @@ import { UpdateMenuComponentDto } from './dto/update-menu-component.dto';
 import { TenantListCache } from '../../shared/cache/tenant-list-cache';
 import { MenuComponentCostService } from './services/menu-component-cost.service';
 import { MenuComponentValidationService } from './services/menu-component-validation.service';
+import { MenuComponentItemPropagationService } from './services/menu-component-item-propagation.service';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
@@ -27,6 +28,7 @@ export class MenuComponentsService {
     private storage: SupabaseStorageService,
     private readonly menuComponentCostService: MenuComponentCostService,
     private readonly menuComponentValidationService: MenuComponentValidationService,
+    private readonly itemPropagation: MenuComponentItemPropagationService,
   ) {}
 
   private readonly logger = new Logger(MenuComponentsService.name);
@@ -97,6 +99,8 @@ export class MenuComponentsService {
       });
 
       await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [componentId] });
+      // Non bloquant : les articles qui utilisent ce composant sont recalculés en arrière-plan.
+      void this.itemPropagation.propagate(componentId, tenantId);
       return this.findOne(componentId, tenantId);
     } catch (error) {
       this.logger.error(
@@ -147,6 +151,8 @@ export class MenuComponentsService {
       });
 
       await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [componentId] });
+      // Non bloquant : les articles qui utilisent ce composant sont recalculés en arrière-plan.
+      void this.itemPropagation.propagate(componentId, tenantId);
       return this.findOne(componentId, tenantId);
     } catch (error) {
       this.logger.error(
@@ -442,9 +448,13 @@ export class MenuComponentsService {
 
       if (ingredientsLines || childrenLines) {
         await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [id] });
+        void this.itemPropagation.propagate(id, tenantId);
         await this.listCache.invalidate(tenantId);
         return this.findOne(id, tenantId);
       }
+
+      // Coût saisi à la main sans changement de lignes : aucun refreshCosts, mais les articles suivent.
+      if (dto.unitCost !== undefined) void this.itemPropagation.propagate(id, tenantId);
 
       await this.listCache.invalidate(tenantId);
       return component;

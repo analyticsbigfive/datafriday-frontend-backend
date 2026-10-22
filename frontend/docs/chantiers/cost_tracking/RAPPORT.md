@@ -7,12 +7,24 @@ Branche `feat/cost-tracking` (worktree `datafriday-cost-tracking`, depuis `devel
 - Lot 1 : table MenuItemCostSnapshot (migration écrite, non appliquée), service recordIfChanged idempotent, appels branchés, script de baseline (non lancé).
 - Lot 2 : module backend `features/cost-tracking` (series, catalog, history, costsAsOf), permission `front.fb.costTracking`.
 - Lot 3a/3b : couche données frontend, page et 21 composants, route, entrée de menu, i18n FR/EN.
+- Lot 1bis : propagation composant vers articles (voir ci-dessous).
 - Lot 4a/4b : endpoint `GET /analyse/:spaceId/event-costs` et branchement de l'Analyse avec repli sur le coût actuel.
 
 ## Décisions prises
-- Pas de propagation composant vers articles dans ce chantier (lot 1bis à part, elle change les coûts affichés).
+- Propagation composant vers articles : FAITE au lot 1bis (elle change les coûts affichés des articles modifiés à la main ailleurs, voir ci-dessous).
 - Marge Weezevent par jointure latérale : NON faite (dupliquerait resolveEventReference en SQL).
 - Boutons partage/export de la maquette non repris.
+
+## Lot 1bis : propagation composant vers articles
+- Nouveau `menu-components/services/menu-component-item-propagation.service.ts` (modèle : MarketPriceCostPropagationService). Après `refreshCosts` d'un composant : rafraîchit les composants parents, retrouve les articles qui utilisent le composant ou ses parents (+ parents de combo), `MenuItemCostService.refreshCosts` par lots de 200, `refreshComboCost` des parents de combo, puis un seul `recordIfChanged(..., 'component_edit', { componentId })` (rien si l'empreinte est identique).
+- Appelé sans `await` (`void`, try/catch + `logger.warn` interne) depuis `menu-components.service.ts` : `replaceIngredients`, `replaceChildren`, `update` (lignes modifiées, ou `unitCost` saisi sans lignes). Module : `MenuComponentsModule` importe `MenuItemsModule` (pas de cycle).
+- Non propagés volontairement : `create` (un composant neuf n'a aucun article), `remove` (soft delete, les lignes d'articles gardent le dernier coût), simple renommage/champs sans effet coût.
+- Suite (lot 1bis 02) : édition directe d'un Ingrédient (`ingredients.service.ts` update) et d'un Emballage (`packaging.service.ts` update) propagée via `MenuComponentItemPropagationService.propagateFromBricks` (reasons `ingredient_edit` / `packaging_edit`, sourceRef `{ ingredientId }` / `{ packagingId }`). Déclenchée seulement si un champ de coût change réellement (`shared/cost-propagation/brick-cost-change.ts` : costPerRecipeUnit, costPerPurchaseUnit, purchaseUnitsPerRecipeUnit, marketPriceId, storageType). `void` + try/catch interne + `logger.warn`. `IngredientsModule` et `PackagingModule` importent `MenuComponentsModule` (qui exporte désormais le service). Le recalcul des articles (lots de 200, part combo, un seul `recordIfChanged`) est factorisé dans `refreshItemsAndSnapshot`, partagé avec `propagate`.
+- Helpers `withAncestorComponents` / `withAncestorItems` extraits dans `shared/cost-propagation/cost-ancestry.ts` (fonctions prenant prisma), utilisés par MarketPriceCostPropagationService et MenuComponentItemPropagationService (specs inchangés, verts). Le corps des deux propagations reste distinct (le tronc market_price n'est pas refondu, risque inutile).
+- Frontend : libellés `ctReasonIngredientEdit` / `ctReasonPackagingEdit` (FR/EN) et famille 'recipe' dans `costTrackingRecipeDiff.js`.
+- Audit des autres écritures de coût (grep sur menuItem / menuComponent / lignes / ingredient / packaging, scripts compris) : déjà couverts par recordIfChanged ou refreshCosts avec reason : création, bulk-create, update d'article (dont numberOfPiecesRecipe), composition (composants, ingrédients, emballages, combos), prix Weezevent, chaîne prix du marché (imports CSV compris, un appel groupé).
+- Volontairement NON branchés : suppression (soft delete) d'un composant, ingrédient ou emballage utilisé (le calcul des coûts les ignore alors, mais `refreshCosts` des composants parents lève "MenuComponent not found" sur un enfant supprimé, donc une propagation échouerait ou ferait chuter des coûts affichés sans décision métier ; à trancher avec Bertrand : bloquer la suppression d'un élément utilisé) ; `storage-types` / `packing-types` / `kitchens` (updateMany sans effet sur les montants) ; `product-mapping` (réactivation d'article, coût inchangé) ; copie/duplication (le front passe par `create`, donc `created` / refreshCosts) ; scripts (`copy-config-menus` écrit des SpaceMenuItem, `backfill-*` sans coût de recette).
+- Vérifié sur base locale (transaction rollback) : une édition de ligne d'un composant produit 1 snapshot `component_edit` sur un article qui l'utilise ; un second appel n'en crée pas. Idem 2e passe : doublement du coût d'un ingrédient (Tenders) produit 1 snapshot `ingredient_edit`, d'un emballage (Cup vierge) 1 snapshot `packaging_edit`, rollback confirmé (0 restant).
 
 ## À faire par un humain avant tout déploiement
 1. Appliquer la migration en local, lancer `scripts/check-schema-indexes.mjs`.
