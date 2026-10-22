@@ -10,11 +10,14 @@
  * Retourne des computed() avec toutes les métriques (total* et display*).
  */
 import { computed, unref } from 'vue'
+import { makeCostFor } from '@/utils/eventCostLookup'
 
 export function useMetricsCalculator({
   filteredShopGranularData,
   chartFilteredEvents,
   menuItemCostMap,
+  // Lot 4b (optionnel) : coût figé par event, repli sur menuItemCostMap.
+  menuItemCostByEvent = null,
   isTimelineFilterActive,
   operatingMinutes,
   selectedEventIds,
@@ -53,6 +56,7 @@ export function useMetricsCalculator({
   const _txRecords = () => unref(transactionRecords)
   const _events = () => unref(chartFilteredEvents) || []
   const _costMap = () => unref(menuItemCostMap) || {}
+  const _costByEvent = () => unref(menuItemCostByEvent)
   const _tl = () => !!unref(isTimelineFilterActive)
   const _ops = () => unref(operatingMinutes) || 0
   const _selectedEventIds = () => unref(selectedEventIds) || []
@@ -69,6 +73,7 @@ export function useMetricsCalculator({
     const records = _records()
     const events = _events()
     const costMap = _costMap()
+    const unitCostOf = makeCostFor(costMap, _costByEvent())
     const eventIdsWithRevenue = new Set()
 
     let revenue = 0
@@ -82,7 +87,7 @@ export function useMetricsCalculator({
     for (const r of records) {
       const rowRevenue = r.revenue || 0
       revenue += rowRevenue
-      cost += (costMap[r.menuItemId] || 0) * (r.quantity || 0)
+      cost += unitCostOf(r.eventId, r.menuItemId) * (r.quantity || 0)
       if (r.menuItemId) hasCostableRow = true
       transactions += r.transactionCount || 0
       if (rowRevenue > 0 && r.eventId) eventIdsWithRevenue.add(r.eventId)

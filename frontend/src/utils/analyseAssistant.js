@@ -13,6 +13,7 @@
 //    - SUGGESTIONS              -> liste à plat (rétro-compat)
 // =============================================================================
 
+import { makeCostFor } from '@/utils/eventCostLookup'
 import {
   formatCurrency,
   formatCurrencyDetailed,
@@ -247,13 +248,13 @@ function computeTotalsForEntities(store, entities) {
   // aucun record ne porte de champ `cost`, le coût se résout via la carte
   // menuItemId → coût unitaire. Sur du shop-level `menuItemId` est souvent
   // null → le coût peut rester 0 sur ce grain (limite connue du scope entité).
-  const costMap = store.state.analyse.menuItemCostMap || {}
+  const unitCostOf = makeCostFor(store.state.analyse.menuItemCostMap, store.state.analyse.menuItemCostByEvent)
   let revenue = 0
   let cost = 0
   let transactions = 0
   for (const r of records) {
     revenue += r.revenue || 0
-    cost += (costMap[r.menuItemId] || 0) * (r.quantity || 0)
+    cost += unitCostOf(r.eventId, r.menuItemId) * (r.quantity || 0)
     transactions += r.transactionCount || 0
   }
   const attendees = scopedEvents.reduce((s, e) => s + (e.attendees || 0), 0)
