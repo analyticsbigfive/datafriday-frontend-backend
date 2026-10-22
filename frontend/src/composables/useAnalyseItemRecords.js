@@ -90,22 +90,15 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS, 
     // squelette jusqu'à complétude (`sourceState` ne publie 'ready' que quand tous
     // les events scopés sont tentés — zéro valeur provisoire, BUG-350-01).
     const processed = new Set()
-    // Lot 4b : coûts figés des events, demandés en parallèle du fetch (ne lève jamais :
-    // échec = repli sur le coût actuel). Les records figent leur coût au pré-traitement,
-    // donc chaque paquet attend cette promesse avant d'être appliqué.
-    const costsReady = Promise.resolve(store.dispatch?.('analyse/ensureEventCosts', ids)).catch(() => {})
-    const applyEvent = async (id, data) => {
+    const applyEvent = (id, data) => {
       if (controller.signal.aborted || processed.has(id)) return
       processed.add(id)
-      await costsReady
-      if (controller.signal.aborted) return
       const raw = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
       // Nouvelle référence pour déclencher la réactivité du computed.
       cache.value = {
         ...cache.value,
         [id]: freezeRows(preprocessTimelineRecords(raw, {
           menuItemCostMap: store.state.analyse.menuItemCostMap || {},
-          menuItemCostByEvent: store.state.analyse.menuItemCostByEvent,
           // BUG-364-01 : forme allégée — omet les clés Predict/Stockup, mortes sur ce chemin.
           lean: true,
         })),
@@ -122,8 +115,9 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS, 
       if (controller.signal.aborted) return
       // Ceinture : events servis depuis le cache session de l'API (pas de paquet
       // HTTP, donc pas d'onEvent) — on les applique depuis le résultat final.
-      await Promise.all(ids.filter((id) => !processed.has(id)).map((id) => applyEvent(id, byEventId.get(id) || [])))
-      await costsReady
+      for (const id of ids) {
+        if (!processed.has(id)) applyEvent(id, byEventId.get(id) || [])
+      }
     } catch (err) {
       if (controller.signal.aborted) return
       console.warn(`[useAnalyseItemRecords] event-timeline batch KO (${err?.message})`)
@@ -169,7 +163,6 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS, 
     const ids = list.map((e) => e.id)
     try {
       const byEventId = await getSpaceEventTimelineBatch(spaceId, ids, { bypassCache: true, granularity: 'summary' })
-      await store.dispatch?.('analyse/ensureEventCosts', ids)
       if (controller.signal.aborted) return
       const patch = {}
       for (const id of ids) {
@@ -177,7 +170,6 @@ export function useAnalyseItemRecords(filteredEvents, { maxEvents = MAX_EVENTS, 
         const raw = Array.isArray(data) ? data.map((r) => ({ ...r, eventId: id })) : []
         patch[id] = freezeRows(preprocessTimelineRecords(raw, {
           menuItemCostMap: store.state.analyse.menuItemCostMap || {},
-          menuItemCostByEvent: store.state.analyse.menuItemCostByEvent,
           // BUG-364-01 : forme allégée — omet les clés Predict/Stockup, mortes sur ce chemin.
           lean: true,
         }))

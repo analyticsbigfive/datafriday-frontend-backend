@@ -34,7 +34,6 @@ export function useComparisonKpis({
 }) {
   const filtersOrEmpty = computed(() => filters.value || {})
   const menuItemCostMap = computed(() => store.state.analyse?.menuItemCostMap || {})
-  const menuItemCostByEvent = computed(() => store.state.analyse?.menuItemCostByEvent || null)
 
   const eventRollupTotals = computed(() => (
     filters.value ? computeEventRollupTotals(events.value, filters.value, isPredict.value) : null
@@ -44,7 +43,6 @@ export function useComparisonKpis({
     filteredShopGranularData: kpiRecords,
     chartFilteredEvents: events,
     menuItemCostMap,
-    menuItemCostByEvent,
     eventRollupTotals,
     isTimelineFilterActive: ref(false),
     operatingMinutes: computed(() => (events.value || []).reduce((s, e) => s + (e.durationMinutes || 180), 0)),
@@ -80,7 +78,7 @@ export function useComparisonKpis({
     const evs = events.value || []
     const loaded = isPredict.value ? null : loadedEventIds.value
     const ids = new Set(evs.filter((e) => !loaded || loaded.has(e.id)).map((e) => e.id))
-    return computeItemTotals(kpiRecords.value || [], evs, ids, menuItemCostMap.value, menuItemCostByEvent.value)
+    return computeItemTotals(kpiRecords.value || [], evs, ids, menuItemCostMap.value)
   })
 
   return { metrics, rendement, chips, widgets, totals, eventRollupTotals, menuItemCostMap }

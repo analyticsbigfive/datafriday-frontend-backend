@@ -39,7 +39,6 @@ import { useTheme } from 'vuetify'
 import '@/lib/chartjs'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { itemLevelTotalsByEvent, eventMarginPct } from '@/utils/analyseAggregations'
-import { makeCostFor } from '@/utils/eventCostLookup'
 import { useI18n } from '@/i18n/useI18n'
 import EventMetricFooter from './EventMetricFooter.vue'
 
@@ -59,8 +58,6 @@ const props = defineProps({
   events: { type: Array, default: () => [] },
   eventAggregates: { type: Array, default: () => [] },
   costMap: { type: Object, default: () => ({}) },
-  // Lot 4b : coût figé par event { eventId: { menuItemId: coût } }, repli sur costMap.
-  costByEvent: { type: Object, default: null },
   initialMetric: { type: String, default: 'revenue' },
   // Métriques rendement (useRendementWidgets.chartMetrics) : par métrique
   // { status: 'ready'|'blocked'|'unresolved'|'error'|'loading', rows: Map<eventId, {value, reason, draft}> }.
@@ -139,7 +136,7 @@ function safeEventName(name, id) {
 // est chargé — seule source d'où un coût peut sortir. Voir
 // `itemLevelTotalsByEvent` pour pourquoi les agrégats shop-level n'en ont pas.
 const itemTotalsByEvent = computed(() =>
-  itemLevelTotalsByEvent(props.records, props.costMap || {}, props.costByEvent)
+  itemLevelTotalsByEvent(props.records, props.costMap || {})
 )
 
 const eventRows = computed(() => {
@@ -162,7 +159,6 @@ const eventRows = computed(() => {
 
   const byEvent = new Map()
   const costMap = props.costMap || {}
-  const unitCostOf = makeCostFor(costMap, props.costByEvent)
 
   for (const event of props.events || []) {
     const id = event.id || event.eventId
@@ -200,7 +196,7 @@ const eventRows = computed(() => {
     if (record.menuItemId && costMapLoaded) entry.costKnown = true
     const quantity = record.quantity || 0
     entry.revenue += record.revenue || 0
-    entry.cost += unitCostOf(record.eventId, record.menuItemId) * quantity
+    entry.cost += (costMap[record.menuItemId] || 0) * quantity
     entry.transactions += record.transactionCount || 0
     if (!entry.eventName) entry.eventName = safeEventName(record.eventName, record.eventId)
     if (!entry.eventDate && record.eventDate) entry.eventDate = record.eventDate

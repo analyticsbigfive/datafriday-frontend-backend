@@ -51,15 +51,3 @@ export async function getEventValuations(spaceId, eventIds, { shopNames, shopIds
     params: compactParams({ spaceId, eventIds, shopNames, shopIds }),
   })
 }
-
-/**
- * D. GET /analyse/:spaceId/event-costs?eventIds=a,b,c (1 à 100 events, lot 4a).
- * @returns {Promise<{ events: Object<string, Object<string, {totalCost:number, source:string, versionAt:string|null}>>, unknownEventIds: string[] }>}
- */
-export async function getEventCosts(spaceId, eventIds) {
-  return api.get(`/analyse/${encodeURIComponent(spaceId)}/event-costs`, {
-    params: compactParams({ eventIds }),
-  })
-}
-
-export const EVENT_COSTS_BATCH_SIZE = 100
