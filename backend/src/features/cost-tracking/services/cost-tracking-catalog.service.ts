@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { ScopeArticle } from '../cost-tracking.types';
+import { CostTrackingSnapshotReaderService } from './cost-tracking-snapshot-reader.service';
 
 export interface CostTrackingCatalog {
   spaceId: string;
@@ -20,7 +21,10 @@ const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompar
 /** Périmètre d'articles de la page (Space Menu de l'espace) et hiérarchie Type > Catégorie > Article. */
 @Injectable()
 export class CostTrackingCatalogService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly reader: CostTrackingSnapshotReaderService,
+  ) {}
 
   /** Articles actifs du Space Menu, filtrés par type, catégorie ou article. */
   async listArticles(tenantId: string, spaceId: string, filters: { typeId?: string; categoryId?: string; menuItemId?: string } = {}): Promise<ScopeArticle[]> {
@@ -52,6 +56,19 @@ export class CostTrackingCatalogService {
         categoryName: r.productCategory?.name ?? null,
       }))
       .sort(byName);
+  }
+
+  /** Lignes de la recette actuelle d'un article (ingrédients, composants, emballages, fils de combo) pour le filtre ingrédient. */
+  async getArticleIngredients(tenantId: string, spaceId: string, menuItemId: string) {
+    const [article] = await this.listArticles(tenantId, spaceId, { menuItemId });
+    if (!article) throw new NotFoundException('Article introuvable dans le menu de cet espace.');
+    const recipe = await this.reader.latestRecipe(tenantId, menuItemId);
+    const seen = new Set<string>();
+    const lines = recipe
+      .filter((l) => (seen.has(l.refId) ? false : (seen.add(l.refId), true)))
+      .map((l) => ({ id: l.refId, name: l.name ?? '', lineKind: l.kind }))
+      .sort(byName);
+    return { spaceId, article: { id: article.id, name: article.name }, lines };
   }
 
   async getCatalog(tenantId: string, spaceId: string): Promise<CostTrackingCatalog> {

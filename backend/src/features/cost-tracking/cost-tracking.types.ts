@@ -1,6 +1,23 @@
 /** Types partagés du module Cost tracking (lecture seule de l'historique `MenuItemCostSnapshot`). */
 
-export type CostTrackingGroupBy = 'article' | 'category' | 'type';
+export type CostTrackingGroupBy = 'article' | 'category' | 'type' | 'ingredient';
+
+/** Nature d'une ligne de recette (mode ingrédient). */
+export type RecipeLineKind = 'component' | 'ingredient' | 'packaging' | 'combo';
+
+/** Ligne de recette figée telle qu'écrite dans `MenuItemCostSnapshot.recipe`. */
+export interface RecipeLine {
+  kind: RecipeLineKind;
+  refId: string;
+  name: string | null;
+  quantity: number;
+  unitCost: number | null;
+}
+
+/** Snapshot allégé accompagné de sa recette figée. */
+export interface SnapshotWithRecipe extends SnapshotPoint {
+  recipe: RecipeLine[];
+}
 
 /** Ligne de snapshot allégée (sans le Json `recipe`) utilisée pour construire les séries. */
 export interface SnapshotPoint {

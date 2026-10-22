@@ -2,6 +2,7 @@ jest.mock('@/api/endpoints/cost-tracking.api', () => ({
   getCostTrackingCatalog: jest.fn(),
   getCostTrackingSeries: jest.fn(),
   getCostTrackingArticleHistory: jest.fn(),
+  getCostTrackingArticleIngredients: jest.fn(),
 }))
 
 import { createStore } from 'vuex'
@@ -61,7 +62,7 @@ describe('costTracking store : filtres', () => {
     await store.dispatch('costTracking/setFilters', { typeId: 't1' })
     await store.dispatch('costTracking/setFilters', { groupBy: 'type' })
     expect(store.getters['costTracking/filters']).toEqual({
-      typeId: 't1', categoryId: null, menuItemId: null, groupBy: 'type',
+      typeId: 't1', categoryId: null, menuItemId: null, ingredientId: null, groupBy: 'type',
     })
     store.commit('costTracking/RESET_FILTERS')
     expect(store.getters['costTracking/filters'].typeId).toBeNull()

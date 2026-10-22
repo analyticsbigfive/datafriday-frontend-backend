@@ -1,7 +1,7 @@
 <template>
   <section class="ct-card ct-table-card" aria-labelledby="ct-table-title">
     <div id="ct-table-title" class="ct-card__title">{{ t(titleKey) }}</div>
-    <div class="ct-card__sub">{{ t(selectable ? 'ctTableHint' : 'ctTableHintGroup') }}</div>
+    <div class="ct-card__sub">{{ t(groupBy === 'article' ? 'ctTableHint' : groupBy === 'ingredient' ? 'ctTableHintIngredient' : 'ctTableHintGroup') }}</div>
     <div v-if="!rows.length" class="ct-table__empty">{{ t('ctTableEmpty') }}</div>
     <div v-else class="ct-table__scroll">
       <table class="ct-table">
@@ -20,14 +20,20 @@
           <tr
             v-for="row in rows"
             :key="row.key"
-            :class="{ 'ct-table__row--click': selectable }"
-            :tabindex="selectable ? 0 : -1"
+            :class="{ 'ct-table__row--click': !!row.id }"
+            :tabindex="row.id ? 0 : -1"
             @click="select(row)"
             @keydown.enter="select(row)"
           >
             <td>
               {{ row.name }}
               <span v-if="subLabel(row)" class="ct-table__sub">{{ subLabel(row) }}</span>
+              <button
+                v-if="row.kind === 'article'"
+                type="button"
+                class="ct-table__history"
+                @click.stop="$emit('history', row.id)"
+              >{{ t('ctOpenHistory') }}</button>
             </td>
             <td class="ct-num">{{ fmt.cost(row.startCost) }}</td>
             <td class="ct-num"><b>{{ fmt.cost(row.currentCost) }}</b></td>
@@ -52,27 +58,28 @@ import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { useCostTrackingFormat } from '@/composables/useCostTrackingFormat'
 
-// Tableau de détail : une ligne par courbe (article, catégorie ou type). Un clic sur une ligne
-// d'article ouvre l'historique des versions. rows : sorties de buildRows (costTrackingRows.js).
+// Tableau de détail : une ligne par courbe (type, catégorie, article ou ingrédient). Un clic sur
+// une ligne descend d'un niveau (événement `select`), le lien « Historique » d'un article ouvre
+// ses versions (`history`). rows : sorties de buildRows (costTrackingRows.js).
 const props = defineProps({
   rows: { type: Array, default: () => [] },
   groupBy: { type: String, default: 'article' },
 })
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'history'])
 
 const { t } = useI18n()
 const fmt = useCostTrackingFormat()
 
-const selectable = computed(() => props.groupBy === 'article')
-const titleKey = computed(() => ({ article: 'ctTableTitleArticle', category: 'ctTableTitleCategory', type: 'ctTableTitleType' })[props.groupBy] || 'ctTableTitleArticle')
-const nameKey = computed(() => ({ article: 'ctFilterArticle', category: 'ctFilterCategory', type: 'ctFilterType' })[props.groupBy] || 'ctFilterArticle')
+const titleKey = computed(() => ({ article: 'ctTableTitleArticle', category: 'ctTableTitleCategory', type: 'ctTableTitleType', ingredient: 'ctTableTitleIngredient' })[props.groupBy] || 'ctTableTitleArticle')
+const nameKey = computed(() => ({ article: 'ctFilterArticle', category: 'ctFilterCategory', type: 'ctFilterType', ingredient: 'ctFilterIngredient' })[props.groupBy] || 'ctFilterArticle')
 
 function subLabel(row) {
   if (row.kind === 'article') return [row.typeName, row.categoryName].filter(Boolean).join(' · ')
+  if (row.kind === 'ingredient') return row.lineKind ? t(`ctLineKind_${row.lineKind}`) : ''
   return t('ctArticlesCount').replace('{count}', String(row.articleCount))
 }
 function select(row) {
-  if (selectable.value && row.id) emit('select', row.id)
+  if (row.id) emit('select', row)
 }
 </script>
 
@@ -120,6 +127,16 @@ function select(row) {
 }
 .ct-table__row--click:hover {
   background: var(--ct-subtle);
+}
+.ct-table__history {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ct-brand);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
 }
 .ct-table__sub {
   display: block;

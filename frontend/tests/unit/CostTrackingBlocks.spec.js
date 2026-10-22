@@ -50,15 +50,22 @@ describe('CostTrackingTable', () => {
     expect(w.find('table').exists()).toBe(false)
     expect(w.text()).toContain('ctTableEmpty')
   })
-  it('un clic sur une ligne d article émet son id', async () => {
+  it('un clic sur une ligne émet la ligne (descente d un niveau)', async () => {
     const w = mount(CostTrackingTable, { props: { rows: [row()], groupBy: 'article' } })
     await w.find('tbody tr').trigger('click')
-    expect(w.emitted('select')[0]).toEqual(['a'])
+    expect(w.emitted('select')[0][0]).toMatchObject({ id: 'a', kind: 'article' })
   })
-  it('en mode catégorie, les lignes ne sont pas cliquables', async () => {
+  it('le lien Historique d un article émet son id sans descendre', async () => {
+    const w = mount(CostTrackingTable, { props: { rows: [row()], groupBy: 'article' } })
+    await w.find('.ct-table__history').trigger('click')
+    expect(w.emitted('history')[0]).toEqual(['a'])
+    expect(w.emitted('select')).toBeUndefined()
+  })
+  it('en mode catégorie, une ligne émet la catégorie, sans lien Historique', async () => {
     const w = mount(CostTrackingTable, { props: { rows: [row({ kind: 'category', id: 'c1' })], groupBy: 'category' } })
     await w.find('tbody tr').trigger('click')
-    expect(w.emitted('select')).toBeUndefined()
+    expect(w.emitted('select')[0][0]).toMatchObject({ id: 'c1', kind: 'category' })
+    expect(w.find('.ct-table__history').exists()).toBe(false)
     expect(w.text()).toContain('ctTableTitleCategory')
   })
 })
@@ -70,10 +77,17 @@ describe('CostTrackingSummaryPanel', () => {
     expect(w.text()).toContain('ctNoFall')
     expect(w.text()).toContain('ctNoChange')
   })
-  it('un classement ouvre l historique de l article', async () => {
+  it('un classement descend d un niveau (drill)', async () => {
     const w = mount(CostTrackingSummaryPanel, { props: { rises: [row()] } })
     await w.find('.ct-rank').trigger('click')
-    expect(w.emitted('select')[0]).toEqual(['a'])
+    expect(w.emitted('drill')[0][0]).toMatchObject({ id: 'a', kind: 'article' })
+  })
+  it('affiche 5 lignes puis tout avec Voir tout', async () => {
+    const rises = Array.from({ length: 7 }, (_, i) => row({ key: `article:${i}`, id: `a${i}` }))
+    const w = mount(CostTrackingSummaryPanel, { props: { rises } })
+    expect(w.findAll('.ct-rank')).toHaveLength(5)
+    await w.find('.ct-summary__more').trigger('click')
+    expect(w.findAll('.ct-rank')).toHaveLength(7)
   })
 })
 

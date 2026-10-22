@@ -34,7 +34,8 @@ export async function getCostTrackingCatalog(spaceId) {
  * GET /cost-tracking/:spaceId/series
  * @param {string} spaceId
  * @param {{ from?: string, to?: string, typeId?: string, categoryId?: string,
- *           menuItemId?: string, groupBy?: 'article'|'category'|'type' }} [params]
+ *           menuItemId?: string, ingredientId?: string,
+ *           groupBy?: 'article'|'category'|'type'|'ingredient' }} [params]
  *        from/to au format YYYY-MM-DD (max 366 jours)
  * @returns {Promise<{ lines, events, trackingStartedAt, truncated, rankedByRevenue, ... }>}
  */
@@ -43,6 +44,20 @@ export async function getCostTrackingSeries(spaceId, params = {}) {
     return await api.get(`/cost-tracking/${spaceId}/series`, { params: compactParams(params) })
   } catch (error) {
     console.error('[cost-tracking.api] getCostTrackingSeries', error)
+    throw error
+  }
+}
+
+/**
+ * GET /cost-tracking/:spaceId/articles/:id/ingredients
+ * Lignes de la recette actuelle (ingrédients, composants, emballages, fils de combo).
+ * @returns {Promise<{ spaceId, article, lines: Array<{ id, name, lineKind }> }>}
+ */
+export async function getCostTrackingArticleIngredients(spaceId, menuItemId) {
+  try {
+    return await api.get(`/cost-tracking/${spaceId}/articles/${menuItemId}/ingredients`)
+  } catch (error) {
+    console.error('[cost-tracking.api] getCostTrackingArticleIngredients', error)
     throw error
   }
 }

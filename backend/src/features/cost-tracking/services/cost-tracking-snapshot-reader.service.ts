@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
-import { SnapshotPoint } from '../cost-tracking.types';
+import { RecipeLine, SnapshotPoint, SnapshotWithRecipe } from '../cost-tracking.types';
 
 /** Taille de lot : borne le nombre d'identifiants passés à une requête. */
 const READ_BATCH_SIZE = 500;
@@ -142,6 +142,53 @@ export class CostTrackingSnapshotReaderService {
       }
     }
     return out;
+  }
+
+
+  /**
+   * Versions d'UN article avec leur recette figée (mode ingrédient) : le dernier snapshot
+   * antérieur à `from` puis ceux de [from, toExclusive), par date croissante. Un seul article,
+   * donc le Json `recipe` reste borné.
+   */
+  async readRecipesForPeriod(tenantId: string, itemId: string, from: Date, toExclusive: Date): Promise<SnapshotWithRecipe[]> {
+    const columns = Prisma.sql`${SNAPSHOT_COLUMNS}, "recipe"`;
+    const [carry, changes] = await Promise.all([
+      this.prisma.$queryRaw<Array<RawSnapshot & { recipe: unknown }>>(Prisma.sql`
+        SELECT ${columns} FROM "MenuItemCostSnapshot"
+        WHERE "tenantId" = ${tenantId} AND "menuItemId" = ${itemId} AND "effectiveFrom" < ${from}
+        ORDER BY "effectiveFrom" DESC, "createdAt" DESC LIMIT 1
+      `),
+      this.prisma.$queryRaw<Array<RawSnapshot & { recipe: unknown }>>(Prisma.sql`
+        SELECT ${columns} FROM "MenuItemCostSnapshot"
+        WHERE "tenantId" = ${tenantId} AND "menuItemId" = ${itemId}
+          AND "effectiveFrom" >= ${from} AND "effectiveFrom" < ${toExclusive}
+        ORDER BY "effectiveFrom", "createdAt"
+      `),
+    ]);
+    return [...carry, ...changes].map((row) => ({ ...this.toPoint(row), recipe: this.toRecipe(row.recipe) }));
+  }
+
+  /** Recette de la version la plus récente d'un article (lignes disponibles pour le filtre ingrédient). */
+  async latestRecipe(tenantId: string, itemId: string): Promise<RecipeLine[]> {
+    const row = await this.prisma.menuItemCostSnapshot.findFirst({
+      where: { tenantId, menuItemId: itemId },
+      orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
+      select: { recipe: true },
+    });
+    return this.toRecipe(row?.recipe);
+  }
+
+  private toRecipe(value: unknown): RecipeLine[] {
+    if (!Array.isArray(value)) return [];
+    return value
+      .filter((l: any) => l && typeof l.refId === 'string' && typeof l.kind === 'string')
+      .map((l: any) => ({
+        kind: l.kind,
+        refId: l.refId,
+        name: l.name ?? null,
+        quantity: Number(l.quantity) || 0,
+        unitCost: l.unitCost == null ? null : Number(l.unitCost),
+      }));
   }
 
   /** Date du tout premier snapshot du périmètre (début du suivi), null si aucun. */
