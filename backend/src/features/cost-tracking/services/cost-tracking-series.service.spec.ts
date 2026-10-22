@@ -19,6 +19,7 @@ function build(articles: any[], snaps: Record<string, SnapshotPoint[]>, revenue:
   };
   const reader: any = {
     trackingStartedAt: jest.fn().mockResolvedValue(new Date('2026-01-01T00:00:00Z')),
+    tenantDefaultVatRate: jest.fn().mockResolvedValue(10),
     readForPeriod: jest.fn().mockImplementation(async (_t: string, ids: string[]) => new Map(ids.map((id) => [id, snaps[id] ?? []]))),
   };
   return { service: new CostTrackingSeriesService(catalog, events, revenueSvc, reader), revenueSvc, reader, catalog };

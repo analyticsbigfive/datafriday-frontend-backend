@@ -18,10 +18,11 @@
         :series="series"
         :bounds="bounds"
         :show-margin="showMargin"
+        :show-price="showPrice"
         :with-events="withEvents"
       />
       <CostTrackingLegend :rows="legendRows" @toggle="$emit('toggle-line', $event)" />
-      <CostTrackingChartKey :with-events="withEvents" :with-margin="showMargin" />
+      <CostTrackingChartKey :with-events="withEvents" :with-margin="showMargin" :with-price="showPrice" />
     </template>
   </section>
 </template>
@@ -47,6 +48,7 @@ const props = defineProps({
   legendRows: { type: Array, default: () => [] },
   bounds: { type: Array, required: true },
   showMargin: { type: Boolean, default: false },
+  showPrice: { type: Boolean, default: false },
   withEvents: { type: Boolean, default: true },
   // Un article est filtré : le mode « par ingrédient » est proposé.
   canIngredient: { type: Boolean, default: false },
@@ -76,7 +78,8 @@ const subtitle = computed(() => {
   return t('ctChartSub')
     .replace('{lines}', noun)
     .replace('{from}', fmt.dayYear(props.bounds[0]))
-    .replace('{to}', fmt.dayYear(props.bounds[1]))
+    // bounds[1] est la fin exclusive (minuit du lendemain) : on affiche le dernier jour inclus.
+    .replace('{to}', fmt.dayYear(props.bounds[1] - 1))
 })
 </script>
 

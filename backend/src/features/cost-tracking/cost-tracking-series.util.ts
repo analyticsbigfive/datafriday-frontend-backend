@@ -1,7 +1,13 @@
-import { RecipeLineKind, SeriesPoint, SnapshotPoint, SnapshotWithRecipe } from './cost-tracking.types';
+import { CostTrackingAggregate, RecipeLineKind, SeriesPoint, SnapshotPoint, SnapshotWithRecipe } from './cost-tracking.types';
 
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Prix TTC ramené hors taxe ; null si le prix ou le taux est inconnu. */
+export function priceHt(price: number | null, vatRate: number | null): number | null {
+  if (price == null || vatRate == null) return null;
+  return round2(price / (1 + vatRate / 100));
+}
 
 /**
  * Série en escalier d'UN article. `snapshots` : tous les snapshots utiles de l'article, triés par
@@ -9,12 +15,13 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * Ce snapshot de report est ramené à `from` (`carried: true`). Seuls les changements de coût par
  * pièce ou de prix produisent un point : une version qui ne change que la recette est ignorée.
  */
-export function buildArticlePoints(snapshots: SnapshotPoint[], from: Date): SeriesPoint[] {
+export function buildArticlePoints(snapshots: SnapshotPoint[], from: Date, defaultVatRate: number | null = null): SeriesPoint[] {
   const points: SeriesPoint[] = [];
   for (const snap of snapshots) {
     const carried = snap.effectiveFrom.getTime() < from.getTime();
     const prev = points[points.length - 1];
     const cost = round4(snap.costPerPiece);
+    const vat = snap.vatRate ?? defaultVatRate;
     if (prev && prev.costPerPiece === cost && prev.price === snap.basePrice) continue;
     // Deux snapshots antérieurs à `from` : le dernier remplace le précédent (même instant `from`).
     if (carried && prev?.carried) points.pop();
@@ -22,6 +29,7 @@ export function buildArticlePoints(snapshots: SnapshotPoint[], from: Date): Seri
       at: (carried ? from : snap.effectiveFrom).toISOString(),
       costPerPiece: cost,
       price: snap.basePrice,
+      priceHt: priceHt(snap.basePrice, vat),
       articleCount: 1,
       carried,
       snapshotId: snap.id,
@@ -35,10 +43,10 @@ export function buildArticlePoints(snapshots: SnapshotPoint[], from: Date): Seri
 
 /**
  * Série d'un Type ou d'une Catégorie : à chaque instant de changement d'un membre, moyenne
- * simple du coût par pièce (et du prix) des membres qui ont déjà une valeur. Un membre sans
+ * simple (ou somme si `aggregate` vaut 'sum') du coût par pièce et du prix des membres qui ont déjà une valeur. Un membre sans
  * snapshot à cet instant n'entre pas dans la moyenne.
  */
-export function averageStaircase(members: SeriesPoint[][]): SeriesPoint[] {
+export function averageStaircase(members: SeriesPoint[][], aggregate: CostTrackingAggregate = 'avg'): SeriesPoint[] {
   const lists = members.filter((m) => m.length > 0);
   if (!lists.length) return [];
   const instants = [...new Set(lists.flatMap((m) => m.map((p) => p.at)))].sort();
@@ -47,6 +55,8 @@ export function averageStaircase(members: SeriesPoint[][]): SeriesPoint[] {
     let costSum = 0;
     let priceSum = 0;
     let priceCount = 0;
+    let htSum = 0;
+    let htCount = 0;
     let count = 0;
     let carried = true;
     for (const list of lists) {
@@ -58,18 +68,24 @@ export function averageStaircase(members: SeriesPoint[][]): SeriesPoint[] {
         priceSum += current.price;
         priceCount += 1;
       }
+      if (current.priceHt != null) {
+        htSum += current.priceHt;
+        htCount += 1;
+      }
       if (!current.carried || current.at !== at) carried = false;
     }
     if (!count) continue;
+    const divisor = aggregate === 'sum' ? 1 : null;
     const point: SeriesPoint = {
       at,
-      costPerPiece: round4(costSum / count),
-      price: priceCount ? round2(priceSum / priceCount) : null,
+      costPerPiece: round4(costSum / (divisor ?? count)),
+      price: priceCount ? round2(priceSum / (divisor ?? priceCount)) : null,
+      priceHt: htCount ? round2(htSum / (divisor ?? htCount)) : null,
       articleCount: count,
       carried,
     };
     const prev = out[out.length - 1];
-    if (prev && prev.costPerPiece === point.costPerPiece && prev.price === point.price && prev.articleCount === point.articleCount) continue;
+    if (prev && prev.costPerPiece === point.costPerPiece && prev.price === point.price && prev.priceHt === point.priceHt && prev.articleCount === point.articleCount) continue;
     out.push(point);
   }
   return out;

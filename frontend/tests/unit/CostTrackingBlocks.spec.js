@@ -70,6 +70,20 @@ describe('CostTrackingTable', () => {
   })
 })
 
+describe('CostTrackingSummaryPanel : total ou moyenne', () => {
+  it('propose le choix pour une catégorie et émet la valeur choisie', async () => {
+    const w = mount(CostTrackingSummaryPanel, { props: { groupBy: 'category', aggregate: 'avg' } })
+    const buttons = w.findAll('.ct-summary__agg')
+    expect(buttons).toHaveLength(2)
+    await buttons[1].trigger('click')
+    expect(w.emitted('update:aggregate')[0]).toEqual(['sum'])
+  })
+  it('ne le propose pas pour des articles', () => {
+    const w = mount(CostTrackingSummaryPanel, { props: { groupBy: 'article' } })
+    expect(w.find('.ct-summary__aggregate').exists()).toBe(false)
+  })
+})
+
 describe('CostTrackingSummaryPanel', () => {
   it('sans donnée : trois messages vides', () => {
     const w = mount(CostTrackingSummaryPanel)

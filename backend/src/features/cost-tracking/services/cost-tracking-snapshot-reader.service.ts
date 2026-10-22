@@ -16,10 +16,11 @@ type RawSnapshot = {
   totalCost: Prisma.Decimal | number | string;
   numberOfPieces: number;
   basePrice: Prisma.Decimal | number | string | null;
+  vatRate?: Prisma.Decimal | number | string | null;
   reason: string;
 };
 
-const SNAPSHOT_COLUMNS = Prisma.sql`"id", "menuItemId", "effectiveFrom", "costPerPiece", "totalCost", "numberOfPieces", "basePrice", "reason"`;
+const SNAPSHOT_COLUMNS = Prisma.sql`"id", "menuItemId", "effectiveFrom", "costPerPiece", "totalCost", "numberOfPieces", "basePrice", "vatRate", "reason"`;
 
 /**
  * Lectures de l'historique `MenuItemCostSnapshot`, sans jamais charger le Json `recipe`.
@@ -191,6 +192,17 @@ export class CostTrackingSnapshotReaderService {
       }));
   }
 
+  /** Taux de TVA par défaut du tenant (dernière configuration), null s'il n'y en a pas. */
+  async tenantDefaultVatRate(tenantId: string): Promise<number | null> {
+    const cfg = await this.prisma.tenantVatConfig.findFirst({
+      where: { tenantId },
+      orderBy: { effectiveFrom: 'desc' },
+      select: { defaultVatRate: true },
+    });
+    const n = cfg ? Number(cfg.defaultVatRate) : NaN;
+    return Number.isFinite(n) ? n : null;
+  }
+
   /** Date du tout premier snapshot du périmètre (début du suivi), null si aucun. */
   async trackingStartedAt(tenantId: string, itemIds: string[]): Promise<Date | null> {
     if (!itemIds.length) return null;
@@ -237,6 +249,7 @@ export class CostTrackingSnapshotReaderService {
       totalCost: Number(row.totalCost),
       numberOfPieces: Number(row.numberOfPieces),
       basePrice: row.basePrice == null ? null : Number(row.basePrice),
+      vatRate: row.vatRate == null ? null : Number(row.vatRate),
       reason: row.reason,
     };
   }
