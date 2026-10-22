@@ -294,11 +294,13 @@ function onToolboxSelect(v) {
   if (v === 'space-inventory') return safePush(router, spacePath('/inventory'))
   if (v === 'logistic') return safePush(router, spacePath('/logistic'))
   if (v === 'restock') return safePush(router, spacePath('/restock'))
+  if (v === 'cost-tracking') return safePush(router, { name: 'space-cost-tracking', params: { spaceId: route.params?.spaceId } })
   if (v === 'pos') return safePush(router, spacePath('/pos'))
   safePush(router, { path: spacePath(''), query: v === 'analyse' ? {} : { toolbox: v } })
 }
 const toolboxItems = computed(() => [
   { value: 'analyse', label: t('anToolAnalyse'), icon: 'mdi-chart-line' },
+  ...(store.getters['auth/can']('front.fb.costTracking') ? [{ value: 'cost-tracking', label: t('srToolCostTracking'), icon: 'mdi-cash-multiple' }] : []),
   { value: 'predict', label: t('anToolPredict'), icon: 'mdi-trending-up' },
   { value: 'event-predict', label: t('anToolEventPredict'), icon: 'mdi-lightning-bolt' },
   { value: 'live', label: t('anToolLive'), icon: 'mdi-record-circle-outline' },
