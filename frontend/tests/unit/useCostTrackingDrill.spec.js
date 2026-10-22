@@ -32,9 +32,10 @@ function setup() {
 }
 
 describe('defaultGroupBy', () => {
-  it('article et ingrédient filtrés : mode ingrédient ; article seul : mode article', () => {
+  it('un article filtré (avec ou sans ingrédient) : mode ingrédient', () => {
     expect(defaultGroupBy({ menuItemId: 'a', ingredientId: 'i' })).toBe('ingredient')
-    expect(defaultGroupBy({ menuItemId: 'a' })).toBe('article')
+    expect(defaultGroupBy({ menuItemId: 'a' })).toBe('ingredient')
+    expect(defaultGroupBy({ categoryId: 'c' })).toBe('article')
     expect(defaultGroupBy({ typeId: 't' })).toBe('category')
   })
 })
