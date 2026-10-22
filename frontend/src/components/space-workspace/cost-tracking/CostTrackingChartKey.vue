@@ -2,6 +2,7 @@
   <div class="ct-key">
     <span><i class="ct-key__step" />{{ t('ctKeyStep') }}</span>
     <span v-if="withEvents"><i class="ct-key__diamond" />{{ t('ctKeyEvent') }}</span>
+    <span v-if="withPrice"><i class="ct-key__price" />{{ t('ctKeyPrice') }}</span>
     <span v-if="withMargin"><i class="ct-key__dash" />{{ t('ctKeyMargin') }}</span>
   </div>
 </template>
@@ -13,6 +14,7 @@ import { useI18n } from '@/i18n/useI18n'
 defineProps({
   withEvents: { type: Boolean, default: true },
   withMargin: { type: Boolean, default: false },
+  withPrice: { type: Boolean, default: false },
 })
 
 const { t } = useI18n()
@@ -43,6 +45,11 @@ const { t } = useI18n()
   height: 8px;
   background: var(--ct-faint);
   transform: rotate(45deg);
+}
+.ct-key__price {
+  width: 18px;
+  border-top: 2px dashed var(--ct-muted);
+  border-image: repeating-linear-gradient(90deg, var(--ct-muted) 0 7px, transparent 7px 10px) 1;
 }
 .ct-key__dash {
   width: 18px;

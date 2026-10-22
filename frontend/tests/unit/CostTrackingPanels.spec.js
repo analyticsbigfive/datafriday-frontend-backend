@@ -46,9 +46,14 @@ describe('CostTrackingFilterPanel', () => {
   })
   it('la courbe de marge est désactivée au-delà de 3 lignes', () => {
     const w = mount(CostTrackingFilterPanel, { props: { ...base, canMargin: false } })
-    const sw = w.findAll('[role="switch"]')[0]
+    const sw = w.findAll('[role="switch"]')[1]
     expect(sw.attributes('disabled')).toBeDefined()
     expect(w.text()).toContain('ctMarginHintOff')
+  })
+  it('la courbe de prix HT a son propre interrupteur', async () => {
+    const w = mount(CostTrackingFilterPanel, { props: { ...base, showPrice: false } })
+    await w.findAll('[role="switch"]')[0].trigger('click')
+    expect(w.emitted('update:showPrice')[0]).toEqual([true])
   })
   it('période personnalisée : dates puis plage émise', async () => {
     const w = mount(CostTrackingFilterPanel, { props: { ...base, period: 'custom' } })

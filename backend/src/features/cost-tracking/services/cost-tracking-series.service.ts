@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { CostTrackingSeriesQueryDto } from '../dto/cost-tracking.query.dto';
+import { constantBasket, ConstantBasket } from '../cost-tracking-basket.util';
 import { averageStaircase, buildArticlePoints, buildIngredientSeries } from '../cost-tracking-series.util';
 import { CostTrackingGroupBy, ScopeArticle, SeriesPoint } from '../cost-tracking.types';
 import { CostTrackingCatalogService } from './cost-tracking-catalog.service';
@@ -23,6 +24,8 @@ export interface CostTrackingLine {
   quantity: number | null;
   /** Mode ingrédient : nature de la ligne de recette (ingrédient, composant, emballage, combo). */
   lineKind?: string;
+  /** Type et Catégorie : coûts de début et de fin à panier constant (sert à la variation). */
+  basket?: ConstantBasket | null;
   points: SeriesPoint[];
 }
 
@@ -71,7 +74,10 @@ export class CostTrackingSeriesService {
       this.catalog.listArticles(tenantId, spaceId, query),
       this.events.listEvents(tenantId, spaceId, period),
     ]);
-    const trackingStartedAt = await this.reader.trackingStartedAt(tenantId, articles.map((a) => a.id));
+    const [trackingStartedAt, vatRate] = await Promise.all([
+      this.reader.trackingStartedAt(tenantId, articles.map((a) => a.id)),
+      this.reader.tenantDefaultVatRate(tenantId),
+    ]);
     const base = {
       spaceId, from: period.fromDay, to: period.toDay, timezone: period.timezone, groupBy,
       trackingStartedAt: trackingStartedAt?.toISOString() ?? null, events,
@@ -99,7 +105,7 @@ export class CostTrackingSeriesService {
         return {
           key: `article:${a.id}`, kind: 'article', id: a.id, name: a.name, typeName: a.typeName, categoryName: a.categoryName,
           articleCount: 1, revenueHt: rev?.revenueHt ?? null, quantity: rev?.quantity ?? null,
-          points: buildArticlePoints(snaps.get(a.id) ?? [], period.from),
+          points: buildArticlePoints(snaps.get(a.id) ?? [], period.from, vatRate),
         };
       });
       return { ...base, truncated, rankedByRevenue: ranked, eventsConsidered: considered, lines };
@@ -107,13 +113,18 @@ export class CostTrackingSeriesService {
 
     const snaps = await this.reader.readForPeriod(tenantId, articles.map((a) => a.id), period.from, period.toExclusive);
     const groups = this.groupArticles(articles, groupBy);
+    const aggregate = query.aggregate ?? 'avg';
     const lines = groups
-      .map((g): CostTrackingLine => ({
-        key: `${groupBy}:${g.id}`, kind: groupBy, id: g.id, name: g.name,
-        typeName: g.typeName, categoryName: groupBy === 'category' ? g.name : null,
-        articleCount: g.members.length, revenueHt: null, quantity: null,
-        points: averageStaircase(g.members.map((m) => buildArticlePoints(snaps.get(m.id) ?? [], period.from))),
-      }))
+      .map((g): CostTrackingLine => {
+        const memberPoints = g.members.map((m) => buildArticlePoints(snaps.get(m.id) ?? [], period.from, vatRate));
+        return {
+          key: `${groupBy}:${g.id}`, kind: groupBy, id: g.id, name: g.name,
+          typeName: g.typeName, categoryName: groupBy === 'category' ? g.name : null,
+          articleCount: g.members.length, revenueHt: null, quantity: null,
+          basket: constantBasket(memberPoints, aggregate),
+          points: averageStaircase(memberPoints, aggregate),
+        };
+      })
       .filter((l) => l.points.length > 0)
       .sort(byName);
     return { ...base, truncated: false, rankedByRevenue: false, eventsConsidered: 0, lines };

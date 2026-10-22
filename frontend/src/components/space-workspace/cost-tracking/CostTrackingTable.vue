@@ -12,6 +12,7 @@
             <th>{{ t('ctColCurrentCost') }}</th>
             <th>{{ t('ctColVariation') }}</th>
             <th>{{ t('ctColPrice') }}</th>
+            <th>{{ t('ctColPriceHt') }}</th>
             <th>{{ t('ctColMargin') }}</th>
             <th>{{ t('ctColVersions') }}</th>
           </tr>
@@ -41,6 +42,7 @@
               {{ row.variation && row.variation.pct !== null ? fmt.pct(row.variation.pct) : '-' }}
             </td>
             <td class="ct-num">{{ fmt.cost(row.currentPrice) }}</td>
+            <td class="ct-num">{{ fmt.cost(row.currentPriceHt) }}</td>
             <td class="ct-num">
               {{ fmt.pctPlain(row.marginEnd) }}
               <span v-if="row.marginDelta !== null" class="ct-table__sub">{{ fmt.points(row.marginDelta) }}</span>

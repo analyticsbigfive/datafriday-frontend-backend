@@ -61,6 +61,7 @@
           :cx="dot.x" :cy="dot.y" r="3.5"
           :style="{ stroke: colorOf(series[i]) }"
         />
+        <path v-if="showPrice && path.priceD" class="ct-chart__price" :d="path.priceD" :style="{ stroke: colorOf(series[i]) }" />
         <circle v-if="path.endDot" :cx="path.endDot.x" :cy="path.endDot.y" r="4" :style="{ fill: colorOf(series[i]) }" />
       </g>
       <path
@@ -118,6 +119,8 @@ const props = defineProps({
   // [t0, t1] en ms.
   bounds: { type: Array, required: true },
   showMargin: { type: Boolean, default: false },
+  // Courbe du prix hors taxe, sur l'axe de gauche (en euros, comme le coût).
+  showPrice: { type: Boolean, default: false },
   // Réserve la place des étiquettes d'events sous l'axe.
   withEvents: { type: Boolean, default: true },
 })
@@ -213,6 +216,12 @@ onBeforeUnmount(() => observer?.disconnect())
 .ct-chart__dot {
   fill: var(--ct-surface);
   stroke-width: 2;
+}
+.ct-chart__price {
+  fill: none;
+  stroke-width: 1.6;
+  stroke-dasharray: 7 3 1.5 3;
+  opacity: 0.85;
 }
 .ct-chart__margin {
   fill: none;

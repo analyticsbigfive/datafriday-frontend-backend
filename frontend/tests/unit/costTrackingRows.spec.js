@@ -126,3 +126,23 @@ describe('buildMarginCurves', () => {
     expect(buildMarginCurves(s, { x: (t) => t, margin: { t: 0 }, innerHeight: 100, t1: 2 })).toEqual({ ticks: [], paths: [] })
   })
 })
+
+describe('prix HT et panier constant', () => {
+  it('la marge se calcule sur le prix HT quand il est connu', () => {
+    const rows = buildRows([line('article:h', [pt('2026-03-01T00:00:00Z', 2, { price: 12, priceHt: 10 })])], T1)
+    expect(rows[0].currentPriceHt).toBe(10)
+    expect(rows[0].marginEnd).toBeCloseTo(80, 5)
+  })
+  it('repli sur le TTC sans taux de TVA', () => {
+    const rows = buildRows([line('article:h', [pt('2026-03-01T00:00:00Z', 2, { price: 10 })])], T1)
+    expect(rows[0].marginEnd).toBeCloseTo(80, 5)
+  })
+  it('la variation d une catégorie suit le panier constant, pas la moyenne qui bouge', () => {
+    const cat = line('category:c', [pt('2026-03-01T00:00:00Z', 0.24), pt('2026-05-01T00:00:00Z', 1.08)], {
+      kind: 'category', basket: { startCost: 0.24, endCost: 0.24, articleCount: 1 },
+    })
+    const [row] = buildRows([cat], T1)
+    expect(row.variation.direction).toBe('flat')
+    expect(row.currentCost).toBe(0.24)
+  })
+})

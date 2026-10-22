@@ -83,7 +83,7 @@ const kpis = computed(() => {
   return [
     { label: t('ctDrawerCurrentCost'), value: fmt.cost(cur.costPerPiece) },
     { label: t('ctDrawerPrice'), value: fmt.cost(cur.basePrice) },
-    { label: t('ctDrawerMargin'), value: fmt.pctPlain(marginPercent(cur.costPerPiece, cur.basePrice)) },
+    { label: t('ctDrawerMargin'), value: fmt.pctPlain(marginPercent(cur.costPerPiece, cur.basePrice, cur.vatRate ?? 0)) },
   ]
 })
 

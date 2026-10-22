@@ -14,6 +14,9 @@ export class CostTrackingSeriesQueryDto {
 
   /** Absent : déduit des filtres (voir CostTrackingSeriesService.resolveGroupBy). */
   @IsOptional() @IsIn(['article', 'category', 'type', 'ingredient']) groupBy?: 'article' | 'category' | 'type' | 'ingredient';
+
+  /** Type et Catégorie : moyenne des articles (défaut) ou total des coûts par pièce. */
+  @IsOptional() @IsIn(['avg', 'sum']) aggregate?: 'avg' | 'sum';
 }
 
 /** Query de GET /cost-tracking/:spaceId/articles/:id/history. */
