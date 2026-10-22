@@ -299,7 +299,10 @@ describe('useComparisonReport', () => {
     expect(report.filters.value.selectedDaysOfWeek).toEqual(['sat'])
     expect(JSON.stringify([store.state, filters])).toBe(before)
     expect(store.commit).not.toHaveBeenCalled()
-    expect(store.dispatch).not.toHaveBeenCalled()
+    // Seule exception : le cache des coûts figés par event (lot 4b), clé par id d'event et
+    // immuable, partagé avec le principal. Ni filtres ni jeux de records du principal.
+    const otherDispatches = store.dispatch.mock.calls.filter(([type]) => type !== 'analyse/ensureEventCosts')
+    expect(otherDispatches).toEqual([])
   })
 
   it('stock du jour demandé avec le droit financier, hors Predict', async () => {
