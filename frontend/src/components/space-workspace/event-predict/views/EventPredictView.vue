@@ -1476,6 +1476,7 @@ function fetchEdgeMappingsSWR(spaceId) {
 
 const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'epToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
+  { value: 'cost-tracking', labelKey: 'srToolCostTracking', icon: 'mdi-cash-multiple', permission: 'front.fb.costTracking' },
   { value: 'predict', labelKey: 'epToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'epToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
   { value: 'live', labelKey: 'epToolLive', icon: 'mdi-record-circle-outline', permission: 'front.fb.live' },
@@ -5485,6 +5486,9 @@ export default {
         // cf. router/index.js) : il faut router par nom, sinon on atterrit sur
         // Analyse avec un toolbox inconnu.
         safePush(this.$router, { name: 'space-live', params: { spaceId } });
+        this.$emit('close');
+      } else if (tool.value === 'cost-tracking') {
+        safePush(this.$router, { name: 'space-cost-tracking', params: { spaceId } });
         this.$emit('close');
       } else if (tool.value === 'space-inventory' || tool.value === 'space-pre-inventory' || tool.value === 'restock' || tool.value === 'logistic' || tool.value === 'pos') {
         // Inventaire/Réarmement scopent sur la config de l'event. On la joint

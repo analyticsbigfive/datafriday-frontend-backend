@@ -41,7 +41,7 @@ export class MenuItemCompositionService {
         },
       });
 
-      await this.menuItemCostService.refreshCosts(tenantId, { itemIds: [menuItemId] });
+      await this.menuItemCostService.refreshCosts(tenantId, { itemIds: [menuItemId], reason: 'recipe_edit' });
       await this.menuItemSupportService.listCache.invalidate(tenantId);
       return this.menuItemQueryService.findOne(menuItemId, tenantId);
     } catch (error) {
@@ -75,7 +75,7 @@ export class MenuItemCompositionService {
         },
       });
 
-      await this.menuItemCostService.refreshCosts(tenantId, { itemIds: [menuItemId] });
+      await this.menuItemCostService.refreshCosts(tenantId, { itemIds: [menuItemId], reason: 'recipe_edit' });
       await this.menuItemSupportService.listCache.invalidate(tenantId);
       return this.menuItemQueryService.findOne(menuItemId, tenantId);
     } catch (error) {
@@ -109,7 +109,7 @@ export class MenuItemCompositionService {
         },
       });
 
-      await this.menuItemCostService.refreshCosts(tenantId, { itemIds: [menuItemId] });
+      await this.menuItemCostService.refreshCosts(tenantId, { itemIds: [menuItemId], reason: 'recipe_edit' });
       await this.menuItemSupportService.listCache.invalidate(tenantId);
       return this.menuItemQueryService.findOne(menuItemId, tenantId);
     } catch (error) {
@@ -145,7 +145,7 @@ export class MenuItemCompositionService {
         },
       });
 
-      await this.menuItemCostService.refreshComboCost(tenantId, menuItemId);
+      await this.menuItemCostService.refreshComboCost(tenantId, menuItemId, { reason: 'combo_edit' });
       await this.menuItemSupportService.listCache.invalidate(tenantId);
       return this.menuItemQueryService.findOne(menuItemId, tenantId);
     } catch (error) {

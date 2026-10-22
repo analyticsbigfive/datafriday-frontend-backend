@@ -4,6 +4,7 @@ import { CreateMenuItemDto } from '../dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from '../dto/update-menu-item.dto';
 import { SupabaseStorageService } from '../../../core/supabase/supabase-storage.service';
 import { MenuItemCostService } from './menu-item-cost.service';
+import { MenuItemCostSnapshotService } from './menu-item-cost-snapshot.service';
 import { MenuItemSupportService } from './menu-item-support.service';
 import { MenuItemQueryService } from './menu-item-query.service';
 import { resolveKitchenFields } from '../../../shared/utils/resolve-kitchen';
@@ -43,6 +44,7 @@ export class MenuItemCommandService {
     private readonly menuItemCostService: MenuItemCostService,
     private readonly menuItemSupportService: MenuItemSupportService,
     private readonly menuItemQueryService: MenuItemQueryService,
+    private readonly costSnapshotService: MenuItemCostSnapshotService,
   ) {}
 
   private readonly logger = new Logger(MenuItemCommandService.name);
@@ -186,11 +188,12 @@ export class MenuItemCommandService {
       });
 
       if (componentsLines || ingredientsLines || packagingsLines) {
-        await this.menuItemCostService.refreshCosts(tenantId, { itemIds: [item.id] });
+        await this.menuItemCostService.refreshCosts(tenantId, { itemIds: [item.id], skipSnapshot: true });
       }
       if (comboItemsLines && comboItemsLines.length > 0) {
-        await this.menuItemCostService.refreshComboCost(tenantId, item.id);
+        await this.menuItemCostService.refreshComboCost(tenantId, item.id, { skipSnapshot: true });
       }
+      await this.costSnapshotService.recordIfChanged(tenantId, [item.id], 'created');
 
       await this.menuItemSupportService.listCache.invalidate(tenantId);
       const refreshed = await this.menuItemQueryService.findOne(item.id, tenantId);
@@ -330,11 +333,13 @@ export class MenuItemCommandService {
       }
 
       if (componentsLines || ingredientsLines || packagingsLines) {
-        await this.menuItemCostService.refreshCosts(tenantId, { itemIds: [id] });
+        await this.menuItemCostService.refreshCosts(tenantId, { itemIds: [id], skipSnapshot: true });
       }
       if (comboItemsLines && comboItemsLines.length > 0) {
-        await this.menuItemCostService.refreshComboCost(tenantId, id);
+        await this.menuItemCostService.refreshComboCost(tenantId, id, { skipSnapshot: true });
       }
+      // Valeurs persistées (prix, pièces, coût DTO compris), y compris sans ligne de recette.
+      await this.costSnapshotService.recordIfChanged(tenantId, [id], 'recipe_edit');
 
       await this.menuItemSupportService.listCache.invalidate(tenantId);
       return this.menuItemQueryService.findOne(id, tenantId);

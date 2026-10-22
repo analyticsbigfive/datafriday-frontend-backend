@@ -49,6 +49,7 @@ import storageInventory from './modules/storageInventory'
 import guestPin from './modules/guestPin'
 import guestPinAdmin from './modules/guestPinAdmin'
 import guestPos from './modules/guestPos'
+import costTracking from './modules/costTracking'
 
 export default createStore({
   state: {
@@ -110,5 +111,6 @@ export default createStore({
     guestPin,
     guestPinAdmin,
     guestPos,
+    costTracking,
   }
 })

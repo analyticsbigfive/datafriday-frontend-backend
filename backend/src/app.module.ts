@@ -39,6 +39,7 @@ import { IngredientsModule } from './features/ingredients/ingredients.module';
 import { PackagingModule } from './features/packaging/packaging.module';
 import { EventsModule } from './features/events/events.module';
 import { AnalyseModule } from './features/analyse/analyse.module';
+import { CostTrackingModule } from './features/cost-tracking/cost-tracking.module';
 import { MappingsModule } from './features/mappings/mappings.module';
 import { AggregationModule } from './features/aggregation/aggregation.module';
 import { LiveModule } from './features/live/live.module';
@@ -148,6 +149,7 @@ import { TenantContextInterceptor } from './core/tenant/tenant-context.intercept
     PackagingModule,
     EventsModule,
     AnalyseModule,
+    CostTrackingModule,
     MappingsModule,
     AggregationModule,
     LiveModule,

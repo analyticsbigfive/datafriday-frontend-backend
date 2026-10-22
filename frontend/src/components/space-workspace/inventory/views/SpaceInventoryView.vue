@@ -869,6 +869,7 @@ const TOP_TABS = [
 
 const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'invToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
+  { value: 'cost-tracking', labelKey: 'srToolCostTracking', icon: 'mdi-cash-multiple', permission: 'front.fb.costTracking' },
   { value: 'predict', labelKey: 'invToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'invToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
   { value: 'live', labelKey: 'invToolLive', icon: 'mdi-record-circle-outline', permission: 'front.fb.live' },
@@ -3113,6 +3114,8 @@ export default {
         safePush(this.router, { name: 'space-logistic', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else if (tool.value === 'restock') {
         safePush(this.router, { name: 'space-restock', params: { spaceId }, query: ev ? { event: ev } : {} })
+      } else if (tool.value === 'cost-tracking') {
+        safePush(this.router, { name: 'space-cost-tracking', params: { spaceId } })
       } else if (tool.value === 'pos') {
         safePush(this.router, { name: 'space-pos', params: { spaceId }, query: ev ? { event: ev } : {} })
       } else {

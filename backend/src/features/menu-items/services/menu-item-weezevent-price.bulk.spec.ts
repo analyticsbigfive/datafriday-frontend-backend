@@ -12,7 +12,7 @@ describe('MenuItemWeezeventPriceService.applyWeezeventPricesBulk : résolution d
         ]),
       },
     };
-    const service = new MenuItemWeezeventPriceService(prisma as any, {} as any, {} as any, {} as any, {} as any);
+    const service = new MenuItemWeezeventPriceService(prisma as any, {} as any, {} as any, {} as any, {} as any, { recordIfChanged: jest.fn().mockResolvedValue(0) } as any);
 
     const out = await service.applyWeezeventPricesBulk(
       [{ menuItemId: 'mi-1' }, { menuItemId: 'mi-2' }, { menuItemId: 'mi-3', weezeventProductId: 'p-z' }],
