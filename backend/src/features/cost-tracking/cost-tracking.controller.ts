@@ -36,6 +36,14 @@ export class CostTrackingController {
     return this.catalog.getCatalog(req.user.tenantId, spaceId);
   }
 
+  @Get(':spaceId/articles/:id/ingredients')
+  @RequirePermissions('front.fb.costTracking')
+  @ApiOperation({ summary: 'Lignes de la recette actuelle d un article (filtre ingrédient)' })
+  async getArticleIngredients(@Req() req, @Param('spaceId') spaceId: string, @Param('id') id: string) {
+    await this.spaceAccess.assertSpaceAccessible(spaceId, req.user.tenantId, req.user);
+    return this.catalog.getArticleIngredients(req.user.tenantId, spaceId, id);
+  }
+
   @Get(':spaceId/articles/:id/history')
   @RequirePermissions('front.fb.costTracking')
   @ApiOperation({ summary: 'Versions de coût et de recette d un article' })

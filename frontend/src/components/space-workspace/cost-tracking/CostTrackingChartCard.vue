@@ -5,7 +5,10 @@
         <div id="ct-chart-title" class="ct-card__title">{{ t('ctChartTitle') }}</div>
         <div class="ct-card__sub">{{ subtitle }}</div>
       </div>
-      <CostTrackingGroupSwitch :model-value="groupBy" @update:model-value="$emit('set-group-by', $event)" />
+      <CostTrackingGroupSwitch
+        :model-value="groupBy"
+        :can-ingredient="canIngredient"
+        @update:model-value="$emit('set-group-by', $event)" />
     </div>
 
     <CostTrackingStateMessage v-if="state !== 'ready'" :kind="state" @retry="$emit('retry')" />
@@ -45,6 +48,8 @@ const props = defineProps({
   bounds: { type: Array, required: true },
   showMargin: { type: Boolean, default: false },
   withEvents: { type: Boolean, default: true },
+  // Un article est filtré : le mode « par ingrédient » est proposé.
+  canIngredient: { type: Boolean, default: false },
   truncated: { type: Boolean, default: false },
   rankedByRevenue: { type: Boolean, default: false },
 })
@@ -57,6 +62,7 @@ const NOUNS = {
   article: ['ctNounArticleOne', 'ctNounArticleMany'],
   category: ['ctNounCategoryOne', 'ctNounCategoryMany'],
   type: ['ctNounTypeOne', 'ctNounTypeMany'],
+  ingredient: ['ctNounIngredientOne', 'ctNounIngredientMany'],
 }
 
 const subtitle = computed(() => {

@@ -45,16 +45,23 @@
           <option v-for="o in articleOptions" :key="o.id" :value="o.id">{{ o.name }}</option>
         </select>
       </div>
+      <div class="ct-field">
+        <label for="ct-ingredient">{{ t('ctFilterIngredient') }}</label>
+        <select
+          id="ct-ingredient"
+          class="ct-select"
+          :value="ingredientId || ''"
+          :disabled="!menuItemId"
+          @change="$emit('set-ingredient', $event.target.value || null)"
+        >
+          <option value="">{{ menuItemId ? t('ctAllIngredients') : t('ctIngredientPickArticle') }}</option>
+          <option v-for="o in ingredientOptions" :key="o.id" :value="o.id">{{ o.name }}</option>
+        </select>
+      </div>
       <button type="button" class="ct-link" @click="$emit('reset')">{{ t('ctResetFilters') }}</button>
     </CostTrackingAccordion>
 
     <CostTrackingAccordion :title="t('ctSectionDisplay')">
-      <CostTrackingSwitch
-        :model-value="showEvents"
-        :label="t('ctShowEvents')"
-        :hint="t('ctShowEventsHint')"
-        @update:model-value="$emit('update:showEvents', $event)"
-      />
       <CostTrackingSwitch
         :model-value="showMargin && canMargin"
         :disabled="!canMargin"
@@ -76,7 +83,7 @@ import { useI18n } from '@/i18n/useI18n'
 import CostTrackingAccordion from './CostTrackingAccordion.vue'
 import CostTrackingSwitch from './CostTrackingSwitch.vue'
 
-// Panneau de filtres de la colonne gauche : période, Type > Catégorie > Article (dépendants),
+// Panneau de filtres de la colonne gauche : période, Type > Catégorie > Article > Ingrédient (dépendants),
 // options d'affichage, règles de calcul. Les règles de dépendance vivent dans useCostTracking.
 defineProps({
   period: { type: String, default: '180' },
@@ -85,16 +92,17 @@ defineProps({
   typeId: { type: String, default: null },
   categoryId: { type: String, default: null },
   menuItemId: { type: String, default: null },
+  ingredientId: { type: String, default: null },
   typeOptions: { type: Array, default: () => [] },
   categoryOptions: { type: Array, default: () => [] },
   articleOptions: { type: Array, default: () => [] },
-  showEvents: { type: Boolean, default: true },
+  ingredientOptions: { type: Array, default: () => [] },
   showMargin: { type: Boolean, default: false },
   canMargin: { type: Boolean, default: true },
 })
 const emit = defineEmits([
-  'set-period', 'set-custom-range', 'set-type', 'set-category', 'set-article', 'reset',
-  'update:showEvents', 'update:showMargin',
+  'set-period', 'set-custom-range', 'set-type', 'set-category', 'set-article', 'set-ingredient', 'reset',
+  'update:showMargin',
 ])
 
 const { t } = useI18n()

@@ -22,6 +22,7 @@ export function buildRows(lines, t1) {
       name: line.name,
       typeName: line.typeName || null,
       categoryName: line.categoryName || null,
+      lineKind: line.lineKind || null,
       articleCount: line.articleCount ?? 1,
       revenueHt: typeof line.revenueHt === 'number' ? line.revenueHt : null,
       startCost: s.first.cost,

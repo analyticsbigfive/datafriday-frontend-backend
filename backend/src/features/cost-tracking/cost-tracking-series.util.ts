@@ -1,4 +1,4 @@
-import { SeriesPoint, SnapshotPoint } from './cost-tracking.types';
+import { RecipeLineKind, SeriesPoint, SnapshotPoint, SnapshotWithRecipe } from './cost-tracking.types';
 
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -83,4 +83,41 @@ function lastAtOrBefore(list: SeriesPoint[], at: string): SeriesPoint | null {
     else break;
   }
   return found;
+}
+
+export interface IngredientSeries {
+  refId: string;
+  kind: RecipeLineKind;
+  name: string;
+  points: SeriesPoint[];
+}
+
+/**
+ * Séries en escalier des lignes de recette d'UN article (mode ingrédient). Le coût d'une ligne
+ * est sa quantité x son coût unitaire figés, ramené à la pièce (divisé par le nombre de pièces
+ * de la version). Une ligne retirée de la recette retombe à 0 ; avant sa première apparition
+ * elle n'a pas de point. Un changement de recette sans effet sur la ligne ne crée pas de point.
+ */
+export function buildIngredientSeries(snapshots: SnapshotWithRecipe[], from: Date): IngredientSeries[] {
+  const perLine = new Map<string, { kind: RecipeLineKind; name: string; snaps: SnapshotPoint[] }>();
+  for (const snap of snapshots) {
+    const pieces = Math.max(snap.numberOfPieces || 1, 1);
+    const present = new Map<string, number>();
+    for (const line of snap.recipe) {
+      const cost = (line.quantity || 0) * (line.unitCost ?? 0);
+      present.set(line.refId, (present.get(line.refId) ?? 0) + cost);
+      const entry = perLine.get(line.refId) ?? { kind: line.kind, name: line.name ?? '', snaps: [] };
+      if (line.name) entry.name = line.name;
+      perLine.set(line.refId, entry);
+    }
+    for (const [refId, entry] of perLine) {
+      const lineCost = present.get(refId);
+      // Ligne apparue plus tôt puis retirée : 0. Ligne jamais vue avant cette version : rien à poser.
+      if (lineCost === undefined && !entry.snaps.length) continue;
+      entry.snaps.push({ ...snap, costPerPiece: round4((lineCost ?? 0) / pieces), basePrice: null });
+    }
+  }
+  return [...perLine.entries()]
+    .map(([refId, e]) => ({ refId, kind: e.kind, name: e.name, points: buildArticlePoints(e.snaps, from) }))
+    .filter((s) => s.points.length > 0);
 }

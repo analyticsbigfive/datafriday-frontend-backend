@@ -23,8 +23,9 @@ export function useCostTrackingPageModel(ct) {
 
   const t1 = computed(() => ct.bounds.value[1])
   const rows = computed(() => buildRows(ct.lines.value, t1.value))
-  const rises = computed(() => rankVariations(rows.value, 'up'))
-  const falls = computed(() => rankVariations(rows.value, 'down'))
+  // Classements complets : la colonne de droite n'en montre que 5, « Voir tout » déplie le reste.
+  const rises = computed(() => rankVariations(rows.value, 'up', Infinity))
+  const falls = computed(() => rankVariations(rows.value, 'down', Infinity))
   const changes = computed(() => recentChanges(ct.lines.value, 6))
   const versionsTotal = computed(() => rows.value.reduce((s, r) => s + r.versions, 0))
 
@@ -43,7 +44,9 @@ export function useCostTrackingPageModel(ct) {
   )
 
   /** Courbe de marge : au plus 3 lignes affichées. */
-  const canMargin = computed(() => ct.lines.value.length > 0 && ct.lines.value.length <= MAX_MARGIN_LINES)
+  const canMargin = computed(
+    () => ct.groupBy.value !== 'ingredient' && ct.lines.value.length > 0 && ct.lines.value.length <= MAX_MARGIN_LINES,
+  )
 
   const chartState = computed(() => {
     if (ct.error.value) return 'error'
@@ -66,9 +69,11 @@ export function useCostTrackingPageModel(ct) {
     const type = ct.typeOptions.value.find((o) => o.id === ct.typeId.value)
     const cat = ct.categoryOptions.value.find((o) => o.id === ct.categoryId.value)
     const art = ct.articleOptions.value.find((o) => o.id === ct.menuItemId.value)
+    const ing = ct.ingredientOptions.value.find((o) => o.id === ct.ingredientId.value)
     if (type) out.push({ key: 'type', label: t('ctChipType').replace('{value}', type.name) })
     if (cat) out.push({ key: 'category', label: t('ctChipCategory').replace('{value}', cat.name) })
     if (art) out.push({ key: 'article', label: t('ctChipArticle').replace('{value}', art.name) })
+    if (ing) out.push({ key: 'ingredient', label: t('ctChipIngredient').replace('{value}', ing.name) })
     return out
   })
 
@@ -81,6 +86,25 @@ export function useCostTrackingPageModel(ct) {
       .filter((e) => !Number.isNaN(e.t) && e.t >= started)
       .sort((a, b) => a.t - b.t)[0]
     return { startedAt: started, firstEvent: first || null }
+  })
+
+  /** « 28 catégories » : le niveau affiché dans le graphique (type, catégorie, article ou ingrédient). */
+  const countLabel = computed(() => {
+    const n = rows.value.length
+    const keys = {
+      type: ['ctNounTypeOne', 'ctNounTypeMany'],
+      category: ['ctNounCategoryOne', 'ctNounCategoryMany'],
+      ingredient: ['ctNounIngredientOne', 'ctNounIngredientMany'],
+      article: ['ctNounArticleOne', 'ctNounArticleMany'],
+    }
+    const [one, many] = keys[ct.groupBy.value] || keys.article
+    return `${n} ${t(n > 1 ? many : one)}`
+  })
+
+  /** Début du suivi, pour expliquer d'où vient la variation affichée dans les classements. */
+  const sinceLabel = computed(() => {
+    const started = ct.trackingStartedAt.value ? Date.parse(ct.trackingStartedAt.value) : NaN
+    return Number.isNaN(started) ? '' : fmt.dayYear(started)
   })
 
   const headerKpis = computed(() => {
@@ -106,6 +130,6 @@ export function useCostTrackingPageModel(ct) {
 
   return {
     rows, rises, falls, changes, versionsTotal, legendRows, canMargin, chartState,
-    periodLabel, chips, notice, headerKpis, selectedTags,
+    periodLabel, chips, notice, headerKpis, selectedTags, countLabel, sinceLabel,
   }
 }
