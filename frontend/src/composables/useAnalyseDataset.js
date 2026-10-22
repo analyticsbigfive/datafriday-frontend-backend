@@ -147,6 +147,8 @@ export function useAnalyseDataset(sources, { standalone = false } = {}) {
       // la signature, un dataset construit avant l'enrichissement resterait
       // « valide » avec ses colonnes Coût / Marge vides.
       Object.keys(store.state.analyse.menuItemCostMap || {}).length,
+      // Lot 4b : un dataset bâti avant l'arrivée des coûts par event serait périmé.
+      Object.keys(store.state.analyse.menuItemCostByEvent || {}).length,
       shopPerformance?.enriched?.value ? 'perf' : 'base',
       // Bascule Article / DisplayName du classement (17/08) : sans elle dans la
       // signature, l'export resterait figé sur le regroupement d'avant la bascule.
@@ -360,6 +362,7 @@ export function useAnalyseDataset(sources, { standalone = false } = {}) {
     const itemTotals = itemLevelTotalsByEvent(
       itemLevelRecords?.value || [],
       store.state.analyse.menuItemCostMap || {},
+      store.state.analyse.menuItemCostByEvent,
     )
     const withCost = itemTotals.size > 0
     // Titre FIXE et non calé sur `byEventMetric` : la table porte TOUTES les

@@ -587,6 +587,7 @@
               :records="chartRecords"
               :events="filteredEvents"
               :cost-map="menuItemCostMap"
+              :cost-by-event="menuItemCostByEvent"
               :initial-metric="byEventMetric"
               :extra-metrics="rendementChartMetrics"
             />
@@ -1074,6 +1075,8 @@ const weezeventSetupIncomplete = computed(() => store.state.analyse.weezeventSet
 const space = computed(() => store.state.analyse.space)
 const events = computed(() => store.state.analyse.events)
 const menuItemCostMap = computed(() => store.state.analyse.menuItemCostMap)
+// Lot 4b : coût figé par event, repli sur menuItemCostMap quand absent.
+const menuItemCostByEvent = computed(() => store.state.analyse.menuItemCostByEvent)
 // Catalogue MenuItem — index Display Name du top 5 J+1 (regroupement N→1).
 const menuItems = computed(() => store.state.analyse.menuItems || [])
 // summary enrichi avec variations (Précédent + N-1 calculées côté client si
@@ -1524,11 +1527,12 @@ const itemSummary = computed(() => {
   // la comparaison est désactivée — parité React).
   const curIds = withLoaded(new Set(filteredEvents.value.map((e) => e.id)), mainLoadedEventIds.value)
   const costMap = store.state.analyse.menuItemCostMap || {}
-  const cur = computeItemTotals(itemLevelRecords.value, filteredEvents.value, curIds, costMap)
+  const costByEvent = store.state.analyse.menuItemCostByEvent
+  const cur = computeItemTotals(itemLevelRecords.value, filteredEvents.value, curIds, costMap, costByEvent)
   const prev = computeItemTotals(kept, eventsBase,
-    withLoaded(idsInBounds(store.getters['analyse/previousPeriodBounds']), comparisonLoadedEventIds.value), costMap)
+    withLoaded(idsInBounds(store.getters['analyse/previousPeriodBounds']), comparisonLoadedEventIds.value), costMap, costByEvent)
   const yoy = computeItemTotals(kept, eventsBase,
-    withLoaded(idsInBounds(store.getters['analyse/yearOverYearBounds']), comparisonLoadedEventIds.value), costMap)
+    withLoaded(idsInBounds(store.getters['analyse/yearOverYearBounds']), comparisonLoadedEventIds.value), costMap, costByEvent)
   return { ...base, variations: buildVariations(cur, prev), variationsYoY: buildVariations(cur, yoy) }
 })
 
@@ -1746,6 +1750,7 @@ const metrics = useMetricsCalculator({
   filteredShopGranularData: kpiRecords,
   chartFilteredEvents: filteredEvents,
   menuItemCostMap,
+  menuItemCostByEvent,
   eventRollupTotals,
   isTimelineFilterActive: isTimelineActive,
   // operatingMinutes doit refléter les events filtrés (et non l'ensemble brut)

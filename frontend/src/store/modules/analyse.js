@@ -9,6 +9,7 @@ import {
   preprocessTimelineRecords,
 } from '@/utils/timelineBucketing'
 import { runWithConcurrency } from '@/utils/asyncPool'
+import { makeCostFor } from '@/utils/eventCostLookup'
 import {
   resolveItemName,
   resolveShopType,
@@ -59,7 +60,7 @@ function pctDiff(curr, prev) {
   return ((curr - prev) / prev) * 100
 }
 
-function totalsForEventIds(events, records, costMap, eventIds) {
+function totalsForEventIds(events, records, costMap, eventIds, costByEvent = null) {
   if (!eventIds || eventIds.size === 0) {
     return {
       revenue: 0, cost: 0, transactions: 0, attendees: 0, eventCount: 0,
@@ -69,10 +70,11 @@ function totalsForEventIds(events, records, costMap, eventIds) {
   }
   let revenue = 0, cost = 0, transactions = 0, attendees = 0
   const revByEvent = new Map()
+  const unitCostOf = makeCostFor(costMap, costByEvent)
   for (const r of records) {
     if (!eventIds.has(r.eventId)) continue
     revenue += r.revenue || 0
-    cost += (costMap[r.menuItemId] || 0) * (r.quantity || 0)
+    cost += unitCostOf(r.eventId, r.menuItemId) * (r.quantity || 0)
     transactions += r.transactionCount || 0
     revByEvent.set(r.eventId, (revByEvent.get(r.eventId) || 0) + (r.revenue || 0))
   }
@@ -614,6 +616,9 @@ const state = () => ({
   configurations: [],
   shopGranularData: [],        // ShopGranularRecord[]
   menuItemCostMap: {},
+  // Lot 4b : coût figé à la date de chaque event { eventId: { menuItemId: coût } }. Vide = repli
+  // sur menuItemCostMap partout (comportement antérieur). Alimenté par ensureEventCosts.
+  menuItemCostByEvent: {},
   menuItems: [],               // MenuItemData[] (enrichi avec components/readyForSale)
   suppliers: [],               // SupplierItem[]
   ingredients: [],             // IngredientItem[]
@@ -1322,7 +1327,7 @@ const getters = {
   // Totaux KPI sur la période courante (depuis filteredEvents/filteredShopGranularData)
   currentPeriodTotals(state, g) {
     const ids = new Set(g.filteredEvents.map((e) => e.id))
-    return totalsForEventIds(g.filteredEvents, g.filteredShopGranularData, state.menuItemCostMap, ids)
+    return totalsForEventIds(g.filteredEvents, g.filteredShopGranularData, state.menuItemCostMap, ids, state.menuItemCostByEvent)
   },
 
   // Agrégats par événement en une passe sur les records filtrés.
@@ -1330,7 +1335,7 @@ const getters = {
   // records.filter(eventId) répété pour chaque event.
   filteredEventAggregates(state, g) {
     const byEvent = new Map()
-    const costMap = state.menuItemCostMap || {}
+    const unitCostOf = makeCostFor(state.menuItemCostMap, state.menuItemCostByEvent)
 
     for (const e of g.filteredEvents || []) {
       byEvent.set(e.id, {
@@ -1353,7 +1358,7 @@ const getters = {
       const revenue = r.revenue || 0
       const quantity = r.quantity || 0
       event.revenue += revenue
-      event.cost += (costMap[r.menuItemId] || 0) * quantity
+      event.cost += unitCostOf(r.eventId, r.menuItemId) * quantity
       event.transactions += r.transactionCount || 0
       event.quantity += quantity
       if (!event.eventName && r.eventName) event.eventName = r.eventName
@@ -1383,7 +1388,7 @@ const getters = {
       if (d < start || d > end) continue
       ids.add(e.id)
     }
-    return totalsForEventIds(baseEvents, state.shopGranularData, state.menuItemCostMap, ids)
+    return totalsForEventIds(baseEvents, state.shopGranularData, state.menuItemCostMap, ids, state.menuItemCostByEvent)
   },
 
   // Totaux KPI sur la même période N-1
@@ -1400,7 +1405,7 @@ const getters = {
       if (d < start || d > end) continue
       ids.add(e.id)
     }
-    return totalsForEventIds(baseEvents, state.shopGranularData, state.menuItemCostMap, ids)
+    return totalsForEventIds(baseEvents, state.shopGranularData, state.menuItemCostMap, ids, state.menuItemCostByEvent)
   },
 
   // Variations vs période précédente / vs N-1
@@ -1505,6 +1510,7 @@ const mutations = {
     state.events = Object.freeze(normalized)
   },
   SET_MENU_ITEM_COST_MAP(state, m) { state.menuItemCostMap = m },
+  MERGE_MENU_ITEM_COST_BY_EVENT(state, m) { state.menuItemCostByEvent = { ...state.menuItemCostByEvent, ...m } },
   SET_SUMMARY(state, s) { state.summary = s },
   SET_FROM_MOCK(state, v) { state.fromMock = v },
   SET_WEEZEVENT_SETUP_INCOMPLETE(state, v) { state.weezeventSetupIncomplete = v },
@@ -1598,6 +1604,7 @@ const mutations = {
   // croissance sans borne sur une session multi-espaces.
   CLEAR_SPACE_KEYED_CACHES(state, { keepSpaceId } = {}) {
     state.timelineCacheByEventId = {}
+    state.menuItemCostByEvent = {}
     state.predictionCacheByEventConfigKey = {}
     state.activePredictionVersionByEventId = {}
     state.spaceMenuByConfig = {}
@@ -1734,6 +1741,29 @@ const actions = {
       commit('SET_ENRICHING', false)
     } finally {
       commit('SET_LOADING', false)
+    }
+  },
+
+  /**
+   * Lot 4b : charge les coûts figés des events demandés (ceux pas encore connus), par lots
+   * de 100. Ne lève jamais : un échec laisse la carte vide pour ces events (repli sur le
+   * coût actuel). À attendre AVANT de pré-traiter des records qui figent le coût.
+   */
+  async ensureEventCosts({ commit, state }, eventIds) {
+    const spaceId = state.spaceId || state.space?.id
+    if (!spaceId) return
+    const missing = (eventIds || []).filter((id) => id && !state.menuItemCostByEvent[id])
+    if (!missing.length) return
+    try {
+      const [{ getEventCosts }, { loadEventCostsInBatches }] = await Promise.all([
+        import('@/api/endpoints/analyse-rendement.api'),
+        import('@/utils/eventCostsLoader'),
+      ])
+      const loaded = await loadEventCostsInBatches(spaceId, missing, getEventCosts)
+      if (spaceId !== (state.spaceId || state.space?.id)) return
+      if (Object.keys(loaded).length) commit('MERGE_MENU_ITEM_COST_BY_EVENT', loaded)
+    } catch (err) {
+      console.warn('[analyse] ensureEventCosts:', err?.message)
     }
   },
 

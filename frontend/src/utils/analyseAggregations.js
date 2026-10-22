@@ -11,6 +11,7 @@
  * n'existe qu'ici et nulle part à l'écran, elle n'a rien à y faire.
  */
 
+import { makeCostFor } from '@/utils/eventCostLookup'
 import { resolveItemType, resolveItemCategory } from '@/utils/analyseDimensions'
 
 // ─── Groupement générique ────────────────────────────────────────────────────
@@ -388,11 +389,12 @@ export function eventMarginPct(row) {
   return ((revenue - (Number(row.cost) || 0)) / revenue) * 100
 }
 
-export function itemLevelTotalsByEvent(records, costMap = {}) {
+export function itemLevelTotalsByEvent(records, costMap = {}, costByEvent = null) {
+  const unitCostOf = makeCostFor(costMap, costByEvent)
   const byEvent = new Map()
   for (const r of records || []) {
     if (!r?.eventId || r.menuItemId == null) continue
-    const unitCost = costMap[r.menuItemId] || 0
+    const unitCost = unitCostOf(r.eventId, r.menuItemId)
     let totals = byEvent.get(r.eventId)
     if (!totals) {
       totals = { cost: 0, revenue: 0 }
