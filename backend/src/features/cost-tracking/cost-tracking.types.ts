@@ -1,5 +1,8 @@
 /** Types partagés du module Cost tracking (lecture seule de l'historique `MenuItemCostSnapshot`). */
 
+/** Type et Catégorie : moyenne des articles ou total (somme) des coûts par pièce. */
+export type CostTrackingAggregate = 'avg' | 'sum';
+
 export type CostTrackingGroupBy = 'article' | 'category' | 'type' | 'ingredient';
 
 /** Nature d'une ligne de recette (mode ingrédient). */
@@ -28,6 +31,8 @@ export interface SnapshotPoint {
   totalCost: number;
   numberOfPieces: number;
   basePrice: number | null;
+  /** Taux de TVA figé dans la version (null : taux par défaut du tenant). */
+  vatRate?: number | null;
   reason: string;
 }
 
@@ -36,6 +41,8 @@ export interface SeriesPoint {
   at: string;
   costPerPiece: number;
   price: number | null;
+  /** Prix hors taxe (prix TTC ramené par le taux de TVA), null si le taux est inconnu. */
+  priceHt?: number | null;
   /** Nombre d'articles pris dans la moyenne (Type et Catégorie), 1 pour un article. */
   articleCount: number;
   /** true : point posé au début de la période pour porter la valeur déjà en vigueur. */

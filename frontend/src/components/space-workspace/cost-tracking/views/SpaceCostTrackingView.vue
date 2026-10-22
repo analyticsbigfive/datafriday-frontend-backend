@@ -18,6 +18,7 @@
             :article-options="ct.articleOptions.value"
             :ingredient-options="ct.ingredientOptions.value"
             :show-margin="showMargin"
+            :show-price="ct.showPrice.value"
             :can-margin="model.canMargin.value"
             @set-period="ct.setPeriod"
             @set-custom-range="ct.setCustomRange"
@@ -27,6 +28,7 @@
             @set-ingredient="ct.setIngredient"
             @reset="ct.resetFilters"
             @update:show-margin="showMargin = $event"
+            @update:show-price="ct.showPrice.value = $event"
           />
 
           <main class="ct-main">
@@ -55,6 +57,7 @@
               :legend-rows="model.legendRows.value"
               :bounds="ct.bounds.value"
               :show-margin="showMargin && model.canMargin.value"
+              :show-price="ct.showPrice.value"
               :with-events="ct.events.value.length > 0"
               :can-ingredient="!!ct.menuItemId.value"
               :truncated="ct.truncated.value"
@@ -76,6 +79,9 @@
             :falls="model.falls.value"
             :changes="model.changes.value"
             :since-label="model.sinceLabel.value"
+            :group-by="ct.groupBy.value"
+            :aggregate="ct.aggregate.value"
+            @update:aggregate="ct.aggregate.value = $event"
             @drill="ct.drill"
             @select="ct.selectArticle"
           />

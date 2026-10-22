@@ -65,6 +65,7 @@ export function buildStepPoints(line) {
       t: Date.parse(p.at),
       cost: typeof p.costPerPiece === 'number' ? p.costPerPiece : null,
       price: typeof p.price === 'number' ? p.price : null,
+      priceHt: typeof p.priceHt === 'number' ? p.priceHt : null,
       articleCount: p.articleCount ?? 1,
       carried: !!p.carried,
       snapshotId: p.snapshotId ?? null,
@@ -120,6 +121,12 @@ export function computeVariation(from, to) {
   return { abs, pct, direction }
 }
 
+/** Prix hors taxe d'un point (repli sur le prix TTC quand le taux de TVA est inconnu). */
+export function netPrice(point) {
+  if (!point) return null
+  return typeof point.priceHt === 'number' ? point.priceHt : typeof point.price === 'number' ? point.price : null
+}
+
 /**
  * Marge en % du prix. Si `vatRate` est fourni (en %), le prix est ramené hors taxe.
  * @returns {number|null}
@@ -132,18 +139,32 @@ export function marginPercent(cost, price, vatRate = 0) {
 }
 
 /**
+ * Coûts de début et de fin servant à la variation. Type et Catégorie : panier constant fourni par
+ * le backend (les articles ajoutés en cours de période ne comptent pas, ils feraient bouger la
+ * moyenne sans qu'aucun coût n'ait changé). Sinon : premier et dernier point de la courbe.
+ */
+export function baselineCosts(line, series) {
+  const b = line?.basket
+  if (b && typeof b.startCost === 'number' && typeof b.endCost === 'number') {
+    return { startCost: b.startCost, currentCost: b.endCost }
+  }
+  return { startCost: series.first ? series.first.cost : null, currentCost: series.last ? series.last.cost : null }
+}
+
+/**
  * Statistiques d'une ligne sur la période : coût de début, coût actuel, variation,
  * nombre de versions apparues dans la période (points non reportés).
  */
 export function summarizeLine(line, t1) {
   const s = buildLineSeries(line, t1)
+  const { startCost, currentCost } = baselineCosts(line, s)
   return {
     key: s.key,
     name: s.name,
-    startCost: s.first ? s.first.cost : null,
-    currentCost: s.last ? s.last.cost : null,
+    startCost,
+    currentCost,
     currentPrice: s.last ? s.last.price : null,
-    variation: computeVariation(s.first?.cost, s.last?.cost),
+    variation: computeVariation(startCost, currentCost),
     versions: s.points.filter((p) => !p.carried).length,
     hasData: s.points.length > 0,
   }
@@ -264,7 +285,7 @@ export function stepPath(points, xScale, yScale, tEnd) {
  * @param {Array} seriesList sorties de buildLineSeries (lignes visibles)
  * @param {{ t0, t1, width, height, margin?: {l,r,t,b}, tickCount?: number }} o
  */
-export function buildChartModel(seriesList, { t0, t1, width, height, margin, tickCount = 5 }) {
+export function buildChartModel(seriesList, { t0, t1, width, height, margin, tickCount = 5, withPrice = false }) {
   const M = { l: 56, r: 16, t: 14, b: 32, ...(margin || {}) }
   const iw = Math.max(1, width - M.l - M.r)
   const ih = Math.max(1, height - M.t - M.b)
@@ -274,6 +295,11 @@ export function buildChartModel(seriesList, { t0, t1, width, height, margin, tic
     for (const p of s.points) {
       lo = Math.min(lo, p.cost)
       hi = Math.max(hi, p.cost)
+      const net = withPrice ? netPrice(p) : null
+      if (net !== null) {
+        lo = Math.min(lo, net)
+        hi = Math.max(hi, net)
+      }
     }
   }
   const hasData = Number.isFinite(lo)
@@ -299,6 +325,9 @@ export function buildChartModel(seriesList, { t0, t1, width, height, margin, tic
     paths: seriesList.map((s) => ({
       key: s.key,
       d: stepPath(s.points, x, y, t1),
+      priceD: withPrice
+        ? stepPath(s.points.filter((p) => netPrice(p) !== null).map((p) => ({ ...p, cost: netPrice(p) })), x, y, t1)
+        : '',
       // Points intermédiaires (changements de valeur), hors point reporté et dernier.
       dots: s.points.slice(1, -1).map((p) => ({ x: x(p.t), y: y(p.cost), point: p })),
       endDot: s.end ? { x: x(t1), y: y(s.end.cost) } : null,

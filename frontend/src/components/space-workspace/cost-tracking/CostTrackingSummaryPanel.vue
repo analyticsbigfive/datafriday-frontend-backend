@@ -1,5 +1,16 @@
 <template>
   <aside class="ct-card ct-summary" :aria-label="t('ctSummaryLabel')">
+    <div v-if="canAggregate" class="ct-summary__aggregate" role="group" :aria-label="t('ctAggregateLabel')">
+      <button
+        v-for="opt in AGGREGATES"
+        :key="opt"
+        type="button"
+        class="ct-summary__agg"
+        :class="{ 'ct-summary__agg--on': aggregate === opt }"
+        :aria-pressed="aggregate === opt"
+        @click="$emit('update:aggregate', opt)"
+      >{{ t(opt === 'avg' ? 'ctAggregateAvg' : 'ctAggregateSum') }}</button>
+    </div>
     <div v-if="sinceLabel" class="ct-summary__since">{{ t('ctRankSince').replace('{date}', sinceLabel) }}</div>
 
     <CostTrackingAccordion :title="t('ctSumRises')" variant="summary">
@@ -62,8 +73,14 @@ const props = defineProps({
   changes: { type: Array, default: () => [] },
   // Date de début du suivi (déjà formatée) : explique d'où vient la variation affichée.
   sinceLabel: { type: String, default: '' },
+  // Moyenne ou total : proposé quand les lignes sont des types ou des catégories.
+  groupBy: { type: String, default: 'article' },
+  aggregate: { type: String, default: 'avg' },
 })
-const emit = defineEmits(['select', 'drill'])
+const emit = defineEmits(['select', 'drill', 'update:aggregate'])
+
+const AGGREGATES = ['avg', 'sum']
+const canAggregate = computed(() => props.groupBy === 'category' || props.groupBy === 'type')
 
 const TOP = 5
 const showAllRises = ref(false)
@@ -104,5 +121,22 @@ function onSelect(item) {
   padding: 4px 2px;
   color: var(--ct-faint);
   font-size: var(--fs-sm);
+}
+.ct-summary__aggregate {
+  display: inline-flex;
+  margin-bottom: 10px;
+  border: 1px solid var(--ct-line, #e5e7eb);
+  border-radius: 999px;
+  overflow: hidden;
+}
+.ct-summary__agg {
+  padding: 4px 14px;
+  font-size: var(--fs-xs);
+  background: transparent;
+  cursor: pointer;
+}
+.ct-summary__agg--on {
+  background: var(--ct-chip-bg, #eef2ff);
+  font-weight: 600;
 }
 </style>

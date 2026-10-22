@@ -2,7 +2,7 @@
  * Cost tracking : lignes du tableau, classements, derniers changements et infobulle.
  * Fonctions pures (sans Vue ni DOM), testables en Jest.
  */
-import { buildLineSeries, computeVariation, marginPercent, valueAt } from '@/utils/costTrackingSeries'
+import { baselineCosts, buildLineSeries, computeVariation, marginPercent, netPrice, valueAt } from '@/utils/costTrackingSeries'
 
 /**
  * Une ligne de tableau par ligne de courbe ayant des données :
@@ -13,8 +13,9 @@ export function buildRows(lines, t1) {
   for (const line of lines || []) {
     const s = buildLineSeries(line, t1)
     if (!s.first || !s.last) continue
-    const marginStart = marginPercent(s.first.cost, s.first.price)
-    const marginEnd = marginPercent(s.last.cost, s.last.price)
+    const { startCost, currentCost } = baselineCosts(line, s)
+    const marginStart = marginPercent(s.first.cost, netPrice(s.first))
+    const marginEnd = marginPercent(s.last.cost, netPrice(s.last))
     rows.push({
       key: line.key,
       id: line.id,
@@ -25,10 +26,11 @@ export function buildRows(lines, t1) {
       lineKind: line.lineKind || null,
       articleCount: line.articleCount ?? 1,
       revenueHt: typeof line.revenueHt === 'number' ? line.revenueHt : null,
-      startCost: s.first.cost,
-      currentCost: s.last.cost,
+      startCost,
+      currentCost,
       currentPrice: s.last.price,
-      variation: computeVariation(s.first.cost, s.last.cost),
+      currentPriceHt: netPrice(s.last),
+      variation: computeVariation(startCost, currentCost),
       marginStart,
       marginEnd,
       marginDelta: marginStart !== null && marginEnd !== null ? marginEnd - marginStart : null,
