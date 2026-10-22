@@ -13,13 +13,12 @@ import {
   daysInRange,
   layoutEvents,
   periodBounds,
-  rangeForDays,
   summarizeLines,
 } from '@/utils/costTrackingSeries'
+import { DEFAULT_PERIOD, MAX_PERIOD_DAYS, PERIOD_PRESETS, rangeForPreset } from '@/utils/costTrackingPeriod'
 
-export const PERIOD_PRESETS = ['30', '90', '180', '365']
-const DEFAULT_PERIOD = '180'
-const MAX_DAYS = 366
+export { PERIOD_PRESETS }
+const MAX_DAYS = MAX_PERIOD_DAYS
 const GROUP_VALUES = ['article', 'category', 'type', 'ingredient']
 
 /** Aplatit le catalogue en listes types / catégories / articles avec leurs parents. */
@@ -195,8 +194,7 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     if (period.value === 'custom' && customFrom.value && customTo.value) {
       return { from: customFrom.value, to: customTo.value }
     }
-    const days = PERIOD_PRESETS.includes(period.value) ? Number(period.value) : Number(DEFAULT_PERIOD)
-    return rangeForDays(days)
+    return rangeForPreset(period.value)
   })
   const rangeValid = computed(() => {
     const n = daysInRange(range.value.from, range.value.to)

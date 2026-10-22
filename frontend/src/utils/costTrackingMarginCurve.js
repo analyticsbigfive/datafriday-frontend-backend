@@ -1,10 +1,10 @@
 /**
- * Courbe de marge (axe de droite) : marge en % du prix, en escalier, pour au plus 3 lignes.
+ * Courbe de marge (axe de droite) : marge en % du prix, en escalier, pour au plus 10 lignes.
  * Fonction pure : réutilise l'échelle X du modèle du graphique.
  */
 import { linearScale, marginPercent, niceTicks, stepPath } from '@/utils/costTrackingSeries'
 
-export const MAX_MARGIN_LINES = 3
+export const MAX_MARGIN_LINES = 10
 
 /**
  * @param {Array} seriesList lignes visibles (sorties de buildLineSeries + colorIndex)
