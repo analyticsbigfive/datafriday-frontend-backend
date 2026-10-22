@@ -7,18 +7,15 @@
  * taux, null quand la référence est nulle.
  */
 
-import { makeCostFor } from '@/utils/eventCostLookup'
-
 /**
  * Totaux d'un jeu d'events à partir des lignes article.
  * @param {Array} records  lignes article (eventId, menuItemId, revenue, quantity, transactionCount)
  * @param {Array} events   events (pour l'affluence : ticketsScanned ?? attendees ?? ticketsSold)
  * @param {Set} idSet      ids d'events retenus
  * @param {Object} [costMap]  coût unitaire par menuItemId
- * @param {Object} [costByEvent]  coût figé { eventId: { menuItemId: coût } } (lot 4b), repli sur costMap
  */
-export function computeItemTotals(records, events, idSet, costMap = {}, costByEvent = null) {
-  const unitCostOf = makeCostFor(costMap, costByEvent)
+export function computeItemTotals(records, events, idSet, costMap = {}) {
+  const costs = costMap || {}
   let revenue = 0, cost = 0, transactions = 0, attendees = 0
   // Parité React (validEventCount) : moyennes par event divisées par les
   // events AVEC CA (> 0) : un event sans ventes ne dilue pas la moyenne.
@@ -27,7 +24,7 @@ export function computeItemTotals(records, events, idSet, costMap = {}, costByEv
   for (const r of records) {
     if (!idSet.has(r.eventId)) continue
     revenue += r.revenue || 0
-    cost += unitCostOf(r.eventId, r.menuItemId) * (r.quantity || 0)
+    cost += (costs[r.menuItemId] || 0) * (r.quantity || 0)
     transactions += r.transactionCount || 0
     revByEvent.set(r.eventId, (revByEvent.get(r.eventId) || 0) + (r.revenue || 0))
   }
