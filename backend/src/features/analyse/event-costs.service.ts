@@ -21,9 +21,6 @@ export interface EventCostsResult {
   unknownEventIds: string[];
 }
 
-/** Events traités en parallèle : borne la pression sur le pooleur (4 requêtes par event). */
-const CONCURRENCY = 5;
-
 /**
  * Carte des coûts par event (lot 4a du Cost tracking). Complète `menuItemCostMap` (coût courant,
  * construit dans la RPC shop_details, inchangée) : pour chaque event, le coût de chaque article
@@ -43,21 +40,21 @@ export class EventCostsService {
     const wanted = [...new Set(eventIds)];
     if (!wanted.length) return { events: {}, unknownEventIds: [] };
 
-    const known = await this.prisma.event.findMany({ where: { id: { in: wanted }, tenantId, spaceId }, select: { id: true } });
-    const knownIds = known.map((e) => e.id);
-    const knownSet = new Set(knownIds);
+    const known = await this.prisma.event.findMany({
+      where: { id: { in: wanted }, tenantId, spaceId },
+      select: { id: true, eventDate: true, eventStartDate: true, eventEndDate: true, sessions: true },
+    });
+    const knownSet = new Set(known.map((e) => e.id));
     const unknownEventIds = wanted.filter((id) => !knownSet.has(id));
-    if (!knownIds.length) return { events: {}, unknownEventIds };
+    if (!known.length) return { events: {}, unknownEventIds };
 
-    const current = await this.currentCosts(tenantId);
-    const menuItemIds = [...current.keys()];
+    const [current, space] = await Promise.all([
+      this.currentCosts(tenantId),
+      this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { timezone: true } }),
+    ]);
+    const results = await this.asOf.costsAsOfMany(tenantId, { events: known, timeZone: space?.timezone, menuItemIds: [...current.keys()] });
     const events: Record<string, Record<string, EventCostEntry>> = {};
-    for (let i = 0; i < knownIds.length; i += CONCURRENCY) {
-      const chunk = knownIds.slice(i, i + CONCURRENCY);
-      // eslint-disable-next-line no-await-in-loop -- petits lots pour ne pas saturer le pooleur
-      const results = await Promise.all(chunk.map((eventId) => this.asOf.costsAsOf(tenantId, { eventId, menuItemIds })));
-      for (const r of results) events[r.eventId] = this.merge(current, r.costs);
-    }
+    for (const r of results) events[r.eventId] = this.merge(current, r.costs);
     return { events, unknownEventIds };
   }
 

@@ -5,6 +5,8 @@ import { SnapshotPoint } from '../cost-tracking.types';
 
 /** Taille de lot : borne le nombre d'identifiants passés à une requête. */
 const READ_BATCH_SIZE = 500;
+/** Lot de la lecture multi-instants : un seul paramètre tableau, donc un lot plus large reste sûr. */
+const MANY_BATCH_SIZE = 2000;
 
 type RawSnapshot = {
   id: string;
@@ -74,6 +76,70 @@ export class CostTrackingSnapshotReaderService {
       // eslint-disable-next-line no-await-in-loop
       const firsts = await this.firstOf(tenantId, missing);
       for (const row of firsts) out.set(row.menuItemId, { snapshot: this.toPoint(row), source: 'baseline' });
+    }
+    return out;
+  }
+
+  /**
+   * Même résultat que `readAsOf`, pour plusieurs instants à la fois (rapports par event) : une
+   * seule lecture des versions <= au plus tardif des instants, résolue en mémoire pour chaque
+   * instant, plus une lecture de repli (premier snapshot) pour les articles sans version. Deux
+   * requêtes par lot de 2000 articles, quel que soit le nombre d'instants. Clé du résultat :
+   * `Date.getTime()` de l'instant.
+   */
+  async readAsOfMany(
+    tenantId: string,
+    itemIds: string[],
+    instants: Date[],
+  ): Promise<Map<number, Map<string, { snapshot: SnapshotPoint; source: 'snapshot' | 'baseline' }>>> {
+    const times = [...new Set(instants.map((d) => d.getTime()))].sort((a, b) => a - b);
+    const out = new Map<number, Map<string, { snapshot: SnapshotPoint; source: 'snapshot' | 'baseline' }>>();
+    for (const t of times) out.set(t, new Map());
+    const unique = [...new Set(itemIds.filter(Boolean))];
+    if (!times.length || !unique.length) return out;
+    const latest = new Date(times[times.length - 1]);
+    for (let i = 0; i < unique.length; i += MANY_BATCH_SIZE) {
+      const ids = unique.slice(i, i + MANY_BATCH_SIZE);
+      // eslint-disable-next-line no-await-in-loop -- lots séquentiels pour ne pas saturer le pooler
+      const rows = await this.prisma.$queryRaw<RawSnapshot[]>(Prisma.sql`
+        SELECT ${SNAPSHOT_COLUMNS}
+        FROM "MenuItemCostSnapshot"
+        WHERE "tenantId" = ${tenantId} AND "menuItemId" = ANY(${ids}::text[]) AND "effectiveFrom" <= ${latest}
+        ORDER BY "menuItemId", "effectiveFrom", "createdAt"
+      `);
+      // Par article, versions triées par date croissante (à égalité, la plus récente créée en dernier).
+      const byItem = new Map<string, SnapshotPoint[]>();
+      for (const row of rows) {
+        const point = this.toPoint(row);
+        const list = byItem.get(point.menuItemId);
+        if (list) list.push(point);
+        else byItem.set(point.menuItemId, [point]);
+      }
+      for (const [menuItemId, list] of byItem) {
+        for (const t of times) {
+          // Dernière version de date <= t (recherche dichotomique sur la liste triée).
+          let lo = 0;
+          let hi = list.length;
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1;
+            if (list[mid].effectiveFrom.getTime() <= t) lo = mid + 1;
+            else hi = mid;
+          }
+          if (lo > 0) out.get(t)!.set(menuItemId, { snapshot: list[lo - 1], source: 'snapshot' });
+        }
+      }
+      // Repli : un article sans version à au moins un des instants prend sa toute première version.
+      const needFallback = ids.filter((id) => times.some((t) => !out.get(t)!.has(id)));
+      if (!needFallback.length) continue;
+      // eslint-disable-next-line no-await-in-loop
+      const firsts = await this.firstOf(tenantId, needFallback);
+      for (const row of firsts) {
+        const point = this.toPoint(row);
+        for (const t of times) {
+          const m = out.get(t)!;
+          if (!m.has(point.menuItemId)) m.set(point.menuItemId, { snapshot: point, source: 'baseline' });
+        }
+      }
     }
     return out;
   }

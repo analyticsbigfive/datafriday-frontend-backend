@@ -50,3 +50,32 @@ describe('CostTrackingAsOfService.costsAsOf', () => {
     await expect(service.costsAsOf('tn', { eventId: 'x', menuItemIds: [] })).rejects.toBeInstanceOf(NotFoundException);
   });
 });
+
+describe('CostTrackingAsOfService.costsAsOfMany', () => {
+  it('même résultat que costsAsOf pour chaque event, avec une seule lecture de snapshots', async () => {
+    const sessions = JSON.stringify([{ doorsOpening: '18:30', showTime: '20:00' }]);
+    const events = [
+      { id: 'e1', eventDate: new Date('2026-04-10T00:00:00Z'), sessions: null },
+      { id: 'e2', eventDate: new Date('2026-04-10T00:00:00Z'), sessions },
+    ];
+    const snaps = [snap('a', '2026-03-01T00:00:00Z', 1.5), snap('a', '2026-04-10T00:00:00Z', 2.5)];
+    const asOfOf = (at: Date) => {
+      const prior = snaps.filter((s) => s.effectiveFrom <= at).pop();
+      return new Map<string, any>(prior ? [['a', { snapshot: prior, source: 'snapshot' }]] : []);
+    };
+    const prisma: any = { space: { findFirst: jest.fn() } };
+    const reader: any = {
+      readAsOf: jest.fn(async (_t: string, _ids: string[], at: Date) => asOfOf(at)),
+      readAsOfMany: jest.fn(async (_t: string, _ids: string[], ats: Date[]) => new Map(ats.map((d) => [d.getTime(), asOfOf(d)]))),
+    };
+    const service = new CostTrackingAsOfService(prisma, reader);
+    const many = await service.costsAsOfMany('tn', { events, timeZone: 'Europe/Paris', menuItemIds: ['a'] });
+    prisma.event = { findFirst: jest.fn(async ({ where }: any) => ({ ...events.find((e) => e.id === where.id), spaceId: 'sp' })) };
+    prisma.space.findFirst.mockResolvedValue({ timezone: 'Europe/Paris' });
+    const single = [await service.costsAsOf('tn', { eventId: 'e1', menuItemIds: ['a'] }), await service.costsAsOf('tn', { eventId: 'e2', menuItemIds: ['a'] })];
+    expect(many).toEqual(single);
+    expect(reader.readAsOfMany).toHaveBeenCalledTimes(1);
+    expect(many[0].costs.a.costPerPiece).toBe(1.5);
+    expect(many[1].costs.a.costPerPiece).toBe(2.5);
+  });
+});
