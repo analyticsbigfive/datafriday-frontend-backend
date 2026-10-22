@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { PrismaService } from '../../core/database/prisma.service';
 import { MenuComponentItemPropagationService } from '../menu-components/services/menu-component-item-propagation.service';
 import { hasBrickCostChange } from '../../shared/cost-propagation/brick-cost-change';
+import { assertBrickUnused, getPackagingUsage } from '../../shared/cost-propagation/brick-usage';
 
 @Injectable()
 export class PackagingService {
@@ -120,6 +121,7 @@ export class PackagingService {
   async remove(id: string, tenantId: string) {
     this.logger.log(`Deleting packaging ${id} for tenant ${tenantId}`);
     await this.findOne(id, tenantId);
+    assertBrickUnused(await getPackagingUsage(this.prisma, id));
     try {
       const result = await this.prisma.packaging.update({
         where: { id },

@@ -259,6 +259,12 @@ apiClient.interceptors.response.use(
       userMessage = Array.isArray(detail) ? detail.join(', ') : (detail || 'Données invalides')
     }
     
+    // 409 - Conflit métier (ex: suppression d'un élément encore utilisé) : le message du backend est explicite
+    if (status === 409) {
+      const detail = error.response?.data?.message
+      userMessage = Array.isArray(detail) ? detail.join(', ') : (detail || 'Conflit : action impossible')
+    }
+
     // 429 - Rate limit
     if (status === 429) {
       userMessage = 'Trop de requêtes — veuillez patienter'

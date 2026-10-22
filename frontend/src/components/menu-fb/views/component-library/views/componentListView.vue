@@ -832,18 +832,20 @@ export default {
       this.bulkTotal = ids.length;
       this.bulkProgress = 0;
       const failed = [];
+      let firstReason = '';
       for (const id of ids) {
         try {
           await deleteMenuComponent(id);
           this.$store.commit('menuComponents/REMOVE_ROW', id);
         } catch (e) {
           failed.push(id);
+          if (!firstReason && e?.response?.status === 409) firstReason = e.userMessage || '';
         }
         this.bulkProgress += 1;
       }
       this.bulkLoading = false;
       this.bulkSelected = failed;
-      if (failed.length) this.bulkError = `${failed.length} composant(s) n'ont pas pu être supprimés.`;
+      if (failed.length) this.bulkError = `${failed.length} composant(s) n'ont pas pu être supprimés.${firstReason ? ' ' + firstReason : ''}`;
       else this.bulkOpen = false;
     },
   },

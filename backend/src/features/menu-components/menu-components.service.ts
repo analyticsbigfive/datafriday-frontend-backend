@@ -12,6 +12,7 @@ import { TenantListCache } from '../../shared/cache/tenant-list-cache';
 import { MenuComponentCostService } from './services/menu-component-cost.service';
 import { MenuComponentValidationService } from './services/menu-component-validation.service';
 import { MenuComponentItemPropagationService } from './services/menu-component-item-propagation.service';
+import { assertBrickUnused, getComponentUsage } from '../../shared/cost-propagation/brick-usage';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
@@ -478,6 +479,7 @@ export class MenuComponentsService {
   async remove(id: string, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Deleting menu component ${id} for tenant ${tenantId}`);
     await this.findOne(id, tenantId, user);
+    assertBrickUnused(await getComponentUsage(this.prisma, id));
 
     try {
       const result = await this.prisma.menuComponent.update({

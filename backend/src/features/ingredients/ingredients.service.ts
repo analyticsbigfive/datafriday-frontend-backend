@@ -4,6 +4,7 @@ import { RedisService } from '../../core/redis/redis.service';
 import { MenuComponentItemPropagationService } from '../menu-components/services/menu-component-item-propagation.service';
 import { hasBrickCostChange } from '../../shared/cost-propagation/brick-cost-change';
 import { TenantListCache } from '../../shared/cache/tenant-list-cache';
+import { assertBrickUnused, getIngredientUsage } from '../../shared/cost-propagation/brick-usage';
 
 @Injectable()
 export class IngredientsService {
@@ -171,6 +172,7 @@ export class IngredientsService {
   async remove(id: string, tenantId: string) {
     this.logger.log(`Deleting ingredient ${id} for tenant ${tenantId}`);
     await this.findOne(id, tenantId);
+    assertBrickUnused(await getIngredientUsage(this.prisma, id));
     try {
       const result = await this.prisma.ingredient.update({
         where: { id },
