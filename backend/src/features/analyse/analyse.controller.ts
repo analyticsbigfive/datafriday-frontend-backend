@@ -4,10 +4,11 @@ import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
 import { AnalyseService } from './analyse.service';
 import { AnalyseGetTimelineQueryDto } from './dto/analyse.query.dto';
-import { ArticleDimensionsQueryDto, EventValuationQueryDto, StockValuationQueryDto } from './dto/analyse-rendement.query.dto';
+import { ArticleDimensionsQueryDto, EventCostsQueryDto, EventValuationQueryDto, StockValuationQueryDto } from './dto/analyse-rendement.query.dto';
 import { ArticleDimensionsService } from './article-dimensions.service';
 import { StockValuationService } from './stock-valuation.service';
 import { EventValuationService } from './event-valuation.service';
+import { EventCostsService } from './event-costs.service';
 
 @ApiTags('Analyse')
 @ApiBearerAuth('supabase-jwt')
@@ -19,6 +20,7 @@ export class AnalyseController {
     private readonly articleDimensions: ArticleDimensionsService,
     private readonly stockValuation: StockValuationService,
     private readonly eventValuation: EventValuationService,
+    private readonly eventCosts: EventCostsService,
   ) {}
 
   @Get('dashboard')
@@ -236,5 +238,20 @@ export class AnalyseController {
   @ApiQuery({ name: 'shopIds', required: false, description: 'CSV d\'ids de PdV (elementId des lignes)' })
   getEventValuation(@Req() req, @Query() query: EventValuationQueryDto) {
     return this.eventValuation.getValuations(req.user.tenantId, query, req.user);
+  }
+
+  @Get(':spaceId/event-costs')
+  @RequirePermissions('front.fb.analyse')
+  @ApiOperation({
+    summary: 'Coût des articles à la date de chaque event',
+    description:
+      'Par event : carte menuItemId vers le coût de fournée (totalCost, même sémantique que menuItemCostMap), lu dans ' +
+      'l\'historique de coûts à l\'instant de référence de l\'event (portes ouvertes, sinon minuit local). Article sans ' +
+      'snapshot : coût courant de MenuItem (source current). 100 events maximum.',
+  })
+  @ApiParam({ name: 'spaceId' })
+  @ApiQuery({ name: 'eventIds', required: true, description: 'CSV d\'Event.id (100 max)' })
+  getEventCosts(@Req() req, @Param('spaceId') spaceId: string, @Query() query: EventCostsQueryDto) {
+    return this.eventCosts.getEventCosts(req.user.tenantId, spaceId, query.eventIds, req.user);
   }
 }
