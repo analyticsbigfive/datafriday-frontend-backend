@@ -6,6 +6,7 @@
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { useCostTrackingFormat } from '@/composables/useCostTrackingFormat'
+import { periodI18nKey } from '@/utils/costTrackingPeriod'
 import { MAX_MARGIN_LINES } from '@/utils/costTrackingMarginCurve'
 import { buildRows, rankVariations, recentChanges } from '@/utils/costTrackingRows'
 
@@ -61,7 +62,7 @@ export function useCostTrackingPageModel(ct) {
       const { from, to } = ct.range.value
       return `${fmt.dayYear(Date.parse(`${from}T12:00:00`))} - ${fmt.dayYear(Date.parse(`${to}T12:00:00`))}`
     }
-    return t(`ctPeriod${ct.period.value}`)
+    return t(periodI18nKey(ct.period.value))
   })
 
   const chips = computed(() => {
