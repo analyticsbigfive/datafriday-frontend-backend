@@ -4,7 +4,7 @@
       <div class="ct-field">
         <label for="ct-period">{{ t('ctPeriodLabel') }}</label>
         <select id="ct-period" class="ct-select" :value="period" @change="$emit('set-period', $event.target.value)">
-          <option v-for="p in presets" :key="p" :value="p">{{ t(`ctPeriod${p}`) }}</option>
+          <option v-for="p in presets" :key="p" :value="p">{{ t(periodI18nKey(p)) }}</option>
           <option value="custom">{{ t('ctPeriodCustom') }}</option>
         </select>
       </div>
@@ -80,14 +80,15 @@
 <script setup>
 import { ref } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
+import { DEFAULT_PERIOD, PERIOD_PRESETS, periodI18nKey } from '@/utils/costTrackingPeriod'
 import CostTrackingAccordion from './CostTrackingAccordion.vue'
 import CostTrackingSwitch from './CostTrackingSwitch.vue'
 
 // Panneau de filtres de la colonne gauche : période, Type > Catégorie > Article > Ingrédient (dépendants),
 // options d'affichage, règles de calcul. Les règles de dépendance vivent dans useCostTracking.
 defineProps({
-  period: { type: String, default: '180' },
-  presets: { type: Array, default: () => ['30', '90', '180', '365'] },
+  period: { type: String, default: DEFAULT_PERIOD },
+  presets: { type: Array, default: () => PERIOD_PRESETS },
   rangeValid: { type: Boolean, default: true },
   typeId: { type: String, default: null },
   categoryId: { type: String, default: null },

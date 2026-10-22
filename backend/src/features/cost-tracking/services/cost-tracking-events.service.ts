@@ -5,7 +5,7 @@ import { EventReferenceSource } from '../cost-tracking.types';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_PERIOD_DAYS = 180;
-const MAX_PERIOD_DAYS = 366;
+const MAX_PERIOD_DAYS = 1830;
 const DEFAULT_TIMEZONE = 'Europe/Paris';
 /** Plafond d'events renvoyés pour les étiquettes du graphique. */
 const MAX_EVENTS = 200;
