@@ -46,7 +46,7 @@ describe('CostTrackingFilterPanel', () => {
   })
   it('la courbe de marge est désactivée au-delà de 3 lignes', () => {
     const w = mount(CostTrackingFilterPanel, { props: { ...base, canMargin: false } })
-    const sw = w.findAll('[role="switch"]')[1]
+    const sw = w.findAll('[role="switch"]')[0]
     expect(sw.attributes('disabled')).toBeDefined()
     expect(w.text()).toContain('ctMarginHintOff')
   })
@@ -57,16 +57,24 @@ describe('CostTrackingFilterPanel', () => {
     await w.find('#ct-to').setValue('2026-04-01')
     expect(w.emitted('set-custom-range')[0]).toEqual(['2026-03-01', '2026-04-01'])
   })
-  it('le bouton des événements émet la bascule', async () => {
-    const w = mount(CostTrackingFilterPanel, { props: { ...base, showEvents: true } })
-    await w.findAll('[role="switch"]')[0].trigger('click')
-    expect(w.emitted('update:showEvents')[0]).toEqual([false])
+  it('le filtre ingrédient dépend de l article : désactivé sans article, émet son choix avec', async () => {
+    const without = mount(CostTrackingFilterPanel, { props: { ...base } })
+    expect(without.find('#ct-ingredient').attributes('disabled')).toBeDefined()
+    const w = mount(CostTrackingFilterPanel, {
+      props: { ...base, menuItemId: 'a', ingredientOptions: [{ id: 'i1', name: 'Pain' }] },
+    })
+    await w.find('#ct-ingredient').setValue('i1')
+    expect(w.emitted('set-ingredient')[0]).toEqual(['i1'])
+  })
+  it('il n y a plus de bascule des matchs : les événements sont toujours affichés', () => {
+    const w = mount(CostTrackingFilterPanel, { props: { ...base } })
+    expect(w.text()).not.toContain('ctShowEvents')
   })
 })
 
 describe('CostTrackingFilterChips et bandeau', () => {
   it('retirer une pastille émet sa clé', async () => {
-    const w = mount(CostTrackingFilterChips, { props: { periodLabel: '6 mois', chips: [{ key: 'type', label: 'Type : Food' }], count: 3 } })
+    const w = mount(CostTrackingFilterChips, { props: { periodLabel: '6 mois', chips: [{ key: 'type', label: 'Type : Food' }], countLabel: '3 catégories' } })
     await w.find('button').trigger('click')
     expect(w.emitted('remove')[0]).toEqual(['type'])
   })

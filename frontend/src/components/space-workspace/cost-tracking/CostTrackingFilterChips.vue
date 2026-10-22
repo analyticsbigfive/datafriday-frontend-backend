@@ -7,7 +7,7 @@
         <X :size="13" />
       </button>
     </span>
-    <span class="ct-chipx ct-chipx--plain">{{ t('ctChipCount').replace('{count}', String(count)) }}</span>
+    <span class="ct-chipx ct-chipx--plain">{{ countLabel }}</span>
   </div>
 </template>
 
@@ -15,12 +15,13 @@
 import { X } from 'lucide-vue-next'
 import { useI18n } from '@/i18n/useI18n'
 
-// Pastilles des filtres actifs sous le bandeau : période, type, catégorie, article, effectif.
-// chips : [{ key: 'type'|'category'|'article', label }]
+// Pastilles des filtres actifs sous le bandeau : période, type, catégorie, article, ingrédient, effectif.
+// chips : [{ key: 'type'|'category'|'article'|'ingredient', label }]
 defineProps({
   periodLabel: { type: String, default: '' },
   chips: { type: Array, default: () => [] },
-  count: { type: Number, default: 0 },
+  // Effectif du niveau affiché, déjà formaté (« 28 catégories »).
+  countLabel: { type: String, default: '' },
 })
 defineEmits(['remove'])
 

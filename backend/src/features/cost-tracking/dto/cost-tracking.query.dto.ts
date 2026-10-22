@@ -9,9 +9,11 @@ export class CostTrackingSeriesQueryDto {
   @IsOptional() @IsString() @MaxLength(200) typeId?: string;
   @IsOptional() @IsString() @MaxLength(200) categoryId?: string;
   @IsOptional() @IsString() @MaxLength(200) menuItemId?: string;
+  /** Mode ingrédient : ne garde que cette ligne de recette (identifiant de l'ingrédient, du composant, de l'emballage ou du fils de combo). */
+  @IsOptional() @IsString() @MaxLength(200) ingredientId?: string;
 
   /** Absent : déduit des filtres (voir CostTrackingSeriesService.resolveGroupBy). */
-  @IsOptional() @IsIn(['article', 'category', 'type']) groupBy?: 'article' | 'category' | 'type';
+  @IsOptional() @IsIn(['article', 'category', 'type', 'ingredient']) groupBy?: 'article' | 'category' | 'type' | 'ingredient';
 }
 
 /** Query de GET /cost-tracking/:spaceId/articles/:id/history. */

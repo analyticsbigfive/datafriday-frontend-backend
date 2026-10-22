@@ -2,6 +2,7 @@ import {
   getCostTrackingCatalog,
   getCostTrackingSeries,
   getCostTrackingArticleHistory,
+  getCostTrackingArticleIngredients,
 } from '@/api/endpoints/cost-tracking.api'
 
 const TTL = 15 * 60 * 1000 // 15 minutes (catalogue uniquement)
@@ -10,6 +11,7 @@ const TTL = 15 * 60 * 1000 // 15 minutes (catalogue uniquement)
 // dans le state (changement rapide de filtre ou d'espace).
 let seriesToken = 0
 let historyToken = 0
+let ingredientsToken = 0
 
 const messageOf = (e) => e?.response?.data?.message || e?.message || 'error'
 
@@ -23,7 +25,9 @@ export default {
     cachedAt: null,
     fetching: false,
     // filtres de la page (état partagé entre composants)
-    filters: { typeId: null, categoryId: null, menuItemId: null, groupBy: null },
+    filters: { typeId: null, categoryId: null, menuItemId: null, ingredientId: null, groupBy: null },
+    // lignes de recette de l'article filtré (filtre ingrédient)
+    ingredientOptions: [],
     // séries
     series: null,
     seriesLoading: false,
@@ -64,7 +68,10 @@ export default {
       state.filters = { ...state.filters, ...patch }
     },
     RESET_FILTERS(state) {
-      state.filters = { typeId: null, categoryId: null, menuItemId: null, groupBy: null }
+      state.filters = { typeId: null, categoryId: null, menuItemId: null, ingredientId: null, groupBy: null }
+    },
+    SET_INGREDIENT_OPTIONS(state, lines) {
+      state.ingredientOptions = lines
     },
     SET_SERIES(state, series) {
       state.series = series
@@ -96,7 +103,8 @@ export default {
       state.history = null
       state.historyLoading = false
       state.historyError = null
-      state.filters = { typeId: null, categoryId: null, menuItemId: null, groupBy: null }
+      state.filters = { typeId: null, categoryId: null, menuItemId: null, ingredientId: null, groupBy: null }
+      state.ingredientOptions = []
     },
   },
 
@@ -151,6 +159,21 @@ export default {
       }
     },
 
+    /** Charge les lignes de recette d'un article ; sans article, vide la liste. */
+    async fetchIngredientOptions({ commit }, { spaceId, menuItemId } = {}) {
+      const token = ++ingredientsToken
+      if (!spaceId || !menuItemId) {
+        commit('SET_INGREDIENT_OPTIONS', [])
+        return
+      }
+      try {
+        const res = await getCostTrackingArticleIngredients(spaceId, menuItemId)
+        if (token === ingredientsToken) commit('SET_INGREDIENT_OPTIONS', res?.lines || [])
+      } catch (e) {
+        if (token === ingredientsToken) commit('SET_INGREDIENT_OPTIONS', [])
+      }
+    },
+
     clearHistory({ commit }) {
       historyToken += 1
       commit('SET_HISTORY', null)
@@ -169,6 +192,7 @@ export default {
     reset({ commit }) {
       seriesToken += 1
       historyToken += 1
+      ingredientsToken += 1
       commit('RESET')
     },
   },

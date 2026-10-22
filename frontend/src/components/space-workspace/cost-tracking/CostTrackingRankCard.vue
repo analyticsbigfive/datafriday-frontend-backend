@@ -1,7 +1,7 @@
 <template>
   <div
     class="ct-rank"
-    :class="{ 'ct-rank--click': !!row.id && row.kind === 'article' }"
+    :class="{ 'ct-rank--click': !!row.id }"
     :style="{ '--ct-rank-color': direction === 'up' ? 'var(--ct-up)' : 'var(--ct-down)' }"
     @click="$emit('select', row)"
   >
