@@ -12,6 +12,7 @@ import { safePush } from '@/utils/chunkReload'
  */
 export const WORKSPACE_TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'srToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
+  { value: 'cost-tracking', labelKey: 'srToolCostTracking', icon: 'mdi-cash-multiple', permission: 'front.fb.costTracking' },
   { value: 'predict', labelKey: 'srToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'srToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
   { value: 'live', labelKey: 'srToolLive', icon: 'mdi-record-circle-outline', permission: 'front.fb.live' },
@@ -56,6 +57,8 @@ export function useWorkspaceToolbox(currentValue) {
     // safePush : une navigation rejetée est journalisée au lieu de disparaître (BUG-389-02).
     if (tool.value === 'analyse') {
       safePush(router, { name: 'space-analyse', params: { spaceId } })
+    } else if (tool.value === 'cost-tracking') {
+      safePush(router, { name: 'space-cost-tracking', params: { spaceId } })
     } else if (tool.value === 'live') {
       safePush(router, { name: 'space-live', params: { spaceId } })
     } else if (tool.value === 'space-inventory') {

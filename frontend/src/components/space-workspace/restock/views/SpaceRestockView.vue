@@ -1832,6 +1832,7 @@ const PLAN_MAX_BYTES = 900_000
 
 const TOOLBOX_ITEMS = [
   { value: 'analyse', labelKey: 'srToolAnalyse', icon: 'mdi-chart-line', permission: 'front.fb.analyse' },
+  { value: 'cost-tracking', labelKey: 'srToolCostTracking', icon: 'mdi-cash-multiple', permission: 'front.fb.costTracking' },
   { value: 'predict', labelKey: 'srToolPredict', icon: 'mdi-trending-up', permission: 'front.fb.predict' },
   { value: 'event-predict', labelKey: 'srToolEventPredict', icon: 'mdi-lightning-bolt', permission: 'front.fb.eventPredict' },
   { value: 'live', labelKey: 'srToolLive', icon: 'mdi-record-circle-outline', permission: 'front.fb.live' },
@@ -4260,6 +4261,8 @@ export default {
         // router/index.js) : sans cette branche le `else` ci-dessous envoyait
         // sur Analyse avec un toolbox inconnu.
         safePush(this.router, { name: 'space-live', params: { spaceId } })
+      } else if (tool.value === 'cost-tracking') {
+        safePush(this.router, { name: 'space-cost-tracking', params: { spaceId } })
       } else if (tool.value === 'pos') {
         const ev = this.selectedEventId || null
         safePush(this.router, { name: 'space-pos', params: { spaceId }, query: ev ? { event: ev } : {} })

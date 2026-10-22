@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
 
 /**
  * Paramètres de query des endpoints « rendement » (dimensions article, valorisation stock,
@@ -63,4 +63,13 @@ export class EventValuationQueryDto {
   /** Noms de PdV (identité côté Analyse), résolus serveur vers les SpaceElement de l'espace. */
   @IsOptional() @CsvList() @IsArray() @IsString({ each: true })
   shopNames?: string[];
+}
+
+/** Plafond d'events par appel (même que l'event-timeline). */
+export const EVENT_COSTS_MAX_EVENTS = 100;
+
+/** Query de GET /analyse/:spaceId/event-costs. */
+export class EventCostsQueryDto {
+  @CsvList() @IsArray() @ArrayNotEmpty() @ArrayMaxSize(EVENT_COSTS_MAX_EVENTS) @IsString({ each: true })
+  eventIds: string[];
 }

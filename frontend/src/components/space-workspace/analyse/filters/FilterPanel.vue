@@ -633,6 +633,11 @@ function onToolboxSelect(v) {
     safePush(router, livePath.value)
     return
   }
+  if (v === 'cost-tracking') {
+    const id = route.params?.spaceId
+    safePush(router, id ? { name: 'space-cost-tracking', params: { spaceId: id } } : '/spaces')
+    return
+  }
   if (v === 'pos') {
     const id = route.params?.spaceId
     safePush(router, id ? `/spaces/${id}/pos` : '/spaces')
@@ -648,6 +653,7 @@ function onToolboxSelect(v) {
 // (WorkspaceToolSelect). Ordre = tools en 1er dans la colonne gauche.
 const toolboxItems = computed(() => [
   { value: 'analyse', label: t('anToolAnalyse'), icon: 'mdi-chart-line' },
+  ...(store.getters['auth/can']('front.fb.costTracking') ? [{ value: 'cost-tracking', label: t('srToolCostTracking'), icon: 'mdi-cash-multiple' }] : []),
   { value: 'predict', label: t('anToolPredict'), icon: 'mdi-trending-up' },
   { value: 'event-predict', label: t('anToolEventPredict'), icon: 'mdi-lightning-bolt' },
   { value: 'live', label: t('anToolLive'), icon: 'mdi-record-circle-outline' },

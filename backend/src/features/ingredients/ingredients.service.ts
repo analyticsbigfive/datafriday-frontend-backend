@@ -1,7 +1,10 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
+import { MenuComponentItemPropagationService } from '../menu-components/services/menu-component-item-propagation.service';
+import { hasBrickCostChange } from '../../shared/cost-propagation/brick-cost-change';
 import { TenantListCache } from '../../shared/cache/tenant-list-cache';
+import { assertBrickUnused, getIngredientUsage } from '../../shared/cost-propagation/brick-usage';
 
 @Injectable()
 export class IngredientsService {
@@ -10,6 +13,7 @@ export class IngredientsService {
   constructor(
     private prisma: PrismaService,
     private redis: RedisService,
+    private readonly costPropagation: MenuComponentItemPropagationService,
   ) {}
 
   private readonly listCache = new TenantListCache(this.redis, 'ingredients');
@@ -127,7 +131,7 @@ export class IngredientsService {
 
   async update(id: string, dto: any, tenantId: string) {
     this.logger.log(`Updating ingredient ${id} for tenant ${tenantId}`);
-    await this.findOne(id, tenantId);
+    const before = await this.findOne(id, tenantId);
     try {
       const result = await this.prisma.ingredient.update({
         where: { id },
@@ -147,6 +151,10 @@ export class IngredientsService {
         include: { marketPrice: true },
       });
       this.logger.log(`Ingredient ${id} updated`);
+      // Non bloquant : composants et articles qui utilisent cet ingrédient suivent en arrière-plan.
+      if (hasBrickCostChange(before, dto)) {
+        void this.costPropagation.propagateFromBricks({ ingredientIds: [id] }, tenantId, 'ingredient_edit', { ingredientId: id });
+      }
       await this.listCache.invalidate(tenantId);
       return result;
     } catch (error) {
@@ -164,6 +172,7 @@ export class IngredientsService {
   async remove(id: string, tenantId: string) {
     this.logger.log(`Deleting ingredient ${id} for tenant ${tenantId}`);
     await this.findOne(id, tenantId);
+    assertBrickUnused(await getIngredientUsage(this.prisma, id));
     try {
       const result = await this.prisma.ingredient.update({
         where: { id },

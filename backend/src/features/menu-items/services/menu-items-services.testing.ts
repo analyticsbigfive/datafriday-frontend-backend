@@ -9,15 +9,16 @@ import { MenuItemWeezeventPriceService } from '././menu-item-weezevent-price.ser
 import { ProductTaxonomyService } from '././product-taxonomy.service';
 
 /** Instancie les services du dossier pour les tests unitaires (dépendances externes fournies par le test). */
-export function createMenuItemsServices(deps: { prisma?: any; redis?: any; pricing?: any; storage?: any; spaceAccess?: any }) {
+export function createMenuItemsServices(deps: { prisma?: any; redis?: any; pricing?: any; storage?: any; spaceAccess?: any; costSnapshot?: any }) {
+  const costSnapshotService = deps.costSnapshot ?? { recordIfChanged: async () => 0 };
   const menuItemSupportService = new MenuItemSupportService(deps.prisma, deps.redis, deps.pricing);
-  const menuItemBulkCreateService = new MenuItemBulkCreateService(deps.prisma, deps.storage, menuItemSupportService);
-  const menuItemCostService = new MenuItemCostService(deps.prisma, menuItemSupportService);
+  const menuItemBulkCreateService = new MenuItemBulkCreateService(deps.prisma, deps.storage, menuItemSupportService, costSnapshotService);
+  const menuItemCostService = new MenuItemCostService(deps.prisma, menuItemSupportService, costSnapshotService);
   const menuItemQueryService = new MenuItemQueryService(deps.prisma, deps.redis, deps.spaceAccess, menuItemSupportService);
-  const menuItemCommandService = new MenuItemCommandService(deps.prisma, deps.storage, menuItemCostService, menuItemSupportService, menuItemQueryService);
+  const menuItemCommandService = new MenuItemCommandService(deps.prisma, deps.storage, menuItemCostService, menuItemSupportService, menuItemQueryService, costSnapshotService);
   const menuItemCompositionService = new MenuItemCompositionService(deps.prisma, menuItemCostService, menuItemQueryService, menuItemSupportService);
   const menuItemRecipeService = new MenuItemRecipeService(deps.prisma, deps.spaceAccess, menuItemSupportService);
-  const menuItemWeezeventPriceService = new MenuItemWeezeventPriceService(deps.prisma, deps.pricing, deps.spaceAccess, menuItemQueryService, menuItemSupportService);
+  const menuItemWeezeventPriceService = new MenuItemWeezeventPriceService(deps.prisma, deps.pricing, deps.spaceAccess, menuItemQueryService, menuItemSupportService, costSnapshotService);
   const productTaxonomyService = new ProductTaxonomyService(deps.prisma);
   return { menuItemSupportService, menuItemBulkCreateService, menuItemCostService, menuItemQueryService, menuItemCommandService, menuItemCompositionService, menuItemRecipeService, menuItemWeezeventPriceService, productTaxonomyService };
 }

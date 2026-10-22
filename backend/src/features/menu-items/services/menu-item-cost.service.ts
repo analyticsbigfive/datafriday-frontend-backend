@@ -1,6 +1,15 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MenuItemSupportService } from './menu-item-support.service';
+import { CostSnapshotReason, MenuItemCostSnapshotService } from './menu-item-cost-snapshot.service';
+
+/** Cause et référence d'un snapshot de coût, transmises par l'appelant du refresh. */
+export interface CostSnapshotOpts {
+  reason?: CostSnapshotReason;
+  sourceRef?: Record<string, unknown>;
+  /** L'appelant écrit lui-même le snapshot (après avoir recalculé la part combo). */
+  skipSnapshot?: boolean;
+}
 
 /**
  * Coûts des articles (recette et combos) recalculés depuis leurs composants.
@@ -10,6 +19,7 @@ export class MenuItemCostService {
   constructor(
     private prisma: PrismaService,
     private readonly menuItemSupportService: MenuItemSupportService,
+    private readonly costSnapshotService: MenuItemCostSnapshotService,
   ) {}
 
   private readonly logger = new Logger(MenuItemCostService.name);
@@ -70,13 +80,16 @@ export class MenuItemCostService {
    * (bulk/refresh-costs) ne recalcule PAS la contribution combo, seul un appel explicite à
    * `replaceComboItems()`/`create()`/`update()` avec `comboItems` la met à jour.
    */
-  async refreshComboCost(tenantId: string, itemId: string) {
+  async refreshComboCost(tenantId: string, itemId: string, opts?: CostSnapshotOpts) {
     const totalCost = await this.computeMenuItemComboCost(itemId, tenantId);
     await this.prisma.menuItem.update({ where: { id: itemId }, data: { totalCost } });
+    if (!opts?.skipSnapshot) {
+      await this.costSnapshotService.recordIfChanged(tenantId, [itemId], opts?.reason ?? 'manual_refresh', opts?.sourceRef);
+    }
     return totalCost;
   }
 
-  async refreshCosts(tenantId: string, opts?: { itemIds?: string[] }) {
+  async refreshCosts(tenantId: string, opts?: { itemIds?: string[] } & CostSnapshotOpts) {
     const itemIds = opts?.itemIds;
     this.logger.log(`Refreshing menu item costs for tenant ${tenantId}${itemIds?.length ? ` (ids=${itemIds.length})` : ''}...`);
     try {
@@ -205,10 +218,33 @@ export class MenuItemCostService {
 
       this.logger.log(`✅ P1: Refreshed costs for ${updated} menu items (${updatedLines} lines) with batch optimization`);
       await this.menuItemSupportService.listCache.invalidate(tenantId);
+      if (!opts?.skipSnapshot) await this.snapshotRefreshed(tenantId, items.map((it) => it.id), opts);
       return { updated, total: items.length, updatedLines };
     } catch (error) {
       this.logger.error(`Failed to refresh costs: ${error.message}`, error.stack);
       throw error;
     }
+  }
+
+  /**
+   * Snapshot des articles recalculés. Les parents de combo sont exclus : ce refresh est plat (sans
+   * part combo), leur snapshot est écrit par `refreshComboCost` pour ne pas figer un coût faux.
+   */
+  private async snapshotRefreshed(tenantId: string, itemIds: string[], opts?: CostSnapshotOpts) {
+    if (!itemIds.length) return;
+    let ids = itemIds;
+    try {
+      const parents = await this.prisma.menuItemCombo.findMany({
+        where: { parentId: { in: itemIds } },
+        select: { parentId: true },
+        distinct: ['parentId'],
+      });
+      const parentIds = new Set(parents.map((p) => p.parentId));
+      ids = itemIds.filter((id) => !parentIds.has(id));
+    } catch (error) {
+      this.logger.warn(`Cost snapshot skipped (combo lookup failed): ${error.message}`);
+      return;
+    }
+    await this.costSnapshotService.recordIfChanged(tenantId, ids, opts?.reason ?? 'manual_refresh', opts?.sourceRef);
   }
 }

@@ -1,7 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { withAncestorComponents, withAncestorItems } from '../../../shared/cost-propagation/cost-ancestry';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MenuComponentCostService } from '../../menu-components/services/menu-component-cost.service';
 import { MenuItemCostService } from '../../menu-items/services/menu-item-cost.service';
+import { MenuItemCostSnapshotService } from '../../menu-items/services/menu-item-cost-snapshot.service';
 
 /**
  * Répercute un changement de prix du marché sur tous les coûts qui en dépendent, sans toucher
@@ -17,6 +19,7 @@ export class MarketPriceCostPropagationService {
     private prisma: PrismaService,
     private readonly componentCostService: MenuComponentCostService,
     private readonly menuItemCostService: MenuItemCostService,
+    private readonly costSnapshotService: MenuItemCostSnapshotService,
   ) {}
 
   private readonly logger = new Logger(MarketPriceCostPropagationService.name);
@@ -44,7 +47,7 @@ export class MarketPriceCostPropagationService {
             select: { componentId: true },
           })
         : [];
-      const componentIds = await this.withAncestorComponents(directComponents.map((c) => c.componentId));
+      const componentIds = await withAncestorComponents(this.prisma, directComponents.map((c) => c.componentId));
 
       const [viaIngredient, viaPackaging, viaComponent] = await Promise.all([
         ingredientIds.length
@@ -58,13 +61,13 @@ export class MarketPriceCostPropagationService {
           : [],
       ]);
       const directItems = [...viaIngredient, ...viaPackaging, ...viaComponent].map((l) => l.menuItemId);
-      const itemIds = await this.withAncestorItems(directItems);
+      const itemIds = await withAncestorItems(this.prisma, directItems);
 
       if (componentIds.length) {
         await this.componentCostService.refreshCosts(tenantId, { componentIds });
       }
       if (itemIds.length) {
-        await this.menuItemCostService.refreshCosts(tenantId, { itemIds });
+        await this.menuItemCostService.refreshCosts(tenantId, { itemIds, skipSnapshot: true });
         // refreshCosts est plat : la part combo se recalcule ensuite, pour les parents de combo.
         const comboParents = await this.prisma.menuItemCombo.findMany({
           where: { parentId: { in: itemIds } },
@@ -73,8 +76,10 @@ export class MarketPriceCostPropagationService {
         });
         for (const { parentId } of comboParents) {
           // eslint-disable-next-line no-await-in-loop -- un combo à la fois, calcul récursif court
-          await this.menuItemCostService.refreshComboCost(tenantId, parentId);
+          await this.menuItemCostService.refreshComboCost(tenantId, parentId, { skipSnapshot: true });
         }
+        // Un seul lot après la part combo, pour ne figer aucun coût de parent de combo incomplet.
+        await this.costSnapshotService.recordIfChanged(tenantId, itemIds, 'market_price', { marketPriceIds: ids });
       }
       this.logger.log(`Cost propagation: ${ids.length} market price(s) -> ${componentIds.length} component(s), ${itemIds.length} menu item(s)`);
       return { components: componentIds.length, menuItems: itemIds.length };
@@ -83,37 +88,5 @@ export class MarketPriceCostPropagationService {
       this.logger.warn(`Cost propagation failed for ${ids.length} market price(s): ${error.message}`);
       return { components: 0, menuItems: 0 };
     }
-  }
-
-  /** Composants donnés + tous leurs parents (sous-composants), niveau par niveau. */
-  private async withAncestorComponents(seed: string[]): Promise<string[]> {
-    const all = new Set(seed);
-    let pending = [...all];
-    while (pending.length) {
-      // eslint-disable-next-line no-await-in-loop -- une requête par niveau de parents
-      const parents = await this.prisma.componentComponent.findMany({
-        where: { childId: { in: pending } },
-        select: { parentId: true },
-      });
-      pending = parents.map((p) => p.parentId).filter((id) => !all.has(id));
-      pending.forEach((id) => all.add(id));
-    }
-    return [...all];
-  }
-
-  /** Menu items donnés + tous leurs parents de combo, niveau par niveau. */
-  private async withAncestorItems(seed: string[]): Promise<string[]> {
-    const all = new Set(seed);
-    let pending = [...all];
-    while (pending.length) {
-      // eslint-disable-next-line no-await-in-loop -- une requête par niveau de combos
-      const parents = await this.prisma.menuItemCombo.findMany({
-        where: { childId: { in: pending } },
-        select: { parentId: true },
-      });
-      pending = parents.map((p) => p.parentId).filter((id) => !all.has(id));
-      pending.forEach((id) => all.add(id));
-    }
-    return [...all];
   }
 }

@@ -45,6 +45,8 @@ export const SYSTEM_PERMISSIONS: PermissionDefinition[] = [
 
   // F&B Front (écrans opérationnels par espace)
   { code: 'front.fb.analyse', name: 'Analyse', category: 'F&B Front' },
+  // Distinct de back.fb.costTracking (GET analyse/cost-breakdown) : page Cost tracking, historique des coûts.
+  { code: 'front.fb.costTracking', name: 'Cost tracking', category: 'F&B Front' },
   { code: 'front.fb.eventPredict', name: 'Event Predict', category: 'F&B Front' },
   { code: 'front.fb.predict', name: 'Predict', category: 'F&B Front' },
   { code: 'front.fb.spaceInventory', name: 'Post-event Inventory', category: 'F&B Front' },
@@ -187,6 +189,7 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
     permissions: [
       'nav.spaces',
       'front.fb.analyse',
+      'front.fb.costTracking',
       'front.fb.eventPredict',
       'front.fb.predict',
       'front.fb.spaceInventory',
@@ -273,6 +276,7 @@ export const SYSTEM_ROLES: SystemRoleDefinition[] = [
       'menu.fb.suppliers',
       'menu.fb.marketPrices',
       'front.fb.analyse',
+      'front.fb.costTracking',
       'front.fb.eventPredict',
       'front.fb.predict',
       'front.fb.spaceInventory',

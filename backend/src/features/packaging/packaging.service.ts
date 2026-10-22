@@ -1,11 +1,17 @@
 import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service';
+import { MenuComponentItemPropagationService } from '../menu-components/services/menu-component-item-propagation.service';
+import { hasBrickCostChange } from '../../shared/cost-propagation/brick-cost-change';
+import { assertBrickUnused, getPackagingUsage } from '../../shared/cost-propagation/brick-usage';
 
 @Injectable()
 export class PackagingService {
   private readonly logger = new Logger(PackagingService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly costPropagation: MenuComponentItemPropagationService,
+  ) {}
 
   async create(dto: any, tenantId: string) {
     this.logger.log(`Creating packaging "${dto.name}" for tenant ${tenantId}`);
@@ -75,7 +81,7 @@ export class PackagingService {
 
   async update(id: string, dto: any, tenantId: string) {
     this.logger.log(`Updating packaging ${id} for tenant ${tenantId}`);
-    await this.findOne(id, tenantId);
+    const before = await this.findOne(id, tenantId);
     try {
       const result = await this.prisma.packaging.update({
         where: { id },
@@ -95,6 +101,10 @@ export class PackagingService {
         include: { marketPrice: true },
       });
       this.logger.log(`Packaging ${id} updated`);
+      // Non bloquant : les articles qui utilisent cet emballage suivent en arrière-plan.
+      if (hasBrickCostChange(before, dto)) {
+        void this.costPropagation.propagateFromBricks({ packagingIds: [id] }, tenantId, 'packaging_edit', { packagingId: id });
+      }
       return result;
     } catch (error) {
       this.logger.error(`Failed to update packaging ${id}: ${error.message}`, error.stack);
@@ -111,6 +121,7 @@ export class PackagingService {
   async remove(id: string, tenantId: string) {
     this.logger.log(`Deleting packaging ${id} for tenant ${tenantId}`);
     await this.findOne(id, tenantId);
+    assertBrickUnused(await getPackagingUsage(this.prisma, id));
     try {
       const result = await this.prisma.packaging.update({
         where: { id },
