@@ -63,6 +63,12 @@
 
     <CostTrackingAccordion :title="t('ctSectionDisplay')">
       <CostTrackingSwitch
+        :model-value="showPrice"
+        :label="t('ctPriceCurve')"
+        :hint="t('ctPriceHint')"
+        @update:model-value="$emit('update:showPrice', $event)"
+      />
+      <CostTrackingSwitch
         :model-value="showMargin && canMargin"
         :disabled="!canMargin"
         :label="t('ctMarginCurve')"
@@ -99,11 +105,12 @@ defineProps({
   articleOptions: { type: Array, default: () => [] },
   ingredientOptions: { type: Array, default: () => [] },
   showMargin: { type: Boolean, default: false },
+  showPrice: { type: Boolean, default: false },
   canMargin: { type: Boolean, default: true },
 })
 const emit = defineEmits([
   'set-period', 'set-custom-range', 'set-type', 'set-category', 'set-article', 'set-ingredient', 'reset',
-  'update:showMargin',
+  'update:showMargin', 'update:showPrice',
 ])
 
 const { t } = useI18n()

@@ -15,7 +15,8 @@ export function useCostTrackingChartHover({ model, series, bounds }) {
   function timeAt(px) {
     const m = model.value
     const [t0, t1] = bounds.value
-    return t0 + ((px - m.margin.l) / m.innerWidth) * (t1 - t0)
+    // t1 est la fin exclusive (minuit du lendemain) : l'instant survolé reste dans le dernier jour.
+    return Math.min(t0 + ((px - m.margin.l) / m.innerWidth) * (t1 - t0), t1 - 1)
   }
 
   function onMove(px) {

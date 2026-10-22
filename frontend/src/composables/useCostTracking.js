@@ -62,6 +62,9 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
 
   // Période : preset ('30'|'90'|'180'|'365') ou 'custom' avec customFrom / customTo.
   const period = ref(DEFAULT_PERIOD)
+  /** Type et Catégorie : 'avg' (moyenne des articles) ou 'sum' (total des coûts). */
+  const aggregate = ref('avg')
+  const showPrice = ref(false)
   const customFrom = ref(null)
   const customTo = ref(null)
   const hiddenKeys = ref(new Set())
@@ -225,6 +228,7 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     menuItemId: menuItemId.value || undefined,
     ingredientId: ingredientId.value || undefined,
     groupBy: effectiveGroupBy.value,
+    aggregate: ['category', 'type'].includes(effectiveGroupBy.value) ? aggregate.value : undefined,
   }))
 
   async function loadCatalog({ force = false } = {}) {
@@ -273,7 +277,7 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
    */
   function chartModel({ width, height, margin } = {}) {
     const [t0, t1] = bounds.value
-    const model = buildChartModel(visibleSeries.value, { t0, t1, width, height, margin })
+    const model = buildChartModel(visibleSeries.value, { t0, t1, width, height, margin, withPrice: showPrice.value })
     return { ...model, events: layoutEvents(events.value, model.x, t0, t1) }
   }
 
@@ -346,6 +350,8 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     setType, setCategory, setArticle, setIngredient, drill, resetFilters,
     // mode Afficher par
     groupBy: effectiveGroupBy, groupByIsAuto, setGroupBy,
+    // total ou moyenne (Type, Catégorie) et courbe de prix HT
+    aggregate, showPrice,
     // période
     period, range, rangeValid, bounds, setPeriod, setCustomRange,
     // chargement
