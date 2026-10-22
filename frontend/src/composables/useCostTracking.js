@@ -46,8 +46,8 @@ export function flattenCatalog(catalog) {
 
 /** Mode « Afficher par » appliqué par le backend quand `groupBy` est absent. */
 export function defaultGroupBy({ typeId, categoryId, menuItemId, ingredientId }) {
-  if (menuItemId && ingredientId) return 'ingredient'
-  if (menuItemId || categoryId) return 'article'
+  if (menuItemId) return 'ingredient'
+  if (categoryId) return 'article'
   if (typeId) return 'category'
   return 'article'
 }
