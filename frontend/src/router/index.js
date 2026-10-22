@@ -287,6 +287,14 @@ const routes = [
       },
 
       {
+        // Cost tracking (chantier cost_tracking, lot 3b) : historique des coûts par pièce des articles.
+        path: '/spaces/:spaceId/cost-tracking',
+        name: 'space-cost-tracking',
+        component: () => import('@/components/space-workspace/cost-tracking/views/SpaceCostTrackingView.vue'),
+        meta: { title: 'Cost tracking', permission: 'front.fb.costTracking' }
+      },
+
+      {
         path: '/events',
         name: 'events',
         component: EventsListView,
