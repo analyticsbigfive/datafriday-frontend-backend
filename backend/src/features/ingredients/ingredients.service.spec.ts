@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { IngredientsService } from './ingredients.service';
 
 function build() {
@@ -12,7 +13,7 @@ function build() {
   const propagation = { propagateFromBricks: jest.fn().mockResolvedValue({ components: 0, menuItems: 0 }) };
   const service = new IngredientsService(prisma, redis, propagation as any);
   (service as any).listCache = { invalidate: jest.fn(), key: jest.fn() };
-  return { service, propagation };
+  return { service, propagation, prisma };
 }
 
 describe('IngredientsService.update propagation', () => {
@@ -26,5 +27,28 @@ describe('IngredientsService.update propagation', () => {
     const { service, propagation } = build();
     await service.update('ing-1', { name: 'Autre', costPerRecipeUnit: 1.5 }, 'tenant-1');
     expect(propagation.propagateFromBricks).not.toHaveBeenCalled();
+  });
+});
+
+describe('IngredientsService.remove', () => {
+  const usageTable = (count: number, field: string) => ({
+    count: jest.fn().mockResolvedValue(count),
+    findMany: jest.fn().mockResolvedValue(count ? [{ [field]: { name: 'Burger' } }] : []),
+  });
+
+  it('refuse (409) si utilisé dans un composant', async () => {
+    const { service, prisma } = build();
+    prisma.componentIngredient = usageTable(1, 'component');
+    prisma.menuItemIngredient = usageTable(0, 'menuItem');
+    await expect(service.remove('ing-1', 'tenant-1')).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.ingredient.update).not.toHaveBeenCalled();
+  });
+
+  it('supprime (soft) si inutilisé', async () => {
+    const { service, prisma } = build();
+    prisma.componentIngredient = usageTable(0, 'component');
+    prisma.menuItemIngredient = usageTable(0, 'menuItem');
+    await service.remove('ing-1', 'tenant-1');
+    expect(prisma.ingredient.update).toHaveBeenCalledWith({ where: { id: 'ing-1' }, data: { deletedAt: expect.any(Date) } });
   });
 });
