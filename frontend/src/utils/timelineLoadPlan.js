@@ -101,9 +101,10 @@ export function timelineHeaderLabelOf(eventsList, selected) {
  * @param {{eventsToLoad: Array, alignment: object|null}} plan
  * @param {Map<string, Array>} byEventId  lignes par event (getSpaceEventTimelineBatch)
  * @param {object} menuItemCostMap
+ * @param {object|null} [menuItemCostByEvent]  coût figé par event (lot 4b), repli sur menuItemCostMap
  * @returns {ReadonlyArray<object>} records gelés
  */
-export function assembleTimelineRecords({ eventsToLoad, alignment }, byEventId, menuItemCostMap = {}) {
+export function assembleTimelineRecords({ eventsToLoad, alignment }, byEventId, menuItemCostMap = {}, menuItemCostByEvent = null) {
   const flatRecords = alignment
     ? eventsToLoad.flatMap((ev) => {
         const off = alignment.offsets.get(ev.id)
@@ -126,7 +127,7 @@ export function assembleTimelineRecords({ eventsToLoad, alignment }, byEventId, 
         const data = byEventId.get(ev.id) || []
         return Array.isArray(data) ? data.map((r) => ({ ...r, eventId: ev.id })) : []
       })
-  const allRecords = preprocessTimelineRecords(flatRecords, { menuItemCostMap })
+  const allRecords = preprocessTimelineRecords(flatRecords, { menuItemCostMap, menuItemCostByEvent })
   for (const r of allRecords) Object.freeze(r)
   return Object.freeze(allRecords)
 }

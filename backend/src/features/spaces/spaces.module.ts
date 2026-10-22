@@ -61,6 +61,8 @@ import { SpaceConfigurationService } from './services/space-configuration.servic
     SpaceElementService,
     // Première vente par PdV : arrêt du pre-event (InventoryCycleCronService).
     SpaceShopsService,
+    // Scope de ventes par event : lu par Cost tracking (CA par article).
+    SpaceSalesScopeService,
   ],
 })
 export class SpacesModule {}

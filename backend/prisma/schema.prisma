@@ -184,6 +184,7 @@ model Tenant {
   // Menu domain relations (ajoutées pour isolation multi-tenant)
   menuItems            MenuItem[]
   menuItemPriceHistory MenuItemPriceHistory[]
+  menuItemCostSnapshots MenuItemCostSnapshot[]
   menuComponents       MenuComponent[]
   ingredients          Ingredient[]
   packagings           Packaging[]
@@ -2401,6 +2402,7 @@ model MenuItem {
   menuAssignments        MenuAssignment[]
   salesMappings          ProductMapping[]
   priceHistory           MenuItemPriceHistory[]
+  costSnapshots          MenuItemCostSnapshot[]
   spaceLinks             SpaceMenuItem[]
   // Composition "Combo"/"Menu" par d'autres MenuItem vendables (ex. "Burger + Frites" = composé
   // de "Burger" + "Frites"), distincte de `comboItem` (flag scalaire "cet item est réutilisable
@@ -2493,6 +2495,32 @@ model SpaceMenuItem {
 
   @@unique([menuItemId, spaceId])
   @@index([spaceId])
+}
+
+/// Version immuable du coût d'un article (jamais mise à jour). Historique de coût et de recette
+/// pour garder stables les marges des events passés (chantier Cost tracking).
+model MenuItemCostSnapshot {
+  id             String   @id @default(cuid())
+  tenantId       String
+  menuItemId     String
+  effectiveFrom  DateTime // instant de l'écriture
+  totalCost      Decimal  @db.Decimal(12, 4) // coût de la fournée (sémantique MenuItem.totalCost)
+  numberOfPieces Int      @default(1)
+  costPerPiece   Decimal  @db.Decimal(12, 4)
+  basePrice      Decimal? @db.Decimal(10, 2)
+  vatRate        Decimal? @db.Decimal(5, 2)
+  recipe         Json // lignes figées {kind, refId, name, quantity, unitCost}
+  recipeHash     String // idempotence : comparaison sans relire le Json
+  reason         String // baseline | created | market_price | recipe_edit | component_edit | combo_edit | manual_refresh | price_sync
+  sourceRef      Json?
+  createdAt      DateTime @default(now())
+
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  menuItem MenuItem @relation(fields: [menuItemId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, menuItemId, effectiveFrom(sort: Desc)])
+  @@index([tenantId, effectiveFrom])
+  @@index([menuItemId])
 }
 
 /// Historique des prix d'un menu item : chaque application du prix Weezevent (ou édition
