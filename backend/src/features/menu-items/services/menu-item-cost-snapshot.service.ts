@@ -10,6 +10,8 @@ export type CostSnapshotReason =
   | 'market_price'
   | 'recipe_edit'
   | 'component_edit'
+  | 'ingredient_edit'
+  | 'packaging_edit'
   | 'combo_edit'
   | 'manual_refresh'
   | 'price_sync';

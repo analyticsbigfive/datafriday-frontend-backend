@@ -1,5 +1,6 @@
 import { MenuComponentCostService } from './menu-component-cost.service';
 import { MenuComponentValidationService } from './menu-component-validation.service';
+import { MenuComponentItemPropagationService } from './menu-component-item-propagation.service';
 import { MenuComponentsService } from '../menu-components.service';
 import type { SpaceAccessService } from '../../../core/auth/space-access.service';
 import type { SupabaseStorageService } from '../../../core/supabase/supabase-storage.service';
@@ -10,6 +11,7 @@ export function createMenuComponentsServices(deps: {
   redis?: any;
   spaceAccess?: SpaceAccessService;
   storage?: SupabaseStorageService;
+  itemPropagation?: Pick<MenuComponentItemPropagationService, 'propagate'>;
 }) {
   const menuComponentCostService = new MenuComponentCostService(deps.prisma);
   const menuComponentValidationService = new MenuComponentValidationService(deps.prisma);
@@ -20,6 +22,7 @@ export function createMenuComponentsServices(deps: {
     deps.storage ?? ({ resolveImage: async (v: unknown) => v } as unknown as SupabaseStorageService),
     menuComponentCostService,
     menuComponentValidationService,
+    (deps.itemPropagation ?? { propagate: async () => ({ components: 0, menuItems: 0 }) }) as MenuComponentItemPropagationService,
   );
   return { menuComponentCostService, menuComponentValidationService, menuComponentsService };
 }
