@@ -64,8 +64,10 @@ export function useComparisonTimeline({
     failed.value = false
     try {
       const byEventId = await getSpaceEventTimelineBatch(unref(spaceId), plan.idsToFetch, {})
+      // Lot 4b : coûts figés des events chargés (ne lève jamais, échec = repli sur le coût actuel).
+      await store.dispatch?.('analyse/ensureEventCosts', plan.idsToFetch)
       if (mine.signal.aborted) return
-      rawRecords.value = assembleTimelineRecords(plan, byEventId, store.state.analyse?.menuItemCostMap || {})
+      rawRecords.value = assembleTimelineRecords(plan, byEventId, store.state.analyse?.menuItemCostMap || {}, store.state.analyse?.menuItemCostByEvent)
     } catch (err) {
       if (mine.signal.aborted) return
       console.error('[useComparisonTimeline] erreur chargement', err)
