@@ -105,11 +105,9 @@ export function useAnalyseTimeline({ setFilterImmediate }) {
     try {
       const spaceId = route.params.spaceId
       const byEventId = await getSpaceEventTimelineBatch(spaceId, plan.idsToFetch, { bypassCache })
-      // Lot 4b : coûts figés des events chargés (ne lève jamais, échec = repli sur le coût actuel).
-      await store.dispatch?.('analyse/ensureEventCosts', plan.idsToFetch)
       if (controller.signal.aborted) return
 
-      const allRecords = assembleTimelineRecords(plan, byEventId, store.state.analyse.menuItemCostMap || {}, store.state.analyse.menuItemCostByEvent)
+      const allRecords = assembleTimelineRecords(plan, byEventId, store.state.analyse.menuItemCostMap || {})
       eventTimelineData.value = allRecords
       if (allRecords.length === 0) {
         console.warn('[useAnalyseTimeline] aucune donnée disponible.')

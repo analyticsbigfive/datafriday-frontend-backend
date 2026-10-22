@@ -14,8 +14,6 @@
 //     lieu de requêter la table raw sales / le shopGranular complet à chaque
 //     render.
 
-import { makeCostFor } from '@/utils/eventCostLookup'
-
 // ---------------------------------------------------------------------------
 // Stratégies de bucket (en minutes). Le projet peut consommer la timeline à
 // plusieurs granularités sans dupliquer la logique d'agrégation.
@@ -237,8 +235,6 @@ export function hasActiveRange(range) {
  * @param {object} [opts]
  * @param {number} [opts.bucketMinutes=1]  granularité du bucket en minutes.
  * @param {Object<string, number>} [opts.menuItemCostMap]  unitaire par item.
- * @param {Object<string, Object<string, number>>} [opts.menuItemCostByEvent]  coût figé par event
- *   (lot 4b), prioritaire sur menuItemCostMap quand l'event et l'article y figurent.
  * @param {(record:object)=>boolean} [opts.filter]  filtre par record (shop,
  *   product, catégorie…). Appliqué AVANT bucketing.
  * @param {'event'|'shop'|'product'|'shopProduct'|'global'} [opts.groupBy='global']
@@ -263,8 +259,6 @@ export function aggregateTimeline(records, opts = {}) {
   if (!Array.isArray(records) || records.length === 0) return []
   const bucketSize = Number(opts.bucketMinutes) > 0 ? Number(opts.bucketMinutes) : 1
   const costMap = opts.menuItemCostMap || {}
-  // Lot 4b : coût figé par event, repli sur costMap (voir eventCostLookup).
-  const unitCostOf = makeCostFor(costMap, opts.menuItemCostByEvent)
   const filter = typeof opts.filter === 'function' ? opts.filter : null
   const groupBy = opts.groupBy || 'global'
 
@@ -376,7 +370,7 @@ export function aggregateTimeline(records, opts = {}) {
     const tx = Number(r.transactionCount ?? r.transactions) || 0
     const directCost = Number(r.totalCost ?? r.cost)
     const itemId = rawProductId
-    const unitCost = itemId != null ? unitCostOf(eventId, itemId) : 0
+    const unitCost = itemId != null ? costMap[itemId] || 0 : 0
 
     if (!agg.weezpayNature) agg.weezpayNature = r.weezpayNature || r.nature || null
     if (!agg.weezpaySubnature) agg.weezpaySubnature = r.weezpaySubnature || r.subnature || null
