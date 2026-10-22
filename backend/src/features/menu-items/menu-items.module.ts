@@ -4,6 +4,7 @@ import { PrismaModule } from '../../core/database/prisma.module';
 import { PricingModule } from '../../shared/pricing/pricing.module';
 import { MenuItemCompositionService } from './services/menu-item-composition.service';
 import { MenuItemCostService } from './services/menu-item-cost.service';
+import { MenuItemCostSnapshotService } from './services/menu-item-cost-snapshot.service';
 import { MenuItemRecipeService } from './services/menu-item-recipe.service';
 import { MenuItemSupportService } from './services/menu-item-support.service';
 import { MenuItemWeezeventPriceService } from './services/menu-item-weezevent-price.service';
@@ -18,7 +19,7 @@ import { MenuItemQueryService } from './services/menu-item-query.service';
   providers: [
     MenuItemSupportService,
     MenuItemCostService,
-    
+    MenuItemCostSnapshotService,
     MenuItemRecipeService,
     MenuItemCompositionService,
     MenuItemWeezeventPriceService,
@@ -30,6 +31,7 @@ import { MenuItemQueryService } from './services/menu-item-query.service';
   exports: [
     MenuItemRecipeService,
     MenuItemCostService,
+    MenuItemCostSnapshotService,
   ],
 })
 export class MenuItemsModule {}

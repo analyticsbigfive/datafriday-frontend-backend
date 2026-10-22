@@ -4,6 +4,7 @@ import { MenuItemPricingService } from '../../../shared/pricing/menu-item-pricin
 import { linksToSpaceIds, spaceLinksSelect } from '../../../shared/pricing/space-links.util';
 import { SpaceAccessService } from '../../../core/auth/space-access.service';
 import { MenuItemSupportService } from './menu-item-support.service';
+import { MenuItemCostSnapshotService } from './menu-item-cost-snapshot.service';
 import { MenuItemQueryService } from './menu-item-query.service';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
@@ -25,6 +26,7 @@ export class MenuItemWeezeventPriceService {
     private spaceAccess: SpaceAccessService,
     private readonly menuItemQueryService: MenuItemQueryService,
     private readonly menuItemSupportService: MenuItemSupportService,
+    private readonly costSnapshotService: MenuItemCostSnapshotService,
   ) {}
 
   private readonly logger = new Logger(MenuItemWeezeventPriceService.name);
@@ -203,6 +205,7 @@ export class MenuItemWeezeventPriceService {
         }),
       ]);
       await this.menuItemSupportService.listCache.invalidate(tenantId);
+      await this.costSnapshotService.recordIfChanged(tenantId, [menuItemId], 'price_sync');
       this.logger.log(`Applied Weezevent price ${resolved.basePrice} (${resolved.source}) to menu item ${menuItemId}`);
     }
 
@@ -278,6 +281,7 @@ export class MenuItemWeezeventPriceService {
     const workingPrice = new Map<string, { ttc: number; vatRate: number | null }>();
 
     const writes: any[] = [];
+    const globalPriceItemIds: string[] = [];
     let changed = 0;
     for (const { menuItemId, productId, override } of pairs) {
       const product = productById.get(productId);
@@ -368,6 +372,7 @@ export class MenuItemWeezeventPriceService {
           data: { basePrice: resolved.basePrice, vatRate: resolved.vatRate },
         }),
       );
+      globalPriceItemIds.push(menuItemId);
       changed++;
       results.push({ menuItemId, changed: true, applied: resolved, previous });
     }
@@ -375,6 +380,8 @@ export class MenuItemWeezeventPriceService {
     if (writes.length) {
       await this.prisma.$transaction(writes);
       await this.menuItemSupportService.listCache.invalidate(tenantId);
+      // Seuls les prix globaux (sans espace) touchent MenuItem.basePrice.
+      await this.costSnapshotService.recordIfChanged(tenantId, globalPriceItemIds, 'price_sync');
       this.logger.log(`Bulk-applied Weezevent price to ${changed} menu item(s) for tenant ${tenantId}${spaceId ? ` (space ${spaceId})` : ''}`);
     }
     return { total: items.length, changed, results };

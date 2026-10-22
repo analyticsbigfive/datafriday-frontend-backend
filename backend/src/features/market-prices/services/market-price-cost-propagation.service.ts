@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MenuComponentCostService } from '../../menu-components/services/menu-component-cost.service';
 import { MenuItemCostService } from '../../menu-items/services/menu-item-cost.service';
+import { MenuItemCostSnapshotService } from '../../menu-items/services/menu-item-cost-snapshot.service';
 
 /**
  * Répercute un changement de prix du marché sur tous les coûts qui en dépendent, sans toucher
@@ -17,6 +18,7 @@ export class MarketPriceCostPropagationService {
     private prisma: PrismaService,
     private readonly componentCostService: MenuComponentCostService,
     private readonly menuItemCostService: MenuItemCostService,
+    private readonly costSnapshotService: MenuItemCostSnapshotService,
   ) {}
 
   private readonly logger = new Logger(MarketPriceCostPropagationService.name);
@@ -64,7 +66,7 @@ export class MarketPriceCostPropagationService {
         await this.componentCostService.refreshCosts(tenantId, { componentIds });
       }
       if (itemIds.length) {
-        await this.menuItemCostService.refreshCosts(tenantId, { itemIds });
+        await this.menuItemCostService.refreshCosts(tenantId, { itemIds, skipSnapshot: true });
         // refreshCosts est plat : la part combo se recalcule ensuite, pour les parents de combo.
         const comboParents = await this.prisma.menuItemCombo.findMany({
           where: { parentId: { in: itemIds } },
@@ -73,8 +75,10 @@ export class MarketPriceCostPropagationService {
         });
         for (const { parentId } of comboParents) {
           // eslint-disable-next-line no-await-in-loop -- un combo à la fois, calcul récursif court
-          await this.menuItemCostService.refreshComboCost(tenantId, parentId);
+          await this.menuItemCostService.refreshComboCost(tenantId, parentId, { skipSnapshot: true });
         }
+        // Un seul lot après la part combo, pour ne figer aucun coût de parent de combo incomplet.
+        await this.costSnapshotService.recordIfChanged(tenantId, itemIds, 'market_price', { marketPriceIds: ids });
       }
       this.logger.log(`Cost propagation: ${ids.length} market price(s) -> ${componentIds.length} component(s), ${itemIds.length} menu item(s)`);
       return { components: componentIds.length, menuItems: itemIds.length };

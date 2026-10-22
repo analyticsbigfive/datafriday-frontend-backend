@@ -4,6 +4,7 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { CreateMenuItemDto } from '../dto/create-menu-item.dto';
 import { SupabaseStorageService } from '../../../core/supabase/supabase-storage.service';
 import { MenuItemSupportService } from './menu-item-support.service';
+import { MenuItemCostSnapshotService } from './menu-item-cost-snapshot.service';
 import { resolveKitchenFields } from '../../../shared/utils/resolve-kitchen';
 
 // Mapping des valeurs diet frontend → enum Diet Prisma
@@ -36,6 +37,7 @@ export class MenuItemBulkCreateService {
     private prisma: PrismaService,
     private storage: SupabaseStorageService,
     private readonly menuItemSupportService: MenuItemSupportService,
+    private readonly costSnapshotService: MenuItemCostSnapshotService,
   ) {}
 
   private readonly logger = new Logger(MenuItemBulkCreateService.name);
@@ -141,6 +143,7 @@ export class MenuItemBulkCreateService {
         if (seasonLinks.length) {
           await this.prisma.menuItemSeason.createMany({ data: seasonLinks, skipDuplicates: true });
         }
+        await this.costSnapshotService.recordIfChanged(tenantId, insertedItems.map((it) => it.id), 'created');
       }
 
       toInsert.forEach(({ index }, i) => {
