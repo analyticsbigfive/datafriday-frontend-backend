@@ -20,7 +20,7 @@ import {
 export const PERIOD_PRESETS = ['30', '90', '180', '365']
 const DEFAULT_PERIOD = '180'
 const MAX_DAYS = 366
-const GROUP_VALUES = ['article', 'category', 'type']
+const GROUP_VALUES = ['article', 'category', 'type', 'ingredient']
 
 /** Aplatit le catalogue en listes types / catégories / articles avec leurs parents. */
 export function flattenCatalog(catalog) {
@@ -46,7 +46,8 @@ export function flattenCatalog(catalog) {
 }
 
 /** Mode « Afficher par » appliqué par le backend quand `groupBy` est absent. */
-export function defaultGroupBy({ typeId, categoryId, menuItemId }) {
+export function defaultGroupBy({ typeId, categoryId, menuItemId, ingredientId }) {
+  if (menuItemId && ingredientId) return 'ingredient'
   if (menuItemId || categoryId) return 'article'
   if (typeId) return 'category'
   return 'article'
@@ -66,13 +67,13 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
   const customTo = ref(null)
   const hiddenKeys = ref(new Set())
   const selectedArticleId = ref(null)
-  const showEvents = ref(true)
 
   // ---- Filtres (vivent dans le store pour survivre au démontage de la page)
   const filters = computed(() => store.getters['costTracking/filters'])
   const typeId = computed(() => filters.value.typeId)
   const categoryId = computed(() => filters.value.categoryId)
   const menuItemId = computed(() => filters.value.menuItemId)
+  const ingredientId = computed(() => filters.value.ingredientId)
   const groupByOverride = computed(() => filters.value.groupBy)
 
   const flat = computed(() => flattenCatalog(store.getters['costTracking/catalog']))
@@ -89,7 +90,24 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     ),
   )
 
-  const patch = (p) => store.dispatch('costTracking/setFilters', p)
+  /** Lignes de recette de l'article filtré (ingrédients, composants, emballages, fils de combo). */
+  const ingredientOptions = computed(() => (menuItemId.value ? store.state.costTracking.ingredientOptions : []))
+
+  /**
+   * Applique un changement de filtres. Garde-fous : l'ingrédient dépend de l'article (il est vidé
+   * quand l'article change) et le mode « par ingrédient » disparaît sans article.
+   */
+  function patch(p) {
+    const next = { ...filters.value, ...p }
+    if (p.menuItemId !== undefined && p.menuItemId !== filters.value.menuItemId && p.ingredientId === undefined) {
+      next.ingredientId = null
+    }
+    if (!next.menuItemId) {
+      next.ingredientId = null
+      if (next.groupBy === 'ingredient') next.groupBy = null
+    }
+    return store.dispatch('costTracking/setFilters', next)
+  }
 
   /** Changer de type vide la catégorie et l'article s'ils n'appartiennent plus au type. */
   function setType(id) {
@@ -129,6 +147,33 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     patch(out)
   }
 
+  function setIngredient(id) {
+    patch({ ingredientId: id || null })
+  }
+
+  /**
+   * Clic sur une ligne de classement ou de tableau : descend d'un niveau en filtrant.
+   * Type : affiche ses catégories ; catégorie : ses articles ; article : ses ingrédients ;
+   * ingrédient : ne garde que cette ligne.
+   */
+  function drill(row) {
+    if (!row?.id) return
+    if (row.kind === 'type') patch({ typeId: row.id, categoryId: null, menuItemId: null, groupBy: null })
+    else if (row.kind === 'category') {
+      const cat = flat.value.categories.find((c) => c.id === row.id)
+      patch({ categoryId: row.id, typeId: cat ? cat.typeId : typeId.value, menuItemId: null, groupBy: null })
+    } else if (row.kind === 'article') {
+      const art = flat.value.articles.find((a) => a.id === row.id)
+      patch({
+        menuItemId: row.id,
+        categoryId: art ? art.categoryId : categoryId.value,
+        typeId: art ? art.typeId : typeId.value,
+        ingredientId: null,
+        groupBy: 'ingredient',
+      })
+    } else if (row.kind === 'ingredient') patch({ ingredientId: row.id, groupBy: null })
+  }
+
   function setGroupBy(value) {
     patch({ groupBy: GROUP_VALUES.includes(value) ? value : null })
   }
@@ -140,7 +185,7 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
   const effectiveGroupBy = computed(
     () =>
       groupByOverride.value ||
-      defaultGroupBy({ typeId: typeId.value, categoryId: categoryId.value, menuItemId: menuItemId.value }),
+      defaultGroupBy({ typeId: typeId.value, categoryId: categoryId.value, menuItemId: menuItemId.value, ingredientId: ingredientId.value }),
   )
   /** true tant que l'utilisateur n'a pas forcé le mode (suit alors la règle automatique). */
   const groupByIsAuto = computed(() => !groupByOverride.value)
@@ -180,6 +225,7 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     typeId: typeId.value || undefined,
     categoryId: categoryId.value || undefined,
     menuItemId: menuItemId.value || undefined,
+    ingredientId: ingredientId.value || undefined,
     groupBy: effectiveGroupBy.value,
   }))
 
@@ -205,7 +251,7 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     })),
   )
   const visibleLines = computed(() => lines.value.filter((l) => !l.hidden))
-  const events = computed(() => (showEvents.value ? response.value?.events || [] : []))
+  const events = computed(() => response.value?.events || [])
 
   function toggleLine(key) {
     const next = new Set(hiddenKeys.value)
@@ -271,6 +317,15 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     { immediate: true },
   )
 
+  // Les lignes de recette (filtre ingrédient) suivent l'article filtré.
+  watch(
+    [menuItemId, spaceId],
+    ([item, id]) => {
+      if (enabled.value && id) store.dispatch('costTracking/fetchIngredientOptions', { spaceId: id, menuItemId: item })
+    },
+    { immediate: true },
+  )
+
   // Tout changement de filtre, de mode ou de période relance les séries.
   watch(
     () => JSON.stringify(seriesParams.value),
@@ -288,9 +343,9 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
 
   return {
     // filtres
-    typeId, categoryId, menuItemId,
-    typeOptions, categoryOptions, articleOptions,
-    setType, setCategory, setArticle, resetFilters,
+    typeId, categoryId, menuItemId, ingredientId,
+    typeOptions, categoryOptions, articleOptions, ingredientOptions,
+    setType, setCategory, setArticle, setIngredient, drill, resetFilters,
     // mode Afficher par
     groupBy: effectiveGroupBy, groupByIsAuto, setGroupBy,
     // période
@@ -298,7 +353,7 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     // chargement
     loading, catalogLoading, error, loadCatalog, loadSeries, reload,
     // données
-    response, lines, visibleLines, visibleSeries, summary, events, showEvents, isEmpty,
+    response, lines, visibleLines, visibleSeries, summary, events, isEmpty,
     trackingStartedAt: computed(() => response.value?.trackingStartedAt || null),
     truncated: computed(() => !!response.value?.truncated),
     rankedByRevenue: computed(() => !!response.value?.rankedByRevenue),

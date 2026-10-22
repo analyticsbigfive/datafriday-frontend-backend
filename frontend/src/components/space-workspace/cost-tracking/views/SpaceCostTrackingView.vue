@@ -12,10 +12,11 @@
             :type-id="ct.typeId.value"
             :category-id="ct.categoryId.value"
             :menu-item-id="ct.menuItemId.value"
+            :ingredient-id="ct.ingredientId.value"
             :type-options="ct.typeOptions.value"
             :category-options="ct.categoryOptions.value"
             :article-options="ct.articleOptions.value"
-            :show-events="ct.showEvents.value"
+            :ingredient-options="ct.ingredientOptions.value"
             :show-margin="showMargin"
             :can-margin="model.canMargin.value"
             @set-period="ct.setPeriod"
@@ -23,8 +24,8 @@
             @set-type="ct.setType"
             @set-category="ct.setCategory"
             @set-article="ct.setArticle"
+            @set-ingredient="ct.setIngredient"
             @reset="ct.resetFilters"
-            @update:show-events="ct.showEvents.value = $event"
             @update:show-margin="showMargin = $event"
           />
 
@@ -38,7 +39,7 @@
             <CostTrackingFilterChips
               :period-label="model.periodLabel.value"
               :chips="model.chips.value"
-              :count="model.rows.value.length"
+              :count-label="model.countLabel.value"
               @remove="removeChip"
             />
             <CostTrackingBaselineNotice
@@ -55,6 +56,7 @@
               :bounds="ct.bounds.value"
               :show-margin="showMargin && model.canMargin.value"
               :with-events="ct.events.value.length > 0"
+              :can-ingredient="!!ct.menuItemId.value"
               :truncated="ct.truncated.value"
               :ranked-by-revenue="ct.rankedByRevenue.value"
               @set-group-by="ct.setGroupBy"
@@ -64,7 +66,8 @@
             <CostTrackingTable
               :rows="model.rows.value"
               :group-by="ct.groupBy.value"
-              @select="ct.selectArticle"
+              @select="ct.drill"
+              @history="ct.selectArticle"
             />
           </main>
 
@@ -72,6 +75,8 @@
             :rises="model.rises.value"
             :falls="model.falls.value"
             :changes="model.changes.value"
+            :since-label="model.sinceLabel.value"
+            @drill="ct.drill"
             @select="ct.selectArticle"
           />
         </div>
@@ -132,17 +137,19 @@ const spaceName = computed(
 
 const bannerSubtitle = computed(() =>
   t('ctBannerSub')
-    .replace('{count}', String(model.rows.value.length))
+    .replace('{count}', model.countLabel.value)
     .replace('{versions}', String(model.versionsTotal.value)),
 )
 
-// Retirer une pastille : un type vide tout, une catégorie vide aussi l'article.
+// Retirer une pastille : un type vide tout, une catégorie vide aussi l'article, un article vide
+// aussi l'ingrédient.
 function removeChip(key) {
   if (key === 'type') ct.resetFilters()
   else if (key === 'category') {
     ct.setArticle(null)
     ct.setCategory(null)
-  } else ct.setArticle(null)
+  } else if (key === 'article') ct.setArticle(null)
+  else ct.setIngredient(null)
 }
 
 onMounted(() => {
@@ -181,7 +188,9 @@ onMounted(() => {
   --ct-s1: #ff6e4a; --ct-s2: #5b8def; --ct-s3: #66bb6a; --ct-s4: #ab47bc; --ct-s5: #ffb300;
   --ct-s6: #26a69a; --ct-s7: #8d6e63; --ct-s8: #ec407a; --ct-s9: #78909c; --ct-s10: #3f51b5;
 
-  min-height: calc(100vh - 64px);
+  /* Page à hauteur d'écran : chaque colonne défile verticalement, la page ne défile pas. */
+  height: calc(100vh - 64px);
+  overflow: hidden;
   background: var(--ct-bg);
   color: var(--ct-text);
   font-size: var(--fs-base);
@@ -223,8 +232,17 @@ onMounted(() => {
   align-items: start;
   gap: 18px;
   max-width: 1840px;
+  height: 100%;
   margin: 0 auto;
-  padding: 18px 24px 24px;
+  padding: 18px 24px 0;
+}
+.ct-body > * {
+  align-self: stretch;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  padding-bottom: 24px;
+  overscroll-behavior: contain;
 }
 .ct-body--collapsed {
   grid-template-columns: minmax(0, 1fr) 340px;
@@ -236,6 +254,17 @@ onMounted(() => {
   min-width: 0;
 }
 @media (max-width: 1280px) {
+  .ct-view {
+    height: auto;
+    overflow: visible;
+  }
+  .ct-body {
+    height: auto;
+  }
+  .ct-body > * {
+    max-height: none;
+    overflow: visible;
+  }
   .ct-body {
     grid-template-columns: 292px minmax(0, 1fr);
   }

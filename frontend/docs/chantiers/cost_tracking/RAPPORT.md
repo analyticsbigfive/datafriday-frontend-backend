@@ -36,3 +36,12 @@ Branche `feat/cost-tracking` (worktree `datafriday-cost-tracking`, depuis `devel
 
 ## Points ouverts (§9 du plan)
 Fournée contre pièce dans l'Analyse (conservé : fournée), prix global contre par espace (global), rétention, axe Temps | Matchs, période "depuis le début du suivi" remplacée par des durées fixes.
+
+## Retours Bertrand (22/10, captures d'écran)
+- Doublon de barre : `DashboardView` ne connaissait pas la route `space-cost-tracking` comme page à en-tête propre (ajoutée aux listes self-headed et rail, comme Analyse).
+- Colonnes gauche, centre, droite défilent chacune verticalement (au-dessus de 1280 px ; en dessous, défilement de page).
+- Bascule « Matchs sur le graphique » supprimée : les events sont toujours affichés.
+- Pastille « N courbe(s) » remplacée par le niveau affiché (« 28 catégories », « 5 ingrédients »), idem dans le bandeau.
+- Classements de droite : 5 lignes puis « Voir tout (N) » ; un clic descend d'un niveau en filtrant (type, catégories ; catégorie, articles ; article, ingrédients). Historique d'un article : lien « Historique des versions » du tableau ou clic sur un dernier changement.
+- Filtre Ingrédient (dépend de l'article) et mode « Par ingrédient » : backend `groupBy=ingredient` + `ingredientId`, `GET /cost-tracking/:spaceId/articles/:id/ingredients`. Courbe d'une ligne de recette = quantité x coût unitaire figés / nombre de pièces, lue dans le Json `recipe` des snapshots (ingrédients, composants, emballages, fils de combo ; une ligne retirée retombe à 0). Les ingrédients à l'intérieur d'un composant ne sont pas détaillés (le snapshot fige la ligne du composant, pas sa recette).
+- Variation : phrase explicative « entre la première version suivie et la plus récente, depuis le {date} ».

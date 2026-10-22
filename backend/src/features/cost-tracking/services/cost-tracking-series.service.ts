@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { CostTrackingSeriesQueryDto } from '../dto/cost-tracking.query.dto';
-import { averageStaircase, buildArticlePoints } from '../cost-tracking-series.util';
+import { averageStaircase, buildArticlePoints, buildIngredientSeries } from '../cost-tracking-series.util';
 import { CostTrackingGroupBy, ScopeArticle, SeriesPoint } from '../cost-tracking.types';
 import { CostTrackingCatalogService } from './cost-tracking-catalog.service';
 import { CostTrackingEvent, CostTrackingEventsService } from './cost-tracking-events.service';
@@ -21,6 +21,8 @@ export interface CostTrackingLine {
   /** CA HT sur la période (mode article classé par CA), sinon null. */
   revenueHt: number | null;
   quantity: number | null;
+  /** Mode ingrédient : nature de la ligne de recette (ingrédient, composant, emballage, combo). */
+  lineKind?: string;
   points: SeriesPoint[];
 }
 
@@ -54,6 +56,8 @@ export class CostTrackingSeriesService {
 
   /** Sans groupBy explicite : article si un article ou une catégorie est filtré, catégorie si seul le type l'est, sinon article (top 10). */
   resolveGroupBy(query: CostTrackingSeriesQueryDto): CostTrackingGroupBy {
+    // Le mode ingrédient n'a de sens que pour un article précis : sinon retour au mode article.
+    if (query.groupBy === 'ingredient') return query.menuItemId ? 'ingredient' : this.resolveGroupBy({ ...query, groupBy: undefined });
     if (query.groupBy) return query.groupBy;
     if (query.menuItemId || query.categoryId) return 'article';
     if (query.typeId) return 'category';
@@ -72,6 +76,20 @@ export class CostTrackingSeriesService {
       spaceId, from: period.fromDay, to: period.toDay, timezone: period.timezone, groupBy,
       trackingStartedAt: trackingStartedAt?.toISOString() ?? null, events,
     };
+
+    if (groupBy === 'ingredient') {
+      const article = articles[0];
+      const snaps = article ? await this.reader.readRecipesForPeriod(tenantId, article.id, period.from, period.toExclusive) : [];
+      const lines = buildIngredientSeries(snaps, period.from)
+        .filter((l) => !query.ingredientId || l.refId === query.ingredientId)
+        .map((l): CostTrackingLine => ({
+          key: `ingredient:${l.refId}`, kind: 'ingredient', id: l.refId, name: l.name, lineKind: l.kind,
+          typeName: article?.typeName ?? null, categoryName: article?.categoryName ?? null,
+          articleCount: 1, revenueHt: null, quantity: null, points: l.points,
+        }))
+        .sort(byName);
+      return { ...base, truncated: false, rankedByRevenue: false, eventsConsidered: 0, lines };
+    }
 
     if (groupBy === 'article') {
       const { selected, revenueById, considered, truncated, ranked } = await this.pickArticles(tenantId, spaceId, query, articles, events, period.toExclusive);
