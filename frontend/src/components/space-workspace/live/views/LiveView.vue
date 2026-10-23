@@ -49,6 +49,9 @@
               <button class="an-live-tab" :class="{ 'an-live-tab--active': tab === 'inventory' }" @click="tab = 'inventory'">
                 {{ t('anLiveInvTitle') }}
               </button>
+              <button v-can="'menu.hr.manage'" class="an-live-tab" :class="{ 'an-live-tab--active': tab === 'hr' }" @click="tab = 'hr'">
+                {{ t('liveHrTab') }}
+              </button>
             </div>
 
             <template v-if="tab === 'analyse'">
@@ -60,6 +63,9 @@
                   :event-name="eventTitle"
                   :event-date="eventDateStr"
                   :timeline-data="filteredTimelineRows"
+                  :background-timeline-data="activeChips.length ? [] : predictBackground.rows.value"
+                  :background-label="predictBackground.label.value"
+                  :background-note="activeChips.length && predictBackground.rows.value.length ? t('anTimelineBgHidden') : ''"
                   :menu-items="menuItemsCatalog"
                 />
               </v-card>
@@ -75,7 +81,26 @@
               <MenuItemRevenueDistribution v-can="'stats.financial.view'" :records="filteredItemRecords" :loading="liveData.loading.value" />
             </template>
 
-                <LiveInventoryPanel v-else :space-id="spaceId" :is-dark="isDark" :active="tab === 'inventory'" />
+            <LiveHrPanel
+              v-else-if="tab === 'hr'"
+              :rows="liveHr.rows.value"
+              :minutes="liveHr.minutes.value"
+              :loading="liveHr.loading.value || liveData.loading.value"
+              :staff-error="liveHr.staffError.value"
+              :predicted-error="liveHr.predictedError.value"
+              :has-predicted="liveHr.hasPredicted.value"
+              :can-see-revenue="canSeeFinancials"
+              :is-dark="isDark"
+            />
+
+                <LiveInventoryPanel
+                  v-else
+                  :space-id="spaceId"
+                  :is-dark="isDark"
+                  :active="tab === 'inventory'"
+                  :event-id="liveData.eventId.value || ''"
+                  :timeline-rows="liveData.timelineRows.value"
+                />
               </div>
         </div>
 
@@ -130,6 +155,8 @@ import { useTheme, useDisplay } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { useLiveData } from '@/composables/useLiveData'
 import { useLiveItemRecords } from '@/composables/useLiveItemRecords'
+import { useLiveHr } from '@/composables/useLiveHr'
+import { useLivePredictBackground } from '@/composables/useLivePredictBackground'
 import { useMetricsCalculator } from '@/composables/useMetricsCalculator'
 import { buildShopTotals } from '@/utils/liveKpis'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
@@ -152,6 +179,7 @@ import TransactionCategoryMixChart from '@/components/space-workspace/analyse/ch
 import MenuItemRevenueDistribution from '@/components/space-workspace/analyse/tables/MenuItemRevenueDistribution.vue'
 import LiveShopList from '../LiveShopList.vue'
 import LiveItemsList from '../LiveItemsList.vue'
+import LiveHrPanel from '../LiveHrPanel.vue'
 import LiveInventoryPanel from '@/components/space-workspace/shared/LiveInventoryPanel.vue'
 import LiveSaleSimulatorWidget from '@/components/space-workspace/analyse/LiveSaleSimulatorWidget.vue'
 
@@ -220,6 +248,15 @@ const { toolboxItems, onToolboxSelect } = useWorkspaceToolbox('live')
 // deux espaces (contrairement au store Vuex `analyse`, dont c'était une source de
 // bugs de fuite d'un espace à l'autre, cf. 11_LIVE.md §14/§16).
 const liveData = useLiveData(spaceId.value)
+const canSeeFinancials = computed(() => !!store.getters['auth/can']('stats.financial.view'))
+// Onglet RH : l'effectif et le CA prévu ne sont lus que quand l'onglet est ouvert.
+const liveHr = useLiveHr({
+  eventId: liveData.eventId,
+  active: computed(() => tab.value === 'hr'),
+  basketRows: liveData.basketRows,
+  timelineRows: liveData.timelineRows,
+  isLive: liveData.isLive,
+})
 const eventTitle = computed(() => liveData.event.value?.name || liveData.event.value?.eventName || '')
 const eventDateStr = computed(() => liveData.event.value?.eventDate || liveData.event.value?.date || '')
 // Catalogue statique (peuplé par `analyse/loadSpace`, comme menuItemCostMap) — utilisé
@@ -244,6 +281,12 @@ const processedTimelineRows = computed(() => {
 // c'est sûr de réutiliser useAnalyseItemRecords ici (catalogue statique, pas d'état
 // de polling Live partagé).
 const itemRecordsSource = useLiveItemRecords(liveData.timelineRows)
+
+// Fond prédit (version Predict par défaut de l'event), réservé aux porteurs du droit CA.
+const predictBackground = useLivePredictBackground(
+  computed(() => liveData.eventId.value || ''),
+  computed(() => !!store.getters['auth/can']('stats.financial.view')),
+)
 
 const filters = reactive({
   selectedShopIds: [],

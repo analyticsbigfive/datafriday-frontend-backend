@@ -1414,6 +1414,7 @@ import EventDetailsEditor from "@/components/space-workspace/event-predict/Event
 import EventPredictSourcesDrawer from "@/components/space-workspace/event-predict/drawers/EventPredictSourcesDrawer.vue";
 import EventPredictHistoryAliasDrawer from "@/components/space-workspace/event-predict/drawers/EventPredictHistoryAliasDrawer.vue";
 import { applyHistoryAliases } from "@/utils/historyAliases";
+import { buildPredictedTimelineSnapshot } from "@/utils/predictedTimelineSnapshot";
 import WorkspaceToolSelect from "@/components/WorkspaceToolSelect.vue";
 import WorkspacePanelToggle from "@/components/WorkspacePanelToggle.vue";
 import WorkspaceMobileToolDrawer from "@/components/WorkspaceMobileToolDrawer.vue";
@@ -6698,6 +6699,9 @@ export default {
         // dépendre du localStorage. [] si timeline pas encore calculée :
         // versionToPayload n'envoie alors PAS la clé (évite d'écraser en update).
         predictedRecords: this.buildPredictedRecords(),
+        // Courbe par minute (fond de la timeline Live). null tant que la timeline n'est
+        // pas calculée : l'update n'écrase alors pas la courbe déjà enregistrée.
+        predictedTimeline: buildPredictedTimelineSnapshot(this.activeTimelineData, this.quantityAdjustments),
       };
     },
     /**
