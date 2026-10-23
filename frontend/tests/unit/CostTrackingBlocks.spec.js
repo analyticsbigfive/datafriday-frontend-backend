@@ -97,9 +97,20 @@ describe('CostTrackingSummaryPanel : total ou moyenne', () => {
     await buttons[1].trigger('click')
     expect(w.emitted('update:aggregate')[0]).toEqual(['sum'])
   })
-  it('ne le propose pas pour des articles', () => {
-    const w = mount(CostTrackingSummaryPanel, { props: { groupBy: 'article' } })
-    expect(w.find('.ct-seg').exists()).toBe(false)
+  it.each(['article', 'ingredient', 'component'])('reste visible mais désactivé pour le mode %s, sans émettre au clic', async (groupBy) => {
+    const w = mount(CostTrackingSummaryPanel, { props: { groupBy } })
+    const seg = w.find('.ct-seg')
+    expect(seg.exists()).toBe(true)
+    expect(seg.classes()).toContain('ct-seg--disabled')
+    const buttons = w.findAll('.ct-seg button')
+    expect(buttons).toHaveLength(2)
+    buttons.forEach((b) => expect(b.attributes('disabled')).toBeDefined())
+    await buttons[1].trigger('click')
+    expect(w.emitted('update:aggregate')).toBeUndefined()
+  })
+  it('actif pour une catégorie : pas de classe désactivée', () => {
+    const w = mount(CostTrackingSummaryPanel, { props: { groupBy: 'category' } })
+    expect(w.find('.ct-seg').classes()).not.toContain('ct-seg--disabled')
   })
 })
 
@@ -130,9 +141,9 @@ describe('CostTrackingSummaryPanel', () => {
     expect(same.text().match(/ctPerfTitleSupplier/g)).toHaveLength(1)
     expect(same.text()).not.toContain('Metro')
   })
-  it('Moyenne / Total proposé en mode fournisseur, pas en mode composant', () => {
+  it('Moyenne / Total actif en mode fournisseur, grisé en mode composant', () => {
     expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'supplier' } }).find('.ct-seg').exists()).toBe(true)
-    expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'component' } }).find('.ct-seg').exists()).toBe(false)
+    expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'component' } }).find('.ct-seg').classes()).toContain('ct-seg--disabled')
   })
   it('un classement descend d un niveau (drill)', async () => {
     const w = mount(CostTrackingSummaryPanel, { props: { rows: [row()] } })
