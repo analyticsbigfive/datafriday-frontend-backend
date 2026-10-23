@@ -2210,6 +2210,9 @@ export const translations = {
     // EventTimelineChart
     anTimelineDefaultEvent: 'Event',
     anTimelinePredictiveData: 'Predictive data',
+    anTimelineBgPredicted: 'Predicted',
+    anTimelineBgReal: 'Actual',
+    anTimelineBgHidden: 'Predicted curve hidden: it cannot be filtered by outlet or item.',
     anTimelineBreakdownMenu: 'Menu',
     anTimelineBreakdownShop: 'Shop',
     anTimelineReset: 'Reset',
@@ -7750,6 +7753,9 @@ export const translations = {
     // EventTimelineChart
     anTimelineDefaultEvent: 'Évènement',
     anTimelinePredictiveData: 'Données prédictives',
+    anTimelineBgPredicted: 'Prédit',
+    anTimelineBgReal: 'Réel',
+    anTimelineBgHidden: 'Courbe prédite masquée : elle ne se filtre pas par PdV ni par article.',
     anTimelineBreakdownMenu: 'Menu',
     anTimelineBreakdownShop: 'Shop',
     anTimelineReset: 'Réinitialiser',
