@@ -25,16 +25,21 @@
       <!-- Actions (top-right, visible on hover) — RBAC : édition d'espace
            (builder / modifier / supprimer) gardée par `space.edit`. Sans cette
            permission, l'utilisateur voit la carte (nav.spaces) mais pas les actions. -->
-      <div v-if="canEditSpace" class="si-actions">
-        <button class="si-action-btn" title="3D Builder" @click.stop="goToBuilder">
-          <Hammer :size="14" />
-        </button>
-        <button class="si-action-btn" title="Modifier" @click.stop="editSpaceItem">
-          <Pencil :size="14" />
-        </button>
-        <button class="si-action-btn si-action-btn--del" title="Supprimer" @click.stop="deleteSpaceItem">
-          <Trash2 :size="14" />
-        </button>
+      <div class="si-actions">
+        <template v-if="canEditSpace">
+          <button class="si-action-btn" title="3D Builder" @click.stop="goToBuilder">
+            <Hammer :size="14" />
+          </button>
+          <button class="si-action-btn" title="Modifier" @click.stop="editSpaceItem">
+            <Pencil :size="14" />
+          </button>
+          <button class="si-action-btn si-action-btn--del" title="Supprimer" @click.stop="deleteSpaceItem">
+            <Trash2 :size="14" />
+          </button>
+        </template>
+        <!-- Menu des outils (Analyse, Logistique...) : visible pour tous, chaque outil
+             filtré par sa propre permission. -->
+        <SpaceToolsMenu :space-id="space?.id || space?._id" />
       </div>
 
       <!-- Bottom overlay: name + meta -->
@@ -101,11 +106,13 @@ import { formatCurrencyDetailed } from "@/composables/useFormatters";
 import { currentIntlLocale } from "@/composables/useNumberFormat";
 import { useI18n } from "@/i18n/useI18n";
 import { useGlobalLiveIndicator } from "@/composables/useGlobalLiveIndicator";
+import SpaceToolsMenu from "./SpaceToolsMenu.vue";
 export default {
   name: 'SpaceItem',
   components: {
     TrendingUp, Coins, ShoppingBasket, Calendar,
     Pencil, Trash2, Users, Layers, Hammer, MapPin,
+    SpaceToolsMenu,
   },
   // Libellés des 4 tuiles : plus de texte utilisateur en dur dans le template
   // (règle CLAUDE.md). Valeurs FR identiques à l'anglais — c'est un routage i18n,
