@@ -8,11 +8,13 @@ S'appliquent à toutes les tâches, pour l'agent principal comme pour les sous-a
   À 130k : finir proprement, écrire un résumé de passation, ne rien démarrer de neuf.
   À 150k : arrêt immédiat. Un agent neuf reprend avec le résumé (relais).
 - Surveillance : `python3 scripts/agent-token-watch.py` (vérifie toutes les 20 s, signale WARN/STOP).
-  L'agent principal le lance avec Monitor avant de déléguer.
+  Sans argument il suit toutes les sessions actives du projet (modifiées depuis moins de 2 h).
+  L'agent principal le lance avec Monitor avant de déléguer ; un seul surveilleur suffit pour toutes les sessions.
 - L'agent principal planifie d'abord, puis délègue. Tâches découpées pour tenir sous 130k.
 
 ## Branches et merge
-- Chaque tâche : une branche et un worktree dédiés.
+- Chaque tâche : une branche et un worktree dédiés. Une branche créée avant l'arrivée de ces règles
+  doit d'abord faire `git merge develop` pour récupérer ce fichier et les scripts.
 - L'agent finit et s'arrête. L'agent principal vérifie le diff et les tests, puis merge sur develop (local).
 - Jamais de push, ni de merge vers staging ou production, sans go explicite et récent de l'utilisateur.
 - Jamais de commit sans demande explicite de l'utilisateur.
