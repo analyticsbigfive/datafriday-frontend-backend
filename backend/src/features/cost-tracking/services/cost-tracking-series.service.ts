@@ -3,6 +3,8 @@ import { CostTrackingSeriesQueryDto } from '../dto/cost-tracking.query.dto';
 import { constantBasket, ConstantBasket } from '../cost-tracking-basket.util';
 import { averageStaircase, buildArticlePoints, buildIngredientSeries } from '../cost-tracking-series.util';
 import { CostTrackingGroupBy, ScopeArticle, SeriesPoint } from '../cost-tracking.types';
+import { buildBrickLines, buildSupplierLines } from '../cost-tracking-brick-lines.util';
+import { CostTrackingBrickScopeService, BrickScope } from './cost-tracking-brick-scope.service';
 import { CostTrackingCatalogService } from './cost-tracking-catalog.service';
 import { CostTrackingEvent, CostTrackingEventsService } from './cost-tracking-events.service';
 import { CostTrackingRevenueService, ItemRevenue } from './cost-tracking-revenue.service';
@@ -55,12 +57,12 @@ export class CostTrackingSeriesService {
     private readonly events: CostTrackingEventsService,
     private readonly revenue: CostTrackingRevenueService,
     private readonly reader: CostTrackingSnapshotReaderService,
+    private readonly brickScope: CostTrackingBrickScopeService,
   ) {}
 
   /** Sans groupBy explicite : article si un article ou une catégorie est filtré, catégorie si seul le type l'est, sinon article (top 10). */
   resolveGroupBy(query: CostTrackingSeriesQueryDto): CostTrackingGroupBy {
-    // Le mode ingrédient n'a de sens que pour un article précis : sinon retour au mode article.
-    if (query.groupBy === 'ingredient') return query.menuItemId ? 'ingredient' : this.resolveGroupBy({ ...query, groupBy: undefined });
+    // Ingrédient avec un article : recette de cet article. Sans article : briques de tout le périmètre.
     if (query.groupBy) return query.groupBy;
     if (query.menuItemId || query.categoryId) return 'article';
     if (query.typeId) return 'category';
@@ -70,10 +72,19 @@ export class CostTrackingSeriesService {
   async getSeries(tenantId: string, spaceId: string, query: CostTrackingSeriesQueryDto): Promise<CostTrackingSeriesResponse> {
     const groupBy = this.resolveGroupBy(query);
     const period = await this.events.resolvePeriod(tenantId, spaceId, query.from, query.to);
-    const [articles, events] = await Promise.all([
+    const [listed, events] = await Promise.all([
       this.catalog.listArticles(tenantId, spaceId, query),
       this.events.listEvents(tenantId, spaceId, period),
     ]);
+    // Mode recette d'un article : les filtres Fournisseur et Composant ne s'appliquent pas.
+    const recipeMode = groupBy === 'ingredient' && !!query.menuItemId;
+    const brickMode = !recipeMode && (groupBy === 'ingredient' || groupBy === 'supplier' || groupBy === 'component');
+    let scope: BrickScope | null = null;
+    let articles = listed;
+    if (!recipeMode && (brickMode || query.supplierKey || query.componentId)) {
+      scope = await this.brickScope.resolve(tenantId, listed, query, period.from, period.toExclusive, brickMode);
+      articles = scope.articles;
+    }
     const [trackingStartedAt, vatRate] = await Promise.all([
       this.reader.trackingStartedAt(tenantId, articles.map((a) => a.id)),
       this.reader.tenantDefaultVatRate(tenantId),
@@ -83,7 +94,19 @@ export class CostTrackingSeriesService {
       trackingStartedAt: trackingStartedAt?.toISOString() ?? null, events,
     };
 
-    if (groupBy === 'ingredient') {
+    if (scope && brickMode) {
+      const aggregate = query.aggregate ?? 'avg';
+      let lines: CostTrackingLine[];
+      if (groupBy === 'supplier') lines = buildSupplierLines(scope.bricks, aggregate, period.from);
+      else {
+        lines = buildBrickLines(scope.bricks, groupBy as 'ingredient' | 'component', period.from);
+        const only = groupBy === 'ingredient' ? query.ingredientId : query.componentId;
+        if (only) lines = lines.filter((l) => l.id === only);
+      }
+      return { ...base, truncated: false, rankedByRevenue: false, eventsConsidered: 0, lines };
+    }
+
+    if (recipeMode) {
       const article = articles[0];
       const snaps = article ? await this.reader.readRecipesForPeriod(tenantId, article.id, period.from, period.toExclusive) : [];
       const lines = buildIngredientSeries(snaps, period.from)
@@ -112,7 +135,7 @@ export class CostTrackingSeriesService {
     }
 
     const snaps = await this.reader.readForPeriod(tenantId, articles.map((a) => a.id), period.from, period.toExclusive);
-    const groups = this.groupArticles(articles, groupBy);
+    const groups = this.groupArticles(articles, groupBy as 'category' | 'type');
     const aggregate = query.aggregate ?? 'avg';
     const lines = groups
       .map((g): CostTrackingLine => {

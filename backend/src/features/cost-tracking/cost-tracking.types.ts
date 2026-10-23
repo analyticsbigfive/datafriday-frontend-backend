@@ -3,7 +3,7 @@
 /** Type et Catégorie : moyenne des articles ou total (somme) des coûts par pièce. */
 export type CostTrackingAggregate = 'avg' | 'sum';
 
-export type CostTrackingGroupBy = 'article' | 'category' | 'type' | 'ingredient';
+export type CostTrackingGroupBy = 'article' | 'category' | 'type' | 'ingredient' | 'supplier' | 'component';
 
 /** Nature d'une ligne de recette (mode ingrédient). */
 export type RecipeLineKind = 'component' | 'ingredient' | 'packaging' | 'combo';

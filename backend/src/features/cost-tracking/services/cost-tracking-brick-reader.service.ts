@@ -65,6 +65,24 @@ export class CostTrackingBrickReaderService {
     return out;
   }
 
+  /** Version la plus récente de chaque brique (clé : refId), pour connaître le fournisseur actuel. */
+  async latestForBricks(tenantId: string, kind: BrickKind, refIds: string[]): Promise<Map<string, BrickSnapshotPoint>> {
+    const out = new Map<string, BrickSnapshotPoint>();
+    const unique = [...new Set(refIds.filter(Boolean))];
+    for (let i = 0; i < unique.length; i += READ_BATCH_SIZE) {
+      const ids = unique.slice(i, i + READ_BATCH_SIZE);
+      // eslint-disable-next-line no-await-in-loop -- lots séquentiels pour ne pas saturer le pooler
+      const rows = await this.prisma.$queryRaw<RawBrickSnapshot[]>(Prisma.sql`
+        SELECT DISTINCT ON ("refId") ${COLUMNS}
+        FROM "BrickCostSnapshot"
+        WHERE "tenantId" = ${tenantId} AND "kind" = ${kind} AND "refId" = ANY(${ids}::text[])
+        ORDER BY "refId", "effectiveFrom" DESC, "createdAt" DESC
+      `);
+      for (const row of rows) out.set(row.refId, this.toPoint(row));
+    }
+    return out;
+  }
+
   private toPoint(row: RawBrickSnapshot): BrickSnapshotPoint {
     return {
       id: row.id,

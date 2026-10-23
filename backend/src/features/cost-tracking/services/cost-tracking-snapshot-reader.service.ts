@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { parseRecipe } from '../cost-tracking-recipe.util';
 import { RecipeLine, SnapshotPoint, SnapshotWithRecipe } from '../cost-tracking.types';
 
 /** Taille de lot : borne le nombre d'identifiants passés à une requête. */
@@ -180,16 +181,7 @@ export class CostTrackingSnapshotReaderService {
   }
 
   private toRecipe(value: unknown): RecipeLine[] {
-    if (!Array.isArray(value)) return [];
-    return value
-      .filter((l: any) => l && typeof l.refId === 'string' && typeof l.kind === 'string')
-      .map((l: any) => ({
-        kind: l.kind,
-        refId: l.refId,
-        name: l.name ?? null,
-        quantity: Number(l.quantity) || 0,
-        unitCost: l.unitCost == null ? null : Number(l.unitCost),
-      }));
+    return parseRecipe(value);
   }
 
   /** Taux de TVA par défaut du tenant (dernière configuration), null s'il n'y en a pas. */
