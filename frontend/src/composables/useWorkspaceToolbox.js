@@ -24,6 +24,40 @@ export const WORKSPACE_TOOLBOX_ITEMS = [
 ]
 
 /**
+ * Destination router d'un outil pour un espace donné. Pure (pas de route courante) : sert
+ * aussi au menu d'outils de la carte espace, hors de toute route `/spaces/:spaceId/...`.
+ * Live/Inventory/Logistic/... = routes dédiées ; predict/event-predict = mode `?toolbox=`
+ * d'Analyse.
+ */
+export function resolveToolLocation(tool, spaceId, ev = null) {
+  const params = { spaceId }
+  const query = ev ? { event: ev } : {}
+  switch (tool.value) {
+    case 'analyse': return { name: 'space-analyse', params }
+    case 'cost-tracking': return { name: 'space-cost-tracking', params }
+    case 'live': return { name: 'space-live', params }
+    case 'logistic': return { name: 'space-logistic', params }
+    case 'space-inventory': return { name: 'space-inventory', params, query }
+    case 'space-pre-inventory': return { name: 'space-pre-inventory', params, query }
+    case 'pos': return { name: 'space-pos', params, query }
+    case 'restock': return { name: 'space-restock', params, query }
+    default: return { name: 'space-analyse', params, query: { toolbox: tool.value } }
+  }
+}
+
+/** Outils visibles pour l'utilisateur (permissions RBAC), libellés i18n résolus. */
+export function filterToolboxItems(can, t) {
+  return WORKSPACE_TOOLBOX_ITEMS
+    .filter((tool) => {
+      if (typeof can !== 'function' || !tool.permission) return true
+      return Array.isArray(tool.permission)
+        ? tool.permission.some((permission) => can(permission))
+        : can(tool.permission)
+    })
+    .map((tool) => ({ ...tool, label: t(tool.labelKey) }))
+}
+
+/**
  * Composable partagé pour la barre d'outils du workspace (Composition API).
  * @param {string} currentValue - clé de l'outil courant (ex. 'analyse'), pour désactiver
  *   l'auto-navigation et marquer l'entrée active.
@@ -35,43 +69,16 @@ export function useWorkspaceToolbox(currentValue) {
   const route = useRoute()
   const { t } = useI18n()
 
-  // Filtré par permission (RBAC) + libellé i18n résolu — miroir des computed locaux existants.
-  const toolboxItems = computed(() => {
-    const can = store.getters['auth/can']
-    return WORKSPACE_TOOLBOX_ITEMS
-      .filter((tool) => {
-        if (typeof can !== 'function' || !tool.permission) return true
-        return Array.isArray(tool.permission)
-          ? tool.permission.some((permission) => can(permission))
-          : can(tool.permission)
-      })
-      .map((tool) => ({ ...tool, label: t(tool.labelKey) }))
-  })
+  // Filtré par permission (RBAC) + libellé i18n résolu.
+  const toolboxItems = computed(() => filterToolboxItems(store.getters['auth/can'], t))
 
-  // Routing identique à navigateToTool() des vues (Live/Inventory = routes dédiées ; predict/
-  // event-predict = mode `?toolbox=` d'Analyse).
+  // Routing : voir resolveToolLocation.
   function navigateToTool(tool) {
     if (!tool || tool.value === currentValue) return
     const spaceId = route.params.spaceId
     const ev = route.query?.event || null
     // safePush : une navigation rejetée est journalisée au lieu de disparaître (BUG-389-02).
-    if (tool.value === 'analyse') {
-      safePush(router, { name: 'space-analyse', params: { spaceId } })
-    } else if (tool.value === 'cost-tracking') {
-      safePush(router, { name: 'space-cost-tracking', params: { spaceId } })
-    } else if (tool.value === 'live') {
-      safePush(router, { name: 'space-live', params: { spaceId } })
-    } else if (tool.value === 'space-inventory') {
-      safePush(router, { name: 'space-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
-    } else if (tool.value === 'space-pre-inventory') {
-      safePush(router, { name: 'space-pre-inventory', params: { spaceId }, query: ev ? { event: ev } : {} })
-    } else if (tool.value === 'pos') {
-      safePush(router, { name: 'space-pos', params: { spaceId }, query: ev ? { event: ev } : {} })
-    } else if (tool.value === 'restock') {
-      safePush(router, { name: 'space-restock', params: { spaceId }, query: ev ? { event: ev } : {} })
-    } else {
-      safePush(router, { name: 'space-analyse', params: { spaceId }, query: { toolbox: tool.value } })
-    }
+    safePush(router, resolveToolLocation(tool, spaceId, ev))
   }
 
   function onToolboxSelect(value) {
