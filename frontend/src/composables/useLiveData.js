@@ -20,7 +20,8 @@ import { getSpaceLiveStatus, getSpaceEventTimelineBatch, getSpaceTransactionBask
 import { getEvents } from '@/api/endpoints/event.api'
 import { useLiveStream } from '@/composables/useLiveStream'
 import { buildShopTotals, buildTimelineByMinute, sumBasketTransactions, txPerMinuteFromBaskets } from '@/utils/liveKpis'
-import { isEventInProgress } from '@/utils/eventLifecycle'
+import { isEventInProgress, pickUpcomingEvent } from '@/utils/eventLifecycle'
+import { upcomingStatus } from '@/utils/doorsCountdown'
 import { getLiveDelta } from '@/api/endpoints/liveDelta.api'
 import { latestMinuteLocal, mergeSince, minuteLocalMinus } from '@/utils/liveDelta'
 import { createThrottledRunner } from '@/utils/throttledRunner'
@@ -46,6 +47,8 @@ const MIN_REFRESH_MS = 30000
 const DELTA_OVERLAP_MIN = 5
 const FULL_RESYNC_MS = 10 * 60 * 1000
 const EVENTS_LIST_TTL_MS = 10 * 60 * 1000
+// Horloge interne (événement à venir) : détecte l'ouverture des portes sans attendre un signal.
+const CLOCK_TICK_MS = 30000
 
 export function useLiveData(spaceId) {
   const isLive = ref(false)
@@ -57,6 +60,9 @@ export function useLiveData(spaceId) {
   const loading = ref(true)
   const error = ref(null)
 
+  // Horloge réactive : fait basculer `isUpcoming` à l'ouverture des portes.
+  const clock = ref(new Date())
+  let clockTimer = null
   let fallbackTimer = null
   let stopped = true
   let reqId = 0
@@ -96,7 +102,10 @@ export function useLiveData(spaceId) {
       const end = e.eventEndDate ? new Date(e.eventEndDate) : start
       if (start <= todayEnd && end >= today) return e
     }
-    return null
+    // Avant le match : ni en cours ni du jour, on prend le PROCHAIN event à venir de l'espace
+    // pour que Live (inventaire, RH, fond predict) fonctionne avant l'ouverture, chiffres
+    // prévisionnels (aucune vente : restant = prévu).
+    return pickUpcomingEvent(events || [], now)
   }
 
   async function resolveEvent() {
@@ -202,16 +211,40 @@ export function useLiveData(spaceId) {
     return refresh()
   }
 
+  // Bascule « avant l'événement » -> live. Elle repose sur trois déclencheurs : (1) l'horloge
+  // interne ci-dessous, qui passe `isUpcoming` à faux à l'ouverture des portes (l'event reste
+  // le même objet, aucun refetch nécessaire) ; (2) le premier signal SSE / poll qui suit, car
+  // `getSpaceLiveStatus` renvoie alors eventId + isLive et la clé de cache change ; (3) le TTL
+  // de la liste d'events (10 min) pour passer au match suivant une fois le précédent fini.
+  function startClock() {
+    stopClock()
+    clockTimer = setInterval(() => {
+      const wasUpcoming = isUpcoming.value
+      clock.value = new Date()
+      if (wasUpcoming && !isUpcoming.value) throttled.request()
+    }, CLOCK_TICK_MS)
+  }
+  function stopClock() {
+    if (clockTimer) { clearInterval(clockTimer); clockTimer = null }
+  }
+
   function startPolling() {
     stopped = false
+    startClock()
     throttled.request() // immédiat au premier appel, puis cadence limitée
   }
   function stopPolling() {
     stopped = true
+    stopClock()
     throttled.cancel()
     clearTimers()
     stream.disconnect()
   }
+
+  // Event résolu à venir (portes pas encore ouvertes) et heure d'ouverture des portes.
+  const upcoming = computed(() => upcomingStatus(event.value, clock.value))
+  const isUpcoming = computed(() => !isLive.value && upcoming.value.isUpcoming)
+  const doorsOpenAt = computed(() => upcoming.value.doorsOpenAt)
 
   // ── Par shop, dérivé de timelineRows (déjà scopé au seul event live) pour le CA et
   // les quantités, et des PANIERS pour les tickets (BUG-382-02 : le grain article compte
@@ -248,7 +281,7 @@ export function useLiveData(spaceId) {
   const timelineByMinute = computed(() => buildTimelineByMinute(timelineRows.value, basketRows.value))
 
   return {
-    isLive, liveSince, eventId, event, shopTotals, loading, error,
+    isLive, isUpcoming, doorsOpenAt, liveSince, eventId, event, shopTotals, loading, error,
     revenue, transactionCount, itemsCount, avgSpendPerTx, txPerMinute,
     categoryBreakdown, timelineByMinute, basketRows, timelineRows,
     refresh: forceRefresh, startPolling, stopPolling,

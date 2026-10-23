@@ -1,7 +1,11 @@
 <template>
   <span class="lipc" :class="{ 'lipc--none': !hasValue, 'lipc--zero': hasValue && isZero }">
+    <!-- Trois états sans valeur : predict indisponible (tiret très discret, le bandeau du
+         panneau l'explique), élément absent du predict (tiret + infobulle), restant à 0. -->
     <template v-if="!hasValue">
-      <span class="lipc__dash" :title="t('anLiveInvNoPredict')">&ndash;</span>
+      <span v-if="loading" class="lipc__loading">{{ t('anLiveInvPredictLoading') }}</span>
+      <span v-else-if="!available" class="lipc__dash lipc__dash--muted" aria-hidden="true">&ndash;</span>
+      <span v-else class="lipc__dash" :title="t('anLiveInvNotCovered')">&ndash;</span>
     </template>
     <template v-else>
       <span class="lipc__val">{{ isZero ? '0' : label }}</span>
@@ -26,14 +30,17 @@ import { useI18n } from '@/i18n/useI18n'
 import { summarizeSources } from '@/utils/liveRemainingSales'
 
 /**
- * Cellule « Prévu restant » de l'onglet Inventaire live. Pas de predict : tiret
- * discret. Restant à 0 : « 0 » (rien à réarmer). Sinon valeur + unité, avec le
+ * Cellule « Prévu restant » de l'onglet Inventaire live. Predict indisponible ou élément non couvert : tiret. Restant à 0 : « 0 » (rien à réarmer). Sinon valeur + unité, avec le
  * détail des Menu Items restants en infobulle.
  */
 const props = defineProps({
   /** { units, sources } ou null (pas de predict pour cette ligne). */
   predicted: { type: Object, default: null },
   unit: { type: String, default: '' },
+  /** false = predict indisponible pour tout l'événement (explication dans le bandeau). */
+  available: { type: Boolean, default: true },
+  /** true = predict en cours de chargement (catalogue de recettes) : libellé au lieu d'un tiret. */
+  loading: { type: Boolean, default: false },
 })
 
 const { t } = useI18n()
@@ -57,18 +64,23 @@ const moreLabel = computed(() => t('restockPrefillMore').replace('{n}', String(s
   width: 100%;
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
+  min-width: 0;
   font-variant-numeric: tabular-nums;
   color: #374151;
   white-space: nowrap;
   cursor: default;
 }
-.lipc--none { color: #9ca3af; font-weight: var(--fw-regular); }
+.lipc--none { color: #6b7280; font-weight: var(--fw-regular); }
+.lipc__loading { font-size: var(--fs-xs); font-weight: var(--fw-regular); color: #9ca3af; font-style: italic; }
+.lipc__dash--muted { color: #d1d5db; }
 .lipc--zero { color: #6b7280; font-weight: var(--fw-medium); }
 .lipc__tip { font-size: var(--fs-sm); line-height: 1.4; max-width: 18rem; white-space: normal; }
 .lipc__tip-title { font-weight: var(--fw-semibold); }
 .lipc__tip-sub { margin-top: 0.25rem; opacity: 0.75; }
 
 .lip--dark .lipc { color: #e2e8f0; }
-.lip--dark .lipc--none { color: #64748b; }
+.lip--dark .lipc--none { color: #94a3b8; }
+.lip--dark .lipc__loading { font-size: var(--fs-xs); font-weight: var(--fw-regular); color: #9ca3af; font-style: italic; }
+.lipc__dash--muted { color: #475569; }
 .lip--dark .lipc--zero { color: #94a3b8; }
 </style>
