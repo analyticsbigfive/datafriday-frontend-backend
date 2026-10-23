@@ -99,7 +99,7 @@ export class MenuComponentsService {
         },
       });
 
-      await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [componentId] });
+      await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [componentId], reason: 'component_edit', sourceRef: { componentId } });
       // Non bloquant : les articles qui utilisent ce composant sont recalculés en arrière-plan.
       void this.itemPropagation.propagate(componentId, tenantId);
       return this.findOne(componentId, tenantId);
@@ -151,7 +151,7 @@ export class MenuComponentsService {
         },
       });
 
-      await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [componentId] });
+      await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [componentId], reason: 'component_edit', sourceRef: { componentId } });
       // Non bloquant : les articles qui utilisent ce composant sont recalculés en arrière-plan.
       void this.itemPropagation.propagate(componentId, tenantId);
       return this.findOne(componentId, tenantId);
@@ -280,7 +280,7 @@ export class MenuComponentsService {
       this.logger.log(`Menu component created: ${component.id}`);
 
       if (ingredientsLines || childrenLines) {
-        await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [component.id] });
+        await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [component.id], reason: 'created', sourceRef: { componentId: component.id } });
         // Même patron que update() : un composant créé avec des ingrédients ou des
         // sous-composants (le cas courant) sortait ici SANS invalider le cache liste
         // (`findAll`, TTL 1 h) et n'apparaissait pas dans la liste Composants avant
@@ -289,6 +289,8 @@ export class MenuComponentsService {
         return this.findOne(component.id, tenantId);
       }
 
+      // Composant créé sans lignes (coût saisi à la main ou nul) : version initiale de l'historique.
+      await this.menuComponentCostService.recordSnapshots(tenantId, [component.id], 'created', { componentId: component.id });
       await this.listCache.invalidate(tenantId);
       return component;
     } catch (error) {
@@ -448,7 +450,7 @@ export class MenuComponentsService {
       this.logger.log(`Menu component ${id} updated`);
 
       if (ingredientsLines || childrenLines) {
-        await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [id] });
+        await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [id], reason: 'component_edit', sourceRef: { componentId: id } });
         void this.itemPropagation.propagate(id, tenantId);
         await this.listCache.invalidate(tenantId);
         return this.findOne(id, tenantId);

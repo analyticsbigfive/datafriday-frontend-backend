@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { withAncestorComponents, withAncestorItems } from '../../../shared/cost-propagation/cost-ancestry';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MenuComponentCostService } from '../../menu-components/services/menu-component-cost.service';
 import { MenuItemCostService } from '../../menu-items/services/menu-item-cost.service';
+import { BrickCostSnapshotService } from '../../menu-items/services/brick-cost-snapshot.service';
 import { MenuItemCostSnapshotService } from '../../menu-items/services/menu-item-cost-snapshot.service';
 
 /**
@@ -20,6 +21,7 @@ export class MarketPriceCostPropagationService {
     private readonly componentCostService: MenuComponentCostService,
     private readonly menuItemCostService: MenuItemCostService,
     private readonly costSnapshotService: MenuItemCostSnapshotService,
+    @Optional() private readonly brickSnapshot?: BrickCostSnapshotService,
   ) {}
 
   private readonly logger = new Logger(MarketPriceCostPropagationService.name);
@@ -40,6 +42,9 @@ export class MarketPriceCostPropagationService {
       ]);
       const ingredientIds = ingredients.map((i) => i.id);
       const packagingIds = packagings.map((p) => p.id);
+      // Historique des briques : coût et fournisseur des ingrédients / emballages liés à ces prix.
+      await this.brickSnapshot?.recordIfChanged(tenantId, 'ingredient', ingredientIds, 'market_price', { marketPriceIds: ids });
+      await this.brickSnapshot?.recordIfChanged(tenantId, 'packaging', packagingIds, 'market_price', { marketPriceIds: ids });
 
       const directComponents = ingredientIds.length
         ? await this.prisma.componentIngredient.findMany({
@@ -64,7 +69,7 @@ export class MarketPriceCostPropagationService {
       const itemIds = await withAncestorItems(this.prisma, directItems);
 
       if (componentIds.length) {
-        await this.componentCostService.refreshCosts(tenantId, { componentIds });
+        await this.componentCostService.refreshCosts(tenantId, { componentIds, reason: 'market_price', sourceRef: { marketPriceIds: ids } });
       }
       if (itemIds.length) {
         await this.menuItemCostService.refreshCosts(tenantId, { itemIds, skipSnapshot: true });

@@ -4,6 +4,7 @@ import { RedisModule } from '../../core/redis/redis.module';
 import { SpacesModule } from '../spaces/spaces.module';
 import { CostTrackingController } from './cost-tracking.controller';
 import { CostTrackingAsOfService } from './services/cost-tracking-as-of.service';
+import { CostTrackingBrickReaderService } from './services/cost-tracking-brick-reader.service';
 import { CostTrackingCatalogService } from './services/cost-tracking-catalog.service';
 import { CostTrackingEventsService } from './services/cost-tracking-events.service';
 import { CostTrackingHistoryService } from './services/cost-tracking-history.service';
@@ -16,6 +17,7 @@ import { CostTrackingSnapshotReaderService } from './services/cost-tracking-snap
   controllers: [CostTrackingController],
   providers: [
     CostTrackingSnapshotReaderService,
+    CostTrackingBrickReaderService,
     CostTrackingCatalogService,
     CostTrackingEventsService,
     CostTrackingRevenueService,

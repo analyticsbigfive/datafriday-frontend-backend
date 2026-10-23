@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
+import { BrickCostSnapshotService } from '../menu-items/services/brick-cost-snapshot.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { MenuComponentItemPropagationService } from '../menu-components/services/menu-component-item-propagation.service';
 import { hasBrickCostChange } from '../../shared/cost-propagation/brick-cost-change';
@@ -11,12 +12,13 @@ export class PackagingService {
   constructor(
     private prisma: PrismaService,
     private readonly costPropagation: MenuComponentItemPropagationService,
+    @Optional() private readonly brickSnapshot?: BrickCostSnapshotService,
   ) {}
 
   async create(dto: any, tenantId: string) {
     this.logger.log(`Creating packaging "${dto.name}" for tenant ${tenantId}`);
     try {
-      return await this.prisma.packaging.create({
+      const result = await this.prisma.packaging.create({
         data: {
           tenantId,
           name: dto.name,
@@ -32,6 +34,9 @@ export class PackagingService {
           active: dto.active ?? true,
         },
       });
+      // Historique des coûts : version initiale, non bloquante.
+      void this.brickSnapshot?.recordIfChanged(tenantId, 'packaging', [result.id], 'created', { packagingId: result.id });
+      return result;
     } catch (error) {
       this.logger.error(`Failed to create packaging: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
@@ -104,6 +109,9 @@ export class PackagingService {
       // Non bloquant : les articles qui utilisent cet emballage suivent en arrière-plan.
       if (hasBrickCostChange(before, dto)) {
         void this.costPropagation.propagateFromBricks({ packagingIds: [id] }, tenantId, 'packaging_edit', { packagingId: id });
+      } else if (dto.supplier !== undefined) {
+        // Changement de fournisseur seul : aucun coût ne bouge, mais l'historique du fournisseur oui.
+        void this.brickSnapshot?.recordIfChanged(tenantId, 'packaging', [id], 'packaging_edit', { packagingId: id });
       }
       return result;
     } catch (error) {
