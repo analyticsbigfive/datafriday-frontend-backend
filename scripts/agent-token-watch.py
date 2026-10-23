@@ -8,20 +8,22 @@ ligne que quand un agent franchit un seuil :
   STOP  >= 150k : arrêt immédiat, relais par un agent neuf avec le résumé
 
 Usage : python3 scripts/agent-token-watch.py [session_id]
-        (sans argument : la session la plus récemment modifiée du projet)
+        (sans argument : toutes les sessions du projet modifiées depuis moins de 2 h,
+         donc aucun risque de surveiller la mauvaise session)
 Lancé via Monitor, chaque ligne affichée devient une notification pour l'agent principal.
 """
 import glob, json, os, sys, time
 
 PROJECT = os.path.expanduser("~/.claude/projects/-Users-bigfiveabidjan-Projets-datafriday")
-WARN, STOP, EVERY = 130_000, 150_000, 20
+WARN, STOP, EVERY, RECENT = 130_000, 150_000, 20, 7200
 
 
-def session_dir():
+def session_dirs():
     if len(sys.argv) > 1:
-        return os.path.join(PROJECT, sys.argv[1])
-    sessions = [p for p in glob.glob(os.path.join(PROJECT, "*.jsonl"))]
-    return os.path.splitext(max(sessions, key=os.path.getmtime))[0]
+        return [os.path.join(PROJECT, sys.argv[1])]
+    recent = [p for p in glob.glob(os.path.join(PROJECT, "*.jsonl"))
+              if time.time() - os.path.getmtime(p) < RECENT]
+    return [os.path.splitext(p)[0] for p in recent]
 
 
 def context_tokens(path):
@@ -41,14 +43,16 @@ def context_tokens(path):
 
 
 def main():
-    root = session_dir()
     level = {}  # fichier -> 0 ok, 1 warn émis, 2 stop émis
-    print(f"Surveillance de {root} (WARN {WARN // 1000}k, STOP {STOP // 1000}k, toutes les {EVERY}s)", flush=True)
+    print(f"Surveillance des sessions actives (WARN {WARN // 1000}k, STOP {STOP // 1000}k, toutes les {EVERY}s)", flush=True)
     while True:
-        files = glob.glob(os.path.join(root, "subagents", "*.jsonl")) + glob.glob(root + ".jsonl")
+        files = []
+        for root in session_dirs():
+            files += glob.glob(os.path.join(root, "subagents", "*.jsonl")) + glob.glob(root + ".jsonl")
         for path in files:
             n = context_tokens(path)
-            name = "principal" if path == root + ".jsonl" else os.path.basename(path)[:-6]
+            sid = (os.path.basename(os.path.dirname(os.path.dirname(path))) if "subagents" in path else os.path.basename(path)[:-6])[:8]
+            name = f"{sid}/" + ("principal" if "subagents" not in path else os.path.basename(path)[:-6])
             new = 2 if n >= STOP else 1 if n >= WARN else 0
             if new > level.get(path, 0):
                 print(f"{'STOP' if new == 2 else 'WARN'} {name} : {n // 1000}k tokens", flush=True)
