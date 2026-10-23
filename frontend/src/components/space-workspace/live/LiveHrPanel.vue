@@ -9,6 +9,8 @@
     <div v-if="predictedError && canSeeRevenue" class="hr-note hr-note--warn">{{ t('liveHrPredictError') }}</div>
     <div v-else-if="!loading && canSeeRevenue && !hasPredicted && !predictedError" class="hr-note">{{ t('liveHrNoPredictVersion') }}</div>
 
+    <div v-if="isUpcoming" class="hr-note">{{ t('liveHrUpcomingNote') }}</div>
+
     <div v-if="loading && !rows.length" class="hr-list">
       <div v-for="n in 4" :key="n" class="hr-card hr-skeleton" aria-hidden="true"></div>
     </div>
@@ -99,6 +101,7 @@ defineProps({
   hasPredicted: { type: Boolean, default: false },
   canSeeRevenue: { type: Boolean, default: false },
   isDark: { type: Boolean, default: false },
+  isUpcoming: { type: Boolean, default: false },
 })
 
 function rankColor(rank) {

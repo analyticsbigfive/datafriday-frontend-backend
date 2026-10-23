@@ -20,15 +20,22 @@ function latestBasketMinute(basketRows) {
   return latest
 }
 
+/** « YYYY-MM-DDTHH:mm » à l'heure murale locale de `date`. */
+export function minuteLocalOf(date) {
+  const p = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`
+}
+
 /**
  * Minutes de la fenêtre, de la plus ancienne à la plus récente. La dernière minute connue est
  * encore en cours d'agrégation tant que l'event est live : elle est alors exclue pour ne pas
  * sous-estimer le rythme. Les minutes sans vente comptent pour 0 (calendrier, pas lignes).
  */
-export function windowMinutes(basketRows, { excludeLatest = false, size = TX_WINDOW_MINUTES } = {}) {
+export function windowMinutes(basketRows, { excludeLatest = false, size = TX_WINDOW_MINUTES, now = null } = {}) {
   const latest = latestBasketMinute(basketRows)
-  if (!latest) return []
-  const end = excludeLatest ? minuteLocalMinus(latest, 1) : latest
+  // Aucun panier (avant l'événement) : fenêtre calendaire se terminant à `now`, tout à 0.
+  if (!latest && !now) return []
+  const end = latest ? (excludeLatest ? minuteLocalMinus(latest, 1) : latest) : minuteLocalOf(now)
   const minutes = []
   for (let i = size - 1; i >= 0; i--) minutes.push(minuteLocalMinus(end, i))
   return minutes.every(Boolean) ? minutes : []
@@ -101,8 +108,8 @@ export function progressPercent(realized, predicted) {
  * Lignes du classement, triées par rythme décroissant puis CA réalisé puis nom.
  * Un PdV figure s'il a un CA prévu ou des ventes enregistrées ; la barre n'existe que s'il y a un CA prévu.
  */
-export function buildHrRows({ basketRows, timelineRows, staffElements, predictedByShop, excludeLatest = false }) {
-  const minutes = windowMinutes(basketRows, { excludeLatest })
+export function buildHrRows({ basketRows, timelineRows, staffElements, predictedByShop, excludeLatest = false, now = null }) {
+  const minutes = windowMinutes(basketRows, { excludeLatest, now })
   const tx = txPerMinuteByShop(basketRows, minutes)
   const staff = staffByElement(staffElements)
   const realized = realizedRevenueByShop(timelineRows)

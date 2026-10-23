@@ -12,6 +12,7 @@
         <span v-if="isLive" class="av-live-badge" :title="t('anToolLive')">
           <span class="av-live-badge__dot"></span>{{ t('anToolLive') }}
         </span>
+        <span v-else-if="isUpcoming" class="av-live-badge av-live-badge--upcoming">{{ t('liveUpcomingBadge') }}</span>
         <v-btn
           v-if="liveEvent"
           icon
@@ -108,6 +109,7 @@
           </v-list>
         </v-menu>
       </div>
+      <LiveDoorsCountdown :event="liveEvent" :doors-open-at="doorsOpenAt" :is-upcoming="isUpcoming" />
     </div>
 
     <EventFormDrawer
@@ -135,6 +137,7 @@ import { useLiveExport } from '@/composables/useLiveExport'
 import { formatCurrency, formatNumber } from '@/composables/useFormatters'
 import { formatDateShort } from '@/utils/dateFr'
 import EventFormDrawer from '@/components/events/drawers/EventFormDrawer.vue'
+import LiveDoorsCountdown from './LiveDoorsCountdown.vue'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 
 const { t } = useI18n()
@@ -143,6 +146,8 @@ const router = useRouter()
 const props = defineProps({
   spaceName: { type: String, default: '' },
   isLive: { type: Boolean, default: false },
+  isUpcoming: { type: Boolean, default: false },
+  doorsOpenAt: { type: Date, default: null },
   liveEvent: { type: Object, default: null },
   isDark: { type: Boolean, default: false },
   drawerOpen: { type: Boolean, default: true },
@@ -266,6 +271,8 @@ const { exporting, onExportXlsx, onExportCsv } = useLiveExport({ spaceName: spac
   0%, 100% { opacity: 1; }
   50% { opacity: 0.35; }
 }
+/* Pastille « Avant l'événement » : même gabarit que Live, sans point pulsant. */
+.av-live-badge--upcoming { font-weight: var(--fw-semibold); letter-spacing: 0.2px; }
 @media (prefers-reduced-motion: reduce) {
   .av-live-badge__dot { animation: none; }
 }

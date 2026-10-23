@@ -69,6 +69,13 @@
       {{ error }}
     </v-alert>
 
+    <!-- Predict indisponible : une seule explication, au lieu de tirets muets sur chaque ligne. -->
+    <div v-if="predictBanner" class="lip-banner" role="status">
+      <v-progress-circular v-if="predictLoading" indeterminate size="14" width="2" color="#9ca3af" class="lip-banner__icon" />
+      <Info v-else :size="14" class="lip-banner__icon" />
+      <span>{{ predictBanner }}</span>
+    </div>
+
     <!-- Loading initial -->
     <div v-if="loading && !inv" class="lip-empty">
       <v-progress-circular indeterminate color="#ff3131" size="30" width="3" />
@@ -103,6 +110,7 @@
             </span>
             <span class="lip-rows__col lip-rows__col--predicted" :title="t('anLiveInvColPredictedFull')">{{ t('anLiveInvColPredicted') }}</span>
             <span class="lip-rows__col lip-rows__col--gauge">{{ t('anLiveInvColRemaining') }}</span>
+            <span class="lip-rows__col" aria-hidden="true"></span>
           </div>
           <div v-for="child in node.children" :key="child.key" class="lip-row">
             <div class="lip-row__main-col">
@@ -110,7 +118,10 @@
               <span class="lip-row__consumed-sub">{{ t('anLiveInvColConsumed') }} : {{ formatQty(child.consumedLoose, child.unit) }}</span>
             </div>
 
-            <LiveInventoryPredictedCell class="lip-row__predicted" :predicted="child.predictedRemaining" :unit="child.unit" />
+            <div class="lip-row__predicted">
+              <span class="lip-row__predicted-label">{{ t('anLiveInvColPredicted') }}</span>
+              <LiveInventoryPredictedCell :predicted="child.predictedRemaining" :unit="child.unit" :available="predictReady" :loading="predictLoading" />
+            </div>
 
             <!-- Jauge "stock restant / stock de départ" (départ = niveau déjà fixé par
                  l'auto-init pré-événement/mouvements Logistique, cf. buildLiveInventoryChild),
@@ -175,7 +186,7 @@
 
 <script>
 import { ref } from 'vue';
-import { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search, Truck } from 'lucide-vue-next';
+import { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search, Truck, Info } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import { getSpaceLiveInventory } from '@/api/endpoints/space.api';
 import { buildLiveInventoryRows, countByStatus, countGlobalByStatus } from '@/utils/liveInventoryRows';
@@ -189,7 +200,7 @@ const LIVE_POLL_MS = 15000;
 
 export default {
   name: 'LiveInventoryPanel',
-  components: { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search, Truck, RestockerDrawer, LiveInventoryPredictedCell },
+  components: { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search, Truck, Info, RestockerDrawer, LiveInventoryPredictedCell },
   props: {
     spaceId: { type: String, default: '' },
     isDark: { type: Boolean, default: false },
@@ -207,13 +218,13 @@ export default {
     const restockerTaskQueue = useRestockerTaskQueue();
     // PdV de l'inventaire (id, nom) pour convertir le restant Menu Item en besoin article.
     const predictShops = ref([]);
-    const { needLookup } = useLiveRemainingNeed({
+    const { needLookup, status: predictStatus } = useLiveRemainingNeed({
       eventId: () => props.eventId,
       spaceId: () => props.spaceId,
       shops: () => predictShops.value,
       timelineRows: () => props.timelineRows,
     });
-    return { t, restockerTaskQueue, predictShops, needLookup };
+    return { t, restockerTaskQueue, predictShops, needLookup, predictStatus };
   },
   data() {
     return {
@@ -273,6 +284,18 @@ export default {
     restockerPredicted() {
       if (!this.restockerOpen || !this.restockerElement) return null;
       return this.needLookup(this.restockerElement.id, this.restockerItemKey, this.restockerItemRefId);
+    },
+    predictReady() { return this.predictStatus === 'ready'; },
+    predictLoading() { return this.predictStatus === 'loading'; },
+    // Message unique expliquant l'absence de « Prévu restant » (états silencieux : chargement, pas d'événement).
+    predictBanner() {
+      const key = {
+        loading: 'anLiveInvBannerLoading',
+        'no-version': 'anLiveInvBannerNoVersion',
+        'no-coverage': 'anLiveInvBannerNoCoverage',
+        'catalog-error': 'anLiveInvBannerCatalogError',
+      }[this.predictStatus];
+      return key ? this.t(key) : '';
     },
     restockerTasks() { return this.restockerTaskQueue.queue.value; },
     restockerConfirming() { return this.restockerTaskQueue.confirming.value; },
@@ -380,7 +403,26 @@ export default {
   border: 1px solid #e5e7eb;
   border-radius: 16px;
   overflow: hidden;
+  /* Zone centrale du Live rétrécie par les colonnes latérales : la mise en page
+     des lignes réagit à la largeur du panneau, pas à celle de la fenêtre. */
+  container-type: inline-size;
 }
+
+/* Bandeau predict indisponible */
+.lip-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 8px 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #f3f4f6;
+  color: #4b5563;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1.35;
+}
+.lip-banner__icon { flex-shrink: 0; color: #9ca3af; }
 
 /* Toolbar */
 .lip-toolbar {
@@ -530,11 +572,18 @@ export default {
   white-space: nowrap;
 }
 
-.lip-rows { padding: 2px 6px 8px 30px; }
+/* Colonnes : libellé | Prévu restant | jauge (quantités + piste) | bouton.
+   Les deux quantités de la jauge ont une largeur propre (--lip-qty) qui loge
+   « 1 250,5 kg » en entier ; la piste prend le reste (environ moitié de l'ancienne). */
+.lip-rows {
+  --lip-qty: 4.75rem;
+  --lip-cols: minmax(5rem, 1fr) 6.75rem minmax(15rem, 17.5rem) 30px;
+  padding: 2px 6px 8px 30px;
+}
 .lip-rows__header {
   display: grid;
-  grid-template-columns: 1fr 6.5rem 260px 30px;
-  gap: 8px;
+  grid-template-columns: var(--lip-cols);
+  gap: 12px;
   padding: 8px 12px 6px;
   font-size: 0.7rem;
   font-weight: 700;
@@ -542,11 +591,11 @@ export default {
   letter-spacing: .04em;
   color: #9ca3af;
 }
-.lip-rows__col--gauge { text-align: right; }
+.lip-rows__col--gauge { text-align: right; white-space: nowrap; }
 .lip-rows__col--predicted { text-align: right; }
 .lip-row {
   display: grid;
-  grid-template-columns: 1fr 6.5rem 260px 30px;
+  grid-template-columns: var(--lip-cols);
   gap: 12px;
   align-items: center;
   padding: 10px 12px;
@@ -580,7 +629,9 @@ export default {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.lip-row__consumed-sub { font-size: 0.72rem; color: #9ca3af; }
+.lip-row__consumed-sub { font-size: var(--fs-xs); color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lip-row__predicted { min-width: 0; }
+.lip-row__predicted-label { display: none; }
 
 /* Jauge "[restant] [piste + % dedans] [départ]", palette status figée (dataviz
    skill), mode-invariante. Cf. LogisticsService.getStock : départ = niveau déjà fixé
@@ -592,18 +643,17 @@ export default {
      identique sur toutes les lignes, quelle que soit la longueur du texte affiché de part et
      d'autre (ex. "0 kg" vs "0 kg (kilogram)") — un min-width seul ne suffisait pas, un libellé
      plus long que le minimum repoussait quand même la piste. */
-  grid-template-columns: 30px 1fr 30px;
+  grid-template-columns: var(--lip-qty) minmax(3.5rem, 1fr) var(--lip-qty);
   align-items: center;
   gap: 8px;
 }
 .lip-row__gauge-num {
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
   color: #111827;
   font-variant-numeric: tabular-nums;
+  /* Jamais tronquée : la colonne est dimensionnée pour la valeur et son unité. */
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 .lip-row__gauge-num--start { text-align: right; }
 .lip-row__gauge-num--end { text-align: left; }
@@ -647,6 +697,21 @@ export default {
 .lip-row__gauge-pct--outside.lip-row__gauge-pct--warning { color: #b8860b; }
 .lip-row__gauge-pct--outside.lip-row__gauge-pct--critical { color: #d03b3b; }
 
+/* Panneau étroit : la jauge passe sous le libellé et le Prévu restant, pleine largeur. */
+@container (max-width: 600px) {
+  .lip-rows { padding-left: 8px; --lip-cols: minmax(0, 1fr) auto 30px; }
+  .lip-rows__header { display: none; }
+  .lip-row {
+    grid-template-areas: 'main pred btn' 'gauge gauge gauge';
+    row-gap: 8px;
+  }
+  .lip-row__main-col { grid-area: main; }
+  .lip-row__predicted { grid-area: pred; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+  .lip-row__predicted-label { display: block; font-size: var(--fs-xs); color: #9ca3af; white-space: nowrap; }
+  .lip-row__gauge { grid-area: gauge; }
+  .lip-row__restock-btn { grid-area: btn; }
+}
+
 /* ── Dark mode (palette slate, alignée AnalyseView) ── */
 .lip--dark { background: #1e293b; border-color: rgba(255,255,255,.08); }
 .lip--dark .lip-toolbar { border-bottom-color: rgba(255,255,255,.08); }
@@ -666,6 +731,9 @@ export default {
 .lip--dark .lip-status-toggle--critical.lip-status-toggle--active { background: #d03b3b; border-color: #d03b3b; color: #fff; }
 .lip--dark .lip-status-toggle--warning .lip-status-toggle__count { background: rgba(250,178,25,.18); color: #fab219; }
 .lip--dark .lip-status-toggle--critical .lip-status-toggle__count { background: rgba(248,113,113,.18); color: #f87171; }
+.lip--dark .lip-banner { background: #0f172a; color: #cbd5e1; }
+.lip--dark .lip-banner__icon { color: #64748b; }
+.lip--dark .lip-row__predicted-label { color: #94a3b8; }
 .lip--dark .lip-empty__text { color: #94a3b8; }
 .lip--dark .lip-node__head { background: #0f172a; }
 .lip--dark .lip-node__head:hover { background: rgba(255,255,255,.05); }
