@@ -101,6 +101,7 @@
             <span class="lip-rows__col lip-rows__col--main">
               {{ view === 'shop' ? t('anLiveInvColItem') : t('anLiveInvColShop') }}
             </span>
+            <span class="lip-rows__col lip-rows__col--predicted" :title="t('anLiveInvColPredictedFull')">{{ t('anLiveInvColPredicted') }}</span>
             <span class="lip-rows__col lip-rows__col--gauge">{{ t('anLiveInvColRemaining') }}</span>
           </div>
           <div v-for="child in node.children" :key="child.key" class="lip-row">
@@ -108,6 +109,8 @@
               <span class="lip-row__main">{{ child.label }}</span>
               <span class="lip-row__consumed-sub">{{ t('anLiveInvColConsumed') }} : {{ formatQty(child.consumedLoose, child.unit) }}</span>
             </div>
+
+            <LiveInventoryPredictedCell class="lip-row__predicted" :predicted="child.predictedRemaining" :unit="child.unit" />
 
             <!-- Jauge "stock restant / stock de départ" (départ = niveau déjà fixé par
                  l'auto-init pré-événement/mouvements Logistique, cf. buildLiveInventoryChild),
@@ -159,6 +162,7 @@
       :item-key="restockerItemKey"
       :item-kind="restockerItemKind"
       :item-ref-id="restockerItemRefId"
+      :predicted-remaining="restockerPredicted"
       :tasks="restockerTasks"
       :confirming="restockerConfirming"
       :error="restockerError"
@@ -170,31 +174,46 @@
 </template>
 
 <script>
+import { ref } from 'vue';
 import { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search, Truck } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import { getSpaceLiveInventory } from '@/api/endpoints/space.api';
 import { buildLiveInventoryRows, countByStatus, countGlobalByStatus } from '@/utils/liveInventoryRows';
 import { useRestockerTaskQueue } from '@/composables/useRestockerTaskQueue';
+import { useLiveRemainingNeed } from '@/composables/useLiveRemainingNeed';
 import RestockerDrawer from './live-inventory/RestockerDrawer.vue';
+import LiveInventoryPredictedCell from './live-inventory/LiveInventoryPredictedCell.vue';
 
 // Rafraîchissement live aligné sur le mode flux d'AnalyseView (11_LIVE.md §5).
 const LIVE_POLL_MS = 15000;
 
 export default {
   name: 'LiveInventoryPanel',
-  components: { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search, Truck, RestockerDrawer },
+  components: { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search, Truck, RestockerDrawer, LiveInventoryPredictedCell },
   props: {
     spaceId: { type: String, default: '' },
     isDark: { type: Boolean, default: false },
     // Onglet réellement affiché → ne poller que quand visible.
     active: { type: Boolean, default: true },
+    // Ventes prévues restantes (predict - réalisé) : event live et ventes réalisées
+    // fournis par LiveView (useLiveData). Sans eventId, la colonne reste à « - ».
+    eventId: { type: String, default: '' },
+    timelineRows: { type: Array, default: () => [] },
   },
-  setup() {
+  setup(props) {
     const { t } = useI18n();
     // Possédée ici (pas dans le drawer) : survit à sa fermeture/réouverture entre
     // deux items — cf. mockup "cliquer sur un autre bouton transfert dans un Item".
     const restockerTaskQueue = useRestockerTaskQueue();
-    return { t, restockerTaskQueue };
+    // PdV de l'inventaire (id, nom) pour convertir le restant Menu Item en besoin article.
+    const predictShops = ref([]);
+    const { needLookup } = useLiveRemainingNeed({
+      eventId: () => props.eventId,
+      spaceId: () => props.spaceId,
+      shops: () => predictShops.value,
+      timelineRows: () => props.timelineRows,
+    });
+    return { t, restockerTaskQueue, predictShops, needLookup };
   },
   data() {
     return {
@@ -227,7 +246,7 @@ export default {
       return f;
     },
     rows() {
-      const groups = buildLiveInventoryRows(this.inv, this.view, this.search, this.statusFilters);
+      const groups = buildLiveInventoryRows(this.inv, this.view, this.search, this.statusFilters, this.needLookup);
       return groups.map((g) => ({ ...g, criticalCount: countByStatus(g.children, 'critical') }));
     },
     // Totaux sur TOUT l'espace, indépendants de la vue/recherche courante —
@@ -249,6 +268,11 @@ export default {
     lastUpdatedLabel() {
       if (!this.lastUpdated) return '';
       try { return new Date(this.lastUpdated).toLocaleTimeString(); } catch { return ''; }
+    },
+    // Valeur par défaut du drawer, recalculée à chaque tick (ventes réalisées).
+    restockerPredicted() {
+      if (!this.restockerOpen || !this.restockerElement) return null;
+      return this.needLookup(this.restockerElement.id, this.restockerItemKey, this.restockerItemRefId);
     },
     restockerTasks() { return this.restockerTaskQueue.queue.value; },
     restockerConfirming() { return this.restockerTaskQueue.confirming.value; },
@@ -278,6 +302,7 @@ export default {
         const res = await getSpaceLiveInventory(this.spaceId);
         if (reqId !== this._invReqId) return; // réponse périmée, un tick plus récent est déjà en vol
         this.inv = res || { shops: [], items: [] };
+        this.syncPredictShops(this.inv.shops);
         this.lastUpdated = Date.now();
       } catch (e) {
         if (reqId !== this._invReqId) return;
@@ -285,6 +310,13 @@ export default {
       } finally {
         if (reqId === this._invReqId) this.loading = false;
       }
+    },
+    // N'écrase la liste que si les PdV changent : un nouveau tableau à chaque tick
+    // relancerait inutilement le calcul du besoin prévu.
+    syncPredictShops(shops) {
+      const next = (shops || []).map((s) => ({ id: s.shopId, name: s.shopName || s.shopId }));
+      const sig = (l) => l.map((x) => `${x.id}|${x.name}`).join(',');
+      if (sig(next) !== sig(this.predictShops)) this.predictShops = next;
     },
     startPolling() {
       this.stopPolling();
@@ -501,7 +533,7 @@ export default {
 .lip-rows { padding: 2px 6px 8px 30px; }
 .lip-rows__header {
   display: grid;
-  grid-template-columns: 1fr 260px 30px;
+  grid-template-columns: 1fr 6.5rem 260px 30px;
   gap: 8px;
   padding: 8px 12px 6px;
   font-size: 0.7rem;
@@ -511,9 +543,10 @@ export default {
   color: #9ca3af;
 }
 .lip-rows__col--gauge { text-align: right; }
+.lip-rows__col--predicted { text-align: right; }
 .lip-row {
   display: grid;
-  grid-template-columns: 1fr 260px 30px;
+  grid-template-columns: 1fr 6.5rem 260px 30px;
   gap: 12px;
   align-items: center;
   padding: 10px 12px;

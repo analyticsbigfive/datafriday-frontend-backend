@@ -89,8 +89,11 @@ function matchesSearch(label, search) {
  * besoin). "Stock bas" (warning) et "Rupture" (critical) sont deux filtres
  * INDÉPENDANTS et combinables, jamais fusionnés sous un même bouton. Un
  * groupe dont tous les enfants sont filtrés disparaît dès qu'un filtre est actif.
+ *
+ * `needLookup(shopId, itemKey, itemRefId)` (optionnel, useLiveRemainingNeed) :
+ * ajoute `predictedRemaining` ({units, sources} ou null) sur chaque enfant.
  */
-export function buildLiveInventoryRows(inv, view, search = '', statusFilters = []) {
+export function buildLiveInventoryRows(inv, view, search = '', statusFilters = [], needLookup = null) {
   if (!inv) return [];
   const term = (search || '').trim();
   const hasStatusFilter = Array.isArray(statusFilters) && statusFilters.length > 0;
@@ -107,18 +110,21 @@ export function buildLiveInventoryRows(inv, view, search = '', statusFilters = [
   // a besoin quelle que soit la vue affichée. itemKind/itemRefId (ADR-0006, chantier
   // 377) suivent la même logique : identité stable, préférée par le backend au nom
   // seul quand fournie.
+  const withPredict = (shopId, it) => ({
+    predictedRemaining: needLookup ? needLookup(shopId, it.itemKey, it.itemRefId ?? null) : null,
+  });
   let groups;
   if (view === 'shop') {
     groups = (inv.shops || []).map((s) => ({
       key: `shop:${s.shopId}`,
       label: s.shopName || s.shopId || '—',
-      children: sortAndFilter((s.items || []).map((it) => buildLiveInventoryChild(it, it.itemKey || '—', `${s.shopId}:${it.itemKey}`, { shopId: s.shopId, itemKey: it.itemKey, itemKind: it.itemKind ?? null, itemRefId: it.itemRefId ?? null }))),
+      children: sortAndFilter((s.items || []).map((it) => buildLiveInventoryChild(it, it.itemKey || '—', `${s.shopId}:${it.itemKey}`, { shopId: s.shopId, itemKey: it.itemKey, itemKind: it.itemKind ?? null, itemRefId: it.itemRefId ?? null, ...withPredict(s.shopId, it) }))),
     }));
   } else {
     groups = (inv.items || []).map((it) => ({
       key: `item:${it.itemKey}`,
       label: it.itemKey || '—',
-      children: sortAndFilter((it.shops || []).map((s) => buildLiveInventoryChild(s, s.shopName || s.shopId || '—', `${it.itemKey}:${s.shopId}`, { shopId: s.shopId, itemKey: it.itemKey, itemKind: it.itemKind ?? null, itemRefId: it.itemRefId ?? null }))),
+      children: sortAndFilter((it.shops || []).map((s) => buildLiveInventoryChild(s, s.shopName || s.shopId || '—', `${it.itemKey}:${s.shopId}`, { shopId: s.shopId, itemKey: it.itemKey, itemKind: it.itemKind ?? null, itemRefId: it.itemRefId ?? null, ...withPredict(s.shopId, it) }))),
     }));
   }
 
