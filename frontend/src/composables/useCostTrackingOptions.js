@@ -1,6 +1,6 @@
 /**
- * useCostTrackingOptions : listes Fournisseur et Composant des filtres. Dépendent de Type, Catégorie
- * et Article : rechargées quand ils changent. Seule la dernière requête écrit (jeton).
+ * useCostTrackingOptions : listes Fournisseur et Composant des filtres. Dépendent de Type, Catégorie,
+ * Article et de la période (fournisseurs actifs sur la période) : rechargées quand ils changent. Seule la dernière requête écrit (jeton).
  */
 import { ref, watch } from 'vue'
 import { getCostTrackingOptions } from '@/api/endpoints/cost-tracking.api'
@@ -12,9 +12,10 @@ import { getCostTrackingOptions } from '@/api/endpoints/cost-tracking.api'
  * @param {import('vue').Ref<string|null>} opts.typeId
  * @param {import('vue').Ref<string|null>} opts.categoryId
  * @param {import('vue').Ref<string|null>} opts.menuItemId
+ * @param {import('vue').Ref<{from: string, to: string}>} [opts.range] période des fournisseurs proposés
  * @param {(options: {suppliers: Array, components: Array}) => void} [opts.onLoaded]
  */
-export function useCostTrackingOptions({ spaceId, enabled, typeId, categoryId, menuItemId, onLoaded }) {
+export function useCostTrackingOptions({ spaceId, enabled, typeId, categoryId, menuItemId, range, onLoaded }) {
   const suppliers = ref([])
   const components = ref([])
   let token = 0
@@ -31,6 +32,8 @@ export function useCostTrackingOptions({ spaceId, enabled, typeId, categoryId, m
         typeId: typeId.value || undefined,
         categoryId: categoryId.value || undefined,
         menuItemId: menuItemId.value || undefined,
+        from: range?.value?.from || undefined,
+        to: range?.value?.to || undefined,
       })
       if (mine !== token) return
       suppliers.value = res?.suppliers || []
@@ -43,7 +46,7 @@ export function useCostTrackingOptions({ spaceId, enabled, typeId, categoryId, m
     }
   }
 
-  watch([spaceId, enabled, typeId, categoryId, menuItemId], load, { immediate: true })
+  watch([spaceId, enabled, typeId, categoryId, menuItemId, () => range?.value?.from, () => range?.value?.to], load, { immediate: true })
 
   return { supplierOptions: suppliers, componentOptions: components, loadOptions: load }
 }

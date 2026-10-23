@@ -28,6 +28,7 @@
         :label="t('ctFilterSupplier')"
         :all-label="t('ctAllSuppliers')"
         :options="supplierChoices"
+        :hint="supplierKey ? t('ctSupplierShareHint') : ''"
         @update:model-value="$emit('set-supplier', $event)"
       />
       <div class="ct-field">

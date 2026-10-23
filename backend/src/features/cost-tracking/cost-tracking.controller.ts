@@ -5,6 +5,7 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { CostTrackingHistoryQueryDto, CostTrackingOptionsQueryDto, CostTrackingSeriesQueryDto } from './dto/cost-tracking.query.dto';
 import { CostTrackingBrickScopeService } from './services/cost-tracking-brick-scope.service';
+import { CostTrackingEventsService } from './services/cost-tracking-events.service';
 import { CostTrackingCatalogService } from './services/cost-tracking-catalog.service';
 import { CostTrackingHistoryService } from './services/cost-tracking-history.service';
 import { CostTrackingSeriesService } from './services/cost-tracking-series.service';
@@ -20,6 +21,7 @@ export class CostTrackingController {
     private readonly catalog: CostTrackingCatalogService,
     private readonly history: CostTrackingHistoryService,
     private readonly brickScope: CostTrackingBrickScopeService,
+    private readonly events: CostTrackingEventsService,
   ) {}
 
   @Get(':spaceId/series')
@@ -40,11 +42,14 @@ export class CostTrackingController {
 
   @Get(':spaceId/options')
   @RequirePermissions('front.fb.costTracking')
-  @ApiOperation({ summary: 'Fournisseurs et composants disponibles dans le périmètre Type, Catégorie, Article (menus déroulants)' })
+  @ApiOperation({ summary: 'Fournisseurs actifs sur la période et composants disponibles dans le périmètre Type, Catégorie, Article (menus déroulants)' })
   async getOptions(@Req() req, @Param('spaceId') spaceId: string, @Query() query: CostTrackingOptionsQueryDto) {
     await this.spaceAccess.assertSpaceAccessible(spaceId, req.user.tenantId, req.user);
-    const articles = await this.catalog.listArticles(req.user.tenantId, spaceId, query);
-    return this.brickScope.getOptions(req.user.tenantId, spaceId, articles);
+    const [articles, period] = await Promise.all([
+      this.catalog.listArticles(req.user.tenantId, spaceId, query),
+      this.events.resolvePeriod(req.user.tenantId, spaceId, query.from, query.to),
+    ]);
+    return this.brickScope.getOptions(req.user.tenantId, spaceId, articles, period.from, period.toExclusive);
   }
 
   @Get(':spaceId/articles/:id/ingredients')

@@ -2,16 +2,18 @@ import { Injectable } from '@nestjs/common';
 import { CostTrackingSeriesQueryDto } from '../dto/cost-tracking.query.dto';
 import { constantBasket, ConstantBasket } from '../cost-tracking-basket.util';
 import { averageStaircase, buildArticlePoints, buildIngredientSeries } from '../cost-tracking-series.util';
-import { CostTrackingGroupBy, ScopeArticle, SeriesPoint } from '../cost-tracking.types';
-import { buildBrickLines, buildSupplierLines } from '../cost-tracking-brick-lines.util';
+import { CostTrackingAggregate, CostTrackingGroupBy, ScopeArticle, SeriesPoint } from '../cost-tracking.types';
+import { buildBrickLines } from '../cost-tracking-brick-lines.util';
+import { capLines, MAX_ARTICLE_LINES } from '../cost-tracking-line-cap.util';
+import { buildSupplierShareLines } from '../cost-tracking-supplier-lines.util';
 import { CostTrackingBrickScopeService, BrickScope } from './cost-tracking-brick-scope.service';
 import { CostTrackingCatalogService } from './cost-tracking-catalog.service';
 import { CostTrackingEvent, CostTrackingEventsService } from './cost-tracking-events.service';
 import { CostTrackingRevenueService, ItemRevenue } from './cost-tracking-revenue.service';
 import { CostTrackingSnapshotReaderService } from './cost-tracking-snapshot-reader.service';
+import { CostTrackingSupplierShareService } from './cost-tracking-supplier-share.service';
 
-/** Nombre maximal de lignes en mode article. */
-export const MAX_ARTICLE_LINES = 10;
+export { MAX_ARTICLE_LINES };
 
 export interface CostTrackingLine {
   key: string;
@@ -58,6 +60,7 @@ export class CostTrackingSeriesService {
     private readonly revenue: CostTrackingRevenueService,
     private readonly reader: CostTrackingSnapshotReaderService,
     private readonly brickScope: CostTrackingBrickScopeService,
+    private readonly shares: CostTrackingSupplierShareService,
   ) {}
 
   /** Sans groupBy explicite : article si un article ou une catégorie est filtré, catégorie si seul le type l'est, sinon article (top 10). */
@@ -82,7 +85,7 @@ export class CostTrackingSeriesService {
     let scope: BrickScope | null = null;
     let articles = listed;
     if (!recipeMode && (brickMode || query.supplierKey || query.componentId)) {
-      scope = await this.brickScope.resolve(tenantId, listed, query, period.from, period.toExclusive, brickMode);
+      scope = await this.brickScope.resolve(tenantId, listed, query, period.from, period.toExclusive, brickMode, groupBy === 'supplier');
       articles = scope.articles;
     }
     const [trackingStartedAt, vatRate] = await Promise.all([
@@ -96,14 +99,16 @@ export class CostTrackingSeriesService {
 
     if (scope && brickMode) {
       const aggregate = query.aggregate ?? 'avg';
-      let lines: CostTrackingLine[];
-      if (groupBy === 'supplier') lines = buildSupplierLines(scope.bricks, aggregate, period.from);
-      else {
-        lines = buildBrickLines(scope.bricks, groupBy as 'ingredient' | 'component', period.from);
-        const only = groupBy === 'ingredient' ? query.ingredientId : query.componentId;
-        if (only) lines = lines.filter((l) => l.id === only);
-      }
-      return { ...base, truncated: false, rankedByRevenue: false, eventsConsidered: 0, lines };
+      if (groupBy === 'supplier') return { ...base, ...(await this.supplierLines(tenantId, spaceId, query, scope, events, period, aggregate, vatRate)) };
+      const mode = groupBy as 'ingredient' | 'component';
+      const only = mode === 'ingredient' ? query.ingredientId : query.componentId;
+      const candidates = scope.bricks
+        .filter((b) => (mode === 'component' ? b.kind === 'component' : b.kind !== 'component'))
+        .filter((b) => !only || b.refId === only);
+      const capped = only ? { selected: candidates, truncated: false, ranked: false, considered: 0 } : await this.capByRevenue(tenantId, spaceId, candidates, events, period.toExclusive);
+      let lines = buildBrickLines(capped.selected, mode, period.from);
+      if (capped.truncated) lines = this.inOrder(lines, capped.selected.map((b) => `${mode}:${b.refId}`));
+      return { ...base, truncated: capped.truncated, rankedByRevenue: capped.ranked, eventsConsidered: capped.considered, lines };
     }
 
     if (recipeMode) {
@@ -122,24 +127,24 @@ export class CostTrackingSeriesService {
 
     if (groupBy === 'article') {
       const { selected, revenueById, considered, truncated, ranked } = await this.pickArticles(tenantId, spaceId, query, articles, events, period.toExclusive);
-      const snaps = await this.reader.readForPeriod(tenantId, selected.map((a) => a.id), period.from, period.toExclusive);
+      const pointsById = await this.articlePoints(tenantId, selected.map((a) => a.id), query.supplierKey, scope, period, vatRate);
       const lines = selected.map((a): CostTrackingLine => {
         const rev = revenueById.get(a.id);
         return {
           key: `article:${a.id}`, kind: 'article', id: a.id, name: a.name, typeName: a.typeName, categoryName: a.categoryName,
           articleCount: 1, revenueHt: rev?.revenueHt ?? null, quantity: rev?.quantity ?? null,
-          points: buildArticlePoints(snaps.get(a.id) ?? [], period.from, vatRate),
+          points: pointsById.get(a.id) ?? [],
         };
-      });
+      }).filter((l) => !query.supplierKey || l.points.length > 0);
       return { ...base, truncated, rankedByRevenue: ranked, eventsConsidered: considered, lines };
     }
 
-    const snaps = await this.reader.readForPeriod(tenantId, articles.map((a) => a.id), period.from, period.toExclusive);
+    const pointsById = await this.articlePoints(tenantId, articles.map((a) => a.id), query.supplierKey, scope, period, vatRate);
     const groups = this.groupArticles(articles, groupBy as 'category' | 'type');
     const aggregate = query.aggregate ?? 'avg';
     const lines = groups
       .map((g): CostTrackingLine => {
-        const memberPoints = g.members.map((m) => buildArticlePoints(snaps.get(m.id) ?? [], period.from, vatRate));
+        const memberPoints = g.members.map((m) => pointsById.get(m.id) ?? []);
         return {
           key: `${groupBy}:${g.id}`, kind: groupBy, id: g.id, name: g.name,
           typeName: g.typeName, categoryName: groupBy === 'category' ? g.name : null,
@@ -153,6 +158,53 @@ export class CostTrackingSeriesService {
     return { ...base, truncated: false, rankedByRevenue: false, eventsConsidered: 0, lines };
   }
 
+  /**
+   * Points de coût par pièce de chaque article. Avec un filtre Fournisseur, le coût d'un article est sa
+   * part venant de ce fournisseur (à chaque date), sinon son coût entier.
+   */
+  private async articlePoints(
+    tenantId: string, ids: string[], supplierKey: string | undefined, scope: BrickScope | null, period: { from: Date; toExclusive: Date }, vatRate: number | null,
+  ): Promise<Map<string, SeriesPoint[]>> {
+    const out = new Map<string, SeriesPoint[]>();
+    if (supplierKey && scope) {
+      const shares = await this.shares.articleShares(tenantId, ids, scope, period.from, period.toExclusive, vatRate);
+      for (const id of ids) out.set(id, shares.get(id)?.get(supplierKey)?.points ?? []);
+      return out;
+    }
+    const snaps = await this.reader.readForPeriod(tenantId, ids, period.from, period.toExclusive);
+    for (const id of ids) out.set(id, buildArticlePoints(snaps.get(id) ?? [], period.from, vatRate));
+    return out;
+  }
+
+  /** Mode fournisseur : part de coût de chaque fournisseur, plafonnée comme le mode article (CA des articles concernés). */
+  private async supplierLines(
+    tenantId: string, spaceId: string, query: CostTrackingSeriesQueryDto, scope: BrickScope, events: CostTrackingEvent[],
+    period: { from: Date; toExclusive: Date }, aggregate: CostTrackingAggregate, vatRate: number | null,
+  ) {
+    let entries = [...(scope.suppliers?.values() ?? [])].map((e) => ({ key: e.key, name: e.name, articleIds: [...e.articleIds] }));
+    if (query.supplierKey) entries = entries.filter((e) => e.key === query.supplierKey);
+    const capped = await this.capByRevenue(tenantId, spaceId, entries, events, period.toExclusive);
+    const ids = [...new Set(capped.selected.flatMap((e) => e.articleIds))];
+    const shares = await this.shares.articleShares(tenantId, ids, scope, period.from, period.toExclusive, vatRate);
+    const lines = buildSupplierShareLines(capped.selected, shares, aggregate);
+    return { truncated: capped.truncated, rankedByRevenue: capped.ranked, eventsConsidered: capped.considered, lines };
+  }
+
+  /** Plafond de lignes commun aux modes fournisseur, composant et ingrédient : lit le CA seulement s'il y a trop de lignes. */
+  private async capByRevenue<T extends { name: string; articleIds: string[] }>(
+    tenantId: string, spaceId: string, candidates: T[], events: CostTrackingEvent[], toExclusive: Date,
+  ) {
+    if (candidates.length <= MAX_ARTICLE_LINES) return { selected: candidates, truncated: false, ranked: false, considered: 0 };
+    const { byItem, considered } = await this.revenue.revenueByItem(tenantId, spaceId, events.map((e) => e.id), toExclusive.getTime() < Date.now());
+    const capped = capLines(candidates, new Map([...byItem].map(([id, r]) => [id, r.revenueHt])));
+    return { ...capped, considered };
+  }
+
+  private inOrder(lines: CostTrackingLine[], keys: string[]): CostTrackingLine[] {
+    const rank = new Map(keys.map((k, i) => [k, i]));
+    return [...lines].sort((a, b) => (rank.get(a.key) ?? 0) - (rank.get(b.key) ?? 0));
+  }
+
   /** Mode article : tous si au plus 10, sinon les 10 premiers par CA (repli alphabétique sans vente). */
   private async pickArticles(tenantId: string, spaceId: string, query: CostTrackingSeriesQueryDto, articles: ScopeArticle[], events: CostTrackingEvent[], toExclusive: Date) {
     const empty = new Map<string, ItemRevenue>();
@@ -160,12 +212,8 @@ export class CostTrackingSeriesService {
       return { selected: articles, revenueById: empty, considered: 0, truncated: false, ranked: false };
     }
     const { byItem, considered } = await this.revenue.revenueByItem(tenantId, spaceId, events.map((e) => e.id), toExclusive.getTime() < Date.now());
-    const allowed = new Set(articles.map((a) => a.id));
-    const ranked = articles
-      .filter((a) => allowed.has(a.id) && (byItem.get(a.id)?.revenueHt ?? 0) > 0)
-      .sort((a, b) => (byItem.get(b.id)!.revenueHt - byItem.get(a.id)!.revenueHt) || byName(a, b));
-    const selected = (ranked.length ? ranked : articles).slice(0, MAX_ARTICLE_LINES);
-    return { selected, revenueById: byItem, considered, truncated: true, ranked: ranked.length > 0 };
+    const capped = capLines(articles.map((a) => ({ a, name: a.name, articleIds: [a.id] })), new Map([...byItem].map(([id, r]) => [id, r.revenueHt])));
+    return { selected: capped.selected.map((c) => c.a), revenueById: byItem, considered, truncated: true, ranked: capped.ranked };
   }
 
   private groupArticles(articles: ScopeArticle[], groupBy: 'category' | 'type') {

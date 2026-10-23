@@ -1,5 +1,5 @@
 import {
-  articlesUsing, articlesWithComponent, collectRecipeBricks, listSuppliers, normalizeSupplierName, resolveBricks, supplierKeyOf,
+  articlesUsing, articlesWithComponent, collectRecipeBricks, normalizeSupplierName, resolveBricks, supplierKeyOf,
 } from './cost-tracking-brick-scope.util';
 import { BrickSnapshotPoint, RecipeLine } from './cost-tracking.types';
 
@@ -43,7 +43,7 @@ describe('articlesWithComponent', () => {
   });
 });
 
-describe('resolveBricks / listSuppliers / articlesUsing', () => {
+describe('resolveBricks / articlesUsing', () => {
   const bricks = collectRecipeBricks(new Map([['m1', [line('ingredient', 'i1'), line('ingredient', 'i2'), line('ingredient', 'i3')]], ['m2', [line('ingredient', 'i3')]]]));
   const versions = new Map([
     ['ingredient:i1', [version('i1', '2026-09-01T00:00:00Z', 's1', 'Metro'), version('i1', '2026-10-01T00:00:00Z', 's2', 'Promocash')]],
@@ -53,11 +53,6 @@ describe('resolveBricks / listSuppliers / articlesUsing', () => {
   it('retient le fournisseur de la dernière version', () => {
     const resolved = resolveBricks(bricks.values(), versions);
     expect(resolved.map((b) => b.supplierKey)).toEqual(['s2', 'name:promocash', null]);
-  });
-
-  it('liste les fournisseurs distincts triés par nom, sans les briques sans fournisseur', () => {
-    const suppliers = listSuppliers(resolveBricks(bricks.values(), versions));
-    expect(suppliers.map((s) => [s.key, s.brickCount])).toEqual([['s2', 1], ['name:promocash', 1]]);
   });
 
   it('articlesUsing garde l\'ordre des articles', () => {

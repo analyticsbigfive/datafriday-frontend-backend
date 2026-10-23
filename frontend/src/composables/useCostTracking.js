@@ -234,8 +234,9 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
   }
 
   // ---- Listes Fournisseur / Composant (dépendantes de type, catégorie, article)
+  const optionsEnabled = computed(() => enabled.value && rangeValid.value)
   const { supplierOptions, componentOptions } = useCostTrackingOptions({
-    spaceId, enabled, typeId, categoryId, menuItemId,
+    spaceId, enabled: optionsEnabled, typeId, categoryId, menuItemId, range,
     onLoaded: (options) => {
       const stale = staleSelectionPatch(options, { supplierKey: supplierKey.value, componentId: componentId.value })
       if (stale) patch(stale)
