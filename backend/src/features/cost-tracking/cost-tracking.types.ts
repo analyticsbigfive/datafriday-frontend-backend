@@ -47,6 +47,8 @@ export interface SeriesPoint {
   articleCount: number;
   /** true : point posé au début de la période pour porter la valeur déjà en vigueur. */
   carried: boolean;
+  /** Part fournisseur : l'article n'utilise plus ce fournisseur dès ce point (valeur 0, il sort de la moyenne). */
+  inactive?: boolean;
   /** Article uniquement : id du snapshot, cause et coût de fournée. */
   snapshotId?: string;
   reason?: string;

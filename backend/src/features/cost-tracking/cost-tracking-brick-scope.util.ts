@@ -88,15 +88,3 @@ export interface SupplierOption {
   name: string;
   brickCount: number;
 }
-
-/** Fournisseurs distincts des briques (nom d'affichage : premier nom rencontré), triés par nom. */
-export function listSuppliers(bricks: ResolvedBrick[]): SupplierOption[] {
-  const map = new Map<string, SupplierOption>();
-  for (const b of bricks) {
-    if (!b.supplierKey) continue;
-    const entry = map.get(b.supplierKey) ?? { key: b.supplierKey, name: b.supplierName ?? b.supplierKey, brickCount: 0 };
-    entry.brickCount += 1;
-    map.set(b.supplierKey, entry);
-  }
-  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr', { sensitivity: 'base' }));
-}

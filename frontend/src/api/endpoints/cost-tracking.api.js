@@ -51,9 +51,9 @@ export async function getCostTrackingSeries(spaceId, params = {}) {
 
 /**
  * GET /cost-tracking/:spaceId/options
- * Fournisseurs et composants proposés dans les filtres, selon type / catégorie / article.
+ * Fournisseurs (actifs sur la période from/to, défaut identique aux séries) et composants proposés dans les filtres, selon type / catégorie / article.
  * @param {string} spaceId
- * @param {{ typeId?: string, categoryId?: string, menuItemId?: string }} [params]
+ * @param {{ typeId?: string, categoryId?: string, menuItemId?: string, from?: string, to?: string }} [params]
  * @returns {Promise<{ spaceId, suppliers: Array<{ key, name, brickCount }>, components: Array<{ id, name, articleCount }> }>}
  */
 export async function getCostTrackingOptions(spaceId, params = {}) {

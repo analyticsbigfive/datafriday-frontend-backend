@@ -25,8 +25,14 @@ export class CostTrackingSeriesQueryDto {
   @IsOptional() @IsIn(['avg', 'sum']) aggregate?: 'avg' | 'sum';
 }
 
-/** Query de GET /cost-tracking/:spaceId/options : filtres Type, Catégorie, Article qui bornent les menus Fournisseur et Composant. */
+/**
+ * Query de GET /cost-tracking/:spaceId/options : filtres Type, Catégorie, Article qui bornent les menus Fournisseur et Composant.
+ * `from` / `to` (YYYY-MM-DD) : période des fournisseurs proposés, même défaut que les séries.
+ */
 export class CostTrackingOptionsQueryDto {
+  @IsOptional() @IsISO8601({ strict: true }) from?: string;
+  @IsOptional() @IsISO8601({ strict: true }) to?: string;
+
   @IsOptional() @IsString() @MaxLength(200) typeId?: string;
   @IsOptional() @IsString() @MaxLength(200) categoryId?: string;
   @IsOptional() @IsString() @MaxLength(200) menuItemId?: string;

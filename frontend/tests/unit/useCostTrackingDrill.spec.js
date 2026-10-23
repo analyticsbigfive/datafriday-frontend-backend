@@ -91,7 +91,10 @@ describe('useCostTracking : fournisseurs et composants', () => {
     getCostTrackingOptions.mockClear()
     ct().setType('t1')
     await flushPromises()
-    expect(getCostTrackingOptions).toHaveBeenCalledWith('s1', { typeId: 't1', categoryId: undefined, menuItemId: undefined })
+    expect(getCostTrackingOptions).toHaveBeenCalledWith('s1', expect.objectContaining({
+      typeId: 't1', categoryId: undefined, menuItemId: undefined,
+      from: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/), to: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+    }))
   })
 
   it('une sélection absente de la nouvelle liste est vidée', async () => {

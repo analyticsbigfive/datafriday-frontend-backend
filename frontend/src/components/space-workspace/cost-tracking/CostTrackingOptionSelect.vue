@@ -5,6 +5,7 @@
       <option value="">{{ allLabel }}</option>
       <option v-for="o in options" :key="o.value" :value="o.value">{{ o.label }}</option>
     </select>
+    <div v-if="hint" class="ct-field__hint">{{ hint }}</div>
   </div>
 </template>
 
@@ -15,6 +16,7 @@ defineProps({
   id: { type: String, required: true },
   label: { type: String, required: true },
   allLabel: { type: String, required: true },
+  hint: { type: String, default: '' },
   options: { type: Array, default: () => [] },
   modelValue: { type: String, default: null },
 })
@@ -32,6 +34,10 @@ defineEmits(['update:modelValue'])
   color: var(--ct-muted);
   font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
+}
+.ct-field__hint {
+  color: var(--ct-muted);
+  font-size: var(--fs-xs);
 }
 .ct-select {
   width: 100%;
