@@ -70,3 +70,34 @@ export interface EventReference {
   at: Date;
   source: EventReferenceSource;
 }
+
+/** Nature d'une brique suivie par `BrickCostSnapshot`. */
+export type BrickKind = 'ingredient' | 'packaging' | 'component';
+
+/** Version de coût d'une brique (ligne de `BrickCostSnapshot`), sans le Json `sourceRef`. */
+export interface BrickSnapshotPoint {
+  id: string;
+  kind: BrickKind;
+  refId: string;
+  name: string;
+  /** Coût par unité de recette (ingrédient, emballage) ou coût unitaire du composant. */
+  unitCost: number;
+  recipeUnit: string | null;
+  supplierId: string | null;
+  supplierName: string | null;
+  marketPriceId: string | null;
+  effectiveFrom: Date;
+  reason: string;
+}
+
+/** Changement de fournisseur d'une brique au cours d'une période. */
+export interface BrickSupplierChange {
+  refId: string;
+  name: string;
+  at: string;
+  fromSupplierId: string | null;
+  fromSupplierName: string | null;
+  toSupplierId: string | null;
+  toSupplierName: string | null;
+  snapshotId: string;
+}
