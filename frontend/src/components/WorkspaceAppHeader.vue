@@ -66,7 +66,7 @@
 
     <!-- Droite : notifications + réglages + profil — cluster à PARITÉ .ep-header
          (cloche partagée branchée, boutons size=small, pas de séparateur). -->
-    <LiveBadge />
+    <LiveBadge :space-id="currentSpaceId" />
     <NotificationBell />
     <v-btn icon variant="text" size="small" class="mr-1" aria-label="Réglages" @click="openSettings">
       <Settings :size="20" />
@@ -90,7 +90,7 @@
 // Predict) — pas de teleport. Les KPIs sont passés en prop (pas téléportés),
 // ce qui évite le crash __vnode rencontré avec l'approche teleport.
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useTheme } from 'vuetify'
 import { ChevronRight, Settings } from 'lucide-vue-next'
 import WorkspaceSpaceSwitcher from '@/components/WorkspaceSpaceSwitcher.vue'
@@ -116,6 +116,9 @@ const props = defineProps({
 defineEmits(['kpi-click'])
 
 const router = useRouter()
+const route = useRoute()
+// Dans un espace, le badge reflète CET espace ; hors espace (/spaces) il reste global.
+const currentSpaceId = computed(() => (route.params?.spaceId ? String(route.params.spaceId) : ''))
 
 // Dark mode autonome : quand le thème Vuetify est sombre, on override le chrome
 // blanc translucide de la barre + les pastilles KPI (fond blanc en clair).
