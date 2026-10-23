@@ -1,7 +1,7 @@
 <template>
   <section class="ct-card ct-table-card" aria-labelledby="ct-table-title">
     <div id="ct-table-title" class="ct-card__title">{{ t(titleKey) }}</div>
-    <div class="ct-card__sub">{{ t(groupBy === 'article' ? 'ctTableHint' : groupBy === 'ingredient' ? 'ctTableHintIngredient' : 'ctTableHintGroup') }}</div>
+    <div class="ct-card__sub">{{ t(tableHintKey(groupBy)) }}</div>
     <div v-if="!rows.length" class="ct-table__empty">{{ t('ctTableEmpty') }}</div>
     <div v-else class="ct-table__scroll">
       <table class="ct-table">
@@ -59,6 +59,7 @@
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { useCostTrackingFormat } from '@/composables/useCostTrackingFormat'
+import { pluralKey, tableHintKey } from '@/utils/costTrackingCopy'
 
 // Tableau de détail : une ligne par courbe (type, catégorie, article ou ingrédient). Un clic sur
 // une ligne descend d'un niveau (événement `select`), le lien « Historique » d'un article ouvre
@@ -69,7 +70,7 @@ const props = defineProps({
 })
 const emit = defineEmits(['select', 'history'])
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const fmt = useCostTrackingFormat()
 
 const titleKey = computed(() => ({ article: 'ctTableTitleArticle', category: 'ctTableTitleCategory', type: 'ctTableTitleType', ingredient: 'ctTableTitleIngredient', supplier: 'ctTableTitleSupplier', component: 'ctTableTitleComponent' })[props.groupBy] || 'ctTableTitleArticle')
@@ -77,9 +78,13 @@ const nameKey = computed(() => ({ article: 'ctFilterArticle', category: 'ctFilte
 
 function subLabel(row) {
   if (row.kind === 'article') return [row.typeName, row.categoryName].filter(Boolean).join(' · ')
-  if (row.kind === 'supplier') return t('ctBricksCount').replace('{count}', String(row.articleCount))
+  const n = row.articleCount
+  if (row.kind === 'supplier') return countSub(n, 'ctBricksCountOne', 'ctBricksCountMany')
   if (row.kind === 'ingredient') return row.lineKind ? t(`ctLineKind_${row.lineKind}`) : ''
-  return t('ctArticlesCount').replace('{count}', String(row.articleCount))
+  return countSub(n, 'ctArticlesCountOne', 'ctArticlesCountMany')
+}
+function countSub(n, one, many) {
+  return t(pluralKey(n, locale.value, one, many)).replace('{count}', String(n))
 }
 function select(row) {
   if (row.id) emit('select', row)

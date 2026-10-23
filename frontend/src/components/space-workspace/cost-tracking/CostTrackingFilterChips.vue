@@ -34,7 +34,7 @@ const { t } = useI18n()
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  padding: 0 6px;
+  padding: 0;
 }
 .ct-chipx {
   display: inline-flex;

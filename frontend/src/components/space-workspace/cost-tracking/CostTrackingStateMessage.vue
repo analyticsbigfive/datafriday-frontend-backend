@@ -18,6 +18,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
+import { noScopeTitleKey } from '@/utils/costTrackingCopy'
 
 // Message d'état du graphique : chargement, erreur, périmètre vide, suivi pas encore démarré,
 // aucune version sur la période.
@@ -27,6 +28,8 @@ const props = defineProps({
     default: 'empty',
     validator: (v) => ['loading', 'error', 'empty', 'noScope', 'notStarted'].includes(v),
   },
+  // Mode « Afficher par » : le message de périmètre vide nomme le niveau affiché.
+  groupBy: { type: String, default: 'article' },
 })
 defineEmits(['retry'])
 
@@ -39,7 +42,9 @@ const KEYS = {
   noScope: ['ctNoScopeTitle', 'ctNoScopeBody'],
   notStarted: ['ctNotStartedTitle', 'ctNotStartedBody'],
 }
-const titleKey = computed(() => KEYS[props.kind][0])
+const titleKey = computed(() =>
+  props.kind === 'noScope' ? noScopeTitleKey(props.groupBy) : KEYS[props.kind][0],
+)
 const bodyKey = computed(() => KEYS[props.kind][1])
 </script>
 
