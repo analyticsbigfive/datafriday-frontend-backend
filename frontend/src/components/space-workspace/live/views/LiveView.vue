@@ -93,7 +93,14 @@
               :is-dark="isDark"
             />
 
-                <LiveInventoryPanel v-else :space-id="spaceId" :is-dark="isDark" :active="tab === 'inventory'" />
+                <LiveInventoryPanel
+                  v-else
+                  :space-id="spaceId"
+                  :is-dark="isDark"
+                  :active="tab === 'inventory'"
+                  :event-id="liveData.eventId.value || ''"
+                  :timeline-rows="liveData.timelineRows.value"
+                />
               </div>
         </div>
 
