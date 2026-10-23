@@ -89,7 +89,8 @@ export function buildPredictedNeedIndex({ elements = [], menuItems = [], compone
       // Menu Items à l'origine du besoin (détail « d'où vient ce chiffre »).
       sources: Array.isArray(row?.sources) ? row.sources : [],
     })
-    for (const id of [row.itemId, row.sourceId]) {
+    // Set : itemId === sourceId (ligne sans recette) ne doit pas compter deux fois.
+    for (const id of new Set([row.itemId, row.sourceId])) {
       if (id == null) continue
       const k = expectedKey(elementId, id)
       byItemId[k] = (byItemId[k] || 0) + units
