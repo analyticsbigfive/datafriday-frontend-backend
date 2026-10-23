@@ -1,12 +1,15 @@
 /**
  * Blocs de la page Cost tracking : états vides, bascule « Afficher par », tableau, tiroir d'historique.
  */
-import { mount } from '@vue/test-utils'
+import { config, mount } from '@vue/test-utils'
+import { vuetifyToggleStubs } from './helpers/vuetifyToggleStubs'
 import CostTrackingGroupSwitch from '@/components/space-workspace/cost-tracking/CostTrackingGroupSwitch.vue'
 import CostTrackingHistoryDrawer from '@/components/space-workspace/cost-tracking/CostTrackingHistoryDrawer.vue'
 import CostTrackingStateMessage from '@/components/space-workspace/cost-tracking/CostTrackingStateMessage.vue'
 import CostTrackingSummaryPanel from '@/components/space-workspace/cost-tracking/CostTrackingSummaryPanel.vue'
 import CostTrackingTable from '@/components/space-workspace/cost-tracking/CostTrackingTable.vue'
+
+config.global.stubs = { ...config.global.stubs, ...vuetifyToggleStubs }
 
 jest.mock('@/i18n/useI18n', () => ({ useI18n: () => ({ t: (k) => k, locale: { value: 'fr' } }) }))
 
@@ -26,6 +29,10 @@ describe('CostTrackingStateMessage', () => {
     const w = mount(CostTrackingStateMessage, { props: { kind } })
     expect(w.text()).toContain(title)
     expect(w.find('.ct-state__retry').exists()).toBe(false)
+  })
+  it('périmètre vide : le titre nomme le mode courant', () => {
+    const w = mount(CostTrackingStateMessage, { props: { kind: 'noScope', groupBy: 'supplier' } })
+    expect(w.text()).toContain('ctNoScopeTitleSupplier')
   })
   it('erreur : bouton réessayer', async () => {
     const w = mount(CostTrackingStateMessage, { props: { kind: 'error' } })
@@ -53,6 +60,10 @@ describe('CostTrackingGroupSwitch', () => {
 })
 
 describe('CostTrackingTable', () => {
+  it('le texte d aide suit le mode', () => {
+    const w = mount(CostTrackingTable, { props: { rows: [], groupBy: 'supplier' } })
+    expect(w.text()).toContain('ctTableHintSupplier')
+  })
   it('sans ligne : message vide, pas de tableau', () => {
     const w = mount(CostTrackingTable, { props: { rows: [] } })
     expect(w.find('table').exists()).toBe(false)
@@ -81,14 +92,14 @@ describe('CostTrackingTable', () => {
 describe('CostTrackingSummaryPanel : total ou moyenne', () => {
   it('propose le choix pour une catégorie et émet la valeur choisie', async () => {
     const w = mount(CostTrackingSummaryPanel, { props: { groupBy: 'category', aggregate: 'avg' } })
-    const buttons = w.findAll('.ct-summary__agg')
+    const buttons = w.findAll('.ct-seg button')
     expect(buttons).toHaveLength(2)
     await buttons[1].trigger('click')
     expect(w.emitted('update:aggregate')[0]).toEqual(['sum'])
   })
   it('ne le propose pas pour des articles', () => {
     const w = mount(CostTrackingSummaryPanel, { props: { groupBy: 'article' } })
-    expect(w.find('.ct-summary__aggregate').exists()).toBe(false)
+    expect(w.find('.ct-seg').exists()).toBe(false)
   })
 })
 
@@ -120,8 +131,8 @@ describe('CostTrackingSummaryPanel', () => {
     expect(same.text()).not.toContain('Metro')
   })
   it('Moyenne / Total proposé en mode fournisseur, pas en mode composant', () => {
-    expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'supplier' } }).find('.ct-summary__aggregate').exists()).toBe(true)
-    expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'component' } }).find('.ct-summary__aggregate').exists()).toBe(false)
+    expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'supplier' } }).find('.ct-seg').exists()).toBe(true)
+    expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'component' } }).find('.ct-seg').exists()).toBe(false)
   })
   it('un classement descend d un niveau (drill)', async () => {
     const w = mount(CostTrackingSummaryPanel, { props: { rows: [row()] } })

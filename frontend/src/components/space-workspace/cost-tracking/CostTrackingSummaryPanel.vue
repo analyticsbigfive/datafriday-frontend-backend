@@ -1,17 +1,14 @@
 <template>
   <aside class="ct-card ct-summary" :aria-label="t('ctSummaryLabel')">
     <div class="ct-summary__toolbar">
-      <div v-if="canAggregate" class="ct-summary__aggregate" role="group" :aria-label="t('ctAggregateLabel')">
-        <button
-          v-for="opt in AGGREGATES"
-          :key="opt"
-          type="button"
-          class="ct-summary__agg"
-          :class="{ 'ct-summary__agg--on': aggregate === opt }"
-          :aria-pressed="aggregate === opt"
-          @click="$emit('update:aggregate', opt)"
-        >{{ t(opt === 'avg' ? 'ctAggregateAvg' : 'ctAggregateSum') }}</button>
-      </div>
+      <CostTrackingSegmented
+        v-if="canAggregate"
+        small
+        :options="aggregateOptions"
+        :model-value="aggregate"
+        :aria-label="t('ctAggregateLabel')"
+        @update:model-value="$emit('update:aggregate', $event)"
+      />
       <CostTrackingSortSwitch v-model="sort" class="ct-summary__sort" />
     </div>
     <div v-if="sinceLabel" class="ct-summary__since">{{ t('ctRankSince').replace('{date}', sinceLabel) }}</div>
@@ -49,6 +46,7 @@ import { useI18n } from '@/i18n/useI18n'
 import CostTrackingAccordion from './CostTrackingAccordion.vue'
 import CostTrackingFeedItem from './CostTrackingFeedItem.vue'
 import CostTrackingPerformanceSection from './CostTrackingPerformanceSection.vue'
+import CostTrackingSegmented from './CostTrackingSegmented.vue'
 import CostTrackingSortSwitch from './CostTrackingSortSwitch.vue'
 import { performanceTitleKey } from '@/utils/costTrackingPerformance'
 import { canAggregate as modeCanAggregate } from '@/utils/costTrackingParams'
@@ -70,7 +68,6 @@ const props = defineProps({
 })
 const emit = defineEmits(['select', 'drill', 'update:aggregate'])
 
-const AGGREGATES = ['avg', 'sum']
 const canAggregate = computed(() => modeCanAggregate(props.groupBy))
 // La section fournisseurs vient en plus, sauf quand le mode courant est déjà « fournisseur ».
 const showSuppliers = computed(() => props.groupBy !== 'supplier')
@@ -79,6 +76,10 @@ const showSuppliers = computed(() => props.groupBy !== 'supplier')
 const sort = ref('up')
 
 const { t } = useI18n()
+const aggregateOptions = computed(() => [
+  { value: 'avg', label: t('ctAggregateAvg') },
+  { value: 'sum', label: t('ctAggregateSum') },
+])
 
 // Seuls les articles ont un historique : catégories et types ne s'ouvrent pas.
 function onSelect(item) {
@@ -92,7 +93,7 @@ function onSelect(item) {
   border-radius: 16px;
 }
 .ct-summary__since {
-  padding: 10px 2px 2px;
+  padding: 10px 2px 4px;
   color: var(--ct-faint);
   font-size: var(--fs-xs);
   line-height: 1.5;
@@ -111,21 +112,5 @@ function onSelect(item) {
   padding: 4px 2px;
   color: var(--ct-faint);
   font-size: var(--fs-sm);
-}
-.ct-summary__aggregate {
-  display: inline-flex;
-  border: 1px solid var(--ct-line, #e5e7eb);
-  border-radius: 999px;
-  overflow: hidden;
-}
-.ct-summary__agg {
-  padding: 4px 14px;
-  font-size: var(--fs-xs);
-  background: transparent;
-  cursor: pointer;
-}
-.ct-summary__agg--on {
-  background: var(--ct-chip-bg, #eef2ff);
-  font-weight: 600;
 }
 </style>
