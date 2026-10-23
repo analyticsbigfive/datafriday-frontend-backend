@@ -1,5 +1,6 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { BrickCostReason, BrickCostSnapshotService } from '../../menu-items/services/brick-cost-snapshot.service';
 
 type ComponentWithLines = {
   id: string;
@@ -27,6 +28,7 @@ const WRITE_CHUNK = 20;
 export class MenuComponentCostService {
   constructor(
     private prisma: PrismaService,
+    @Optional() private readonly brickSnapshot?: BrickCostSnapshotService,
   ) {}
 
   private readonly logger = new Logger(MenuComponentCostService.name);
@@ -116,7 +118,19 @@ export class MenuComponentCostService {
     return this.unitCostFromContext(ctx, componentId);
   }
 
-  async refreshCosts(tenantId: string, opts?: { componentIds?: string[] }) {
+  /**
+   * Historique des coûts de composants : enregistre une version pour chaque composant dont le
+   * coût unitaire persisté a changé. Jamais bloquant (le service d'historique avale ses erreurs).
+   */
+  async recordSnapshots(tenantId: string, componentIds: string[], reason: BrickCostReason, sourceRef?: Record<string, unknown>): Promise<void> {
+    await this.brickSnapshot?.recordIfChanged(tenantId, 'component', componentIds, reason, sourceRef);
+  }
+
+  /**
+   * Recalcule et persiste `unitCost`. `reason` / `sourceRef` qualifient la version d'historique
+   * écrite ensuite (par défaut `component_edit` pour des ids précis, `manual_refresh` pour tout le tenant).
+   */
+  async refreshCosts(tenantId: string, opts?: { componentIds?: string[]; reason?: BrickCostReason; sourceRef?: Record<string, unknown> }) {
     const componentIds = opts?.componentIds;
     this.logger.log(
       `Refreshing menu component costs for tenant ${tenantId}${componentIds?.length ? ` (ids=${componentIds.length})` : ''}...`,
@@ -164,6 +178,13 @@ export class MenuComponentCostService {
       await this.prisma.$transaction(writesByComponent.slice(i, i + WRITE_CHUNK).flat());
     }
 
+    // Écrit après les coûts persistés : tous les chemins qui recalculent un composant passent ici.
+    await this.recordSnapshots(
+      tenantId,
+      components.map((c) => c.id),
+      opts?.reason ?? (componentIds?.length ? 'component_edit' : 'manual_refresh'),
+      opts?.sourceRef,
+    );
     this.logger.log(`Refreshed costs for ${updatedComponents} components (${updatedLines} lines)`);
     return { updatedComponents, updatedLines };
   }

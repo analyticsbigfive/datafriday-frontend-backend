@@ -13,19 +13,26 @@
             :category-id="ct.categoryId.value"
             :menu-item-id="ct.menuItemId.value"
             :ingredient-id="ct.ingredientId.value"
+            :supplier-key="ct.supplierKey.value"
+            :component-id="ct.componentId.value"
             :type-options="ct.typeOptions.value"
             :category-options="ct.categoryOptions.value"
             :article-options="ct.articleOptions.value"
             :ingredient-options="ct.ingredientOptions.value"
+            :supplier-options="ct.supplierOptions.value"
+            :component-options="ct.componentOptions.value"
             :show-margin="showMargin"
             :show-price="ct.showPrice.value"
             :can-margin="model.canMargin.value"
+            :can-price="model.canPrice.value"
             @set-period="ct.setPeriod"
             @set-custom-range="ct.setCustomRange"
             @set-type="ct.setType"
             @set-category="ct.setCategory"
             @set-article="ct.setArticle"
             @set-ingredient="ct.setIngredient"
+            @set-supplier="ct.setSupplier"
+            @set-component="ct.setComponent"
             @reset="ct.resetFilters"
             @update:show-margin="showMargin = $event"
             @update:show-price="ct.showPrice.value = $event"
@@ -57,9 +64,8 @@
               :legend-rows="model.legendRows.value"
               :bounds="ct.bounds.value"
               :show-margin="showMargin && model.canMargin.value"
-              :show-price="ct.showPrice.value"
+              :show-price="ct.showPrice.value && model.canPrice.value"
               :with-events="ct.events.value.length > 0"
-              :can-ingredient="!!ct.menuItemId.value"
               :truncated="ct.truncated.value"
               :ranked-by-revenue="ct.rankedByRevenue.value"
               @set-group-by="ct.setGroupBy"
@@ -75,9 +81,9 @@
           </main>
 
           <CostTrackingSummaryPanel
-            :rises="model.rises.value"
-            :falls="model.falls.value"
+            :rows="model.rows.value"
             :changes="model.changes.value"
+            :supplier-rows="ct.supplierRows.value"
             :since-label="model.sinceLabel.value"
             :group-by="ct.groupBy.value"
             :aggregate="ct.aggregate.value"
@@ -155,6 +161,8 @@ function removeChip(key) {
     ct.setArticle(null)
     ct.setCategory(null)
   } else if (key === 'article') ct.setArticle(null)
+  else if (key === 'supplier') ct.setSupplier(null)
+  else if (key === 'component') ct.setComponent(null)
   else ct.setIngredient(null)
 }
 

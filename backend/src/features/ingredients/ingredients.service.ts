@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
+import { BrickCostSnapshotService } from '../menu-items/services/brick-cost-snapshot.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RedisService } from '../../core/redis/redis.service';
 import { MenuComponentItemPropagationService } from '../menu-components/services/menu-component-item-propagation.service';
@@ -14,6 +15,7 @@ export class IngredientsService {
     private prisma: PrismaService,
     private redis: RedisService,
     private readonly costPropagation: MenuComponentItemPropagationService,
+    @Optional() private readonly brickSnapshot?: BrickCostSnapshotService,
   ) {}
 
   private readonly listCache = new TenantListCache(this.redis, 'ingredients');
@@ -50,6 +52,8 @@ export class IngredientsService {
           active: dto.active ?? true,
         },
       });
+      // Historique des coûts : version initiale, non bloquante.
+      void this.brickSnapshot?.recordIfChanged(tenantId, 'ingredient', [result.id], 'created', { ingredientId: result.id });
       await this.listCache.invalidate(tenantId);
       return result;
     } catch (error) {
@@ -154,6 +158,9 @@ export class IngredientsService {
       // Non bloquant : composants et articles qui utilisent cet ingrédient suivent en arrière-plan.
       if (hasBrickCostChange(before, dto)) {
         void this.costPropagation.propagateFromBricks({ ingredientIds: [id] }, tenantId, 'ingredient_edit', { ingredientId: id });
+      } else if (dto.supplier !== undefined) {
+        // Changement de fournisseur seul : aucun coût ne bouge, mais l'historique du fournisseur oui.
+        void this.brickSnapshot?.recordIfChanged(tenantId, 'ingredient', [id], 'ingredient_edit', { ingredientId: id });
       }
       await this.listCache.invalidate(tenantId);
       return result;

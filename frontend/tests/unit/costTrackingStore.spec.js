@@ -62,7 +62,7 @@ describe('costTracking store : filtres', () => {
     await store.dispatch('costTracking/setFilters', { typeId: 't1' })
     await store.dispatch('costTracking/setFilters', { groupBy: 'type' })
     expect(store.getters['costTracking/filters']).toEqual({
-      typeId: 't1', categoryId: null, menuItemId: null, ingredientId: null, groupBy: 'type',
+      typeId: 't1', categoryId: null, menuItemId: null, ingredientId: null, supplierKey: null, componentId: null, groupBy: 'type',
     })
     store.commit('costTracking/RESET_FILTERS')
     expect(store.getters['costTracking/filters'].typeId).toBeNull()

@@ -24,15 +24,18 @@ function build(overrides: Record<string, any> = {}) {
   const componentCost = { refreshCosts: jest.fn().mockResolvedValue({}) };
   const menuItemCost = { refreshCosts: jest.fn().mockResolvedValue({}), refreshComboCost: jest.fn().mockResolvedValue(0) };
   const costSnapshot = { recordIfChanged: jest.fn().mockResolvedValue(0) };
-  return { service: new MarketPriceCostPropagationService(prisma, componentCost as any, menuItemCost as any, costSnapshot as any), componentCost, menuItemCost, costSnapshot, prisma };
+  const brickSnapshot = { recordIfChanged: jest.fn().mockResolvedValue(0) };
+  return { service: new MarketPriceCostPropagationService(prisma, componentCost as any, menuItemCost as any, costSnapshot as any, brickSnapshot as any), componentCost, menuItemCost, costSnapshot, brickSnapshot, prisma };
 }
 
 describe('MarketPriceCostPropagationService', () => {
   it('recalcule composants (parents inclus), menu items (parents de combo inclus) puis la part combo', async () => {
-    const { service, componentCost, menuItemCost, costSnapshot } = build();
+    const { service, componentCost, menuItemCost, costSnapshot, brickSnapshot } = build();
     const result = await service.propagate(['mp-1', 'mp-1'], 'tenant-1');
 
-    expect(componentCost.refreshCosts).toHaveBeenCalledWith('tenant-1', { componentIds: expect.arrayContaining(['comp-1', 'comp-2']) });
+    expect(componentCost.refreshCosts).toHaveBeenCalledWith('tenant-1', { componentIds: expect.arrayContaining(['comp-1', 'comp-2']), reason: 'market_price', sourceRef: { marketPriceIds: ['mp-1'] } });
+    expect(brickSnapshot.recordIfChanged).toHaveBeenCalledWith('tenant-1', 'ingredient', expect.any(Array), 'market_price', { marketPriceIds: ['mp-1'] });
+    expect(brickSnapshot.recordIfChanged).toHaveBeenCalledWith('tenant-1', 'packaging', expect.any(Array), 'market_price', { marketPriceIds: ['mp-1'] });
     expect(menuItemCost.refreshCosts).toHaveBeenCalledWith('tenant-1', {
       itemIds: expect.arrayContaining(['item-1', 'item-2', 'combo-1']),
       skipSnapshot: true,
