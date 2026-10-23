@@ -6,7 +6,9 @@
     role="group"
     :aria-label="ariaLabel"
     class="pill-toggle ct-seg"
-    :class="{ 'ct-seg--sm': small }"
+    :class="{ 'ct-seg--sm': small, 'ct-seg--disabled': disabled }"
+    :disabled="disabled"
+    :title="disabled ? disabledHint : undefined"
     @update:model-value="onChange"
   >
     <v-btn v-for="opt in options" :key="opt.value" :value="opt.value" size="small">{{ opt.label }}</v-btn>
@@ -24,11 +26,14 @@ const props = defineProps({
   modelValue: { type: String, default: '' },
   ariaLabel: { type: String, default: undefined },
   small: { type: Boolean, default: false },
+  // Contrôle visible mais grisé quand il ne s'applique pas ; `disabledHint` dit pourquoi (info-bulle).
+  disabled: { type: Boolean, default: false },
+  disabledHint: { type: String, default: undefined },
 })
 const emit = defineEmits(['update:modelValue'])
 
 function onChange(value) {
-  if (value && value !== props.modelValue) emit('update:modelValue', value)
+  if (!props.disabled && value && value !== props.modelValue) emit('update:modelValue', value)
 }
 </script>
 
@@ -46,6 +51,13 @@ function onChange(value) {
 }
 .ct-seg--sm {
   height: 32px;
+}
+.ct-seg--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.ct-seg--disabled :deep(.v-btn) {
+  pointer-events: none;
 }
 .ct-seg :deep(.v-btn) {
   flex: none;
