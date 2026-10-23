@@ -36,3 +36,21 @@ export function aggregatePredictedRevenueByElement(records) {
 export function hasPredictedRevenue(map) {
   return !!map && typeof map === 'object' && !Array.isArray(map) && Object.keys(map).length > 0
 }
+
+/**
+ * Nom de chaque PDV du predict : `{ [shopId]: nom }` (champ `shop` des enregistrements).
+ * Premier nom non vide rencontré par `shopId`. Sert de source de nom avant l'événement,
+ * quand ni paniers ni timeline n'existent.
+ * @param {Array<{ shopId?: string, shop?: string }>} records
+ * @returns {Record<string, string>}
+ */
+export function predictedNameByShop(records) {
+  if (!Array.isArray(records)) return {}
+  const out = {}
+  for (const rec of records) {
+    const id = rec?.shopId
+    const name = typeof rec?.shop === 'string' ? rec.shop.trim() : ''
+    if (id && name && !(id in out)) out[id] = name
+  }
+  return out
+}
