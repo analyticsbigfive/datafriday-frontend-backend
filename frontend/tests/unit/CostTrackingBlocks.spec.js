@@ -38,9 +38,17 @@ describe('CostTrackingGroupSwitch', () => {
   it('marque le mode courant et émet le mode choisi', async () => {
     const w = mount(CostTrackingGroupSwitch, { props: { modelValue: 'category' } })
     const buttons = w.findAll('button')
-    expect(buttons.map((b) => b.attributes('aria-pressed'))).toEqual(['false', 'true', 'false'])
+    expect(buttons.map((b) => b.attributes('aria-pressed'))).toEqual(['false', 'true', 'false', 'false', 'false', 'false'])
     await buttons[2].trigger('click')
     expect(w.emitted('update:modelValue')[0]).toEqual(['type'])
+  })
+  it('propose fournisseur, composant et ingrédient sans article filtré', async () => {
+    const w = mount(CostTrackingGroupSwitch, { props: { modelValue: 'article' } })
+    const buttons = w.findAll('button')
+    await buttons[3].trigger('click')
+    await buttons[4].trigger('click')
+    await buttons[5].trigger('click')
+    expect(w.emitted('update:modelValue').map((e) => e[0])).toEqual(['supplier', 'component', 'ingredient'])
   })
 })
 
@@ -99,6 +107,21 @@ describe('CostTrackingSummaryPanel', () => {
   it('une seule section dont le titre suit le niveau affiché', () => {
     expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'type' } }).text()).toContain('ctPerfTitleType')
     expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'ingredient' } }).text()).toContain('ctPerfTitleIngredient')
+  })
+  it('section fournisseurs en plus, sauf en mode fournisseur', async () => {
+    const supplierRows = [row({ key: 'supplier:s1', id: 's1', kind: 'supplier', name: 'Metro' })]
+    const w = mount(CostTrackingSummaryPanel, { props: { groupBy: 'article', supplierRows } })
+    expect(w.text()).toContain('ctPerfTitleSupplier')
+    expect(w.text()).toContain('Metro')
+    await w.findAll('.ct-rank').filter((n) => n.text().includes('Metro'))[0].trigger('click')
+    expect(w.emitted('drill')[0][0]).toMatchObject({ id: 's1', kind: 'supplier' })
+    const same = mount(CostTrackingSummaryPanel, { props: { groupBy: 'supplier', supplierRows } })
+    expect(same.text().match(/ctPerfTitleSupplier/g)).toHaveLength(1)
+    expect(same.text()).not.toContain('Metro')
+  })
+  it('Moyenne / Total proposé en mode fournisseur, pas en mode composant', () => {
+    expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'supplier' } }).find('.ct-summary__aggregate').exists()).toBe(true)
+    expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'component' } }).find('.ct-summary__aggregate').exists()).toBe(false)
   })
   it('un classement descend d un niveau (drill)', async () => {
     const w = mount(CostTrackingSummaryPanel, { props: { rows: [row()] } })

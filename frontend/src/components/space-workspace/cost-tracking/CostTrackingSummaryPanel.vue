@@ -23,6 +23,14 @@
       @drill="$emit('drill', $event)"
     />
 
+    <CostTrackingPerformanceSection
+      v-if="showSuppliers"
+      :title="t(performanceTitleKey('supplier'))"
+      :rows="supplierRows"
+      :sort="sort"
+      @drill="$emit('drill', $event)"
+    />
+
     <CostTrackingAccordion :title="t('ctSumFeed')" variant="summary">
       <CostTrackingFeedItem
         v-for="change in changes"
@@ -43,24 +51,29 @@ import CostTrackingFeedItem from './CostTrackingFeedItem.vue'
 import CostTrackingPerformanceSection from './CostTrackingPerformanceSection.vue'
 import CostTrackingSortSwitch from './CostTrackingSortSwitch.vue'
 import { performanceTitleKey } from '@/utils/costTrackingPerformance'
+import { canAggregate as modeCanAggregate } from '@/utils/costTrackingParams'
 
 // Colonne de droite : bascule Moyenne / Total, tri hausses/baisses (valable pour toute la colonne),
-// section « Performance des <niveau> » (5 par défaut, « Voir tout » déplie), derniers changements. Cliquer un classement émet `drill` (descendre d'un niveau en filtrant) ;
+// section « Performance des <niveau> » (5 par défaut, « Voir tout » déplie), section « Performance des fournisseurs », derniers changements. Cliquer un classement émet `drill` (descendre d'un niveau en filtrant) ;
 // cliquer un changement émet `select` (id d'article, pour son historique).
 const props = defineProps({
   // Toutes les lignes du tableau (celles sans variation sont ignorées par la section).
   rows: { type: Array, default: () => [] },
   changes: { type: Array, default: () => [] },
+  // Lignes par fournisseur (second appel séries), pour la section « Performance des fournisseurs ».
+  supplierRows: { type: Array, default: () => [] },
   // Date de début du suivi (déjà formatée) : explique d'où vient la variation affichée.
   sinceLabel: { type: String, default: '' },
-  // Moyenne ou total : proposé quand les lignes sont des types ou des catégories.
+  // Moyenne ou total : proposé quand les lignes sont des types, des catégories ou des fournisseurs.
   groupBy: { type: String, default: 'article' },
   aggregate: { type: String, default: 'avg' },
 })
 const emit = defineEmits(['select', 'drill', 'update:aggregate'])
 
 const AGGREGATES = ['avg', 'sum']
-const canAggregate = computed(() => props.groupBy === 'category' || props.groupBy === 'type')
+const canAggregate = computed(() => modeCanAggregate(props.groupBy))
+// La section fournisseurs vient en plus, sauf quand le mode courant est déjà « fournisseur ».
+const showSuppliers = computed(() => props.groupBy !== 'supplier')
 
 // 'up' : plus forte hausse en premier ; 'down' : plus forte baisse en premier.
 const sort = ref('up')
