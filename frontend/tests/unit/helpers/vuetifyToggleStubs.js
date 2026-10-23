@@ -3,14 +3,15 @@
 import { h, inject, provide } from 'vue'
 
 export const VBtnToggleStub = {
-  props: { modelValue: { type: String, default: '' } },
+  props: { modelValue: { type: String, default: '' }, disabled: { type: Boolean, default: false } },
   emits: ['update:modelValue'],
   setup(props, { slots, emit }) {
     provide('btnToggleStub', {
+      disabled: () => props.disabled,
       isOn: (value) => props.modelValue === value,
       pick: (value) => value !== props.modelValue && emit('update:modelValue', value),
     })
-    return () => h('div', slots.default && slots.default())
+    return () => h('div', { 'aria-disabled': props.disabled ? 'true' : undefined }, slots.default && slots.default())
   },
 }
 
@@ -21,7 +22,7 @@ export const VBtnStub = {
     return () =>
       h(
         'button',
-        { type: 'button', 'aria-pressed': String(group.isOn(props.value)), onClick: () => group.pick(props.value) },
+        { type: 'button', disabled: group.disabled(), 'aria-pressed': String(group.isOn(props.value)), onClick: () => !group.disabled() && group.pick(props.value) },
         slots.default && slots.default(),
       )
   },

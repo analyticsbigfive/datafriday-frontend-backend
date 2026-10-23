@@ -2,8 +2,9 @@
   <aside class="ct-card ct-summary" :aria-label="t('ctSummaryLabel')">
     <div class="ct-summary__toolbar">
       <CostTrackingSegmented
-        v-if="canAggregate"
         small
+        :disabled="!canAggregate"
+        :disabled-hint="t('ctAggregateDisabledHint')"
         :options="aggregateOptions"
         :model-value="aggregate"
         :aria-label="t('ctAggregateLabel')"
