@@ -185,6 +185,7 @@ model Tenant {
   menuItems            MenuItem[]
   menuItemPriceHistory MenuItemPriceHistory[]
   menuItemCostSnapshots MenuItemCostSnapshot[]
+  brickCostSnapshots   BrickCostSnapshot[]
   menuComponents       MenuComponent[]
   ingredients          Ingredient[]
   packagings           Packaging[]
@@ -2521,6 +2522,32 @@ model MenuItemCostSnapshot {
   @@index([tenantId, menuItemId, effectiveFrom(sort: Desc)])
   @@index([tenantId, effectiveFrom])
   @@index([menuItemId])
+}
+
+/// Version immuable du coût d'une brique (ingrédient, emballage ou composant), jamais mise à jour.
+/// Sert aux courbes d'ingrédients, d'emballages, de composants et de fournisseurs sans relire le
+/// Json `recipe` des articles. `refId` est polymorphe (pas de FK) : l'historique survit à la brique.
+/// `unitCost` = coût par unité de recette (ingrédient, emballage) ou MenuComponent.unitCost.
+model BrickCostSnapshot {
+  id            String   @id @default(cuid())
+  tenantId      String
+  kind          String // ingredient | packaging | component
+  refId         String
+  name          String
+  unitCost      Decimal  @db.Decimal(10, 4)
+  recipeUnit    String?
+  supplierId    String?
+  supplierName  String?
+  marketPriceId String?
+  effectiveFrom DateTime // instant de l'écriture
+  reason        String // baseline | created | market_price | ingredient_edit | packaging_edit | component_edit | manual_refresh
+  sourceRef     Json?
+  createdAt     DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, kind, refId, effectiveFrom(sort: Desc)])
+  @@index([tenantId, supplierId, effectiveFrom])
 }
 
 /// Historique des prix d'un menu item : chaque application du prix Weezevent (ou édition

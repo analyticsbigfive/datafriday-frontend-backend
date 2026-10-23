@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { withAncestorComponents, withAncestorItems } from '../../../shared/cost-propagation/cost-ancestry';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MenuItemCostService } from '../../menu-items/services/menu-item-cost.service';
+import { BrickCostSnapshotService } from '../../menu-items/services/brick-cost-snapshot.service';
 import { CostSnapshotReason, MenuItemCostSnapshotService } from '../../menu-items/services/menu-item-cost-snapshot.service';
 import { MenuComponentCostService } from './menu-component-cost.service';
 
@@ -23,6 +24,7 @@ export class MenuComponentItemPropagationService {
     private readonly componentCostService: MenuComponentCostService,
     private readonly menuItemCostService: MenuItemCostService,
     private readonly costSnapshotService: MenuItemCostSnapshotService,
+    @Optional() private readonly brickSnapshot?: BrickCostSnapshotService,
   ) {}
 
   private readonly logger = new Logger(MenuComponentItemPropagationService.name);
@@ -33,9 +35,11 @@ export class MenuComponentItemPropagationService {
       // pour que les articles qui les utilisent lisent un coût à jour.
       const ancestorIds = (await withAncestorComponents(this.prisma, [componentId])).filter((id) => id !== componentId);
       if (ancestorIds.length) {
-        await this.componentCostService.refreshCosts(tenantId, { componentIds: ancestorIds });
+        await this.componentCostService.refreshCosts(tenantId, { componentIds: ancestorIds, reason: 'component_edit', sourceRef: { componentId } });
       }
       const componentIds = [componentId, ...ancestorIds];
+      // Historique des briques : le composant édité (coût saisi à la main compris) et ses parents.
+      await this.brickSnapshot?.recordIfChanged(tenantId, 'component', componentIds, 'component_edit', { componentId });
 
       const lines = await this.prisma.menuItemComponent.findMany({
         where: { componentId: { in: componentIds }, menuItem: { tenantId, deletedAt: null } },
@@ -68,6 +72,9 @@ export class MenuComponentItemPropagationService {
     const packagingIds = [...new Set((bricks.packagingIds ?? []).filter(Boolean))];
     if (!ingredientIds.length && !packagingIds.length) return { components: 0, menuItems: 0 };
     try {
+      // Historique des briques : l'ingrédient / l'emballage édité, puis les composants qui en dépendent.
+      await this.brickSnapshot?.recordIfChanged(tenantId, 'ingredient', ingredientIds, reason, sourceRef);
+      await this.brickSnapshot?.recordIfChanged(tenantId, 'packaging', packagingIds, reason, sourceRef);
       const directComponents = ingredientIds.length
         ? await this.prisma.componentIngredient.findMany({
             where: { ingredientId: { in: ingredientIds }, component: { tenantId, deletedAt: null } },
@@ -76,7 +83,7 @@ export class MenuComponentItemPropagationService {
         : [];
       const componentIds = await withAncestorComponents(this.prisma, [...new Set(directComponents.map((c) => c.componentId))]);
       if (componentIds.length) {
-        await this.componentCostService.refreshCosts(tenantId, { componentIds });
+        await this.componentCostService.refreshCosts(tenantId, { componentIds, reason, sourceRef });
       }
 
       const itemScope = { menuItem: { tenantId, deletedAt: null } };

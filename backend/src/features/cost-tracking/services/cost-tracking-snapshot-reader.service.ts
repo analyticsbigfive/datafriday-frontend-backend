@@ -1,12 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { parseRecipe } from '../cost-tracking-recipe.util';
 import { RecipeLine, SnapshotPoint, SnapshotWithRecipe } from '../cost-tracking.types';
 
 /** Taille de lot : borne le nombre d'identifiants passés à une requête. */
 const READ_BATCH_SIZE = 500;
 /** Lot de la lecture multi-instants : un seul paramètre tableau, donc un lot plus large reste sûr. */
 const MANY_BATCH_SIZE = 2000;
+/** Lot réduit des lectures avec Json `recipe`. */
+const RECIPE_BATCH_SIZE = 100;
 
 type RawSnapshot = {
   id: string;
@@ -169,6 +172,40 @@ export class CostTrackingSnapshotReaderService {
     return [...carry, ...changes].map((row) => ({ ...this.toPoint(row), recipe: this.toRecipe(row.recipe) }));
   }
 
+  /**
+   * Même lecture que `readRecipesForPeriod` pour plusieurs articles (part fournisseur). Lots réduits :
+   * chaque ligne porte un Json `recipe`. Clé du résultat : menuItemId.
+   */
+  async readRecipesForPeriodMany(tenantId: string, itemIds: string[], from: Date, toExclusive: Date): Promise<Map<string, SnapshotWithRecipe[]>> {
+    const out = new Map<string, SnapshotWithRecipe[]>();
+    const unique = [...new Set(itemIds.filter(Boolean))];
+    const columns = Prisma.sql`${SNAPSHOT_COLUMNS}, "recipe"`;
+    for (let i = 0; i < unique.length; i += RECIPE_BATCH_SIZE) {
+      const ids = unique.slice(i, i + RECIPE_BATCH_SIZE);
+      // eslint-disable-next-line no-await-in-loop -- lots séquentiels pour ne pas saturer le pooler
+      const [carry, changes] = await Promise.all([
+        this.prisma.$queryRaw<Array<RawSnapshot & { recipe: unknown }>>(Prisma.sql`
+          SELECT DISTINCT ON ("menuItemId") ${columns} FROM "MenuItemCostSnapshot"
+          WHERE "tenantId" = ${tenantId} AND "menuItemId" = ANY(${ids}::text[]) AND "effectiveFrom" < ${from}
+          ORDER BY "menuItemId", "effectiveFrom" DESC, "createdAt" DESC
+        `),
+        this.prisma.$queryRaw<Array<RawSnapshot & { recipe: unknown }>>(Prisma.sql`
+          SELECT ${columns} FROM "MenuItemCostSnapshot"
+          WHERE "tenantId" = ${tenantId} AND "menuItemId" = ANY(${ids}::text[])
+            AND "effectiveFrom" >= ${from} AND "effectiveFrom" < ${toExclusive}
+          ORDER BY "menuItemId", "effectiveFrom", "createdAt"
+        `),
+      ]);
+      for (const row of [...carry, ...changes]) {
+        const point: SnapshotWithRecipe = { ...this.toPoint(row), recipe: this.toRecipe(row.recipe) };
+        const list = out.get(point.menuItemId);
+        if (list) list.push(point);
+        else out.set(point.menuItemId, [point]);
+      }
+    }
+    return out;
+  }
+
   /** Recette de la version la plus récente d'un article (lignes disponibles pour le filtre ingrédient). */
   async latestRecipe(tenantId: string, itemId: string): Promise<RecipeLine[]> {
     const row = await this.prisma.menuItemCostSnapshot.findFirst({
@@ -180,16 +217,7 @@ export class CostTrackingSnapshotReaderService {
   }
 
   private toRecipe(value: unknown): RecipeLine[] {
-    if (!Array.isArray(value)) return [];
-    return value
-      .filter((l: any) => l && typeof l.refId === 'string' && typeof l.kind === 'string')
-      .map((l: any) => ({
-        kind: l.kind,
-        refId: l.refId,
-        name: l.name ?? null,
-        quantity: Number(l.quantity) || 0,
-        unitCost: l.unitCost == null ? null : Number(l.unitCost),
-      }));
+    return parseRecipe(value);
   }
 
   /** Taux de TVA par défaut du tenant (dernière configuration), null s'il n'y en a pas. */

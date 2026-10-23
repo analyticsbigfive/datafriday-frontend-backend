@@ -19,16 +19,18 @@ function build(overrides: Record<string, any> = {}) {
   const componentCost = { refreshCosts: jest.fn().mockResolvedValue({}) };
   const menuItemCost = { refreshCosts: jest.fn().mockResolvedValue({}), refreshComboCost: jest.fn().mockResolvedValue(0) };
   const costSnapshot = { recordIfChanged: jest.fn().mockResolvedValue(0) };
-  const service = new MenuComponentItemPropagationService(prisma, componentCost as any, menuItemCost as any, costSnapshot as any);
-  return { service, prisma, componentCost, menuItemCost, costSnapshot };
+  const brickSnapshot = { recordIfChanged: jest.fn().mockResolvedValue(0) };
+  const service = new MenuComponentItemPropagationService(prisma, componentCost as any, menuItemCost as any, costSnapshot as any, brickSnapshot as any);
+  return { service, prisma, componentCost, menuItemCost, costSnapshot, brickSnapshot };
 }
 
 describe('MenuComponentItemPropagationService', () => {
   it('rafraîchit les composants parents, recalcule les articles (combos inclus) puis snapshot component_edit', async () => {
-    const { service, prisma, componentCost, menuItemCost, costSnapshot } = build();
+    const { service, prisma, componentCost, menuItemCost, costSnapshot, brickSnapshot } = build();
     const result = await service.propagate('comp-1', 'tenant-1');
 
-    expect(componentCost.refreshCosts).toHaveBeenCalledWith('tenant-1', { componentIds: ['comp-2'] });
+    expect(componentCost.refreshCosts).toHaveBeenCalledWith('tenant-1', { componentIds: ['comp-2'], reason: 'component_edit', sourceRef: { componentId: 'comp-1' } });
+    expect(brickSnapshot.recordIfChanged).toHaveBeenCalledWith('tenant-1', 'component', ['comp-1', 'comp-2'], 'component_edit', { componentId: 'comp-1' });
     expect(prisma.menuItemComponent.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { componentId: { in: ['comp-1', 'comp-2'] }, menuItem: { tenantId: 'tenant-1', deletedAt: null } },
     }));

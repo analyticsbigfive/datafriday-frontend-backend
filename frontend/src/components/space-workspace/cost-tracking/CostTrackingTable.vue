@@ -72,11 +72,12 @@ const emit = defineEmits(['select', 'history'])
 const { t } = useI18n()
 const fmt = useCostTrackingFormat()
 
-const titleKey = computed(() => ({ article: 'ctTableTitleArticle', category: 'ctTableTitleCategory', type: 'ctTableTitleType', ingredient: 'ctTableTitleIngredient' })[props.groupBy] || 'ctTableTitleArticle')
-const nameKey = computed(() => ({ article: 'ctFilterArticle', category: 'ctFilterCategory', type: 'ctFilterType', ingredient: 'ctFilterIngredient' })[props.groupBy] || 'ctFilterArticle')
+const titleKey = computed(() => ({ article: 'ctTableTitleArticle', category: 'ctTableTitleCategory', type: 'ctTableTitleType', ingredient: 'ctTableTitleIngredient', supplier: 'ctTableTitleSupplier', component: 'ctTableTitleComponent' })[props.groupBy] || 'ctTableTitleArticle')
+const nameKey = computed(() => ({ article: 'ctFilterArticle', category: 'ctFilterCategory', type: 'ctFilterType', ingredient: 'ctFilterIngredient', supplier: 'ctFilterSupplier', component: 'ctFilterComponent' })[props.groupBy] || 'ctFilterArticle')
 
 function subLabel(row) {
   if (row.kind === 'article') return [row.typeName, row.categoryName].filter(Boolean).join(' · ')
+  if (row.kind === 'supplier') return t('ctBricksCount').replace('{count}', String(row.articleCount))
   if (row.kind === 'ingredient') return row.lineKind ? t(`ctLineKind_${row.lineKind}`) : ''
   return t('ctArticlesCount').replace('{count}', String(row.articleCount))
 }

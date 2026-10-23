@@ -1,7 +1,7 @@
 <template>
   <div class="ct-seg" role="group" :aria-label="t('ctGroupLabel')">
     <button
-      v-for="opt in visibleOptions"
+      v-for="opt in options"
       :key="opt.value"
       type="button"
       :aria-pressed="modelValue === opt.value"
@@ -11,14 +11,12 @@
 </template>
 
 <script setup>
-import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 
-// Bascule « Afficher par » : article, catégorie, type, et ingrédient quand un article est filtré.
-// Suit les filtres tant qu'elle n'est pas forcée.
-const props = defineProps({
+// Bascule « Afficher par » : article, catégorie, type, fournisseur, composant, ingrédient.
+// Suit les filtres tant qu'elle n'est pas forcée. Ingrédient avec un article filtré = sa recette.
+defineProps({
   modelValue: { type: String, default: 'article' },
-  canIngredient: { type: Boolean, default: false },
 })
 defineEmits(['update:modelValue'])
 
@@ -27,9 +25,10 @@ const options = [
   { value: 'article', labelKey: 'ctGroupArticle' },
   { value: 'category', labelKey: 'ctGroupCategory' },
   { value: 'type', labelKey: 'ctGroupType' },
+  { value: 'supplier', labelKey: 'ctGroupSupplier' },
+  { value: 'component', labelKey: 'ctGroupComponent' },
   { value: 'ingredient', labelKey: 'ctGroupIngredient' },
 ]
-const visibleOptions = computed(() => options.filter((o) => o.value !== 'ingredient' || props.canIngredient))
 </script>
 
 <style scoped>
