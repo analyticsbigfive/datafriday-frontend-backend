@@ -8,6 +8,7 @@ import { useI18n } from '@/i18n/useI18n'
 import { useCostTrackingFormat } from '@/composables/useCostTrackingFormat'
 import { periodI18nKey } from '@/utils/costTrackingPeriod'
 import { MAX_MARGIN_LINES } from '@/utils/costTrackingMarginCurve'
+import { isPricelessMode } from '@/utils/costTrackingParams'
 import { buildRows, recentChanges } from '@/utils/costTrackingRows'
 
 const mean = (values) => {
@@ -43,8 +44,15 @@ export function useCostTrackingPageModel(ct) {
 
   /** Courbe de marge : au plus 3 lignes affichées. */
   const canMargin = computed(
-    () => ct.groupBy.value !== 'ingredient' && ct.lines.value.length > 0 && ct.lines.value.length <= MAX_MARGIN_LINES,
+    () =>
+      ct.groupBy.value !== 'ingredient' &&
+      !isPricelessMode(ct.groupBy.value, ct.menuItemId.value) &&
+      ct.lines.value.length > 0 &&
+      ct.lines.value.length <= MAX_MARGIN_LINES,
   )
+
+  /** Prix de vente absent en mode fournisseur, composant et ingrédient sans article. */
+  const canPrice = computed(() => !isPricelessMode(ct.groupBy.value, ct.menuItemId.value))
 
   const chartState = computed(() => {
     if (ct.error.value) return 'error'
@@ -67,10 +75,14 @@ export function useCostTrackingPageModel(ct) {
     const type = ct.typeOptions.value.find((o) => o.id === ct.typeId.value)
     const cat = ct.categoryOptions.value.find((o) => o.id === ct.categoryId.value)
     const art = ct.articleOptions.value.find((o) => o.id === ct.menuItemId.value)
+    const sup = ct.supplierOptions.value.find((o) => o.key === ct.supplierKey.value)
+    const comp = ct.componentOptions.value.find((o) => o.id === ct.componentId.value)
     const ing = ct.ingredientOptions.value.find((o) => o.id === ct.ingredientId.value)
     if (type) out.push({ key: 'type', label: t('ctChipType').replace('{value}', type.name) })
     if (cat) out.push({ key: 'category', label: t('ctChipCategory').replace('{value}', cat.name) })
     if (art) out.push({ key: 'article', label: t('ctChipArticle').replace('{value}', art.name) })
+    if (sup) out.push({ key: 'supplier', label: t('ctChipSupplier').replace('{value}', sup.name) })
+    if (comp) out.push({ key: 'component', label: t('ctChipComponent').replace('{value}', comp.name) })
     if (ing) out.push({ key: 'ingredient', label: t('ctChipIngredient').replace('{value}', ing.name) })
     return out
   })
@@ -94,6 +106,8 @@ export function useCostTrackingPageModel(ct) {
       category: ['ctNounCategoryOne', 'ctNounCategoryMany'],
       ingredient: ['ctNounIngredientOne', 'ctNounIngredientMany'],
       article: ['ctNounArticleOne', 'ctNounArticleMany'],
+      supplier: ['ctNounSupplierOne', 'ctNounSupplierMany'],
+      component: ['ctNounComponentOne', 'ctNounComponentMany'],
     }
     const [one, many] = keys[ct.groupBy.value] || keys.article
     return `${n} ${t(n > 1 ? many : one)}`
@@ -127,7 +141,7 @@ export function useCostTrackingPageModel(ct) {
   })
 
   return {
-    rows, changes, versionsTotal, legendRows, canMargin, chartState,
+    rows, changes, versionsTotal, legendRows, canMargin, canPrice, chartState,
     periodLabel, chips, notice, headerKpis, selectedTags, countLabel, sinceLabel,
   }
 }

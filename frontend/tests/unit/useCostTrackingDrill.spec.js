@@ -8,6 +8,10 @@ jest.mock('@/api/endpoints/cost-tracking.api', () => ({
     articlesWithoutType: [],
   }),
   getCostTrackingSeries: jest.fn().mockResolvedValue({ lines: [], events: [] }),
+  getCostTrackingOptions: jest.fn().mockResolvedValue({
+    suppliers: [{ key: 's1', name: 'Metro', brickCount: 2 }],
+    components: [{ id: 'k1', name: 'Sauce', articleCount: 1 }],
+  }),
   getCostTrackingArticleHistory: jest.fn(),
   getCostTrackingArticleIngredients: jest.fn().mockResolvedValue({ lines: [{ id: 'i1', name: 'Pain', lineKind: 'ingredient' }] }),
 }))
@@ -16,6 +20,7 @@ import { createStore } from 'vuex'
 import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent, ref } from 'vue'
 import costTracking from '@/store/modules/costTracking'
+import { getCostTrackingOptions, getCostTrackingSeries } from '@/api/endpoints/cost-tracking.api'
 import { defaultGroupBy, useCostTracking } from '@/composables/useCostTracking'
 
 function setup() {
@@ -74,5 +79,73 @@ describe('useCostTracking : descente par clic (drill)', () => {
     expect(ct().ingredientId.value).toBeNull()
     expect(ct().groupBy.value).not.toBe('ingredient')
     expect(ct().ingredientOptions.value).toEqual([])
+  })
+})
+
+describe('useCostTracking : fournisseurs et composants', () => {
+  it('les listes viennent de /options et suivent type, catégorie, article', async () => {
+    const { ct } = setup()
+    await flushPromises()
+    expect(ct().supplierOptions.value.map((o) => o.key)).toEqual(['s1'])
+    expect(ct().componentOptions.value.map((o) => o.id)).toEqual(['k1'])
+    getCostTrackingOptions.mockClear()
+    ct().setType('t1')
+    await flushPromises()
+    expect(getCostTrackingOptions).toHaveBeenCalledWith('s1', { typeId: 't1', categoryId: undefined, menuItemId: undefined })
+  })
+
+  it('une sélection absente de la nouvelle liste est vidée', async () => {
+    const { ct } = setup()
+    await flushPromises()
+    ct().setSupplier('s1')
+    await flushPromises()
+    expect(ct().supplierKey.value).toBe('s1')
+    getCostTrackingOptions.mockResolvedValueOnce({ suppliers: [], components: [] })
+    ct().setType('t1')
+    await flushPromises()
+    expect(ct().supplierKey.value).toBeNull()
+  })
+
+  it('supplierKey et componentId partent dans les paramètres de séries', async () => {
+    const { ct } = setup()
+    await flushPromises()
+    getCostTrackingSeries.mockClear()
+    ct().setSupplier('s1')
+    ct().setComponent('k1')
+    await flushPromises()
+    const calls = getCostTrackingSeries.mock.calls.map((c) => c[1])
+    expect(calls.some((p) => p.supplierKey === 's1' && p.componentId === 'k1' && p.groupBy === 'article')).toBe(true)
+  })
+
+  it('second appel groupBy=supplier tant que le mode n est pas fournisseur, supprimé en mode fournisseur', async () => {
+    const { ct } = setup()
+    await flushPromises()
+    expect(getCostTrackingSeries.mock.calls.some((c) => c[1].groupBy === 'supplier')).toBe(true)
+    getCostTrackingSeries.mockClear()
+    ct().setGroupBy('supplier')
+    await flushPromises()
+    const groups = getCostTrackingSeries.mock.calls.map((c) => c[1].groupBy)
+    expect(groups).toEqual(['supplier'])
+    expect(ct().groupBy.value).toBe('supplier')
+  })
+
+  it('le mode ingrédient reste valable sans article ; retirer l article revient au mode auto', async () => {
+    const { ct } = setup()
+    await flushPromises()
+    ct().setGroupBy('ingredient')
+    expect(ct().groupBy.value).toBe('ingredient')
+    ct().setGroupBy('component')
+    expect(ct().groupBy.value).toBe('component')
+  })
+
+  it('drill d un fournisseur ou d un composant applique son filtre', async () => {
+    const { ct } = setup()
+    await flushPromises()
+    ct().setGroupBy('supplier')
+    ct().drill({ kind: 'supplier', id: 's1' })
+    expect(ct().supplierKey.value).toBe('s1')
+    expect(ct().groupBy.value).toBe('article')
+    ct().drill({ kind: 'component', id: 'k1' })
+    expect(ct().componentId.value).toBe('k1')
   })
 })

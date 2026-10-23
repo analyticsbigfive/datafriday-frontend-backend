@@ -8,6 +8,7 @@ import CostTrackingChartCard from '@/components/space-workspace/cost-tracking/Co
 import CostTrackingFilterChips from '@/components/space-workspace/cost-tracking/CostTrackingFilterChips.vue'
 import CostTrackingFilterPanel from '@/components/space-workspace/cost-tracking/CostTrackingFilterPanel.vue'
 
+jest.mock('@/api/endpoints/cost-tracking.api', () => ({}))
 jest.mock('@/components/WorkspaceAppHeader.vue', () => ({ __esModule: true, default: { template: '<div />' } }))
 jest.mock('@/components/WorkspaceToolSelect.vue', () => ({ __esModule: true, default: { template: '<div />' } }))
 jest.mock('@/composables/useWorkspaceToolbox', () => ({ useWorkspaceToolbox: () => ({ toolboxItems: [], onToolboxSelect: () => {} }) }))
@@ -70,6 +71,27 @@ describe('CostTrackingFilterPanel', () => {
     })
     await w.find('#ct-ingredient').setValue('i1')
     expect(w.emitted('set-ingredient')[0]).toEqual(['i1'])
+  })
+  it('filtres fournisseur et composant : options des listes, émission du choix, Tous = null', async () => {
+    const w = mount(CostTrackingFilterPanel, {
+      props: {
+        ...base,
+        supplierOptions: [{ key: 's1', name: 'Metro', brickCount: 2 }, { key: 'name:promocash', name: 'Promocash', brickCount: 1 }],
+        componentOptions: [{ id: 'c1', name: 'Sauce maison', articleCount: 2 }],
+      },
+    })
+    expect(w.findAll('#ct-supplier option').map((o) => o.text())).toEqual(['ctAllSuppliers', 'Metro', 'Promocash'])
+    await w.find('#ct-supplier').setValue('name:promocash')
+    expect(w.emitted('set-supplier')[0]).toEqual(['name:promocash'])
+    await w.find('#ct-supplier').setValue('')
+    expect(w.emitted('set-supplier')[1]).toEqual([null])
+    await w.find('#ct-component').setValue('c1')
+    expect(w.emitted('set-component')[0]).toEqual(['c1'])
+  })
+  it('sans prix de vente (canPrice faux) : courbe de prix désactivée', () => {
+    const w = mount(CostTrackingFilterPanel, { props: { ...base, canPrice: false, showPrice: true } })
+    expect(w.findAll('[role="switch"]')[0].attributes('disabled')).toBeDefined()
+    expect(w.findAll('[role="switch"]')[0].attributes('aria-checked')).toBe('false')
   })
   it('il n y a plus de bascule des matchs : les événements sont toujours affichés', () => {
     const w = mount(CostTrackingFilterPanel, { props: { ...base } })
