@@ -73,6 +73,8 @@ export function buildPredictedNeedIndex({ elements = [], menuItems = [], compone
 
   const byItemId = {}
   const byItemName = {}
+  const sourcesByItemId = {}
+  const sourcesByItemName = {}
   const flatRows = []
   for (const row of rows) {
     const elementId = row?.shopId
@@ -84,23 +86,51 @@ export function buildPredictedNeedIndex({ elements = [], menuItems = [], compone
       sourceId: row.sourceId != null ? String(row.sourceId) : null,
       itemName: String(row?.itemName ?? ''),
       units,
+      // Menu Items à l'origine du besoin (détail « d'où vient ce chiffre »).
+      sources: Array.isArray(row?.sources) ? row.sources : [],
     })
     for (const id of [row.itemId, row.sourceId]) {
       if (id == null) continue
       const k = expectedKey(elementId, id)
       byItemId[k] = (byItemId[k] || 0) + units
+      sourcesByItemId[k] = mergeSources(sourcesByItemId[k], row?.sources)
     }
     const nk = normalizeStr(row?.itemName)
     if (nk) {
       const k = expectedKey(elementId, nk)
       byItemName[k] = (byItemName[k] || 0) + units
+      sourcesByItemName[k] = mergeSources(sourcesByItemName[k], row?.sources)
     }
   }
   // Index vide (scénario qui ne couvre aucun des PdV affichés) → null, comme
   // « pas de scénario » : dans les deux cas il n'y a rien à afficher, et un objet
   // vide obligerait chaque appelant à re-tester ses clés.
   if (!Object.keys(byItemId).length && !Object.keys(byItemName).length) return null
-  return { byItemId, byItemName, rows: flatRows }
+  return { byItemId, byItemName, sourcesByItemId, sourcesByItemName, rows: flatRows }
+}
+
+/** Fusionne des sources par Menu Item (somme des quantités), sans muter l'entrée. */
+function mergeSources(existing, incoming) {
+  const merged = Array.isArray(existing) ? existing.map((s) => ({ ...s })) : []
+  for (const src of Array.isArray(incoming) ? incoming : []) {
+    const prev = merged.find((m) => m.menuItemId === src.menuItemId)
+    if (prev) prev.menuItemQuantity = (Number(prev.menuItemQuantity) || 0) + (Number(src.menuItemQuantity) || 0)
+    else merged.push({ ...src })
+  }
+  return merged
+}
+
+/**
+ * Menu Items sources du besoin d'un (PdV, article), même jointure que
+ * `lookupPredictedNeed`. [] si l'index ne porte pas de détail.
+ * @returns {Array<{menuItemId:string, menuItemName:string, menuItemQuantity:number}>}
+ */
+export function lookupPredictedNeedSources(index, elementId, item) {
+  if (!index || !elementId || !item) return []
+  const byId = item.id != null ? index.sourcesByItemId?.[expectedKey(elementId, item.id)] : undefined
+  if (byId) return byId
+  const nk = normalizeStr(item?.name)
+  return (nk && index.sourcesByItemName?.[expectedKey(elementId, nk)]) || []
 }
 
 /**

@@ -40,7 +40,8 @@
                 <div class="rsk-field">
                   <div class="rsk-label">{{ packedFieldLabel }}</div>
                   <v-text-field
-                    v-model.number="form.packed"
+                    :model-value="form.packed"
+                    @update:model-value="(v) => onFieldInput('packed', v)"
                     type="number"
                     min="0"
                     step="1"
@@ -53,7 +54,8 @@
                 <div class="rsk-field">
                   <div class="rsk-label">{{ looseFieldLabel }}</div>
                   <v-text-field
-                    v-model.number="form.loose"
+                    :model-value="form.loose"
+                    @update:model-value="(v) => onFieldInput('loose', v)"
                     type="number"
                     min="0"
                     step="0.01"
@@ -64,6 +66,15 @@
                   />
                 </div>
               </div>
+
+              <RestockPrefillHint
+                :predicted="predictedRemaining"
+                :unit="currentItem?.unit || ''"
+                :queued="queuedSameItemTotal"
+                :applied="!prefillTouched && !!suggestion"
+                :capped="!!suggestion?.capped"
+                :capped-to="suggestion?.total || 0"
+              />
 
               <div v-if="availableCap" class="rsk-cap" :class="{ 'rsk-cap-over': exceedsCap }">
                 <v-icon size="14" class="mr-1">{{ exceedsCap ? 'mdi-alert-circle-outline' : 'mdi-information-outline' }}</v-icon>
@@ -229,6 +240,8 @@ import { sortElementsByFloorAndQuantity } from '@/utils/logisticElementOptions'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
 import { groupTasksByStaff, groupTasksByRoute } from '@/utils/restockerTaskGrouping'
 import { getLogisticTasks } from '@/api/endpoints/logistic-tasks.api'
+import RestockPrefillHint from './RestockPrefillHint.vue'
+import { splitRestockQuantity } from '@/utils/restockQuantityPrefill'
 import { PRIORITY_ORDER, PRIORITY_LABEL_KEYS, priorityColor } from '@/utils/logisticTaskPriority'
 
 /**
@@ -248,6 +261,7 @@ import { PRIORITY_ORDER, PRIORITY_LABEL_KEYS, priorityColor } from '@/utils/logi
  */
 export default {
   name: 'RestockerDrawer',
+  components: { RestockPrefillHint },
   props: {
     modelValue: { type: Boolean, default: false },
     spaceId: { type: String, default: '' },
@@ -262,6 +276,9 @@ export default {
     tasks: { type: Array, default: () => [] },
     confirming: { type: Boolean, default: false },
     error: { type: String, default: null },
+    /** Ventes prévues restantes converties au grain de l'article ({ units, sources }),
+     *  null = pas de predict. Sert de valeur par défaut des champs, modifiable. */
+    predictedRemaining: { type: Object, default: null },
   },
   emits: ['update:modelValue', 'add-task', 'remove-task', 'confirm'],
   setup() {
@@ -278,6 +295,8 @@ export default {
       // Tâches LogisticTask PENDING de tout l'espace (autres sessions/staff compris),
       // rechargées à chaque ouverture du drawer — voir reservedAtOrigin.
       openTasks: [],
+      // true dès que l'utilisateur modifie packs/vrac : on ne réécrase plus ses saisies.
+      prefillTouched: false,
     }
   },
   computed: {
@@ -424,6 +443,30 @@ export default {
     stockLoading() {
       return !!this.store.state.logistics?.loading
     },
+    /** Quantité (unités de base) déjà en file pour ce même article et ce même PdV. */
+    queuedSameItemTotal() {
+      let total = 0
+      for (const task of this.tasks) {
+        if (!this.matchesCurrentItem(task)) continue
+        if (task.destinationElementId !== this.element?.id) continue
+        total += (Number(task.packed) || 0) * (Number(task.unitsPerPack) || 0) + (Number(task.loose) || 0)
+      }
+      return total
+    },
+    /** Découpe packs/vrac proposée : ventes prévues restantes moins la file, plafonnée
+     *  par le disponible à l'origine choisie. null = rien à proposer. */
+    suggestion() {
+      const units = Number(this.predictedRemaining?.units)
+      if (!Number.isFinite(units)) return null
+      const need = units - this.queuedSameItemTotal
+      if (!(need > 0)) return null
+      const res = splitRestockQuantity(need, {
+        unitsPerPack: this.unitsPerPack,
+        unit: this.currentItem?.unit,
+        cap: this.availableCap,
+      })
+      return res.total > 0 ? res : null
+    },
     isValid() {
       const packed = Math.max(0, Math.round(Number(this.form.packed) || 0))
       const loose = Math.max(0, Number(this.form.loose) || 0)
@@ -437,14 +480,30 @@ export default {
     modelValue(open) {
       if (!open) return
       this.resetForm()
+      this.applyPrefill()
       if (this.spaceId) {
         this.fetchStaff(this.spaceId)
         this.fetchOpenTasks()
       }
       this.ensureStock()
     },
+    suggestion() {
+      this.applyPrefill()
+    },
   },
   methods: {
+    /** Saisie manuelle : le pré-remplissage ne doit plus écraser le champ. */
+    onFieldInput(name, value) {
+      this.prefillTouched = true
+      const n = Number(value)
+      this.form[name] = value === '' || value == null || Number.isNaN(n) ? '' : n
+    },
+    /** Pose la suggestion dans les champs tant que l'utilisateur n'y a pas touché. */
+    applyPrefill() {
+      if (!this.modelValue || this.prefillTouched) return
+      this.form.packed = this.suggestion?.packed ?? 0
+      this.form.loose = this.suggestion?.loose ?? 0
+    },
     /** Rafraîchi à CHAQUE ouverture (pas de cache par espace, contrairement à avant) :
      *  un pickup exécuté ailleurs entre-temps a réellement décrémenté StockLevel, un
      *  cache périmé masquerait ce mouvement dans le select Origine. */
@@ -471,6 +530,7 @@ export default {
     /** Réinitialise l'item en cours ; garde staff/priorité (par défaut le même
      *  logisticien pour la tâche suivante, cf. mockup). */
     resetForm() {
+      this.prefillTouched = false
       const last = this.tasks[this.tasks.length - 1]
       this.form = {
         sourceElementId: null,
@@ -533,6 +593,9 @@ export default {
       this.form.sourceElementId = null
       this.form.packed = 0
       this.form.loose = 0
+      // La file vient de changer : nouvelle suggestion (reste à réarmer), champs de nouveau libres.
+      this.prefillTouched = false
+      this.$nextTick(() => this.applyPrefill())
     },
   },
 }
