@@ -73,6 +73,8 @@ export function useLiveHr({ eventId, active, basketRows, timelineRows, isLive })
       staffElements: staffElements.value,
       predictedByShop: predictedByShop.value,
       excludeLatest: !!isLive.value,
+      // Sans panier (avant l'événement) : fenêtre « 3 dernières minutes » à 0 tx/min.
+      now: new Date(),
     }),
   )
 

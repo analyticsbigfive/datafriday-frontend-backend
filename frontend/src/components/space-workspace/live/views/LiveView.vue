@@ -14,6 +14,8 @@
             <LiveHeader
               :space-name="spaceName"
               :is-live="liveData.isLive.value"
+              :is-upcoming="liveData.isUpcoming.value"
+              :doors-open-at="liveData.doorsOpenAt.value"
               :live-event="liveData.event.value"
               :is-dark="isDark"
               :drawer-open="drawer"
@@ -91,6 +93,7 @@
               :has-predicted="liveHr.hasPredicted.value"
               :can-see-revenue="canSeeFinancials"
               :is-dark="isDark"
+              :is-upcoming="liveData.isUpcoming.value"
             />
 
                 <LiveInventoryPanel
