@@ -39,7 +39,7 @@ const fmt = useCostTrackingFormat()
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 10px;
+  margin-top: 12px;
 }
 .ct-legend__item {
   display: inline-flex;

@@ -2,11 +2,14 @@
  * Panneau de filtres, bandeau, pastilles et carte du graphique de la page Cost tracking.
  * Le test vérifie aussi que la vue et la colonne gauche se compilent (import).
  */
-import { mount } from '@vue/test-utils'
+import { config, mount } from '@vue/test-utils'
+import { vuetifyToggleStubs } from './helpers/vuetifyToggleStubs'
 import CostTrackingBanner from '@/components/space-workspace/cost-tracking/CostTrackingBanner.vue'
 import CostTrackingChartCard from '@/components/space-workspace/cost-tracking/CostTrackingChartCard.vue'
 import CostTrackingFilterChips from '@/components/space-workspace/cost-tracking/CostTrackingFilterChips.vue'
 import CostTrackingFilterPanel from '@/components/space-workspace/cost-tracking/CostTrackingFilterPanel.vue'
+
+config.global.stubs = { ...config.global.stubs, ...vuetifyToggleStubs }
 
 jest.mock('@/api/endpoints/cost-tracking.api', () => ({}))
 jest.mock('@/components/WorkspaceAppHeader.vue', () => ({ __esModule: true, default: { template: '<div />' } }))

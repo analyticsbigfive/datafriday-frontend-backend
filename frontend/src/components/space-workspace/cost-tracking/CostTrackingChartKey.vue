@@ -24,8 +24,8 @@ const { t } = useI18n()
 .ct-key {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
-  margin-top: 10px;
+  gap: 8px 16px;
+  margin-top: 12px;
   font-size: var(--fs-xs);
   color: var(--ct-faint);
 }
