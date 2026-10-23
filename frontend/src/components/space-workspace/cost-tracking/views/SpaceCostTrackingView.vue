@@ -39,18 +39,20 @@
           />
 
           <main class="ct-main">
-            <CostTrackingBanner
-              :title="t('ctBannerTitle').replace('{space}', spaceName)"
-              :subtitle="bannerSubtitle"
-              :left-open="leftOpen"
-              @toggle-left="leftOpen = !leftOpen"
-            />
-            <CostTrackingFilterChips
-              :period-label="model.periodLabel.value"
-              :chips="model.chips.value"
-              :count-label="model.countLabel.value"
-              @remove="removeChip"
-            />
+            <div class="ct-sticky">
+              <CostTrackingBanner
+                :title="t('ctBannerTitle').replace('{space}', spaceName)"
+                :subtitle="bannerSubtitle"
+                :left-open="leftOpen"
+                @toggle-left="leftOpen = !leftOpen"
+              />
+              <CostTrackingFilterChips
+                :period-label="model.periodLabel.value"
+                :chips="model.chips.value"
+                :count-label="model.countLabel.value"
+                @remove="removeChip"
+              />
+            </div>
             <CostTrackingBaselineNotice
               v-if="model.notice.value"
               :started-at="model.notice.value.startedAt"
@@ -150,7 +152,7 @@ const spaceName = computed(
 const bannerSubtitle = computed(() =>
   t('ctBannerSub')
     .replace('{count}', model.countLabel.value)
-    .replace('{versions}', String(model.versionsTotal.value)),
+    .replace('{versions}', model.versionsLabel.value),
 )
 
 // Retirer une pastille : un type vide tout, une catégorie vide aussi l'article, un article vide
@@ -264,8 +266,21 @@ onMounted(() => {
 .ct-main {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   min-width: 0;
+}
+/* Bandeau rouge + pastilles épinglés ensemble en haut de la colonne centrale (modèle : .av-sticky
+   d'AnalyseView). Grand écran : la colonne centrale est le conteneur qui défile, donc top 0 reste
+   sous la barre de l'application. Fond opaque pour que le contenu ne transparaisse pas. */
+.ct-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 12px;
+  background: var(--ct-bg);
 }
 @media (max-width: 1280px) {
   .ct-view {
@@ -278,6 +293,10 @@ onMounted(() => {
   .ct-body > * {
     max-height: none;
     overflow: visible;
+  }
+  /* Écran étroit : c'est la page qui défile, la barre de l'application (64 px) reste fixe au-dessus. */
+  .ct-sticky {
+    top: var(--v-layout-top, 64px);
   }
   .ct-body {
     grid-template-columns: 292px minmax(0, 1fr);
@@ -312,9 +331,11 @@ onMounted(() => {
   font-weight: var(--fw-semibold);
 }
 .ct-view .ct-card__sub {
-  margin-top: 2px;
+  max-width: 72ch;
+  margin-top: 4px;
   color: var(--ct-faint);
   font-size: var(--fs-sm);
+  line-height: 1.5;
 }
 .ct-view .ct-delta {
   font-weight: var(--fw-semibold);

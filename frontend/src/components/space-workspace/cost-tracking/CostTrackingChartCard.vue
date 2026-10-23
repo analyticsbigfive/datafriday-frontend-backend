@@ -1,7 +1,7 @@
 <template>
   <section class="ct-card ct-chart-card" aria-labelledby="ct-chart-title">
     <div class="ct-chart-card__head">
-      <div>
+      <div class="ct-chart-card__text">
         <div id="ct-chart-title" class="ct-card__title">{{ t('ctChartTitle') }}</div>
         <div class="ct-card__sub">{{ subtitle }}</div>
       </div>
@@ -10,7 +10,7 @@
         @update:model-value="$emit('set-group-by', $event)" />
     </div>
 
-    <CostTrackingStateMessage v-if="state !== 'ready'" :kind="state" @retry="$emit('retry')" />
+    <CostTrackingStateMessage v-if="state !== 'ready'" :kind="state" :group-by="groupBy" @retry="$emit('retry')" />
     <template v-else>
       <CostTrackingChart
         :chart-model="chartModel"
@@ -30,6 +30,7 @@
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { useCostTrackingFormat } from '@/composables/useCostTrackingFormat'
+import { countText } from '@/utils/costTrackingCopy'
 import CostTrackingChart from './CostTrackingChart.vue'
 import CostTrackingChartKey from './CostTrackingChartKey.vue'
 import CostTrackingGroupSwitch from './CostTrackingGroupSwitch.vue'
@@ -54,23 +55,12 @@ const props = defineProps({
 })
 defineEmits(['set-group-by', 'toggle-line', 'retry'])
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const fmt = useCostTrackingFormat()
-
-const NOUNS = {
-  article: ['ctNounArticleOne', 'ctNounArticleMany'],
-  category: ['ctNounCategoryOne', 'ctNounCategoryMany'],
-  type: ['ctNounTypeOne', 'ctNounTypeMany'],
-  ingredient: ['ctNounIngredientOne', 'ctNounIngredientMany'],
-  supplier: ['ctNounSupplierOne', 'ctNounSupplierMany'],
-  component: ['ctNounComponentOne', 'ctNounComponentMany'],
-}
 
 const subtitle = computed(() => {
   if (props.state === 'loading') return ''
-  const count = props.legendRows.length
-  const [one, many] = NOUNS[props.groupBy] || NOUNS.article
-  let noun = `${count} ${t(count > 1 ? many : one)}`
+  let noun = countText(props.legendRows.length, props.groupBy, t, locale.value)
   if (props.truncated && props.groupBy === 'article') {
     noun += t(props.rankedByRevenue ? 'ctTruncatedByRevenue' : 'ctTruncatedAlpha')
   }
@@ -87,7 +77,17 @@ const subtitle = computed(() => {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px 16px;
   flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.ct-chart-card__text {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+/* La bascule garde sa largeur naturelle sur une ligne ; si la carte est trop étroite elle passe
+   sous le titre et défile horizontalement plutôt que de couper ses libellés. */
+.ct-chart-card__head :deep(.ct-seg) {
+  flex: 0 1 auto;
 }
 </style>

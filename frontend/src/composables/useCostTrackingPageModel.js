@@ -5,6 +5,7 @@
  */
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
+import { countText, pluralKey } from '@/utils/costTrackingCopy'
 import { useCostTrackingFormat } from '@/composables/useCostTrackingFormat'
 import { periodI18nKey } from '@/utils/costTrackingPeriod'
 import { MAX_MARGIN_LINES } from '@/utils/costTrackingMarginCurve'
@@ -20,7 +21,7 @@ const mean = (values) => {
  * @param {ReturnType<import('@/composables/useCostTracking').useCostTracking>} ct
  */
 export function useCostTrackingPageModel(ct) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const fmt = useCostTrackingFormat()
 
   const t1 = computed(() => ct.bounds.value[1])
@@ -99,18 +100,13 @@ export function useCostTrackingPageModel(ct) {
   })
 
   /** « 28 catégories » : le niveau affiché dans le graphique (type, catégorie, article ou ingrédient). */
-  const countLabel = computed(() => {
-    const n = rows.value.length
-    const keys = {
-      type: ['ctNounTypeOne', 'ctNounTypeMany'],
-      category: ['ctNounCategoryOne', 'ctNounCategoryMany'],
-      ingredient: ['ctNounIngredientOne', 'ctNounIngredientMany'],
-      article: ['ctNounArticleOne', 'ctNounArticleMany'],
-      supplier: ['ctNounSupplierOne', 'ctNounSupplierMany'],
-      component: ['ctNounComponentOne', 'ctNounComponentMany'],
-    }
-    const [one, many] = keys[ct.groupBy.value] || keys.article
-    return `${n} ${t(n > 1 ? many : one)}`
+  const countLabel = computed(() => countText(rows.value.length, ct.groupBy.value, t, locale.value))
+
+  /** « 128 versions de coût » : singulier à 1 (et à 0 en français). */
+  const versionsLabel = computed(() => {
+    const n = versionsTotal.value
+    const key = pluralKey(n, locale.value, 'ctBannerVersionsOne', 'ctBannerVersionsMany')
+    return t(key).replace('{n}', String(n))
   })
 
   /** Début du suivi, pour expliquer d'où vient la variation affichée dans les classements. */
@@ -142,6 +138,6 @@ export function useCostTrackingPageModel(ct) {
 
   return {
     rows, changes, versionsTotal, legendRows, canMargin, canPrice, chartState,
-    periodLabel, chips, notice, headerKpis, selectedTags, countLabel, sinceLabel,
+    periodLabel, chips, notice, headerKpis, selectedTags, countLabel, versionsLabel, sinceLabel,
   }
 }
