@@ -85,23 +85,58 @@ describe('CostTrackingSummaryPanel : total ou moyenne', () => {
 })
 
 describe('CostTrackingSummaryPanel', () => {
-  it('sans donnée : trois messages vides', () => {
+  const names = (w) => w.findAll('.ct-rank__name').map((n) => n.text())
+  const mixed = [
+    row({ key: 'article:a', id: 'a', name: 'Burger', variation: { abs: 0.5, pct: 25, direction: 'up' } }),
+    row({ key: 'article:b', id: 'b', name: 'Frites', variation: { abs: -0.2, pct: -10, direction: 'down' } }),
+    row({ key: 'article:c', id: 'c', name: 'Éclair', variation: { abs: 0.1, pct: 5, direction: 'up' } }),
+  ]
+  it('sans donnée : message vide de la section et des changements', () => {
     const w = mount(CostTrackingSummaryPanel)
-    expect(w.text()).toContain('ctNoRise')
-    expect(w.text()).toContain('ctNoFall')
+    expect(w.text()).toContain('ctPerfEmpty')
     expect(w.text()).toContain('ctNoChange')
   })
+  it('une seule section dont le titre suit le niveau affiché', () => {
+    expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'type' } }).text()).toContain('ctPerfTitleType')
+    expect(mount(CostTrackingSummaryPanel, { props: { groupBy: 'ingredient' } }).text()).toContain('ctPerfTitleIngredient')
+  })
   it('un classement descend d un niveau (drill)', async () => {
-    const w = mount(CostTrackingSummaryPanel, { props: { rises: [row()] } })
+    const w = mount(CostTrackingSummaryPanel, { props: { rows: [row()] } })
     await w.find('.ct-rank').trigger('click')
     expect(w.emitted('drill')[0][0]).toMatchObject({ id: 'a', kind: 'article' })
   })
   it('affiche 5 lignes puis tout avec Voir tout', async () => {
-    const rises = Array.from({ length: 7 }, (_, i) => row({ key: `article:${i}`, id: `a${i}` }))
-    const w = mount(CostTrackingSummaryPanel, { props: { rises } })
+    const rows = Array.from({ length: 7 }, (_, i) => row({ key: `article:${i}`, id: `a${i}`, name: `N${i}` }))
+    const w = mount(CostTrackingSummaryPanel, { props: { rows } })
     expect(w.findAll('.ct-rank')).toHaveLength(5)
-    await w.find('.ct-summary__more').trigger('click')
+    await w.find('.ct-perf__more').trigger('click')
     expect(w.findAll('.ct-rank')).toHaveLength(7)
+  })
+  it('tri par défaut hausses d abord, boutons de tri bascule et grise le bouton actif', async () => {
+    const w = mount(CostTrackingSummaryPanel, { props: { rows: mixed } })
+    expect(names(w)).toEqual(['Burger', 'Éclair', 'Frites'])
+    const [up, down] = w.findAll('.ct-sort__btn')
+    expect(up.attributes('disabled')).toBeDefined()
+    expect(up.attributes('aria-pressed')).toBe('true')
+    await down.trigger('click')
+    expect(names(w)).toEqual(['Frites', 'Éclair', 'Burger'])
+    expect(down.attributes('disabled')).toBeDefined()
+    expect(up.attributes('disabled')).toBeUndefined()
+  })
+  it('la recherche filtre par nom sans tenir compte de la casse ni des accents', async () => {
+    const w = mount(CostTrackingSummaryPanel, { props: { rows: mixed } })
+    await w.find('.ct-perf__search').setValue('ECLAIR')
+    expect(names(w)).toEqual(['Éclair'])
+    await w.find('.ct-perf__search').setValue('zzz')
+    expect(w.text()).toContain('ctPerfNoMatch')
+  })
+  it('la carte affiche amount quand il est fourni, sinon le coût actuel', () => {
+    const w = mount(CostTrackingSummaryPanel, {
+      props: { rows: [row({ key: 'article:x', name: 'X', amount: 1234 }), row({ key: 'article:y', name: 'Y', currentCost: 2.5, variation: { abs: 0, pct: 1, direction: 'up' } })] },
+    })
+    const amounts = w.findAll('.ct-rank__amount').map((n) => n.text())
+    expect(amounts[0]).toMatch(/1[\s\u202f\u00a0,.]?234/)
+    expect(amounts[1]).toMatch(/2[,.]50?/)
   })
 })
 

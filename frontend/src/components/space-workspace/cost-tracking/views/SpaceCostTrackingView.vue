@@ -75,8 +75,7 @@
           </main>
 
           <CostTrackingSummaryPanel
-            :rises="model.rises.value"
-            :falls="model.falls.value"
+            :rows="model.rows.value"
             :changes="model.changes.value"
             :since-label="model.sinceLabel.value"
             :group-by="ct.groupBy.value"

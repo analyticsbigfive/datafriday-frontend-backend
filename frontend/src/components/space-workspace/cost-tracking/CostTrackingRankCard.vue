@@ -2,15 +2,17 @@
   <div
     class="ct-rank"
     :class="{ 'ct-rank--click': !!row.id }"
-    :style="{ '--ct-rank-color': direction === 'up' ? 'var(--ct-up)' : 'var(--ct-down)' }"
+    :style="{ '--ct-rank-color': `var(--ct-${direction === 'flat' ? 'faint' : direction === 'up' ? 'up' : 'down'})` }"
     @click="$emit('select', row)"
   >
     <div class="ct-rank__top">
       <span class="ct-rank__n" :class="{ 'ct-rank__n--first': index === 0 }">{{ index + 1 }}</span>
       <span class="ct-rank__name">{{ row.name }}</span>
-      <span class="ct-rank__pct" :class="fmt.trendClass(direction)">{{ fmt.pct(row.variation.pct) }}</span>
+      <span class="ct-rank__value">
+        <span class="ct-rank__amount">{{ fmt.cost(amount) }}</span>
+        <span class="ct-rank__pct" :class="fmt.trendClass(direction)">{{ fmt.pct(row.variation.pct) }}</span>
+      </span>
     </div>
-    <div class="ct-rank__sub">{{ fmt.cost(row.startCost) }} &rarr; {{ fmt.cost(row.currentCost) }}</div>
     <div class="ct-rank__bar"><i :style="{ width: `${width}%` }" /></div>
   </div>
 </template>
@@ -18,20 +20,22 @@
 <script setup>
 import { computed } from 'vue'
 import { useCostTrackingFormat } from '@/composables/useCostTrackingFormat'
+import { primaryAmount } from '@/utils/costTrackingPerformance'
 
-// Carte de classement (plus forte hausse ou baisse) : rang, nom, variation, coût début vers fin,
-// barre proportionnelle à la plus forte variation du classement.
+// Carte de performance : rang, nom, valeur principale puis variation en % dessous (rouge hausse,
+// vert baisse, neutre sinon), barre proportionnelle à la plus forte variation de la liste.
+// La valeur principale est `row.amount` s'il est fourni, sinon le coût actuel.
 const props = defineProps({
   row: { type: Object, required: true },
   index: { type: Number, default: 0 },
-  // 'up' | 'down'
-  direction: { type: String, default: 'up' },
-  // Plus forte variation absolue (%) du classement, base de la barre.
+  // Plus forte variation absolue (%) de la liste, base de la barre.
   max: { type: Number, default: 1 },
 })
 defineEmits(['select'])
 
 const fmt = useCostTrackingFormat()
+const amount = computed(() => primaryAmount(props.row))
+const direction = computed(() => props.row.variation.direction || 'flat')
 const width = computed(() => Math.max(4, (Math.abs(props.row.variation.pct) / (props.max || 1)) * 100))
 </script>
 
@@ -80,19 +84,24 @@ const width = computed(() => Math.max(4, (Math.abs(props.row.variation.pct) / (p
   font-size: var(--fs-md);
   font-weight: var(--fw-medium);
 }
-.ct-rank__pct {
+.ct-rank__value {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  flex: none;
+}
+.ct-rank__amount {
   font-size: var(--fs-lg);
   font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
 }
-.ct-rank__sub {
-  margin: 6px 0 8px;
-  text-align: right;
-  color: var(--ct-faint);
+.ct-rank__pct {
   font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   font-variant-numeric: tabular-nums;
 }
 .ct-rank__bar {
+  margin-top: 8px;
   height: 6px;
   border-radius: 99px;
   background: var(--ct-border);

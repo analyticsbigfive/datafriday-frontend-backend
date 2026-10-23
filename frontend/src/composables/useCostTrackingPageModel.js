@@ -8,7 +8,7 @@ import { useI18n } from '@/i18n/useI18n'
 import { useCostTrackingFormat } from '@/composables/useCostTrackingFormat'
 import { periodI18nKey } from '@/utils/costTrackingPeriod'
 import { MAX_MARGIN_LINES } from '@/utils/costTrackingMarginCurve'
-import { buildRows, rankVariations, recentChanges } from '@/utils/costTrackingRows'
+import { buildRows, recentChanges } from '@/utils/costTrackingRows'
 
 const mean = (values) => {
   const v = values.filter((x) => typeof x === 'number')
@@ -24,9 +24,6 @@ export function useCostTrackingPageModel(ct) {
 
   const t1 = computed(() => ct.bounds.value[1])
   const rows = computed(() => buildRows(ct.lines.value, t1.value))
-  // Classements complets : la colonne de droite n'en montre que 5, « Voir tout » déplie le reste.
-  const rises = computed(() => rankVariations(rows.value, 'up', Infinity))
-  const falls = computed(() => rankVariations(rows.value, 'down', Infinity))
   const changes = computed(() => recentChanges(ct.lines.value, 6))
   const versionsTotal = computed(() => rows.value.reduce((s, r) => s + r.versions, 0))
 
@@ -130,7 +127,7 @@ export function useCostTrackingPageModel(ct) {
   })
 
   return {
-    rows, rises, falls, changes, versionsTotal, legendRows, canMargin, chartState,
+    rows, changes, versionsTotal, legendRows, canMargin, chartState,
     periodLabel, chips, notice, headerKpis, selectedTags, countLabel, sinceLabel,
   }
 }
