@@ -77,6 +77,16 @@ export class CreatePredictVersionDto {
   @Type(() => Object)
   predictedRecords?: Array<Record<string, unknown>>;
 
+  @ApiPropertyOptional({
+    description:
+      'Courbe prédite par minute (colonnaire { v, grain, m, q, r }), affichée en fond de la timeline Live. null pour effacer.',
+    type: 'object',
+  })
+  @IsOptional()
+  @ValidateIf((o) => o.predictedTimeline !== null)
+  @IsObject()
+  predictedTimeline?: { v: number; grain: string; m: string[]; q: number[]; r: number[] } | null;
+
   @ApiPropertyOptional({ description: 'IDs des événements de prédiction sélectionnés', type: [String] })
   @IsOptional()
   @IsArray()

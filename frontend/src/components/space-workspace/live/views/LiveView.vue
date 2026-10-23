@@ -63,6 +63,9 @@
                   :event-name="eventTitle"
                   :event-date="eventDateStr"
                   :timeline-data="filteredTimelineRows"
+                  :background-timeline-data="activeChips.length ? [] : predictBackground.rows.value"
+                  :background-label="predictBackground.label.value"
+                  :background-note="activeChips.length && predictBackground.rows.value.length ? t('anTimelineBgHidden') : ''"
                   :menu-items="menuItemsCatalog"
                 />
               </v-card>
@@ -146,6 +149,7 @@ import { useI18n } from '@/i18n/useI18n'
 import { useLiveData } from '@/composables/useLiveData'
 import { useLiveItemRecords } from '@/composables/useLiveItemRecords'
 import { useLiveHr } from '@/composables/useLiveHr'
+import { useLivePredictBackground } from '@/composables/useLivePredictBackground'
 import { useMetricsCalculator } from '@/composables/useMetricsCalculator'
 import { buildShopTotals } from '@/utils/liveKpis'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
@@ -270,6 +274,12 @@ const processedTimelineRows = computed(() => {
 // c'est sûr de réutiliser useAnalyseItemRecords ici (catalogue statique, pas d'état
 // de polling Live partagé).
 const itemRecordsSource = useLiveItemRecords(liveData.timelineRows)
+
+// Fond prédit (version Predict par défaut de l'event), réservé aux porteurs du droit CA.
+const predictBackground = useLivePredictBackground(
+  computed(() => liveData.eventId.value || ''),
+  computed(() => !!store.getters['auth/can']('stats.financial.view')),
+)
 
 const filters = reactive({
   selectedShopIds: [],

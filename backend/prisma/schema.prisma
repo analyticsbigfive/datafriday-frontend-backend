@@ -3693,6 +3693,11 @@ model EventPredictVersion {
   quantityAdjustments        Json
   manualQuantities           Json     @default("{}")
   predictedRecords           Json     @default("[]")
+  // Courbe prédite PAR MINUTE (CA et quantités, tous PdV et articles confondus), figée à la
+  // sauvegarde. Format colonnaire { v:1, grain:'minute', m:[minuteLocal], q:[qté], r:[CA] },
+  // cf. predicted-timeline-snapshot.ts. Nullable : les versions antérieures n'en ont pas
+  // (aucun fond prédit côté Live) jusqu'à leur prochaine sauvegarde dans Event Predict.
+  predictedTimeline          Json?
   selectedPredictionEventIds String[]
   selectedTimeRange          Json?
   createdBy                  String?

@@ -25,6 +25,7 @@
 
 import { ref, shallowRef } from 'vue'
 import { isDemoMode } from '@/utils/demoMode'
+import { hasPredictedTimeline } from '@/utils/predictedTimelineSnapshot'
 import {
   listEventPredictVersions,
   createEventPredictVersion,
@@ -125,6 +126,9 @@ function dbToVersion(d) {
     // localStorage → marche cross-device. `[]` tant que le backend n'expose pas
     // la colonne.
     predictedRecords: Array.isArray(d.predictedRecords) ? d.predictedRecords : [],
+    // Courbe prédite par minute (fond de la timeline Live). null pour les versions
+    // sauvegardées avant l'ajout de la colonne.
+    predictedTimeline: hasPredictedTimeline(d.predictedTimeline) ? d.predictedTimeline : null,
     isDefault: !!d.isDefault,
   }
 }
@@ -156,6 +160,8 @@ function versionToPayload(v) {
     ...(Array.isArray(v.predictedRecords) && v.predictedRecords.length
       ? { predictedRecords: v.predictedRecords }
       : {}),
+    // Idem : jamais de null/vide envoyé, une courbe déjà enregistrée n'est pas écrasée.
+    ...(hasPredictedTimeline(v.predictedTimeline) ? { predictedTimeline: v.predictedTimeline } : {}),
   }
 }
 
@@ -377,24 +383,30 @@ export function useEventPredictVersions() {
   // le save réussit sans quantités DB (le réarmement retombe sur le pont
   // localStorage). Dès que le backend accepte la clé, la persistance DB des
   // quantités s'active sans changement front.
-  function canRetryWithoutPredictedRecords(err, payload) {
-    if (!payload || !('predictedRecords' in payload)) return false
+  // Même garde pour `predictedTimeline` (courbe du fond Live) : un backend plus ancien la
+  // refuse en 400. On retire les clés optionnelles refusées et on rejoue une fois.
+  const OPTIONAL_PAYLOAD_KEYS = ['predictedRecords', 'predictedTimeline']
+  function canRetryWithoutOptionalKeys(err, payload) {
+    if (!payload || !OPTIONAL_PAYLOAD_KEYS.some((k) => k in payload)) return false
     if ((err?.response?.status || 0) !== 400) return false
     const msg = err?.response?.data?.message
     const text = Array.isArray(msg) ? msg.join(' ') : String(msg || '')
     return (
-      /predictedRecords/i.test(text) ||
+      /predictedRecords|predictedTimeline/i.test(text) ||
       /should not exist|whitelist|not allowed/i.test(text)
     )
+  }
+  function withoutOptionalKeys(payload) {
+    const rest = { ...payload }
+    for (const k of OPTIONAL_PAYLOAD_KEYS) delete rest[k]
+    return rest
   }
   async function postVersion(eventId, payload) {
     try {
       return await createEventPredictVersion(eventId, payload)
     } catch (err) {
-      if (canRetryWithoutPredictedRecords(err, payload)) {
-        const { predictedRecords, ...rest } = payload
-        void predictedRecords
-        return await createEventPredictVersion(eventId, rest)
+      if (canRetryWithoutOptionalKeys(err, payload)) {
+        return await createEventPredictVersion(eventId, withoutOptionalKeys(payload))
       }
       throw err
     }
@@ -403,10 +415,8 @@ export function useEventPredictVersions() {
     try {
       return await updateEventPredictVersion(versionId, payload)
     } catch (err) {
-      if (canRetryWithoutPredictedRecords(err, payload)) {
-        const { predictedRecords, ...rest } = payload
-        void predictedRecords
-        return await updateEventPredictVersion(versionId, rest)
+      if (canRetryWithoutOptionalKeys(err, payload)) {
+        return await updateEventPredictVersion(versionId, withoutOptionalKeys(payload))
       }
       throw err
     }
@@ -430,6 +440,8 @@ export function useEventPredictVersions() {
       // Quantités prédites par item → persistées en DB (versionToPayload ne les
       // sérialise que si non-vide). Source du réarmement cross-device.
       predictedRecords: snapshot.predictedRecords || [],
+      // Courbe prédite par minute (fond de la timeline Live), cf. predictedTimelineSnapshot.js.
+      predictedTimeline: snapshot.predictedTimeline || null,
     }
 
     if (useApi()) {
@@ -470,6 +482,8 @@ export function useEventPredictVersions() {
         if (!(Array.isArray(payload.predictedRecords) && payload.predictedRecords.length)) {
           delete payload.predictedRecords
         }
+        // Courbe absente/incohérente : on ne l'envoie pas (n'écrase pas la courbe en base).
+        if (!hasPredictedTimeline(payload.predictedTimeline)) delete payload.predictedTimeline
         const updated = dbToVersion(await patchVersion(versionId, payload))
         if (updated) {
           // Préserve les champs front-only (manualQuantities non renvoyé par
@@ -489,6 +503,11 @@ export function useEventPredictVersions() {
                 : null) ??
               prev.predictedRecords ??
               [],
+            predictedTimeline:
+              updated.predictedTimeline
+              ?? (hasPredictedTimeline(partial.predictedTimeline) ? partial.predictedTimeline : null)
+              ?? prev.predictedTimeline
+              ?? null,
           }
           versions.value = versions.value.map((v) => (v.id === versionId ? merged : v))
           mirrorLS(eventId)

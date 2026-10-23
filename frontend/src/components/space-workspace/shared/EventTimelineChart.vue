@@ -104,6 +104,17 @@
       </v-menu>
     </div>
 
+    <!-- Légende Réel / Prédit (fond) -->
+    <div v-if="hasBackground" class="etc-bg-legend mb-2">
+      <span class="etc-bg-legend__item">
+        <span class="etc-bg-legend__swatch etc-bg-legend__swatch--real"></span>{{ t('anTimelineBgReal') }}
+      </span>
+      <span class="etc-bg-legend__item">
+        <span class="etc-bg-legend__swatch etc-bg-legend__swatch--pred"></span>{{ backgroundLabel || t('anTimelineBgPredicted') }}
+      </span>
+    </div>
+    <div v-else-if="backgroundNote" class="etc-bg-note mb-2">{{ backgroundNote }}</div>
+
     <!-- Chart -->
     <div v-if="hasData" class="chart-wrap">
       <Line :data="chartData" :options="chartOptions" />
@@ -184,6 +195,14 @@ const props = defineProps({
   // Défaut '' : les appelants qui ne pré-filtrent pas (EventPredictView) ne
   // voient jamais ce watcher se déclencher.
   filterSignature: { type: String, default: '' },
+  // Courbe prédite (Predict sauvegardé) tracée en FOND, complète dès le début, sous la
+  // courbe réelle. Lignes { minute, minuteLocal, totalQuantity, totalRevenue } ; vide = pas
+  // de fond (comportement historique, Analyse et Event Predict inchangés).
+  backgroundTimelineData: { type: Array, default: () => [] },
+  // Nom de la version prédite, pour la légende (ex. « Version A »).
+  backgroundLabel: { type: String, default: '' },
+  // Message discret affiché sous la légende quand le fond est volontairement masqué.
+  backgroundNote: { type: String, default: '' },
 })
 
 const emit = defineEmits(['close', 'time-range-change'])
@@ -200,6 +219,11 @@ const tempStartMinute = ref('00')
 const tempEndHour = ref('23')
 const tempEndMinute = ref('59')
 
+import {
+  buildBackgroundDataset,
+  indexBackgroundRows,
+  maskFutureReal,
+} from '@/utils/timelineBackground'
 import {
   TIMELINE_BUCKET_STRATEGIES,
   bucketDatedMinute,
@@ -334,14 +358,19 @@ function bucketTimelineMinute(minute) {
 }
 
 // ----- Series construction (group by minute, then by series key) -----
+const hasBackground = computed(
+  () => Array.isArray(props.backgroundTimelineData) && props.backgroundTimelineData.length > 0,
+)
+
 const series = computed(() => {
   const data = preprocessedTimelineData.value
-  if (!data || data.length === 0) {
+  const withBackground = hasBackground.value
+  if ((!data || data.length === 0) && !withBackground) {
     return { labels: [], datasets: [], totalsBySeries: new Map() }
   }
 
-  const filtered = data.filter(passesFilters)
-  if (filtered.length === 0) {
+  const filtered = (data || []).filter(passesFilters)
+  if (filtered.length === 0 && !withBackground) {
     return { labels: [], datasets: [], totalsBySeries: new Map() }
   }
 
@@ -410,6 +439,24 @@ const series = computed(() => {
     totalsBySeries.set(key, (totalsBySeries.get(key) || 0) + (Number(r[valueField]) || 0))
   }
 
+  // Fond prédit : ses minutes complètent l'axe (le prédit couvre tout l'événement, le réel
+  // seulement le passé). Un fond non daté est rattaché aux clés datées du réel par HH:MM.
+  const lastRealKey = minuteSet.size ? [...minuteSet].sort().pop() : null
+  let background = null
+  if (withBackground) {
+    const keyByLabel = new Map()
+    for (const [k, l] of labelByKey) keyByLabel.set(l, k)
+    background = indexBackgroundRows(props.backgroundTimelineData, valueField, {
+      datedKey: (v) => bucketDatedMinute(v, TIMELINE_BUCKET_MINUTES),
+      label: (v) => bucketTimelineMinute(v),
+      keyByLabel,
+    })
+    for (const [k, l] of background.labels) {
+      minuteSet.add(k)
+      if (!labelByKey.has(k)) labelByKey.set(k, l)
+    }
+  }
+
   const sortedMinutes = [...minuteSet].sort()
   const axisLabels = sortedMinutes.map((m) => labelByKey.get(m) || m)
   const sortedKeysAll = [...totalsBySeries.entries()]
@@ -425,10 +472,14 @@ const series = computed(() => {
   const datasets = topKeys.map((key, idx) => {
     const color = MENU_COLORS[idx % MENU_COLORS.length]
     const name = idToName.get(key) || key
-    const data = sortedMinutes.map((m) => {
-      const slot = perMinute.get(m)
-      return slot ? Number(slot.get(key) || 0) : 0
-    })
+    const data = maskFutureReal(
+      sortedMinutes.map((m) => {
+        const slot = perMinute.get(m)
+        return slot ? Number(slot.get(key) || 0) : 0
+      }),
+      sortedMinutes,
+      withBackground ? lastRealKey : null,
+    )
     return {
       label: name,
       data,
@@ -445,13 +496,17 @@ const series = computed(() => {
 
   // Série "Autres" : somme par minute des séries au-delà du TOP_N.
   if (otherKeys.length > 0) {
-    const data = sortedMinutes.map((m) => {
-      const slot = perMinute.get(m)
-      if (!slot) return 0
-      let s = 0
-      for (const k of otherKeys) s += Number(slot.get(k) || 0)
-      return s
-    })
+    const data = maskFutureReal(
+      sortedMinutes.map((m) => {
+        const slot = perMinute.get(m)
+        if (!slot) return 0
+        let s = 0
+        for (const k of otherKeys) s += Number(slot.get(k) || 0)
+        return s
+      }),
+      sortedMinutes,
+      withBackground ? lastRealKey : null,
+    )
     datasets.push({
       label: `${t('anTimelineOthers')} (${otherKeys.length})`,
       data,
@@ -464,6 +519,17 @@ const series = computed(() => {
       fill: '-1',
       stack: 'tl',
     })
+  }
+
+  if (background) {
+    datasets.push(
+      buildBackgroundDataset({
+        label: props.backgroundLabel || t('anTimelineBgPredicted'),
+        values: background.values,
+        keys: sortedMinutes,
+        isDark: isDark.value,
+      }),
+    )
   }
 
   return {
@@ -553,6 +619,8 @@ const chartOptions = computed(() => ({
         usePointStyle: true,
         padding: 8,
         font: { size: 11 },
+        // Le fond prédit a sa propre légende « Réel / Prédit » (au-dessus du graphique).
+        filter: (item, chart) => !chart.datasets[item.datasetIndex]?.isBackground,
       },
     },
     tooltip: {
@@ -569,7 +637,7 @@ const chartOptions = computed(() => ({
               // Prédictif : quantités pondérées décimales par minute (non arrondies
               // depuis 2026-10-07), une décimale suffit à la lecture.
               : new Intl.NumberFormat(currentIntlLocale(), { maximumFractionDigits: 1 }).format(v)
-          return `${ctx.dataset.label}: ${formatted}`
+          return `${ctx.dataset.isBackground ? t('anTimelineBgPredicted') : ctx.dataset.label}: ${formatted}`
         },
       },
     },
@@ -829,6 +897,27 @@ watch(
   font-weight: 600;
 }
 .etc-btn-primary:hover { background: #d61f1f; border-color: #d61f1f; color: #fff; }
+
+/* ── Légende Réel / Prédit ── */
+.etc-bg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: rgba(var(--v-theme-on-surface), 0.7);
+}
+.etc-bg-legend__item { display: inline-flex; align-items: center; gap: 6px; }
+.etc-bg-legend__swatch { width: 14px; height: 10px; border-radius: 2px; }
+.etc-bg-legend__swatch--real { background: #3b82f6; }
+.etc-bg-legend__swatch--pred {
+  background: rgba(148, 163, 184, 0.28);
+  border: 1.5px dashed rgba(100, 116, 139, 0.75);
+}
+.etc-bg-note {
+  font-size: var(--fs-sm);
+  color: rgba(var(--v-theme-on-surface), 0.6);
+}
 
 /* ── Badge prédictif ── */
 .etc-badge-warning {

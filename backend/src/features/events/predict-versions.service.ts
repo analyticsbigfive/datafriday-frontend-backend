@@ -1,5 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
+import { sanitizePredictedTimeline } from './predicted-timeline-snapshot';
 import { CreatePredictVersionDto, PatchPredictVersionDto } from './dto/predict-version.dto';
 
 @Injectable()
@@ -53,6 +55,7 @@ export class PredictVersionsService {
     const event = await this.prisma.event.findFirst({ where: { id: eventId, tenantId }, select: { id: true } });
     if (!event) throw new NotFoundException(`Event ${eventId} not found`);
 
+    const predictedTimeline = sanitizePredictedTimeline(dto.predictedTimeline);
     return this.prisma.eventPredictVersion.create({
       data: {
         tenantId,
@@ -69,6 +72,7 @@ export class PredictVersionsService {
         quantityAdjustments: (dto.quantityAdjustments ?? {}) as any,
         manualQuantities: (dto.manualQuantities ?? {}) as any,
         predictedRecords: (dto.predictedRecords ?? []) as any,
+        ...(predictedTimeline ? { predictedTimeline: predictedTimeline as any } : {}),
         selectedPredictionEventIds: dto.selectedPredictionEventIds ?? [],
         selectedTimeRange: (dto.selectedTimeRange ?? null) as any,
         createdBy: userId ?? null,
@@ -86,6 +90,11 @@ export class PredictVersionsService {
     ] as const;
     for (const field of scalarFields) {
       if (dto[field] !== undefined) data[field] = dto[field];
+    }
+    // Json nullable : l'effacement passe par Prisma.DbNull, la valeur par le snapshot nettoyé.
+    if (dto.predictedTimeline !== undefined) {
+      const snapshot = sanitizePredictedTimeline(dto.predictedTimeline);
+      data.predictedTimeline = snapshot ? (snapshot as any) : Prisma.DbNull;
     }
     return this.prisma.eventPredictVersion.update({ where: { id }, data });
   }
