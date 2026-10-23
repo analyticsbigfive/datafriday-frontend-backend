@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
+import { BrickCostSnapshotService } from '../../menu-items/services/brick-cost-snapshot.service';
 
 /**
  * Synchronisation des ingrédients et emballages issus des prix du marché, et recalcul des coûts de recette liés.
@@ -8,6 +9,7 @@ import { PrismaService } from '../../../core/database/prisma.service';
 export class MarketPriceRecipeSyncService {
   constructor(
     private prisma: PrismaService,
+    @Optional() private readonly brickSnapshot?: BrickCostSnapshotService,
   ) {}
 
   private readonly logger = new Logger(MarketPriceRecipeSyncService.name);
@@ -116,6 +118,7 @@ export class MarketPriceRecipeSyncService {
           active: true,
         },
       });
+      await this.brickSnapshot?.recordIfChanged(tenantId, 'ingredient', [ingredient.id], 'created', { ingredientId: ingredient.id, marketPriceId: marketPrice.id });
       this.logger.log(`Auto-created ingredient ${ingredient.id} for market price ${marketPrice.id}`);
       return ingredient;
     } catch (error) {
@@ -152,6 +155,7 @@ export class MarketPriceRecipeSyncService {
           active: true,
         },
       });
+      await this.brickSnapshot?.recordIfChanged(tenantId, 'packaging', [packaging.id], 'created', { packagingId: packaging.id, marketPriceId: marketPrice.id });
       this.logger.log(`Auto-created packaging ${packaging.id} for market price ${marketPrice.id}`);
       return packaging;
     } catch (error) {

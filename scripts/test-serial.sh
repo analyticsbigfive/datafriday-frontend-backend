@@ -6,6 +6,8 @@
 #
 # Usage : scripts/test-serial.sh backend src/features/pos/pos-sale.service.spec.ts
 #         scripts/test-serial.sh frontend tests/unit/posCart.spec.js
+# Le test ne démarre que si plus de MIN_FREE_MB (1024 par défaut) de RAM sont disponibles.
+# Les tests légers (hors jest/vue-cli-service) n'ont pas besoin de ce script.
 # Le chemin du fichier est relatif au dossier backend/ ou frontend/ du worktree courant.
 
 set -euo pipefail
@@ -52,6 +54,27 @@ until mkdir "$lock" 2>/dev/null; do
 done
 echo "$$ $target $spec" > "$lock/owner"
 trap 'rm -rf "$lock"' EXIT INT TERM
+
+# RAM disponible (Mo) sous macOS : pages libres + inactives + spéculatives + purgeables.
+available_mb() {
+  vm_stat | awk '
+    /page size of/ { gsub(/[^0-9]/, "", $8); ps = $8 }
+    /^Pages free|^Pages inactive|^Pages speculative|^Pages purgeable/ { gsub(/\./, "", $NF); n += $NF }
+    END { printf "%d", n * ps / 1048576 }'
+}
+min_free="${MIN_FREE_MB:-1024}"
+ram_waited=0
+while [ "$(available_mb)" -lt "$min_free" ]; do
+  if [ "$ram_waited" -eq 0 ]; then
+    echo "RAM disponible $(available_mb) Mo < ${min_free} Mo, attente avant de lancer le test lourd..."
+  fi
+  ram_waited=$((ram_waited + 5))
+  if [ "$ram_waited" -ge 600 ]; then
+    echo "RAM toujours insuffisante après 10 min, abandon (libérez de la mémoire puis relancez)." >&2
+    exit 3
+  fi
+  sleep 5
+done
 
 cd "$dir"
 if [ "$target" = "backend" ]; then

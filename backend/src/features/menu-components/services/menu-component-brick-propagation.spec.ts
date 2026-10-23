@@ -20,19 +20,21 @@ function build(overrides: Record<string, any> = {}) {
   const componentCost = { refreshCosts: jest.fn().mockResolvedValue({}) };
   const menuItemCost = { refreshCosts: jest.fn().mockResolvedValue({}), refreshComboCost: jest.fn().mockResolvedValue(0) };
   const costSnapshot = { recordIfChanged: jest.fn().mockResolvedValue(0) };
-  const service = new MenuComponentItemPropagationService(prisma, componentCost as any, menuItemCost as any, costSnapshot as any);
-  return { service, prisma, componentCost, menuItemCost, costSnapshot };
+  const brickSnapshot = { recordIfChanged: jest.fn().mockResolvedValue(0) };
+  const service = new MenuComponentItemPropagationService(prisma, componentCost as any, menuItemCost as any, costSnapshot as any, brickSnapshot as any);
+  return { service, prisma, componentCost, menuItemCost, costSnapshot, brickSnapshot };
 }
 
 describe('MenuComponentItemPropagationService.propagateFromBricks', () => {
   it('ingrédient : composants (parents inclus), articles (ligne, composant, combo) puis snapshot ingredient_edit', async () => {
-    const { service, componentCost, menuItemCost, costSnapshot, prisma } = build();
+    const { service, componentCost, menuItemCost, costSnapshot, prisma, brickSnapshot } = build();
     const result = await service.propagateFromBricks({ ingredientIds: ['ing-1', 'ing-1'] }, 'tenant-1', 'ingredient_edit', { ingredientId: 'ing-1' });
 
     expect(prisma.componentIngredient.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { ingredientId: { in: ['ing-1'] }, component: { tenantId: 'tenant-1', deletedAt: null } },
     }));
-    expect(componentCost.refreshCosts).toHaveBeenCalledWith('tenant-1', { componentIds: ['comp-1', 'comp-2'] });
+    expect(componentCost.refreshCosts).toHaveBeenCalledWith('tenant-1', { componentIds: ['comp-1', 'comp-2'], reason: 'ingredient_edit', sourceRef: { ingredientId: 'ing-1' } });
+    expect(brickSnapshot.recordIfChanged).toHaveBeenCalledWith('tenant-1', 'ingredient', ['ing-1'], 'ingredient_edit', { ingredientId: 'ing-1' });
     expect(menuItemCost.refreshCosts).toHaveBeenCalledWith('tenant-1', { itemIds: ['item-1', 'item-2', 'combo-1'], skipSnapshot: true });
     expect(menuItemCost.refreshComboCost).toHaveBeenCalledWith('tenant-1', 'combo-1', { skipSnapshot: true });
     expect(costSnapshot.recordIfChanged).toHaveBeenCalledTimes(1);

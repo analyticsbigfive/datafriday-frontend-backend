@@ -44,7 +44,7 @@ export function buildArticlePoints(snapshots: SnapshotPoint[], from: Date, defau
 /**
  * Série d'un Type ou d'une Catégorie : à chaque instant de changement d'un membre, moyenne
  * simple (ou somme si `aggregate` vaut 'sum') du coût par pièce et du prix des membres qui ont déjà une valeur. Un membre sans
- * snapshot à cet instant n'entre pas dans la moyenne.
+ * snapshot à cet instant n'entre pas dans la moyenne, ni un membre dont le dernier point est `inactive`.
  */
 export function averageStaircase(members: SeriesPoint[][], aggregate: CostTrackingAggregate = 'avg'): SeriesPoint[] {
   const lists = members.filter((m) => m.length > 0);
@@ -59,9 +59,14 @@ export function averageStaircase(members: SeriesPoint[][], aggregate: CostTracki
     let htCount = 0;
     let count = 0;
     let carried = true;
+    let leftCount = 0;
     for (const list of lists) {
       const current = lastAtOrBefore(list, at);
       if (!current) continue;
+      if (current.inactive) {
+        leftCount += 1;
+        continue;
+      }
       count += 1;
       costSum += current.costPerPiece;
       if (current.price != null) {
@@ -74,11 +79,12 @@ export function averageStaircase(members: SeriesPoint[][], aggregate: CostTracki
       }
       if (!current.carried || current.at !== at) carried = false;
     }
-    if (!count) continue;
+    // Tous les membres sont sortis (part fournisseur tombée à 0) : la courbe retombe à 0.
+    if (!count && !leftCount) continue;
     const divisor = aggregate === 'sum' ? 1 : null;
     const point: SeriesPoint = {
       at,
-      costPerPiece: round4(costSum / (divisor ?? count)),
+      costPerPiece: count ? round4(costSum / (divisor ?? count)) : 0,
       price: priceCount ? round2(priceSum / (divisor ?? priceCount)) : null,
       priceHt: htCount ? round2(htSum / (divisor ?? htCount)) : null,
       articleCount: count,

@@ -3,7 +3,7 @@
 /** Type et Catégorie : moyenne des articles ou total (somme) des coûts par pièce. */
 export type CostTrackingAggregate = 'avg' | 'sum';
 
-export type CostTrackingGroupBy = 'article' | 'category' | 'type' | 'ingredient';
+export type CostTrackingGroupBy = 'article' | 'category' | 'type' | 'ingredient' | 'supplier' | 'component';
 
 /** Nature d'une ligne de recette (mode ingrédient). */
 export type RecipeLineKind = 'component' | 'ingredient' | 'packaging' | 'combo';
@@ -47,6 +47,8 @@ export interface SeriesPoint {
   articleCount: number;
   /** true : point posé au début de la période pour porter la valeur déjà en vigueur. */
   carried: boolean;
+  /** Part fournisseur : l'article n'utilise plus ce fournisseur dès ce point (valeur 0, il sort de la moyenne). */
+  inactive?: boolean;
   /** Article uniquement : id du snapshot, cause et coût de fournée. */
   snapshotId?: string;
   reason?: string;
@@ -69,4 +71,35 @@ export type EventReferenceSource = 'doors_open' | 'midnight';
 export interface EventReference {
   at: Date;
   source: EventReferenceSource;
+}
+
+/** Nature d'une brique suivie par `BrickCostSnapshot`. */
+export type BrickKind = 'ingredient' | 'packaging' | 'component';
+
+/** Version de coût d'une brique (ligne de `BrickCostSnapshot`), sans le Json `sourceRef`. */
+export interface BrickSnapshotPoint {
+  id: string;
+  kind: BrickKind;
+  refId: string;
+  name: string;
+  /** Coût par unité de recette (ingrédient, emballage) ou coût unitaire du composant. */
+  unitCost: number;
+  recipeUnit: string | null;
+  supplierId: string | null;
+  supplierName: string | null;
+  marketPriceId: string | null;
+  effectiveFrom: Date;
+  reason: string;
+}
+
+/** Changement de fournisseur d'une brique au cours d'une période. */
+export interface BrickSupplierChange {
+  refId: string;
+  name: string;
+  at: string;
+  fromSupplierId: string | null;
+  fromSupplierName: string | null;
+  toSupplierId: string | null;
+  toSupplierName: string | null;
+  snapshotId: string;
 }

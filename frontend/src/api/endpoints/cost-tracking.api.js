@@ -35,7 +35,8 @@ export async function getCostTrackingCatalog(spaceId) {
  * @param {string} spaceId
  * @param {{ from?: string, to?: string, typeId?: string, categoryId?: string,
  *           menuItemId?: string, ingredientId?: string,
- *           groupBy?: 'article'|'category'|'type'|'ingredient' }} [params]
+ *           supplierKey?: string, componentId?: string, aggregate?: 'avg'|'sum',
+ *           groupBy?: 'article'|'category'|'type'|'ingredient'|'supplier'|'component' }} [params]
  *        from/to au format YYYY-MM-DD (max 366 jours)
  * @returns {Promise<{ lines, events, trackingStartedAt, truncated, rankedByRevenue, ... }>}
  */
@@ -44,6 +45,22 @@ export async function getCostTrackingSeries(spaceId, params = {}) {
     return await api.get(`/cost-tracking/${spaceId}/series`, { params: compactParams(params) })
   } catch (error) {
     console.error('[cost-tracking.api] getCostTrackingSeries', error)
+    throw error
+  }
+}
+
+/**
+ * GET /cost-tracking/:spaceId/options
+ * Fournisseurs (actifs sur la période from/to, défaut identique aux séries) et composants proposés dans les filtres, selon type / catégorie / article.
+ * @param {string} spaceId
+ * @param {{ typeId?: string, categoryId?: string, menuItemId?: string, from?: string, to?: string }} [params]
+ * @returns {Promise<{ spaceId, suppliers: Array<{ key, name, brickCount }>, components: Array<{ id, name, articleCount }> }>}
+ */
+export async function getCostTrackingOptions(spaceId, params = {}) {
+  try {
+    return await api.get(`/cost-tracking/${spaceId}/options`, { params: compactParams(params) })
+  } catch (error) {
+    console.error('[cost-tracking.api] getCostTrackingOptions', error)
     throw error
   }
 }

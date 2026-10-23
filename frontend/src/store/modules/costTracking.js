@@ -5,6 +5,10 @@ import {
   getCostTrackingArticleIngredients,
 } from '@/api/endpoints/cost-tracking.api'
 
+const emptyFilters = () => ({
+  typeId: null, categoryId: null, menuItemId: null, ingredientId: null, supplierKey: null, componentId: null, groupBy: null,
+})
+
 const TTL = 15 * 60 * 1000 // 15 minutes (catalogue uniquement)
 
 // Jeton de requête : seule la dernière demande de séries / d'historique peut écrire
@@ -25,7 +29,7 @@ export default {
     cachedAt: null,
     fetching: false,
     // filtres de la page (état partagé entre composants)
-    filters: { typeId: null, categoryId: null, menuItemId: null, ingredientId: null, groupBy: null },
+    filters: emptyFilters(),
     // lignes de recette de l'article filtré (filtre ingrédient)
     ingredientOptions: [],
     // séries
@@ -68,7 +72,7 @@ export default {
       state.filters = { ...state.filters, ...patch }
     },
     RESET_FILTERS(state) {
-      state.filters = { typeId: null, categoryId: null, menuItemId: null, ingredientId: null, groupBy: null }
+      state.filters = emptyFilters()
     },
     SET_INGREDIENT_OPTIONS(state, lines) {
       state.ingredientOptions = lines
@@ -103,7 +107,7 @@ export default {
       state.history = null
       state.historyLoading = false
       state.historyError = null
-      state.filters = { typeId: null, categoryId: null, menuItemId: null, ingredientId: null, groupBy: null }
+      state.filters = emptyFilters()
       state.ingredientOptions = []
     },
   },

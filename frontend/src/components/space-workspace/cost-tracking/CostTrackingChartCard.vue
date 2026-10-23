@@ -7,7 +7,6 @@
       </div>
       <CostTrackingGroupSwitch
         :model-value="groupBy"
-        :can-ingredient="canIngredient"
         @update:model-value="$emit('set-group-by', $event)" />
     </div>
 
@@ -50,8 +49,6 @@ const props = defineProps({
   showMargin: { type: Boolean, default: false },
   showPrice: { type: Boolean, default: false },
   withEvents: { type: Boolean, default: true },
-  // Un article est filtré : le mode « par ingrédient » est proposé.
-  canIngredient: { type: Boolean, default: false },
   truncated: { type: Boolean, default: false },
   rankedByRevenue: { type: Boolean, default: false },
 })
@@ -65,6 +62,8 @@ const NOUNS = {
   category: ['ctNounCategoryOne', 'ctNounCategoryMany'],
   type: ['ctNounTypeOne', 'ctNounTypeMany'],
   ingredient: ['ctNounIngredientOne', 'ctNounIngredientMany'],
+  supplier: ['ctNounSupplierOne', 'ctNounSupplierMany'],
+  component: ['ctNounComponentOne', 'ctNounComponentMany'],
 }
 
 const subtitle = computed(() => {

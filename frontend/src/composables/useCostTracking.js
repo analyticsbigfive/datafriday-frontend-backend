@@ -15,11 +15,14 @@ import {
   periodBounds,
   summarizeLines,
 } from '@/utils/costTrackingSeries'
+import { buildSeriesParams, staleSelectionPatch } from '@/utils/costTrackingParams'
+import { useCostTrackingOptions } from '@/composables/useCostTrackingOptions'
+import { useCostTrackingSupplierPerf } from '@/composables/useCostTrackingSupplierPerf'
 import { DEFAULT_PERIOD, MAX_PERIOD_DAYS, PERIOD_PRESETS, rangeForPreset } from '@/utils/costTrackingPeriod'
 
 export { PERIOD_PRESETS }
 const MAX_DAYS = MAX_PERIOD_DAYS
-const GROUP_VALUES = ['article', 'category', 'type', 'ingredient']
+const GROUP_VALUES = ['article', 'category', 'type', 'supplier', 'component', 'ingredient']
 
 /** Aplatit le catalogue en listes types / catégories / articles avec leurs parents. */
 export function flattenCatalog(catalog) {
@@ -62,7 +65,7 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
 
   // Période : preset ('30'|'90'|'180'|'365') ou 'custom' avec customFrom / customTo.
   const period = ref(DEFAULT_PERIOD)
-  /** Type et Catégorie : 'avg' (moyenne des articles) ou 'sum' (total des coûts). */
+  /** Type, Catégorie et Fournisseur : 'avg' (moyenne des articles) ou 'sum' (total des coûts). */
   const aggregate = ref('avg')
   const showPrice = ref(false)
   const customFrom = ref(null)
@@ -76,6 +79,8 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
   const categoryId = computed(() => filters.value.categoryId)
   const menuItemId = computed(() => filters.value.menuItemId)
   const ingredientId = computed(() => filters.value.ingredientId)
+  const supplierKey = computed(() => filters.value.supplierKey || null)
+  const componentId = computed(() => filters.value.componentId || null)
   const groupByOverride = computed(() => filters.value.groupBy)
 
   const flat = computed(() => flattenCatalog(store.getters['costTracking/catalog']))
@@ -104,9 +109,11 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     if (p.menuItemId !== undefined && p.menuItemId !== filters.value.menuItemId && p.ingredientId === undefined) {
       next.ingredientId = null
     }
+    // L'ingrédient précis dépend de l'article. Le mode « par ingrédient » reste valable sans article
+    // (tous les ingrédients du périmètre), sauf quand on vient de retirer l'article : retour au mode auto.
     if (!next.menuItemId) {
       next.ingredientId = null
-      if (next.groupBy === 'ingredient') next.groupBy = null
+      if (p.menuItemId !== undefined && p.groupBy === undefined && next.groupBy === 'ingredient') next.groupBy = null
     }
     return store.dispatch('costTracking/setFilters', next)
   }
@@ -153,6 +160,14 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     patch({ ingredientId: id || null })
   }
 
+  function setSupplier(key) {
+    patch({ supplierKey: key || null })
+  }
+
+  function setComponent(id) {
+    patch({ componentId: id || null })
+  }
+
   /**
    * Clic sur une ligne de classement ou de tableau : descend d'un niveau en filtrant.
    * Type : affiche ses catégories ; catégorie : ses articles ; article : ses ingrédients ;
@@ -173,7 +188,11 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
         ingredientId: null,
         groupBy: 'ingredient',
       })
-    } else if (row.kind === 'ingredient') patch({ ingredientId: row.id, groupBy: null })
+    } else if (row.kind === 'ingredient') {
+      // Le filtre ingrédient précis n'existe qu'avec un article (lignes de sa recette).
+      if (menuItemId.value) patch({ ingredientId: row.id, groupBy: null })
+    } else if (row.kind === 'supplier') patch({ supplierKey: row.id, groupBy: null })
+    else if (row.kind === 'component') patch({ componentId: row.id, groupBy: null })
   }
 
   function setGroupBy(value) {
@@ -214,22 +233,30 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
     period.value = 'custom'
   }
 
+  // ---- Listes Fournisseur / Composant (dépendantes de type, catégorie, article)
+  const optionsEnabled = computed(() => enabled.value && rangeValid.value)
+  const { supplierOptions, componentOptions } = useCostTrackingOptions({
+    spaceId, enabled: optionsEnabled, typeId, categoryId, menuItemId, range,
+    onLoaded: (options) => {
+      const stale = staleSelectionPatch(options, { supplierKey: supplierKey.value, componentId: componentId.value })
+      if (stale) patch(stale)
+    },
+  })
+
   // ---- Données
   const catalogLoading = computed(() => store.state.costTracking.fetching)
   const loading = computed(() => store.state.costTracking.seriesLoading)
   const error = computed(() => store.state.costTracking.seriesError || store.state.costTracking.catalogError)
   const response = computed(() => store.getters['costTracking/series'])
 
-  const seriesParams = computed(() => ({
-    from: range.value.from,
-    to: range.value.to,
-    typeId: typeId.value || undefined,
-    categoryId: categoryId.value || undefined,
-    menuItemId: menuItemId.value || undefined,
-    ingredientId: ingredientId.value || undefined,
-    groupBy: effectiveGroupBy.value,
-    aggregate: ['category', 'type'].includes(effectiveGroupBy.value) ? aggregate.value : undefined,
-  }))
+  const seriesParams = computed(() =>
+    buildSeriesParams({
+      range: range.value,
+      filters: filters.value,
+      groupBy: effectiveGroupBy.value,
+      aggregate: aggregate.value,
+    }),
+  )
 
   async function loadCatalog({ force = false } = {}) {
     if (!enabled.value || !spaceId.value) return
@@ -243,6 +270,14 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
   async function reload() {
     await Promise.all([loadCatalog({ force: true }), loadSeries()])
   }
+
+  // Second appel séries (par fournisseur) pour la colonne de droite, sauf si le graphique l'est déjà.
+  const supplierPerfActive = computed(
+    () => enabled.value && !!spaceId.value && rangeValid.value && effectiveGroupBy.value !== 'supplier',
+  )
+  const { supplierRows } = useCostTrackingSupplierPerf({
+    spaceId, active: supplierPerfActive, range, filters, aggregate, t1: computed(() => bounds.value[1]),
+  })
 
   // Lignes décorées : index de couleur stable (ordre renvoyé par le backend).
   const lines = computed(() =>
@@ -345,12 +380,14 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
 
   return {
     // filtres
-    typeId, categoryId, menuItemId, ingredientId,
-    typeOptions, categoryOptions, articleOptions, ingredientOptions,
-    setType, setCategory, setArticle, setIngredient, drill, resetFilters,
+    typeId, categoryId, menuItemId, ingredientId, supplierKey, componentId,
+    typeOptions, categoryOptions, articleOptions, ingredientOptions, supplierOptions, componentOptions,
+    setType, setCategory, setArticle, setIngredient, setSupplier, setComponent, drill, resetFilters,
     // mode Afficher par
     groupBy: effectiveGroupBy, groupByIsAuto, setGroupBy,
-    // total ou moyenne (Type, Catégorie) et courbe de prix HT
+    // classement fournisseurs de la colonne de droite
+    supplierRows,
+    // total ou moyenne (Type, Catégorie, Fournisseur) et courbe de prix HT
     aggregate, showPrice,
     // période
     period, range, rangeValid, bounds, setPeriod, setCustomRange,

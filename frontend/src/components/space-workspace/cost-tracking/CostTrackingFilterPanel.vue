@@ -22,6 +22,15 @@
     </CostTrackingAccordion>
 
     <CostTrackingAccordion :title="t('ctSectionItems')">
+      <CostTrackingOptionSelect
+        id="ct-supplier"
+        :model-value="supplierKey"
+        :label="t('ctFilterSupplier')"
+        :all-label="t('ctAllSuppliers')"
+        :options="supplierChoices"
+        :hint="supplierKey ? t('ctSupplierShareHint') : ''"
+        @update:model-value="$emit('set-supplier', $event)"
+      />
       <div class="ct-field">
         <label for="ct-type">{{ t('ctFilterType') }}</label>
         <select id="ct-type" class="ct-select" :value="typeId || ''" @change="$emit('set-type', $event.target.value || null)">
@@ -58,14 +67,23 @@
           <option v-for="o in ingredientOptions" :key="o.id" :value="o.id">{{ o.name }}</option>
         </select>
       </div>
+      <CostTrackingOptionSelect
+        id="ct-component"
+        :model-value="componentId"
+        :label="t('ctFilterComponent')"
+        :all-label="t('ctAllComponents')"
+        :options="componentChoices"
+        @update:model-value="$emit('set-component', $event)"
+      />
       <button type="button" class="ct-link" @click="$emit('reset')">{{ t('ctResetFilters') }}</button>
     </CostTrackingAccordion>
 
     <CostTrackingAccordion :title="t('ctSectionDisplay')">
       <CostTrackingSwitch
-        :model-value="showPrice"
+        :model-value="showPrice && canPrice"
+        :disabled="!canPrice"
         :label="t('ctPriceCurve')"
-        :hint="t('ctPriceHint')"
+        :hint="t(canPrice ? 'ctPriceHint' : 'ctPriceHintOff')"
         @update:model-value="$emit('update:showPrice', $event)"
       />
       <CostTrackingSwitch
@@ -84,15 +102,16 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { DEFAULT_PERIOD, PERIOD_PRESETS, periodI18nKey } from '@/utils/costTrackingPeriod'
 import CostTrackingAccordion from './CostTrackingAccordion.vue'
+import CostTrackingOptionSelect from './CostTrackingOptionSelect.vue'
 import CostTrackingSwitch from './CostTrackingSwitch.vue'
 
-// Panneau de filtres de la colonne gauche : période, Type > Catégorie > Article > Ingrédient (dépendants),
+// Panneau de filtres de la colonne gauche : période, Fournisseur, Type > Catégorie > Article > Ingrédient (dépendants), Composant,
 // options d'affichage, règles de calcul. Les règles de dépendance vivent dans useCostTracking.
-defineProps({
+const props = defineProps({
   period: { type: String, default: DEFAULT_PERIOD },
   presets: { type: Array, default: () => PERIOD_PRESETS },
   rangeValid: { type: Boolean, default: true },
@@ -100,20 +119,30 @@ defineProps({
   categoryId: { type: String, default: null },
   menuItemId: { type: String, default: null },
   ingredientId: { type: String, default: null },
+  supplierKey: { type: String, default: null },
+  componentId: { type: String, default: null },
   typeOptions: { type: Array, default: () => [] },
   categoryOptions: { type: Array, default: () => [] },
   articleOptions: { type: Array, default: () => [] },
   ingredientOptions: { type: Array, default: () => [] },
+  // [{ key, name, brickCount }] et [{ id, name, articleCount }] (GET /cost-tracking/:spaceId/options)
+  supplierOptions: { type: Array, default: () => [] },
+  componentOptions: { type: Array, default: () => [] },
   showMargin: { type: Boolean, default: false },
   showPrice: { type: Boolean, default: false },
   canMargin: { type: Boolean, default: true },
+  // Faux dans les modes sans prix de vente (fournisseur, composant, ingrédient sans article).
+  canPrice: { type: Boolean, default: true },
 })
 const emit = defineEmits([
-  'set-period', 'set-custom-range', 'set-type', 'set-category', 'set-article', 'set-ingredient', 'reset',
+  'set-period', 'set-custom-range', 'set-type', 'set-category', 'set-article', 'set-ingredient', 'set-supplier', 'set-component', 'reset',
   'update:showMargin', 'update:showPrice',
 ])
 
 const { t } = useI18n()
+
+const supplierChoices = computed(() => props.supplierOptions.map((o) => ({ value: o.key, label: o.name })))
+const componentChoices = computed(() => props.componentOptions.map((o) => ({ value: o.id, label: o.name })))
 
 const customFrom = ref('')
 const customTo = ref('')
