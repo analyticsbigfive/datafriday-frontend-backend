@@ -5,9 +5,11 @@ import { SpacesModule } from '../spaces/spaces.module';
 import { CostTrackingController } from './cost-tracking.controller';
 import { CostTrackingAsOfService } from './services/cost-tracking-as-of.service';
 import { CostTrackingBrickReaderService } from './services/cost-tracking-brick-reader.service';
+import { CostTrackingBrickScopeService } from './services/cost-tracking-brick-scope.service';
 import { CostTrackingCatalogService } from './services/cost-tracking-catalog.service';
 import { CostTrackingEventsService } from './services/cost-tracking-events.service';
 import { CostTrackingHistoryService } from './services/cost-tracking-history.service';
+import { CostTrackingRecipeReaderService } from './services/cost-tracking-recipe-reader.service';
 import { CostTrackingRevenueService } from './services/cost-tracking-revenue.service';
 import { CostTrackingSeriesService } from './services/cost-tracking-series.service';
 import { CostTrackingSnapshotReaderService } from './services/cost-tracking-snapshot-reader.service';
@@ -18,6 +20,8 @@ import { CostTrackingSnapshotReaderService } from './services/cost-tracking-snap
   providers: [
     CostTrackingSnapshotReaderService,
     CostTrackingBrickReaderService,
+    CostTrackingRecipeReaderService,
+    CostTrackingBrickScopeService,
     CostTrackingCatalogService,
     CostTrackingEventsService,
     CostTrackingRevenueService,
