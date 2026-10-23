@@ -1,9 +1,9 @@
 <template>
   <!-- Badge « N Live » dans le flux de l'en-tête (à gauche de la cloche). Il était en
        position fixe par-dessus l'en-tête et masquait l'avatar et les actions de droite. -->
-  <button v-if="hasLiveEvents" type="button" class="live-badge" :title="tooltip" @click="goToSpaces">
+  <button v-if="visible" type="button" class="live-badge" :title="tooltip" @click="goToSpaces">
     <span class="live-badge__pulse"></span>
-    {{ liveSpaceCount > 1 ? liveSpaceCount : '' }} {{ t('anToolLive') }}
+    {{ showCount ? liveSpaceCount : '' }} {{ t('anToolLive') }}
   </button>
 </template>
 
@@ -17,9 +17,16 @@ import { useGlobalLiveIndicator } from '@/composables/useGlobalLiveIndicator'
 // (racine, liée à l'état auth). Singleton partagé, aucune connexion en plus ici.
 const { t } = useI18n()
 const router = useRouter()
-const { hasLiveEvents, liveSpaceCount } = useGlobalLiveIndicator()
+const props = defineProps({
+  // Optionnel : si fourni, le badge reflète cet espace seulement (pas de compteur global).
+  spaceId: { type: String, default: '' },
+})
+const { hasLiveEvents, liveSpaceCount, isSpaceLive } = useGlobalLiveIndicator()
 
-const tooltip = computed(() => `${liveSpaceCount.value} ${t('anToolLive')}`)
+const scoped = computed(() => !!props.spaceId)
+const visible = computed(() => (scoped.value ? isSpaceLive(props.spaceId) : hasLiveEvents.value))
+const showCount = computed(() => !scoped.value && liveSpaceCount.value > 1)
+const tooltip = computed(() => (scoped.value ? t('anToolLive') : `${liveSpaceCount.value} ${t('anToolLive')}`))
 
 function goToSpaces() {
   router.push('/spaces')

@@ -105,10 +105,10 @@ export function progressPercent(realized, predicted) {
 }
 
 /**
- * Lignes du classement, triées par rythme décroissant puis CA réalisé puis nom.
+ * Lignes du classement, triées par rythme décroissant, puis CA réalisé, puis CA prévu, puis nom.
  * Un PdV figure s'il a un CA prévu ou des ventes enregistrées ; la barre n'existe que s'il y a un CA prévu.
  */
-export function buildHrRows({ basketRows, timelineRows, staffElements, predictedByShop, excludeLatest = false, now = null }) {
+export function buildHrRows({ basketRows, timelineRows, staffElements, predictedByShop, predictedNames = null, fallbackName = '', excludeLatest = false, now = null }) {
   const minutes = windowMinutes(basketRows, { excludeLatest, now })
   const tx = txPerMinuteByShop(basketRows, minutes)
   const staff = staffByElement(staffElements)
@@ -116,6 +116,7 @@ export function buildHrRows({ basketRows, timelineRows, staffElements, predicted
   const names = shopNames(basketRows, timelineRows)
   const soldShops = new Set((basketRows || []).filter((b) => num(b.transactionCount) > 0).map((b) => b.shopId))
   const predicted = predictedByShop || {}
+  const pNames = predictedNames || {}
 
   const ids = new Set([...staff.keys(), ...realized.keys(), ...names.keys(), ...Object.keys(predicted)])
   const rows = []
@@ -128,7 +129,7 @@ export function buildHrRows({ basketRows, timelineRows, staffElements, predicted
     if (!hasPredicted && realizedRevenue === 0 && !soldShops.has(id)) continue
     rows.push({
       shopId: id,
-      name: st?.name || names.get(id) || t?.name || id,
+      name: st?.name || pNames[id] || names.get(id) || t?.name || fallbackName,
       perMinute: t ? t.perMinute : minutes.map(() => 0),
       avg: t ? t.avg : 0,
       roles: st ? st.roles : [],
@@ -139,6 +140,6 @@ export function buildHrRows({ basketRows, timelineRows, staffElements, predicted
       percent: progressPercent(realizedRevenue, predicted[id]),
     })
   }
-  rows.sort((a, b) => b.avg - a.avg || b.realizedRevenue - a.realizedRevenue || a.name.localeCompare(b.name))
+  rows.sort((a, b) => b.avg - a.avg || b.realizedRevenue - a.realizedRevenue || b.predictedRevenue - a.predictedRevenue || a.name.localeCompare(b.name))
   return { rows, minutes }
 }

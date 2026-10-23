@@ -157,13 +157,13 @@ const props = defineProps({
 
 const emit = defineEmits(['event-updated', 'toggle-drawer', 'open-tools', 'toggle-summary'])
 
-// Parité AnalyseView.vue::singleSelectedEventLabel — « Nom — date », date omise si
+// Parité AnalyseView.vue::singleSelectedEventLabel, « Nom · date », date omise si
 // absente/illisible.
 const eventTitle = computed(() => {
   const name = props.liveEvent?.name || props.liveEvent?.eventName || ''
   if (!name) return t('analyseTitle')
   const date = formatDateShort(props.liveEvent?.date || props.liveEvent?.eventDate)
-  return date ? `${name} — ${date}` : name
+  return date ? `${name} · ${date}` : name
 })
 
 const editOpen = ref(false)
@@ -207,19 +207,19 @@ const { exporting, onExportXlsx, onExportCsv } = useLiveExport({ spaceName: spac
 }
 .av-header__row1 {
   min-height: 32px;
+  flex-wrap: nowrap;
 }
 .av-header__title {
   color: #fff;
   font-size: var(--fs-lg);
   font-weight: var(--fw-bold);
   margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  /* min-width:0 : sans lui un enfant flex ne rétrécit jamais sous sa taille de
-     contenu — l'ellipsis ne se déclenchait donc jamais sur mobile, le titre
-     débordait au lieu de se tronquer (retour Emmanuel, responsivité Live v2). */
+  /* Titre complet : retour à la ligne plutôt qu'une ellipsis (retour Live avant match).
+     min-width:0 laisse l'enfant flex rétrécir et passer à la ligne au lieu de déborder. */
   min-width: 0;
+  flex: 0 1 auto;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 .av-live-badge {
   display: inline-flex;

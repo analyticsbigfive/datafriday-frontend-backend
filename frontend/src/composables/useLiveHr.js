@@ -5,7 +5,8 @@
 import { ref, computed, watch } from 'vue'
 import { useStore } from 'vuex'
 import { listEventPredictVersions } from '@/api/endpoints/eventPredict.api'
-import { aggregatePredictedRevenueByElement } from '@/utils/staffingPredictedRevenue'
+import { aggregatePredictedRevenueByElement, predictedNameByShop } from '@/utils/staffingPredictedRevenue'
+import { useI18n } from '@/i18n/useI18n'
 import { buildHrRows } from '@/utils/liveHrRanking'
 
 /**
@@ -18,9 +19,11 @@ import { buildHrRows } from '@/utils/liveHrRanking'
  */
 export function useLiveHr({ eventId, active, basketRows, timelineRows, isLive }) {
   const store = useStore()
+  const { t } = useI18n()
   const staffLoading = ref(false)
   const staffError = ref(false)
   const predictedByShop = ref({})
+  const predictedNames = ref({})
   const predictedLoaded = ref(false)
   const predictedError = ref(false)
   let loadedFor = null
@@ -49,8 +52,10 @@ export function useLiveHr({ eventId, active, basketRows, timelineRows, isLive })
       const list = Array.isArray(versions) ? versions : []
       const def = list.find((v) => v.isDefault)
       predictedByShop.value = def ? aggregatePredictedRevenueByElement(def.predictedRecords) : {}
+      predictedNames.value = def ? predictedNameByShop(def.predictedRecords) : {}
     } catch (e) {
       predictedByShop.value = {}
+      predictedNames.value = {}
       predictedError.value = true
     } finally {
       predictedLoaded.value = true
@@ -72,6 +77,8 @@ export function useLiveHr({ eventId, active, basketRows, timelineRows, isLive })
       timelineRows: timelineRows.value,
       staffElements: staffElements.value,
       predictedByShop: predictedByShop.value,
+      predictedNames: predictedNames.value,
+      fallbackName: t('liveHrUnnamedShop'),
       excludeLatest: !!isLive.value,
       // Sans panier (avant l'événement) : fenêtre « 3 dernières minutes » à 0 tx/min.
       now: new Date(),
