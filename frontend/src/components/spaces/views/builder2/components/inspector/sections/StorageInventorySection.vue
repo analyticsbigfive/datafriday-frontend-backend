@@ -31,6 +31,18 @@
             <div class="inv-card__row">
               <img v-if="line.picture" :src="line.picture" :alt="line.name" class="inv-card__thumb" />
               <span class="inv-card__name" :title="line.name">{{ line.name }}</span>
+              <button
+                v-if="isStoredFor(line.name)"
+                type="button"
+                class="inv-card__toggle"
+                :class="{ 'inv-card__toggle--open': !isCollapsed(line.name) }"
+                :aria-expanded="!isCollapsed(line.name)"
+                :title="isCollapsed(line.name) ? t('b2Expand') : t('b2Collapse')"
+                :aria-label="isCollapsed(line.name) ? t('b2Expand') : t('b2Collapse')"
+                @click="toggleCollapsed(line.name)"
+              >
+                <v-icon icon="mdi-chevron-down" size="16" />
+              </button>
               <input
                 type="checkbox"
                 class="inv-card__check"
@@ -51,7 +63,7 @@
               <span v-if="line.storageType" class="inv-card__stype">({{ line.storageType }})</span>
             </div>
 
-            <template v-if="isStoredFor(line.name)">
+            <template v-if="isStoredFor(line.name) && !isCollapsed(line.name)">
               <!-- Stock tampon, min/max, jauge : saisis en packs quand un Market Price connu
                    fixe le conditionnement, sinon repli sur l'unité de recette brute. -->
               <StorageRowFields
@@ -109,6 +121,18 @@
           <div v-for="row in filteredManual" :key="'manual:' + row.name" class="inv-card inv-card--custom">
             <div class="inv-card__row">
               <span class="inv-card__name" :title="row.name">{{ row.name }}</span>
+              <button
+                v-if="isStoredFor(row.name)"
+                type="button"
+                class="inv-card__toggle"
+                :class="{ 'inv-card__toggle--open': !isCollapsed(row.name) }"
+                :aria-expanded="!isCollapsed(row.name)"
+                :title="isCollapsed(row.name) ? t('b2Expand') : t('b2Collapse')"
+                :aria-label="isCollapsed(row.name) ? t('b2Expand') : t('b2Collapse')"
+                @click="toggleCollapsed(row.name)"
+              >
+                <v-icon icon="mdi-chevron-down" size="16" />
+              </button>
               <input
                 type="checkbox"
                 class="inv-card__check"
@@ -121,7 +145,7 @@
                 <v-icon icon="mdi-close" size="13" />
               </button>
             </div>
-            <template v-if="isStoredFor(row.name)">
+            <template v-if="isStoredFor(row.name) && !isCollapsed(row.name)">
               <StorageRowFields
                 :quantity="displayValue(row.name, quantityFor(row.name))"
                 :min="displayValue(row.name, boundsFor(row.name).min ?? '')"
@@ -248,6 +272,16 @@ const rowByName = computed(() => {
   for (const r of saved.value) m.set(r.name, r)
   return m
 })
+// Repli par article (ouvert par défaut) : la flèche masque champs et « utilisé dans ».
+const collapsed = ref(new Set())
+function isCollapsed(name) {
+  return collapsed.value.has(name)
+}
+function toggleCollapsed(name) {
+  const next = new Set(collapsed.value)
+  if (!next.delete(name)) next.add(name)
+  collapsed.value = next
+}
 function isStoredFor(name) {
   return isRowStored(rowByName.value.get(name))
 }
@@ -356,7 +390,7 @@ watch(
   },
   { immediate: true },
 )
-watch(() => element.value?.id, () => { search.value = '' })
+watch(() => element.value?.id, () => { search.value = ''; collapsed.value = new Set() })
 
 // Le state builder renvoie les lignes AVEC leur id serveur ; le PUT (whitelist +
 // forbidNonWhitelisted) le refuse → ne renvoyer QUE les champs du contrat.
@@ -532,6 +566,23 @@ function removeManual(name) {
   gap: 6px;
   margin-top: 4px;
 }
+.inv-card__toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+.inv-card__toggle--open { transform: rotate(0deg); }
+.inv-card__toggle:hover { background: rgba(0, 0, 0, 0.06); color: #374151; }
 .inv-card__check {
   flex-shrink: 0;
   width: 15px;
