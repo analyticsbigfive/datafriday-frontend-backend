@@ -109,7 +109,7 @@
             </span>
             <span class="agg-item-total">
               <strong>{{ formatUnits(item.totalUnits) }}</strong>
-              <small>{{ t('invAggTotalUnits') }}</small>
+              <small>{{ aggUnitLabel(item, t('invAggTotalUnits')) }}</small>
             </span>
             <Check v-if="item.isCounted" class="agg-item-check" />
             <ChevronUp v-if="isAggExpanded(`${item.itemName}-${index}`)" class="agg-item-chevron" />
@@ -118,13 +118,19 @@
 
           <div v-show="isAggExpanded(`${item.itemName}-${index}`)" class="agg-item-detail">
             <div class="agg-facts">
-              <span><small>{{ t('invColPacked') }}</small><strong>{{ formatNumber(item.totalPackedUnits) }}</strong></span>
-              <span><small>{{ t('invColLoose') }}</small><strong>{{ formatUnits(item.totalLooseUnits) }}</strong></span>
+              <span><small>{{ aggPackagingLabel(item, t('invColPacked')) }}</small><strong>{{ formatNumber(item.totalPackedUnits) }}</strong></span>
+              <span><small>{{ aggUnitLabel(item, t('invColLoose')) }}</small><strong>{{ formatUnits(item.totalLooseUnits) }}</strong></span>
             </div>
             <div v-if="item.shops.length" class="agg-shop-list">
+              <div class="agg-shop-row agg-shop-head">
+                <span>{{ t('invColShops') }}</span>
+                <span>{{ aggPackagingLabel(item, t('invColPacked')) }}</span>
+                <span>{{ aggUnitLabel(item, t('invColLoose')) }}</span>
+              </div>
               <div v-for="(shop, idx) in item.shops" :key="idx" class="agg-shop-row">
                 <span><Check v-if="shop.isCounted" />{{ shop.shopName }}</span>
-                <strong>{{ formatUnits(shop.totalUnits) }}</strong>
+                <strong>{{ formatNumber(shop.packedUnits) }}</strong>
+                <strong>{{ formatUnits(shop.looseUnits) }}</strong>
               </div>
             </div>
           </div>
@@ -204,6 +210,7 @@ import { Package, Check, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { useShoppingList } from '@/composables/useShoppingList'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
+import { aggPackagingLabel, aggUnitLabel } from '@/utils/inventoryAggLabels'
 import { currentIntlLocale } from '@/composables/useNumberFormat'
 
 export default {
@@ -278,6 +285,8 @@ export default {
       return Number(value || 0).toLocaleString(currentIntlLocale(), { maximumFractionDigits: 2 })
     },
     formatUnits,
+    aggPackagingLabel,
+    aggUnitLabel,
   },
 
   computed: {
@@ -351,6 +360,8 @@ export default {
           return {
             itemName: item.name,
             itemPicture: item.picture,
+            packagingLabel: item.inventoryPackaging,
+            unit: item.unit,
             totalPackedUnits: packedUnits,
             totalLooseUnits: looseUnits,
             totalUnits,
@@ -405,6 +416,8 @@ export default {
             aggregateMap.set(itemName, {
               itemName,
               itemPicture: item.picture,
+              packagingLabel: item.inventoryPackaging,
+              unit: item.unit,
               totalPackedUnits: 0,
               totalLooseUnits: 0,
               totalUnits: 0,
@@ -725,12 +738,20 @@ export default {
 }
 
 .agg-shop-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 64px 64px;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   color: var(--fb-muted, #4b5563);
   font-size: 10px;
+}
+
+.agg-shop-row > :nth-child(n + 2) { text-align: right; }
+
+.agg-shop-head {
+  padding-bottom: 3px;
+  border-bottom: 1px solid var(--fb-border, #f1f5f9);
+  font-weight: 600;
 }
 
 .agg-shop-row span {
