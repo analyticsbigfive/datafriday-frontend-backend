@@ -627,6 +627,8 @@ import { useVentilationAccess } from '@/composables/useVentilationAccess'
 import { filterGroupsBySearch } from '@/utils/ventilationViews'
 import { suppliersOf } from '@/utils/ventilationSuppliers'
 import { ventilationExportTable, stockExportTable } from '@/utils/logisticExportTables'
+import { useStorageInventory } from '@/composables/useStorageInventory'
+import { filterStoredItems, savedRowsForElement } from '@/utils/storageStoredFilter'
 
 const TABS = [
   { value: 'shops', labelKey: 'logiTabShops', labelKeyShort: 'logiTabShopsShort', icon: 'mdi-store' },
@@ -727,7 +729,9 @@ export default {
     const eventSelection = reactive(useLogisticEventSelection({ route, router, t }))
     // PIN des logisticiens pour cette sélection (bandeau en Ventilation + fenêtre QR).
     const ventilationAccess = reactive(useVentilationAccess())
-    return { store, router, route, t, liveRefresh, ventilation, ventilationLabels, eventSelection, ventilationAccess }
+    // Lignes « stocké » des réserves (builder state) pour filtrer les articles des Storages.
+    const storageInv = useStorageInventory()
+    return { store, router, route, t, liveRefresh, storageInv, ventilation, ventilationLabels, eventSelection, ventilationAccess }
   },
   data() {
     return {
@@ -844,8 +848,18 @@ export default {
     shopEntries() {
       return (this.store.getters['logistics/shopElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [], floorGroupId: e.floorGroupId ?? null }, items: e.items || [] }))
     },
+    /** Storages : seuls les articles cochés « stocké » sur la réserve (3D Builder, config
+     *  résolue ou union des configs en vue agrégée). Lignes pas encore chargées : pas de
+     *  filtre, pour ne pas vider la liste le temps du chargement. */
     storageEntries() {
-      return (this.store.getters['logistics/storageElements'] || []).map((e) => ({ element: { id: e.id, name: e.name, configIds: e.configIds || [], floorGroupId: e.floorGroupId ?? null }, items: e.items || [] }))
+      const builderElements = this.storageInv.elementsForSpace(this.currentSpaceId)
+      return (this.store.getters['logistics/storageElements'] || []).map((e) => {
+        const savedRows = savedRowsForElement(builderElements, e.id, { configId: this.selectedConfigId })
+        return {
+          element: { id: e.id, name: e.name, configIds: e.configIds || [], floorGroupId: e.floorGroupId ?? null },
+          items: filterStoredItems(e.items || [], savedRows),
+        }
+      })
     },
     /** Candidats aux transferts, avec le stock actuel de la denrée (pour choisir en
      *  connaissance de cause). PDV : uniquement ceux qui suivent déjà la denrée
@@ -1202,6 +1216,10 @@ export default {
           ),
           this.loadLatestInventory(spaceId),
           this.loadMarketPriceImages(),
+          // Best-effort : un échec laisse la liste non filtrée (jamais vidée à tort).
+          Promise.resolve(this.storageInv.loadStorageInventory(spaceId, { force: true })).catch((e) =>
+            console.warn('[logistics] lignes stockage indisponibles :', e?.message),
+          ),
         ]
         if (this.canReconcile) {
           tasks.push(this.store.dispatch('logistics/loadReconciliations', { spaceId }))
