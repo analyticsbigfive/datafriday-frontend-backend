@@ -291,6 +291,7 @@ export class InventoryRowDto {
   @IsOptional() @IsNumber() @Min(0) minStock?: number;
   @IsOptional() @IsNumber() @Min(0) maxStock?: number;
   @IsOptional() @IsBoolean() isCustom?: boolean;
+  @IsOptional() @IsBoolean() isStored?: boolean;
   @IsOptional() @IsString() menuItemId?: string;
 }
 
