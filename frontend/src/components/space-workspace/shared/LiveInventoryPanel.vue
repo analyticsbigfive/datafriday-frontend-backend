@@ -226,6 +226,8 @@ export default {
     // fournis par LiveView (useLiveData). Sans eventId, la colonne reste à « - ».
     eventId: { type: String, default: '' },
     timelineRows: { type: Array, default: () => [] },
+    // Courbe prédite par minute (snapshot), pour la cadence de vente.
+    predictedTimeline: { type: Object, default: null },
   },
   setup(props) {
     const { t } = useI18n();
@@ -239,6 +241,7 @@ export default {
       spaceId: () => props.spaceId,
       shops: () => predictShops.value,
       timelineRows: () => props.timelineRows,
+      predictedTimeline: () => props.predictedTimeline,
     });
     return { t, restockerTaskQueue, predictShops, needLookup, predictStatus };
   },

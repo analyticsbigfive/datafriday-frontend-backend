@@ -35,5 +35,7 @@ export function useLivePredictBackground(eventId, enabled) {
 
   const rows = computed(() => snapshotToBackgroundRows(version.value?.predictedTimeline))
   const label = computed(() => version.value?.name || '')
-  return { rows, label }
+  // Snapshot brut : le Live l'utilise aussi pour la cadence de vente (colonne Prévu restant).
+  const timeline = computed(() => version.value?.predictedTimeline || null)
+  return { rows, label, timeline }
 }
