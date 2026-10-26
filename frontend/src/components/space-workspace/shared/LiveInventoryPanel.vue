@@ -109,6 +109,7 @@
               {{ view === 'shop' ? t('anLiveInvColItem') : t('anLiveInvColShop') }}
             </span>
             <span class="lip-rows__col lip-rows__col--predicted" :title="t('anLiveInvColPredictedFull')">{{ t('anLiveInvColPredicted') }}</span>
+            <span class="lip-rows__col lip-rows__col--cadence">{{ t('anLiveCadColHeader') }}</span>
             <span class="lip-rows__col lip-rows__col--gauge">{{ t('anLiveInvColRemaining') }}</span>
             <span class="lip-rows__col" aria-hidden="true"></span>
           </div>
@@ -121,6 +122,10 @@
             <div class="lip-row__predicted">
               <span class="lip-row__predicted-label">{{ t('anLiveInvColPredicted') }}</span>
               <LiveInventoryPredictedCell :predicted="child.predictedRemaining" :unit="child.unit" :available="predictReady" :loading="predictLoading" />
+            </div>
+
+            <div class="lip-row__cadence">
+              <LiveCadenceBadge :cadence="child.predictedRemaining?.cadence" @open="openCadence(node, child)" />
             </div>
 
             <!-- Jauge "stock restant / stock de départ" (départ = niveau déjà fixé par
@@ -155,6 +160,7 @@
 
             <button
               class="lip-row__restock-btn"
+              :class="cadenceBand(child) ? `lip-row__restock-btn--${cadenceBand(child)}` : null"
               type="button"
               :title="t('restockButton')"
               @click="openRestocker(node, child)"
@@ -165,6 +171,14 @@
         </div>
       </div>
     </div>
+
+    <LiveCadenceDrawer
+      v-model="cadenceOpen"
+      :cadence="cadenceDetail.cadence"
+      :shop-name="cadenceDetail.shopName"
+      :element-name="cadenceDetail.elementName"
+      :unit="cadenceDetail.unit"
+    />
 
     <RestockerDrawer
       v-model="restockerOpen"
@@ -194,13 +208,15 @@ import { useRestockerTaskQueue } from '@/composables/useRestockerTaskQueue';
 import { useLiveRemainingNeed } from '@/composables/useLiveRemainingNeed';
 import RestockerDrawer from './live-inventory/RestockerDrawer.vue';
 import LiveInventoryPredictedCell from './live-inventory/LiveInventoryPredictedCell.vue';
+import LiveCadenceBadge from './live-inventory/LiveCadenceBadge.vue';
+import LiveCadenceDrawer from './live-inventory/LiveCadenceDrawer.vue';
 
 // Rafraîchissement live aligné sur le mode flux d'AnalyseView (11_LIVE.md §5).
 const LIVE_POLL_MS = 15000;
 
 export default {
   name: 'LiveInventoryPanel',
-  components: { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search, Truck, Info, RestockerDrawer, LiveInventoryPredictedCell },
+  components: { Boxes, ChevronDown, ChevronRight, AlertTriangle, Search, Truck, Info, RestockerDrawer, LiveInventoryPredictedCell, LiveCadenceBadge, LiveCadenceDrawer },
   props: {
     spaceId: { type: String, default: '' },
     isDark: { type: Boolean, default: false },
@@ -247,6 +263,8 @@ export default {
       restockerItemKey: '',
       restockerItemKind: null,
       restockerItemRefId: null,
+      cadenceOpen: false,
+      cadenceDetail: { cadence: null, shopName: '', elementName: '', unit: '' },
     };
   },
   computed: {
@@ -371,6 +389,17 @@ export default {
     // explicitement par buildLiveInventoryChild (cf. utils/liveInventoryRows.js) —
     // valables dans les deux vues (shop/item), le nom du shop seul diffère (node.label
     // en vue shop, child.label en vue item). itemKind/itemRefId : ADR-0006 (chantier 377).
+    // Bande de cadence de la ligne : 'orange' | 'red' | 'violet' colore le camion, 'ok' ou absente = inchangé.
+    cadenceBand(child) {
+      const band = child.predictedRemaining?.cadence?.band;
+      return band && band !== 'ok' ? band : null;
+    },
+    openCadence(node, child) {
+      const shopName = this.view === 'shop' ? node.label : child.label;
+      const elementName = this.view === 'shop' ? child.label : node.label;
+      this.cadenceDetail = { cadence: child.predictedRemaining?.cadence ?? null, shopName, elementName, unit: child.unit };
+      this.cadenceOpen = true;
+    },
     openRestocker(node, child) {
       const shopName = this.view === 'shop' ? node.label : child.label;
       this.restockerElement = { id: child.shopId, name: shopName };
@@ -572,12 +601,12 @@ export default {
   white-space: nowrap;
 }
 
-/* Colonnes : libellé | Prévu restant | jauge (quantités + piste) | bouton.
+/* Colonnes : libellé | Prévu restant | cadence | jauge (quantités + piste) | bouton.
    Les deux quantités de la jauge ont une largeur propre (--lip-qty) qui loge
    « 1 250,5 kg » en entier ; la piste prend le reste (environ moitié de l'ancienne). */
 .lip-rows {
   --lip-qty: 4.75rem;
-  --lip-cols: minmax(5rem, 1fr) 6.75rem minmax(15rem, 17.5rem) 30px;
+  --lip-cols: minmax(5rem, 1fr) 6.75rem 3.75rem minmax(15rem, 17.5rem) 30px;
   padding: 2px 6px 8px 30px;
 }
 .lip-rows__header {
@@ -593,6 +622,7 @@ export default {
 }
 .lip-rows__col--gauge { text-align: right; white-space: nowrap; }
 .lip-rows__col--predicted { text-align: right; }
+.lip-rows__col--cadence { text-align: center; }
 .lip-row {
   display: grid;
   grid-template-columns: var(--lip-cols);
@@ -617,6 +647,10 @@ export default {
   flex-shrink: 0;
 }
 .lip-row__restock-btn:hover { background: #fef2f2; color: #ff3131; border-color: rgba(255, 49, 49, .3); }
+.lip-row__restock-btn--orange { color: #d97706; border-color: rgba(217, 119, 6, .45); background: #fffbeb; }
+.lip-row__restock-btn--red { color: #d03b3b; border-color: rgba(208, 59, 59, .45); background: #fef2f2; }
+.lip-row__restock-btn--violet { color: #7c3aed; border-color: rgba(124, 58, 237, .45); background: #f5f3ff; }
+.lip-row__cadence { min-width: 0; display: flex; justify-content: center; }
 .lip-row__main-col {
   display: flex;
   flex-direction: column;
@@ -699,15 +733,16 @@ export default {
 
 /* Panneau étroit : la jauge passe sous le libellé et le Prévu restant, pleine largeur. */
 @container (max-width: 600px) {
-  .lip-rows { padding-left: 8px; --lip-cols: minmax(0, 1fr) auto 30px; }
+  .lip-rows { padding-left: 8px; --lip-cols: minmax(0, 1fr) auto auto 30px; }
   .lip-rows__header { display: none; }
   .lip-row {
-    grid-template-areas: 'main pred btn' 'gauge gauge gauge';
+    grid-template-areas: 'main pred cad btn' 'gauge gauge gauge gauge';
     row-gap: 8px;
   }
   .lip-row__main-col { grid-area: main; }
   .lip-row__predicted { grid-area: pred; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
   .lip-row__predicted-label { display: block; font-size: var(--fs-xs); color: #9ca3af; white-space: nowrap; }
+  .lip-row__cadence { grid-area: cad; }
   .lip-row__gauge { grid-area: gauge; }
   .lip-row__restock-btn { grid-area: btn; }
 }
@@ -745,6 +780,9 @@ export default {
 .lip--dark .lip-row__gauge-num { color: #f1f5f9; }
 .lip--dark .lip-row__gauge-track { background: rgba(255, 255, 255, .1); }
 .lip--dark .lip-row__restock-btn { background: #0f172a; border-color: rgba(255,255,255,.1); color: #94a3b8; }
+.lip--dark .lip-row__restock-btn--orange { background: rgba(251,191,36,.12); color: #fbbf24; border-color: rgba(251,191,36,.45); }
+.lip--dark .lip-row__restock-btn--red { background: rgba(248,113,113,.12); color: #f87171; border-color: rgba(248,113,113,.45); }
+.lip--dark .lip-row__restock-btn--violet { background: rgba(167,139,250,.14); color: #a78bfa; border-color: rgba(167,139,250,.45); }
 .lip--dark .lip-row__restock-btn:hover { background: rgba(255,49,49,.12); color: #f87171; border-color: rgba(248,113,113,.4); }
 /* Statuts good/critical mode-invariants (validés dataviz skill sur
    les 2 surfaces), seul warning est réajusté : #b8860b (assombri pour lisibilité en
