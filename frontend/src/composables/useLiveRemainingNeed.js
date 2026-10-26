@@ -17,7 +17,8 @@ import {
   lookupPredictedNeed,
   lookupPredictedNeedSources,
 } from '@/composables/usePredictedNeed'
-import { buildRemainingRecords, buildSalesIndex } from '@/utils/liveRemainingSales'
+import { buildRemainingRecords, buildSalesIndex, soldQuantity } from '@/utils/liveRemainingSales'
+import { buildCadenceRecords, computeCadence, cumulativeFraction } from '@/utils/liveCadence'
 
 /**
  * @param {Object} p
@@ -25,8 +26,10 @@ import { buildRemainingRecords, buildSalesIndex } from '@/utils/liveRemainingSal
  * @param {import('vue').Ref<string>|(() => string)} p.spaceId
  * @param {() => Array<{id:string,name:string}>} p.shops PdV de l'inventaire live
  * @param {() => Array<object>} p.timelineRows ventes réalisées (useLiveData)
+ * @param {import('vue').Ref<object>|(() => object)} [p.predictedTimeline] courbe prédite (snapshot colonnaire), repli sur celle de la version
+ * @param {() => Date} [p.now] horloge injectable (tests)
  */
-export function useLiveRemainingNeed({ eventId, spaceId, shops, timelineRows }) {
+export function useLiveRemainingNeed({ eventId, spaceId, shops, timelineRows, predictedTimeline, now = () => new Date() }) {
   const store = useStore()
   const read = (v) => (typeof v === 'function' ? v() : v?.value)
 
@@ -132,6 +135,36 @@ export function useLiveRemainingNeed({ eventId, spaceId, shops, timelineRows }) 
   const fullIndex = computed(() => buildIndex(null))
   const remainingIndex = computed(() => buildIndex(buildSalesIndex(read(timelineRows))))
 
+  // Cadence : vendu et prévu à la minute courante, au grain inventaire (voir utils/liveCadence).
+  const cadenceIndexes = computed(() => {
+    if (!version.value || !catalogReady.value) return null
+    const frac = cumulativeFraction(
+      (predictedTimeline ? read(predictedTimeline) : null) || version.value.predictedTimeline,
+      now(),
+    )
+    if (!frac || !(frac.fraction > 0)) return null
+    const list = read(shops) || []
+    const st = analyse.value
+    const full = buildRemainingRecords({ version: version.value, shops: list, menuItems: st.menuItems })
+    const salesIndex = buildSalesIndex(read(timelineRows))
+    const { predictedAtM, sold } = buildCadenceRecords({
+      fullRecords: full,
+      shops: list,
+      fraction: frac.fraction,
+      soldFn: (shop, r) => soldQuantity(salesIndex, shop, [r.menuItemId, r.mappedMenuItemId], r.itemName),
+    })
+    const toIndex = (records) =>
+      records.length
+        ? buildPredictedNeedIndex({
+            elements: list,
+            menuItems: st.menuItems,
+            components: st.components,
+            version: { predictedRecords: records, menuConfig: version.value.menuConfig, quantityAdjustments: {} },
+          })
+        : null
+    return { predicted: toIndex(predictedAtM), sold: toIndex(sold), minuteLabel: frac.minuteLabel }
+  })
+
   const hasPredict = computed(() => !!fullIndex.value)
 
   /**
@@ -148,8 +181,17 @@ export function useLiveRemainingNeed({ eventId, spaceId, shops, timelineRows }) 
     return hasPredict.value ? 'ready' : 'no-coverage'
   })
 
+  function cadenceLookup(shopId, item, remainingUnits) {
+    const idx = cadenceIndexes.value
+    if (!idx?.predicted) return null
+    const predictedToMinuteUnits = lookupPredictedNeed(idx.predicted, shopId, item)
+    if (predictedToMinuteUnits == null) return null
+    const soldUnits = (idx.sold && lookupPredictedNeed(idx.sold, shopId, item)) || 0
+    return computeCadence({ soldUnits, predictedToMinuteUnits, remainingUnits, minuteLabel: idx.minuteLabel })
+  }
+
   /**
-   * @returns {{units:number, sources:Array}|null} null = pas de predict pour cette ligne
+   * @returns {{units:number, sources:Array, cadence:object|null}|null} null = pas de predict pour cette ligne
    */
   function needLookup(shopId, itemKey, itemRefId) {
     const full = fullIndex.value
@@ -158,8 +200,9 @@ export function useLiveRemainingNeed({ eventId, spaceId, shops, timelineRows }) 
     if (lookupPredictedNeed(full, shopId, item) == null) return null
     const rem = remainingIndex.value
     const units = rem ? lookupPredictedNeed(rem, shopId, item) : null
-    if (units == null) return { units: 0, sources: [] }
-    return { units, sources: lookupPredictedNeedSources(rem, shopId, item) }
+    const cadence = cadenceLookup(shopId, item, units ?? 0)
+    if (units == null) return { units: 0, sources: [], cadence }
+    return { units, sources: lookupPredictedNeedSources(rem, shopId, item), cadence }
   }
 
   // Trace de diagnostic (console) à chaque changement d'état : de quoi lire pourquoi la

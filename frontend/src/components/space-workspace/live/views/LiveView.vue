@@ -103,6 +103,7 @@
                   :active="tab === 'inventory'"
                   :event-id="liveData.eventId.value || ''"
                   :timeline-rows="liveData.timelineRows.value"
+                  :predicted-timeline="predictBackground.timeline.value"
                 />
               </div>
         </div>
