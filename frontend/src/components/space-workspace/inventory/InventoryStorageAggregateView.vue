@@ -561,7 +561,7 @@ export default {
   font-size: 10px;
 }
 
-.agg-shop-row > :nth-child(n + 2) { text-align: right; }
+.agg-shop-row > :nth-child(n + 2) { justify-content: flex-end; text-align: right; }
 
 .agg-shop-head {
   padding-bottom: 3px;

@@ -1,11 +1,11 @@
 <template>
   <span class="lipc" :class="{ 'lipc--none': !hasValue, 'lipc--zero': hasValue && isZero }">
-    <!-- Trois états sans valeur : predict indisponible (tiret très discret, le bandeau du
-         panneau l'explique), élément absent du predict (tiret + infobulle), restant à 0. -->
+    <!-- États sans valeur : chargement (libellé), predict indisponible ou élément absent du
+         predict (cellule vide, le bandeau du panneau explique le premier cas), restant à 0. -->
     <template v-if="!hasValue">
       <span v-if="loading" class="lipc__loading">{{ t('anLiveInvPredictLoading') }}</span>
-      <span v-else-if="!available" class="lipc__dash lipc__dash--muted" aria-hidden="true">&ndash;</span>
-      <span v-else class="lipc__dash" :title="t('anLiveInvNotCovered')">&ndash;</span>
+      <!-- Sans valeur : cellule vide plutôt qu'un tiret répété sur chaque ligne. -->
+      <span v-else-if="available" class="lipc__none" :title="t('anLiveInvNotCovered')"></span>
     </template>
     <template v-else>
       <span class="lipc__val">{{ isZero ? '0' : label }}</span>
@@ -72,7 +72,7 @@ const moreLabel = computed(() => t('restockPrefillMore').replace('{n}', String(s
 }
 .lipc--none { color: #6b7280; font-weight: var(--fw-regular); }
 .lipc__loading { font-size: var(--fs-xs); font-weight: var(--fw-regular); color: #9ca3af; font-style: italic; }
-.lipc__dash--muted { color: #d1d5db; }
+.lipc__none { display: inline-block; min-width: 1rem; min-height: 1rem; }
 .lipc--zero { color: #6b7280; font-weight: var(--fw-medium); }
 .lipc__tip { font-size: var(--fs-sm); line-height: 1.4; max-width: 18rem; white-space: normal; }
 .lipc__tip-title { font-weight: var(--fw-semibold); }
@@ -81,6 +81,5 @@ const moreLabel = computed(() => t('restockPrefillMore').replace('{n}', String(s
 .lip--dark .lipc { color: #e2e8f0; }
 .lip--dark .lipc--none { color: #94a3b8; }
 .lip--dark .lipc__loading { font-size: var(--fs-xs); font-weight: var(--fw-regular); color: #9ca3af; font-style: italic; }
-.lipc__dash--muted { color: #475569; }
 .lip--dark .lipc--zero { color: #94a3b8; }
 </style>

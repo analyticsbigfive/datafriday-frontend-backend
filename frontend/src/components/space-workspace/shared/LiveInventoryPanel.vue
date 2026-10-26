@@ -103,14 +103,16 @@
           </span>
         </button>
 
-        <div v-if="isOpen(node.key)" class="lip-rows">
+        <div v-if="isOpen(node.key)" class="lip-rows" :class="colClasses(node)">
           <div class="lip-rows__header">
             <span class="lip-rows__col lip-rows__col--main">
               {{ view === 'shop' ? t('anLiveInvColItem') : t('anLiveInvColShop') }}
             </span>
-            <span class="lip-rows__col lip-rows__col--predicted" :title="t('anLiveInvColPredictedFull')">{{ t('anLiveInvColPredicted') }}</span>
-            <span class="lip-rows__col lip-rows__col--cadence">{{ t('anLiveCadColHeader') }}</span>
-            <span class="lip-rows__col lip-rows__col--gauge">{{ t('anLiveInvColRemaining') }}</span>
+            <span v-if="showPredictedCol(node)" class="lip-rows__col lip-rows__col--predicted" :title="t('anLiveInvColPredictedFull')">{{ t('anLiveInvColPredicted') }}</span>
+            <span v-if="showCadenceCol(node)" class="lip-rows__col lip-rows__col--cadence">{{ t('anLiveCadColHeader') }}</span>
+            <span class="lip-rows__col lip-rows__col--gauge">
+              <span></span><span class="lip-rows__gauge-label">{{ t('anLiveInvColRemaining') }}</span><span></span>
+            </span>
             <span class="lip-rows__col" aria-hidden="true"></span>
           </div>
           <div v-for="child in node.children" :key="child.key" class="lip-row">
@@ -119,12 +121,12 @@
               <span class="lip-row__consumed-sub">{{ t('anLiveInvColConsumed') }} : {{ formatQty(child.consumedLoose, child.unit) }}</span>
             </div>
 
-            <div class="lip-row__predicted">
+            <div v-if="showPredictedCol(node)" class="lip-row__predicted">
               <span class="lip-row__predicted-label">{{ t('anLiveInvColPredicted') }}</span>
               <LiveInventoryPredictedCell :predicted="child.predictedRemaining" :unit="child.unit" :available="predictReady" :loading="predictLoading" />
             </div>
 
-            <div class="lip-row__cadence">
+            <div v-if="showCadenceCol(node)" class="lip-row__cadence">
               <LiveCadenceBadge :cadence="child.predictedRemaining?.cadence" @open="openCadence(node, child)" />
             </div>
 
@@ -386,13 +388,29 @@ export default {
     // le référentiel MarketPrice mélange casses ("kg"/"Kg") selon la saisie d'origine.
     formatQty(v, unit) {
       const num = this.formatNumber(v);
-      return unit ? `${num} ${unit.toLowerCase()}` : num;
+      // « kg (kilogram) » -> « kg » : la glose entre parenthèses faisait déborder la jauge.
+      const short = unit ? unit.replace(/\s*\(.*\)\s*$/, '').toLowerCase() : '';
+      return short ? `${num} ${short}` : num;
     },
     // `child.shopId`/`child.itemKey`/`child.itemKind`/`child.itemRefId` portés
     // explicitement par buildLiveInventoryChild (cf. utils/liveInventoryRows.js) —
     // valables dans les deux vues (shop/item), le nom du shop seul diffère (node.label
     // en vue shop, child.label en vue item). itemKind/itemRefId : ADR-0006 (chantier 377).
     // Bande de cadence de la ligne : 'orange' | 'red' | 'violet' colore le camion, 'ok' ou absente = inchangé.
+    // Colonnes « Prévu restant » et « Cadence » : masquées tant qu'aucune ligne du groupe n'a de
+    // valeur (predict indisponible, ou cadence non calculable), pour rendre la place à l'article.
+    showPredictedCol(node) {
+      return this.predictLoading || node.children.some((c) => Number.isFinite(c.predictedRemaining?.units));
+    },
+    showCadenceCol(node) {
+      return node.children.some((c) => c.predictedRemaining?.cadence);
+    },
+    colClasses(node) {
+      return {
+        'lip-rows--no-pred': !this.showPredictedCol(node),
+        'lip-rows--no-cad': !this.showCadenceCol(node),
+      };
+    },
     cadenceBand(child) {
       const band = child.predictedRemaining?.cadence?.band;
       return band && band !== 'ok' ? band : null;
@@ -608,10 +626,13 @@ export default {
    Les deux quantités de la jauge ont une largeur propre (--lip-qty) qui loge
    « 1 250,5 kg » en entier ; la piste prend le reste (environ moitié de l'ancienne). */
 .lip-rows {
-  --lip-qty: 4.75rem;
-  --lip-cols: minmax(5rem, 1fr) 6.75rem 3.75rem minmax(15rem, 17.5rem) 30px;
+  --lip-qty: 4.5rem;
+  --lip-cols: minmax(8rem, 1fr) 7rem 3.5rem minmax(16rem, 1.2fr) 30px;
   padding: 2px 6px 8px 30px;
 }
+.lip-rows--no-pred { --lip-cols: minmax(8rem, 1fr) 3.5rem minmax(16rem, 1.2fr) 30px; }
+.lip-rows--no-cad { --lip-cols: minmax(8rem, 1fr) 7rem minmax(16rem, 1.2fr) 30px; }
+.lip-rows--no-pred.lip-rows--no-cad { --lip-cols: minmax(8rem, 1fr) minmax(16rem, 1.2fr) 30px; }
 .lip-rows__header {
   display: grid;
   grid-template-columns: var(--lip-cols);
@@ -623,8 +644,15 @@ export default {
   letter-spacing: .04em;
   color: #9ca3af;
 }
-.lip-rows__col--gauge { text-align: right; white-space: nowrap; }
-.lip-rows__col--predicted { text-align: right; }
+.lip-rows__col--gauge {
+  /* Même découpage que la jauge d'une ligne : l'intitulé est centré au-dessus de la piste. */
+  display: grid;
+  grid-template-columns: var(--lip-qty) minmax(6rem, 1fr) var(--lip-qty);
+  gap: 8px;
+  white-space: nowrap;
+}
+.lip-rows__gauge-label { text-align: center; }
+.lip-rows__col--predicted { text-align: right; white-space: nowrap; }
 .lip-rows__col--cadence { text-align: center; }
 .lip-row {
   display: grid;
@@ -662,11 +690,11 @@ export default {
 }
 .lip-row__main {
   color: #374151;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Nom d'article toujours lisible en entier : il passe à la ligne au lieu d'être coupé. */
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
-.lip-row__consumed-sub { font-size: var(--fs-xs); color: #9ca3af; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lip-row__consumed-sub { font-size: var(--fs-xs); color: #9ca3af; white-space: normal; overflow-wrap: anywhere; }
 .lip-row__predicted { min-width: 0; }
 .lip-row__predicted-label { display: none; }
 
@@ -680,7 +708,7 @@ export default {
      identique sur toutes les lignes, quelle que soit la longueur du texte affiché de part et
      d'autre (ex. "0 kg" vs "0 kg (kilogram)") — un min-width seul ne suffisait pas, un libellé
      plus long que le minimum repoussait quand même la piste. */
-  grid-template-columns: var(--lip-qty) minmax(3.5rem, 1fr) var(--lip-qty);
+  grid-template-columns: var(--lip-qty) minmax(6rem, 1fr) var(--lip-qty);
   align-items: center;
   gap: 8px;
 }
@@ -735,7 +763,7 @@ export default {
 .lip-row__gauge-pct--outside.lip-row__gauge-pct--critical { color: #d03b3b; }
 
 /* Panneau étroit : la jauge passe sous le libellé et le Prévu restant, pleine largeur. */
-@container (max-width: 600px) {
+@container (max-width: 680px) {
   .lip-rows { padding-left: 8px; --lip-cols: minmax(0, 1fr) auto auto 30px; }
   .lip-rows__header { display: none; }
   .lip-row {
