@@ -211,7 +211,7 @@ export class BuilderV2ElementSettingsService {
                 elementId, configId: targetConfigId,
                 name: i.name, quantity: i.quantity, unit: i.unit ?? null,
                 minStock: i.minStock ?? null, maxStock: i.maxStock ?? null,
-                isCustom: i.isCustom ?? true, menuItemId: i.menuItemId ?? null,
+                isCustom: i.isCustom ?? true, isStored: i.isStored ?? null, menuItemId: i.menuItemId ?? null,
               })),
             }),
           ]

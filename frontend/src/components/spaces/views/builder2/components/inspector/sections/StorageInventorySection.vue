@@ -30,8 +30,17 @@
           <div v-for="line in group.lines" :key="line.kind + ':' + line.id" class="inv-card">
             <div class="inv-card__row">
               <img v-if="line.picture" :src="line.picture" :alt="line.name" class="inv-card__thumb" />
-              <span class="inv-card__name">{{ line.name }}</span>
-              <span v-if="line.storageType" class="inv-card__stype">({{ line.storageType }})</span>
+              <span class="inv-card__name" :title="line.name">{{ line.name }}</span>
+              <input
+                type="checkbox"
+                class="inv-card__check"
+                :checked="isStoredFor(line.name)"
+                :title="t('b2StoredOnReserve')"
+                :aria-label="t('b2StoredOnReserve')"
+                @change="(e) => setStored(line.name, e.target.checked)"
+              />
+            </div>
+            <div v-if="line.kind === 'component' || line.kind === 'packaging' || line.storageType" class="inv-card__meta">
               <span
                 v-if="line.kind === 'component' || line.kind === 'packaging'"
                 class="inv-card__kind"
@@ -39,73 +48,42 @@
               >
                 {{ line.kind === 'component' ? t('b2Component') : t('b2Packaging') }}
               </span>
-              <span class="inv-card__spacer" />
-              <div class="inv-qty">
-                <input
-                  class="inv-qty__input"
-                  type="number"
-                  min="0"
-                  :step="packInfoFor(line.name) ? '0.01' : '1'"
-                  :value="displayValue(line.name, quantityFor(line.name))"
-                  @change="(e) => setQuantity(line.name, toRaw(line.name, e.target.value))"
-                />
-                <span v-if="qtyUnitLabel(line.name)" class="inv-qty__unit">{{ qtyUnitLabel(line.name) }}</span>
-              </div>
+              <span v-if="line.storageType" class="inv-card__stype">({{ line.storageType }})</span>
             </div>
 
-            <!-- Jauge : quantity vs maxStock (capacité), alerte sous minStock. Min/Max
-                 saisis en "information d'inventaire" (packs) quand un Market Price connu
-                 fixe le conditionnement, sinon repli sur l'unité de recette brute. -->
-            <div class="inv-bounds">
-              <label class="inv-bounds__field">
-                <span>Min</span>
-                <input
-                  class="inv-bounds__input"
-                  type="number"
-                  min="0"
-                  :step="packInfoFor(line.name) ? '0.01' : '1'"
-                  :value="displayValue(line.name, boundsFor(line.name).min ?? '')"
-                  @change="(e) => setBound(line.name, 'minStock', toRaw(line.name, e.target.value))"
-                />
-              </label>
-              <label class="inv-bounds__field">
-                <span>Max</span>
-                <input
-                  class="inv-bounds__input"
-                  type="number"
-                  min="0"
-                  :step="packInfoFor(line.name) ? '0.01' : '1'"
-                  :value="displayValue(line.name, boundsFor(line.name).max ?? '')"
-                  @change="(e) => setBound(line.name, 'maxStock', toRaw(line.name, e.target.value))"
-                />
-              </label>
-              <div v-if="gaugeFor(line.name)" class="inv-gauge" :title="gaugeTitle(line.name)">
-                <div
-                  class="inv-gauge__fill"
-                  :class="{ 'inv-gauge__fill--low': gaugeFor(line.name).low }"
-                  :style="{ width: gaugeFor(line.name).pct + '%' }"
-                />
-              </div>
-            </div>
-            <div v-if="packInfoFor(line.name)" class="inv-pack-hint">
-              {{ packHintLabel(line.name) }}
-            </div>
+            <template v-if="isStoredFor(line.name)">
+              <!-- Stock tampon, min/max, jauge : saisis en packs quand un Market Price connu
+                   fixe le conditionnement, sinon repli sur l'unité de recette brute. -->
+              <StorageRowFields
+                :quantity="displayValue(line.name, quantityFor(line.name))"
+                :min="displayValue(line.name, boundsFor(line.name).min ?? '')"
+                :max="displayValue(line.name, boundsFor(line.name).max ?? '')"
+                :step="packInfoFor(line.name) ? '0.01' : '1'"
+                :unit-label="qtyUnitLabel(line.name)"
+                :hint="packInfoFor(line.name) ? packHintLabel(line.name) : ''"
+                :gauge="gaugeFor(line.name)"
+                :gauge-title="gaugeTitle(line.name)"
+                @quantity="(v) => setQuantity(line.name, toRaw(line.name, v))"
+                @min="(v) => setBound(line.name, 'minStock', toRaw(line.name, v))"
+                @max="(v) => setBound(line.name, 'maxStock', toRaw(line.name, v))"
+              />
 
-            <!-- Used in / Sold in : shop → menu items (vide pour les articles merch) -->
-            <div v-if="line.usedIn.length" class="inv-used">
-              <span class="inv-used__label">{{ line.kind === 'article' ? t('b2SoldIn') : t('b2UsedIn') }}</span>
-              <div v-for="usage in line.usedIn" :key="usage.shopId" class="inv-used__shop">
-                <span class="inv-used__shop-name">• {{ usage.shopName }}</span>
-                <div v-for="mi in usage.menuItems" :key="mi.id" class="inv-used__item">
-                  <img v-if="mi.picture" :src="mi.picture" :alt="mi.name" class="inv-used__thumb" />
-                  <span v-else class="inv-used__thumb inv-used__thumb--empty">
-                    <v-icon icon="mdi-food" size="11" color="grey-lighten-1" />
-                  </span>
-                  <span class="inv-used__arrow">→</span>
-                  <span class="inv-used__mi">{{ mi.name }}</span>
+              <!-- Used in / Sold in : shop → menu items (vide pour les articles merch) -->
+              <div v-if="line.usedIn.length" class="inv-used">
+                <span class="inv-used__label">{{ line.kind === 'article' ? t('b2SoldIn') : t('b2UsedIn') }}</span>
+                <div v-for="usage in line.usedIn" :key="usage.shopId" class="inv-used__shop">
+                  <span class="inv-used__shop-name">• {{ usage.shopName }}</span>
+                  <div v-for="mi in usage.menuItems" :key="mi.id" class="inv-used__item">
+                    <img v-if="mi.picture" :src="mi.picture" :alt="mi.name" class="inv-used__thumb" />
+                    <span v-else class="inv-used__thumb inv-used__thumb--empty">
+                      <v-icon icon="mdi-food" size="11" color="grey-lighten-1" />
+                    </span>
+                    <span class="inv-used__arrow">→</span>
+                    <span class="inv-used__mi">{{ mi.name }}</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            </template>
           </div>
         </div>
       </template>
@@ -130,57 +108,34 @@
         <div class="inv-list">
           <div v-for="row in filteredManual" :key="'manual:' + row.name" class="inv-card inv-card--custom">
             <div class="inv-card__row">
-              <span class="inv-card__name">{{ row.name }}</span>
-              <span class="inv-card__spacer" />
-              <div class="inv-qty">
-                <input
-                  class="inv-qty__input"
-                  type="number"
-                  min="0"
-                  :step="packInfoFor(row.name) ? '0.01' : '1'"
-                  :value="displayValue(row.name, row.quantity)"
-                  @change="(e) => setQuantity(row.name, toRaw(row.name, e.target.value))"
-                />
-                <span v-if="qtyUnitLabel(row.name)" class="inv-qty__unit">{{ qtyUnitLabel(row.name) }}</span>
-              </div>
+              <span class="inv-card__name" :title="row.name">{{ row.name }}</span>
+              <input
+                type="checkbox"
+                class="inv-card__check"
+                :checked="isStoredFor(row.name)"
+                :title="t('b2StoredOnReserve')"
+                :aria-label="t('b2StoredOnReserve')"
+                @change="(e) => setStored(row.name, e.target.checked)"
+              />
               <button class="inv-card__remove" :title="t('b2Remove')" @click="removeManual(row.name)">
                 <v-icon icon="mdi-close" size="13" />
               </button>
             </div>
-            <div class="inv-bounds">
-              <label class="inv-bounds__field">
-                <span>Min</span>
-                <input
-                  class="inv-bounds__input"
-                  type="number"
-                  min="0"
-                  :step="packInfoFor(row.name) ? '0.01' : '1'"
-                  :value="displayValue(row.name, boundsFor(row.name).min ?? '')"
-                  @change="(e) => setBound(row.name, 'minStock', toRaw(row.name, e.target.value))"
-                />
-              </label>
-              <label class="inv-bounds__field">
-                <span>Max</span>
-                <input
-                  class="inv-bounds__input"
-                  type="number"
-                  min="0"
-                  :step="packInfoFor(row.name) ? '0.01' : '1'"
-                  :value="displayValue(row.name, boundsFor(row.name).max ?? '')"
-                  @change="(e) => setBound(row.name, 'maxStock', toRaw(row.name, e.target.value))"
-                />
-              </label>
-              <div v-if="gaugeFor(row.name)" class="inv-gauge" :title="gaugeTitle(row.name)">
-                <div
-                  class="inv-gauge__fill"
-                  :class="{ 'inv-gauge__fill--low': gaugeFor(row.name).low }"
-                  :style="{ width: gaugeFor(row.name).pct + '%' }"
-                />
-              </div>
-              <div v-if="packInfoFor(row.name)" class="inv-pack-hint">
-                {{ packHintLabel(row.name) }}
-              </div>
-            </div>
+            <template v-if="isStoredFor(row.name)">
+              <StorageRowFields
+                :quantity="displayValue(row.name, quantityFor(row.name))"
+                :min="displayValue(row.name, boundsFor(row.name).min ?? '')"
+                :max="displayValue(row.name, boundsFor(row.name).max ?? '')"
+                :step="packInfoFor(row.name) ? '0.01' : '1'"
+                :unit-label="qtyUnitLabel(row.name)"
+                :hint="packInfoFor(row.name) ? packHintLabel(row.name) : ''"
+                :gauge="gaugeFor(row.name)"
+                :gauge-title="gaugeTitle(row.name)"
+                @quantity="(v) => setQuantity(row.name, toRaw(row.name, v))"
+                @min="(v) => setBound(row.name, 'minStock', toRaw(row.name, v))"
+                @max="(v) => setBound(row.name, 'maxStock', toRaw(row.name, v))"
+              />
+            </template>
           </div>
         </div>
       </template>
@@ -206,6 +161,8 @@
 import { ref, computed, inject, watch } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import SectionCard from './SectionCard.vue'
+import StorageRowFields from './StorageRowFields.vue'
+import { isRowStored } from '@/utils/storageRowStored'
 import { putElementInventory } from '@/api/endpoints/builder-v2.api'
 import { getStorageInventory } from '@/api/endpoints/menu.api'
 import { normalizeType } from '../../../constants/elementTaxonomy'
@@ -291,6 +248,9 @@ const rowByName = computed(() => {
   for (const r of saved.value) m.set(r.name, r)
   return m
 })
+function isStoredFor(name) {
+  return isRowStored(rowByName.value.get(name))
+}
 function quantityFor(name) {
   return Number(rowByName.value.get(name)?.quantity) || 0
 }
@@ -405,6 +365,7 @@ function cleanRow(r) {
   if (r.unit != null) row.unit = r.unit
   if (r.minStock != null) row.minStock = r.minStock
   if (r.maxStock != null) row.maxStock = r.maxStock
+  if (r.isStored != null) row.isStored = r.isStored
   if (r.isCustom != null) row.isCustom = r.isCustom
   if (r.menuItemId != null) row.menuItemId = r.menuItemId
   return row
@@ -431,6 +392,7 @@ function keepRow(r) {
     (Number(r.quantity) || 0) > 0 ||
     r.minStock != null ||
     r.maxStock != null ||
+    r.isStored === true ||
     !derivedNames.value.has(r.name)
   )
 }
@@ -440,6 +402,10 @@ function upsertRow(name, patch) {
     ? saved.value.map((r) => (r.name === name ? { ...r, ...patch } : r))
     : [...saved.value, { name, quantity: 0, ...patch }]
   persist(rows.filter(keepRow))
+}
+
+function setStored(name, checked) {
+  upsertRow(name, { isStored: !!checked })
 }
 
 function setQuantity(name, raw) {
@@ -456,7 +422,7 @@ function addRow() {
   const name = newName.value.trim()
   if (!name) return
   if (!saved.value.some((r) => r.name === name) && !derivedNames.value.has(name)) {
-    persist([...saved.value, { name, quantity: 0 }])
+    persist([...saved.value, { name, quantity: 0, isStored: true }])
   }
   newName.value = ''
 }
@@ -535,6 +501,8 @@ function removeManual(name) {
   flex-shrink: 0;
 }
 .inv-card__name {
+  flex: 1;
+  min-width: 0;
   font-size: var(--fs-base);
   font-weight: 600;
   line-height: 1.3;
@@ -557,94 +525,19 @@ function removeManual(name) {
 }
 .inv-card__kind--component { background: rgba(99, 102, 241, 0.1); color: #4f46e5; }
 .inv-card__kind--packaging { background: rgba(217, 119, 6, 0.1); color: #b45309; }
-.inv-card__spacer { flex: 1; }
-
-.inv-qty {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  flex-shrink: 0;
-}
-.inv-qty__input {
-  width: 58px;
-  text-align: right;
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: #374151;
-  background: rgb(var(--v-theme-surface));
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 4px 8px;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  -moz-appearance: textfield;
-}
-.inv-qty__input::-webkit-outer-spin-button,
-.inv-qty__input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.inv-qty__input:focus {
-  border-color: #ff3131;
-  box-shadow: 0 0 0 2px rgba(255, 49, 49, 0.12);
-}
-.inv-qty__unit {
-  font-size: var(--fs-xs);
-  color: #9ca3af;
-  max-width: 48px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Min / Max + jauge */
-.inv-bounds {
+.inv-card__meta {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 7px;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
 }
-.inv-bounds__field {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--fs-xs);
-  color: #9ca3af;
+.inv-card__check {
   flex-shrink: 0;
-}
-.inv-bounds__input {
-  width: 46px;
-  text-align: right;
-  font-size: var(--fs-xs);
-  color: #374151;
-  background: rgb(var(--v-theme-surface));
-  border: 1px solid #e5e7eb;
-  border-radius: 7px;
-  padding: 2px 6px;
-  outline: none;
-  -moz-appearance: textfield;
-}
-.inv-bounds__input::-webkit-outer-spin-button,
-.inv-bounds__input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.inv-bounds__input:focus { border-color: #ff3131; }
-
-.inv-gauge {
-  flex: 1;
-  height: 6px;
-  border-radius: 100px;
-  background: #ececee;
-  overflow: hidden;
-  min-width: 40px;
-}
-.inv-gauge__fill {
-  height: 100%;
-  border-radius: 100px;
-  background: #10b981;
-  transition: width 0.2s ease, background 0.2s ease;
-}
-.inv-gauge__fill--low { background: #ff3131; }
-
-.inv-pack-hint {
-  margin-top: 3px;
-  font-size: var(--fs-xs);
-  color: #9ca3af;
+  width: 15px;
+  height: 15px;
+  accent-color: #ff3131;
+  cursor: pointer;
 }
 
 /* Used in / Sold in : shop → menu items */
@@ -763,11 +656,6 @@ function removeManual(name) {
 .dark .inv-card { background: #1a2332; }
 .dark .inv-card:hover { border-color: rgba(255, 255, 255, 0.14); background: #1f2937; }
 .dark .inv-card--custom { background: #1f2937; }
-.dark .inv-qty__input,
-.dark .inv-bounds__input { color: #d1d5db; border-color: #374151; }
-.dark .inv-qty__input:focus,
-.dark .inv-bounds__input:focus { border-color: #ff3131; }
-.dark .inv-gauge { background: #374151; }
 .dark .inv-used__item { color: #d1d5db; }
 .dark .inv-used__thumb--empty { background: #374151; }
 .dark .inv-label__types,

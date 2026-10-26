@@ -21,6 +21,8 @@ import {
   eventConfigElementIds,
 } from '@/utils/inventoryScope'
 import { configPlanZones } from '@/utils/configPlanZones'
+import { useStorageInventory } from '@/composables/useStorageInventory'
+import { filterStoredItems, savedRowsForElement } from '@/utils/storageStoredFilter'
 import {
   buildConsolidatedInventory,
   buildStorageInventory,
@@ -118,6 +120,10 @@ export function useInventoryData(selectedConfigId) {
   const contextLoading = ref(false)
   const contextError = ref(null)
   const contextWarning = ref(null)
+  // Contexte du dernier loadContext : sert au filtre « stocké » des articles de Storage.
+  const storedSpaceId = ref(null)
+  const storedAllConfigs = ref(false)
+  const { loadStorageInventory, elementsForSpace } = useStorageInventory()
 
   // Jeton anti-race LOCAL à l'instance + single-flight in-flight par space::config.
   let reqSeq = 0
@@ -190,6 +196,8 @@ export function useInventoryData(selectedConfigId) {
     // invité (SpaceInventoryView.vue), qui n'appelle jamais loadContext.
     store.dispatch('storageTypes/fetchStorageTypes')
     const allSpace = scope === INVENTORY_SCOPE_SPACE
+    storedSpaceId.value = String(spaceId)
+    storedAllConfigs.value = allSpace
     const key = `${spaceId}::${configId}::${allSpace ? INVENTORY_SCOPE_SPACE : INVENTORY_SCOPE_EVENT}`
     if (inflight.has(key)) return inflight.get(key)
     const myReq = ++reqSeq
@@ -203,7 +211,10 @@ export function useInventoryData(selectedConfigId) {
       //     l'union des shops, pas seulement au storage/merch. ---------------
       // Périmètre 'space' : rows de toutes les configs (sans ?configId=) et plans
       // des autres configurations, en plus de celui de l'event.
-      const [rowsRes, configRes, otherFloorsRes] = await Promise.allSettled([
+      const [, rowsRes, configRes, otherFloorsRes] = await Promise.allSettled([
+        // Lignes « stocké » des réserves (builder state) : filtre des articles de Storage.
+        // Échec = pas de filtre (le store reste vide), jamais de liste vidée à tort.
+        loadStorageInventory(spaceId, { force: true }),
         store.dispatch('spaceShops/fetchForSpace', { spaceId, configId: allSpace ? null : configId }),
         getConfiguration(configId),
         allSpace ? loadOtherConfigFloors(configId) : Promise.resolve([]),
@@ -497,9 +508,17 @@ export function useInventoryData(selectedConfigId) {
         const types = Array.isArray(el.storageType) ? el.storageType : []
         // marketPrices : même renommage market-price que côté shops (clé de denrée
         // identique shop↔storage — indispensable au ledger Logistic keyé par nom).
-        const storageInventory = buildStorageInventory(
+        const builtInventory = buildStorageInventory(
           types, fbElements, menuItems.value, el.selectedShops, components.value, marketPrices.value, storageTypes.value,
         )
+        // Seuls les articles cochés « stocké » sur la réserve (config de l'event, ou union
+        // des configs en périmètre espace). Lignes pas chargées : pas de filtre.
+        const savedRows = savedRowsForElement(
+          elementsForSpace(storedSpaceId.value),
+          el.id,
+          { configId: selectedConfigId?.value ?? null, allConfigs: storedAllConfigs.value },
+        )
+        const storageInventory = filterStoredItems(builtInventory, savedRows)
         return { element: el, storageInventory }
       })
   })

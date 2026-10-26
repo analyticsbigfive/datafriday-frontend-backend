@@ -268,7 +268,7 @@ export class BuilderV2ElementService {
               createMany: {
                 data: source.inventoryItems.map((i) => ({
                   configId: i.configId, name: i.name, quantity: i.quantity, unit: i.unit, minStock: i.minStock,
-                  maxStock: i.maxStock, isCustom: i.isCustom, menuItemId: i.menuItemId,
+                  maxStock: i.maxStock, isCustom: i.isCustom, isStored: i.isStored, menuItemId: i.menuItemId,
                 })),
               },
             }

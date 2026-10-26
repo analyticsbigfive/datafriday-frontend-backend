@@ -125,6 +125,7 @@ export class SpaceConfigurationSaveService {
           minStock: item.minStock || null,
           maxStock: item.maxStock || null,
           isCustom: item.isCustom !== false,
+          isStored: item.isStored ?? null,
           menuItemId: item.menuItemId || null,
         })),
       });

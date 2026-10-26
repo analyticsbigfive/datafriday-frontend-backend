@@ -203,6 +203,7 @@ export class SpaceZoneElementsService {
         minStock: i.minStock,
         maxStock: i.maxStock,
         isCustom: i.isCustom,
+        isStored: i.isStored,
         menuItemId: i.menuItemId,
       })) || [],
     };
