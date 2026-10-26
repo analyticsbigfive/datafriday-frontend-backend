@@ -540,94 +540,6 @@ function removeManual(name) {
   cursor: pointer;
 }
 
-.inv-qty {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  flex-shrink: 0;
-}
-.inv-qty__input {
-  width: 58px;
-  text-align: right;
-  font-size: var(--fs-sm);
-  font-weight: 500;
-  color: #374151;
-  background: rgb(var(--v-theme-surface));
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 4px 8px;
-  outline: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  -moz-appearance: textfield;
-}
-.inv-qty__input::-webkit-outer-spin-button,
-.inv-qty__input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.inv-qty__input:focus {
-  border-color: #ff3131;
-  box-shadow: 0 0 0 2px rgba(255, 49, 49, 0.12);
-}
-.inv-qty__unit {
-  font-size: var(--fs-xs);
-  color: #9ca3af;
-  max-width: 48px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Min / Max + jauge */
-.inv-bounds {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 7px;
-}
-.inv-bounds__field {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--fs-xs);
-  color: #9ca3af;
-  flex-shrink: 0;
-}
-.inv-bounds__input {
-  width: 46px;
-  text-align: right;
-  font-size: var(--fs-xs);
-  color: #374151;
-  background: rgb(var(--v-theme-surface));
-  border: 1px solid #e5e7eb;
-  border-radius: 7px;
-  padding: 2px 6px;
-  outline: none;
-  -moz-appearance: textfield;
-}
-.inv-bounds__input::-webkit-outer-spin-button,
-.inv-bounds__input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-.inv-bounds__input:focus { border-color: #ff3131; }
-
-.inv-gauge {
-  flex: 1;
-  height: 6px;
-  border-radius: 100px;
-  background: #ececee;
-  overflow: hidden;
-  min-width: 40px;
-}
-.inv-gauge__fill {
-  height: 100%;
-  border-radius: 100px;
-  background: #10b981;
-  transition: width 0.2s ease, background 0.2s ease;
-}
-.inv-gauge__fill--low { background: #ff3131; }
-
-.inv-pack-hint {
-  margin-top: 3px;
-  font-size: var(--fs-xs);
-  color: #9ca3af;
-}
-
 /* Used in / Sold in : shop → menu items */
 .inv-used {
   margin-top: 7px;
@@ -744,11 +656,6 @@ function removeManual(name) {
 .dark .inv-card { background: #1a2332; }
 .dark .inv-card:hover { border-color: rgba(255, 255, 255, 0.14); background: #1f2937; }
 .dark .inv-card--custom { background: #1f2937; }
-.dark .inv-qty__input,
-.dark .inv-bounds__input { color: #d1d5db; border-color: #374151; }
-.dark .inv-qty__input:focus,
-.dark .inv-bounds__input:focus { border-color: #ff3131; }
-.dark .inv-gauge { background: #374151; }
 .dark .inv-used__item { color: #d1d5db; }
 .dark .inv-used__thumb--empty { background: #374151; }
 .dark .inv-label__types,
