@@ -132,7 +132,7 @@ export class BuilderV2SupportService {
       })),
       inventoryByConfig: this.groupByConfig(el.inventoryItems, (i: any) => ({
         id: i.id, name: i.name, quantity: i.quantity, unit: i.unit,
-        minStock: i.minStock, maxStock: i.maxStock, isCustom: i.isCustom, menuItemId: i.menuItemId,
+        minStock: i.minStock, maxStock: i.maxStock, isCustom: i.isCustom, isStored: i.isStored, menuItemId: i.menuItemId,
       })),
     };
   }
