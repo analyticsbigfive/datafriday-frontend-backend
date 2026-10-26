@@ -108,10 +108,16 @@
             <span class="lip-rows__col lip-rows__col--main">
               {{ view === 'shop' ? t('anLiveInvColItem') : t('anLiveInvColShop') }}
             </span>
-            <span v-if="showPredictedCol(node)" class="lip-rows__col lip-rows__col--predicted" :title="t('anLiveInvColPredictedFull')">{{ t('anLiveInvColPredicted') }}</span>
-            <span v-if="showCadenceCol(node)" class="lip-rows__col lip-rows__col--cadence">{{ t('anLiveCadColHeader') }}</span>
+            <span v-if="showPredictedCol(node)" class="lip-rows__col lip-rows__col--predicted" :title="t('anLiveInvColPredictedFull')">
+              <span class="lip-hd-full">{{ t('anLiveInvColPredicted') }}</span><span class="lip-hd-short">{{ t('anLiveInvColPredictedShort') }}</span>
+            </span>
+            <span v-if="showCadenceCol(node)" class="lip-rows__col lip-rows__col--cadence" :title="t('anLiveCadColHeader')">
+              <span class="lip-hd-full">{{ t('anLiveCadColHeader') }}</span><span class="lip-hd-short">{{ t('anLiveCadColShort') }}</span>
+            </span>
             <span class="lip-rows__col lip-rows__col--gauge">
-              <span></span><span class="lip-rows__gauge-label">{{ t('anLiveInvColRemaining') }}</span><span></span>
+              <span class="lip-rows__gauge-start" :title="t('anLiveInvColRemaining')">{{ t('anLiveInvColRemainingShort') }}</span>
+              <span class="lip-rows__gauge-label">{{ t('anLiveInvColRemaining') }}</span>
+              <span class="lip-rows__gauge-end" :title="t('anLiveInvColStart')">{{ t('anLiveInvColStartShort') }}</span>
             </span>
             <span class="lip-rows__col" aria-hidden="true"></span>
           </div>
@@ -762,20 +768,34 @@ export default {
 .lip-row__gauge-pct--outside.lip-row__gauge-pct--warning { color: #b8860b; }
 .lip-row__gauge-pct--outside.lip-row__gauge-pct--critical { color: #d03b3b; }
 
-/* Panneau étroit : la jauge passe sous le libellé et le Prévu restant, pleine largeur. */
+/* Panneau étroit : tout reste en colonnes sur une seule ligne, intitulés abrégés, piste
+   réduite au minimum pour garder la place aux noms et aux quantités. La jauge est aplatie
+   (display: contents) pour que ses 3 cellules occupent des colonnes de la grille de ligne. */
+.lip-hd-short { display: none; }
+/* Large : seule l'intitulé « Restant » centré est visible, les cellules abrégées gardent la grille. */
+.lip-rows__gauge-start, .lip-rows__gauge-end { visibility: hidden; }
 @container (max-width: 680px) {
-  .lip-rows { padding-left: 8px; --lip-cols: minmax(0, 1fr) auto auto 30px; }
-  .lip-rows__header { display: none; }
-  .lip-row {
-    grid-template-areas: 'main pred cad btn' 'gauge gauge gauge gauge';
-    row-gap: 8px;
+  .lip-rows {
+    padding-left: 8px;
+    --lip-cols: minmax(0, 1fr) 3.6rem 2.6rem 4.2rem minmax(3rem, 4.5rem) 4.2rem 28px;
   }
-  .lip-row__main-col { grid-area: main; }
-  .lip-row__predicted { grid-area: pred; display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
-  .lip-row__predicted-label { display: block; font-size: var(--fs-xs); color: #9ca3af; white-space: nowrap; }
-  .lip-row__cadence { grid-area: cad; }
-  .lip-row__gauge { grid-area: gauge; }
-  .lip-row__restock-btn { grid-area: btn; }
+  .lip-rows--no-pred { --lip-cols: minmax(0, 1fr) 2.6rem 4.2rem minmax(3rem, 4.5rem) 4.2rem 28px; }
+  .lip-rows--no-cad { --lip-cols: minmax(0, 1fr) 3.6rem 4.2rem minmax(3rem, 4.5rem) 4.2rem 28px; }
+  .lip-rows--no-pred.lip-rows--no-cad { --lip-cols: minmax(0, 1fr) 4.2rem minmax(3rem, 4.5rem) 4.2rem 28px; }
+  .lip-rows__header, .lip-row { gap: 6px; padding-left: 6px; padding-right: 6px; }
+  .lip-rows__header { letter-spacing: .02em; }
+  .lip-hd-full { display: none; }
+  .lip-hd-short { display: inline; }
+  .lip-rows__col--gauge, .lip-row__gauge { display: contents; }
+  .lip-rows__gauge-start, .lip-rows__gauge-end { visibility: visible; white-space: nowrap; }
+  /* Chiffres collés à la piste (restant à gauche, initial à droite) ; intitulés centrés sur leur colonne. */
+  .lip-rows__gauge-start, .lip-rows__gauge-end { text-align: center; }
+  .lip-rows__gauge-label { font-size: 0; overflow: hidden; }
+  .lip-rows__col--predicted { text-align: right; }
+  .lip-row__predicted { display: flex; justify-content: flex-end; text-align: right; }
+  .lip-row__gauge-num { font-size: var(--fs-xs); }
+  .lip-row__gauge-track { height: 14px; }
+  .lip-row__gauge-pct { font-size: 0.6rem; }
 }
 
 /* ── Dark mode (palette slate, alignée AnalyseView) ── */
