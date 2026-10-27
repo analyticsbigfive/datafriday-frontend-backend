@@ -14,6 +14,7 @@ import { BuilderV2ConfigurationService } from './services/builder-v2-configurati
 import { BuilderV2ElementService } from './services/builder-v2-element.service';
 import { BuilderV2ElementSettingsService } from './services/builder-v2-element-settings.service';
 import { BuilderV2SupportService } from './services/builder-v2-support.service';
+import { BuilderV2InventoryRowService } from './services/builder-v2-inventory-row.service';
 import { BuilderV2ZoneService } from './services/builder-v2-zone.service';
 
 @Module({
@@ -25,6 +26,7 @@ import { BuilderV2ZoneService } from './services/builder-v2-zone.service';
     BuilderV2ElementService,
     BuilderV2ElementSettingsService,
     BuilderV2ConfigurationService,
+    BuilderV2InventoryRowService,
   ],
   exports: [
     BuilderV2SupportService,

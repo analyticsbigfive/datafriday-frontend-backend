@@ -137,6 +137,19 @@ export async function putElementInventory(elementId, inventory, configId) {
   return response.data
 }
 
+/**
+ * Upsert d'UNE ligne d'inventaire (par nom d'article) sans toucher aux autres lignes.
+ * Sans configId, écrit dans toutes les configs où l'élément est membre. Droit space.edit.
+ * À préférer à putElementInventory (qui REMPLACE tout l'inventaire) pour une édition ciblée.
+ * @param {{ name: string, quantity?: number, isStored?: boolean, minStock?: number, maxStock?: number, unit?: string }} row
+ */
+export async function upsertElementInventoryRow(elementId, row, configId) {
+  const response = await api.put(`/builder-v2/elements/${elementId}/inventory-row`, row, {
+    params: configId ? { configId } : {},
+  })
+  return response.data
+}
+
 // ─── Adhésions élément ↔ configuration (cœur du modèle v2) ───────────────────
 
 /** Cocher une config = 1 INSERT (idempotent). */

@@ -22,6 +22,7 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 import { MarketPricesFindAllQueryDto, MarketPricesFindAllWithPackagingsQueryDto, MarketPricesFindAllWithIngredientsQueryDto } from './dto/market-prices.query.dto';
 import { MarketPriceQueryService } from './services/market-price-query.service';
 import { MarketPriceRecipeSyncService } from './services/market-price-recipe-sync.service';
+import { MarketPriceRecipeUsageService } from './services/market-price-recipe-usage.service';
 
 @ApiTags('Market Prices')
 @ApiBearerAuth('supabase-jwt')
@@ -32,7 +33,8 @@ export class MarketPricesController {
 
   constructor(private readonly marketPriceQueryService: MarketPriceQueryService,
     private readonly marketPriceRecipeSyncService: MarketPriceRecipeSyncService,
-    private readonly marketPricesService: MarketPricesService) {}
+    private readonly marketPricesService: MarketPricesService,
+    private readonly marketPriceRecipeUsageService: MarketPriceRecipeUsageService) {}
 
   @RequirePermissions('menu.fb.marketPrices')
   @Post()
@@ -189,6 +191,17 @@ export class MarketPricesController {
       category,
       goodType,
     }, user);
+  }
+
+  @Get('recipe-usage')
+  @ApiOperation({
+    summary: 'Ids des prix du marché utilisés dans au moins une recette',
+    description: 'Via Ingredient (composant ou item de menu) ou Packaging (item de menu), éléments supprimés ignorés.',
+  })
+  @ApiResponse({ status: 200, description: 'Ids utilisés', schema: { example: { marketPriceIds: ['mp_1'] } } })
+  recipeUsage(@CurrentUser() user: any, @CurrentTenant() tenantId: string) {
+    this.logger.log(`GET /market-prices/recipe-usage - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.marketPriceRecipeUsageService.findUsedMarketPriceIds(tenantId, user);
   }
 
   @Get(':id')
