@@ -9,9 +9,9 @@ import { isRowStored } from '@/utils/storageRowStored'
  * d'inventaire cochée (isStored). Tampon (quantity) sur tout PDV ou Storage coché.
  * Les modifications sont appliquées localement tout de suite puis écrites par upsert de ligne.
  *
- * @param {{ isOpen: import('vue').Ref<boolean>, spaceId: import('vue').Ref<string>, productName: import('vue').Ref<string> }} args
+ * @param {{ isOpen: import('vue').Ref<boolean>, spaceId: import('vue').Ref<string>, productName: import('vue').Ref<string>, readOnly?: import('vue').Ref<boolean> }} args
  */
-export function useStorageSpots({ isOpen, spaceId, productName }) {
+export function useStorageSpots({ isOpen, spaceId, productName, readOnly = ref(false) }) {
   const store = useStore()
   const writer = useStorageRowWriter()
   const loading = ref(false)
@@ -59,6 +59,7 @@ export function useStorageSpots({ isOpen, spaceId, productName }) {
   }
 
   function setStored(spot, stored) {
+    if (readOnly.value) return
     if (spot.stored === stored) return
     setLocal(spot.id, { isStored: stored })
     writer.queue(spot.id, productName.value, { isStored: stored })
@@ -72,6 +73,7 @@ export function useStorageSpots({ isOpen, spaceId, productName }) {
 
   /** Tampon d'un Storage. Valeur invalide ou négative ignorée. */
   function setBuffer(spot, raw) {
+    if (readOnly.value) return
     const n = Number(raw)
     if (raw === '' || !Number.isFinite(n) || n < 0) return
     setLocal(spot.id, { quantity: n })

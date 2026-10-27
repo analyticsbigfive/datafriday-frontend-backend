@@ -45,3 +45,15 @@ describe('filterStorageProducts', () => {
     expect(filterStorageProducts(cards, { search: 'col', spaces }).map((c) => c.name)).toEqual(['Cola'])
   })
 })
+
+describe('storageReference', () => {
+  const { storageReference } = require('@/components/menu-fb/views/storage/utils/storageProducts')
+  it('prefere la ref fournisseur, sinon le nom du produit', () => {
+    expect(storageReference({ supplierItemName: 'REF-1' }, 'Cola')).toBe('REF-1')
+    expect(storageReference(null, 'Cola')).toBe('Cola')
+  })
+  it('la carte porte la meme reference que celle passee au drawer', () => {
+    const cards = buildStorageProducts([row('1', 'Cola', 's1', '2026-01-01', { supplierItem: 'REF-9' })], { suppliers })
+    expect(cards[0].reference).toBe(storageReference({ supplierItemName: 'REF-9' }, 'Cola'))
+  })
+})

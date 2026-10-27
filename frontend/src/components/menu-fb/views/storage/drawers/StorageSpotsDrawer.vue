@@ -28,8 +28,10 @@
             </button>
           </div>
 
+          <div v-if="readOnly" class="ssd-readonly" role="note">{{ t('storageReadOnly') }}</div>
+
           <label v-if="visible.length" class="ssd-all">
-            <input type="checkbox" :checked="allSelected" @change="toggleAll" />
+            <input type="checkbox" :checked="allSelected" :disabled="readOnly" @change="toggleAll" />
             <span>{{ t('storageSelectAll') }} ({{ visible.length }})</span>
           </label>
 
@@ -41,7 +43,7 @@
             </div>
             <div v-for="spot in visible" :key="spot.id" class="ssd-row">
               <label class="ssd-row__main">
-                <input type="checkbox" :checked="spot.stored" @change="toggle(spot)" />
+                <input type="checkbox" :checked="spot.stored" :disabled="readOnly" @change="toggle(spot)" />
                 <span class="ssd-row__name">{{ spot.name }}</span>
               </label>
               <div v-if="spot.stored" class="ssd-buffer">
@@ -53,6 +55,7 @@
                   min="0"
                   step="any"
                   :value="spot.quantity"
+                  :disabled="readOnly"
                   @input="setBuffer(spot, $event.target.value)"
                 />
               </div>
@@ -86,6 +89,7 @@ const props = defineProps({
   reference: { type: String, default: '' },
   spaceId: { type: String, default: '' },
   spaceName: { type: String, default: '' },
+  readOnly: { type: Boolean, default: false },
   isDark: { type: Boolean, default: false },
 })
 const emit = defineEmits(['update:modelValue'])
@@ -98,6 +102,7 @@ const {
   isOpen: toRef(props, 'modelValue'),
   spaceId: toRef(props, 'spaceId'),
   productName: toRef(props, 'productName'),
+  readOnly: toRef(props, 'readOnly'),
 })
 
 async function close() {
@@ -134,6 +139,9 @@ async function close() {
 .ssd-tab { border: none; background: transparent; padding: 8px 14px; font-size: var(--fs-md); font-weight: 600; color: #6b7280; cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
 .ssd-tab--on { color: #ff3131; border-bottom-color: #ff3131; }
 
+.ssd-readonly { padding: 10px 24px; font-size: var(--fs-sm); color: #92400e; background: #fffbeb; border-bottom: 1px solid #fde68a; }
+.ssd--dark .ssd-readonly { color: #fcd34d; background: rgba(245,158,11,.1); border-bottom-color: rgba(245,158,11,.25); }
+.ssd-buffer__input:disabled { opacity: .6; cursor: not-allowed; }
 .ssd-all { display: flex; align-items: center; gap: 10px; padding: 12px 24px; font-size: var(--fs-md); font-weight: 600; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
 .ssd--dark .ssd-all { border-bottom-color: rgba(255, 255, 255, 0.07); }
 

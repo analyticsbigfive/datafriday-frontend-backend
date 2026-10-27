@@ -12,7 +12,7 @@
     </div>
 
     <div class="spc__name">{{ card.name }}</div>
-    <div class="spc__ref">[{{ marketPriceOf }} {{ card.name }}]</div>
+    <div class="spc__ref">[{{ card.reference }}]</div>
 
     <div class="spc__spaces">
       <button
@@ -35,7 +35,6 @@ const props = defineProps({
   card: { type: Object, required: true },
   // [{ id, name }] déjà résolus par le parent (store spaces)
   spaces: { type: Array, default: () => [] },
-  marketPriceOf: { type: String, default: '' },
   editLabel: { type: String, default: '' },
   noSpaceLabel: { type: String, default: '' },
   isDark: { type: Boolean, default: false },
@@ -54,6 +53,7 @@ const initials = computed(() =>
 .spc__actions { position: absolute; top: 12px; right: 12px; display: flex; gap: 5px; opacity: 0; transition: opacity .18s; }
 .spc:hover .spc__actions, .spc__actions:focus-within { opacity: 1; }
 .spc__btn { width: 28px; height: 28px; border: none; border-radius: 8px; background: #eff6ff; color: #2563eb; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+@media (hover: none) { .spc__actions { opacity: 1; } }
 .spc__btn:hover { background: #dbeafe; }
 .spc--dark .spc__btn { background: rgba(37,99,235,.15); color: #93c5fd; }
 .spc__avatar { width: 64px; height: 64px; border-radius: 16px; margin-bottom: 14px; display: flex; align-items: center; justify-content: center; font-size: var(--fs-xl); font-weight: 800; color: #fff; background: linear-gradient(135deg,#ff3131,#e84444); overflow: hidden; }

@@ -48,7 +48,6 @@
           <StorageProductCard
             :card="card"
             :spaces="card.spaceIds.map((id) => ({ id, name: spaceNameOf(id) })).filter((s) => s.name)"
-            :market-price-of="t('storageMarketPriceOf')"
             :edit-label="t('storageEditItem')"
             :no-space-label="t('storageNoSpace')"
             :is-dark="isDark"
@@ -76,6 +75,7 @@
       :reference="spotsCard?.reference || ''"
       :space-id="spotsSpace.id"
       :space-name="spotsSpace.name"
+      :read-only="!canEditSpots"
       :is-dark="isDark"
     />
   </div>
@@ -116,6 +116,9 @@ const recipeUnitOptions = computed(() => ['g', 'kg', 'ml', 'l', 'pcs'])
 const editOpen = ref(false)
 const editItem = ref(null)
 const onEdit = (card) => { editItem.value = card.item; editOpen.value = true }
+
+// Écriture d'une ligne d'inventaire (PUT builder-v2) exige space.edit côté backend.
+const canEditSpots = computed(() => !!store.getters['auth/can']('space.edit'))
 
 const spotsOpen = ref(false)
 const spotsCard = ref(null)
