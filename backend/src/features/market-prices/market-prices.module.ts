@@ -9,6 +9,7 @@ import { PrismaModule } from '../../core/database/prisma.module';
 import { MarketPriceQueryService } from './services/market-price-query.service';
 import { MarketPriceRecipeSyncService } from './services/market-price-recipe-sync.service';
 import { MarketPriceCostPropagationService } from './services/market-price-cost-propagation.service';
+import { MarketPriceRecipeUsageService } from './services/market-price-recipe-usage.service';
 import { MenuComponentsModule } from '../menu-components/menu-components.module';
 import { MenuItemsModule } from '../menu-items/menu-items.module';
 import { MarketPricesService } from './market-prices.service';
@@ -23,6 +24,7 @@ import { MarketPricesService } from './market-prices.service';
   providers: [ MarketPriceTaxonomyService,
     MarketPriceQueryService,
     MarketPriceRecipeSyncService,
+    MarketPriceRecipeUsageService,
     MarketPriceCostPropagationService,
     MarketPricesService,
   ],
