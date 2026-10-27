@@ -1816,6 +1816,7 @@ import {
 import { useRestockPlans } from '@/composables/useRestockPlans'
 import { buildStorageRestockLines, storageRefillCoeffs, isStorageRestockLine } from '@/utils/storageRestockLines'
 import { useStorageInventory } from '@/composables/useStorageInventory'
+import { collectPdvBuffers, applyPdvBuffers, targetWithBuffer } from '@/utils/pdvBufferRequirements'
 // Taxonomie builder2 (module de constantes pur) : 'Storage'/'storage_x'/code
 // département → 'storage'. Le blob de config v1 porte des types déjà en
 // minuscules ; les éléments v2 non — normaliser AVANT de filtrer.
@@ -2676,7 +2677,7 @@ export default {
         const selectedMenuItems = meta?.menuConfig
           ? meta.menuConfig
           : deriveSelectedMenuItemsByShop(configuration, records)
-        const rows = buildStockRequirements({
+        const predictedRows = buildStockRequirements({
           configuration,
           menuItems: this.menuItems,
           components: this.components,
@@ -2686,6 +2687,16 @@ export default {
           closedShopNames: this.closedShopNames,
           unavailableItems: this.unavailableStockItems,
         })
+        // Stock tampon PDV (page Stockage) : lignes de besoin portant bufferQuantity.
+        const rows = applyPdvBuffers(
+          predictedRows,
+          collectPdvBuffers({
+            configuration,
+            builderElements: this.storageBuilderElements,
+            cfgIds: Array.from(this.resolvedObjectiveConfigIds),
+            closedShopNames: this.closedShopNames,
+          }),
+        )
 
         rows.forEach((row) => {
           const key = `${row.shopId}|||${row.itemKey}`
@@ -2693,6 +2704,7 @@ export default {
           const existing = grouped.get(key)
           if (existing) {
             existing.totalQuantity += row.totalQuantity
+            existing.bufferQuantity = Math.max(existing.bufferQuantity || 0, row.bufferQuantity || 0)
             if (!existing.eventIds.includes(event.id)) existing.eventIds.push(event.id)
             if (!existing.eventNames.includes(eventName)) existing.eventNames.push(eventName)
             row.sources.forEach((source) => {
@@ -2853,7 +2865,10 @@ export default {
      */
     liveRestockRowsAll() {
       return this.stockRowsRaw.map((row) => {
-        const targetQuantity = this.adjustedQuantity(row.totalQuantity, row.unit, row.itemKey, row.shopId)
+        const targetQuantity = targetWithBuffer(
+          this.adjustedQuantity(row.totalQuantity, row.unit, row.itemKey, row.shopId),
+          row.bufferQuantity,
+        )
         // Packaging de référence (taille de colis) pour décoder le comptage
         // packed/loose — la taille ne dépend pas de la quantité passée.
         const packagingRef = this.packagingForItem(row, targetQuantity)
