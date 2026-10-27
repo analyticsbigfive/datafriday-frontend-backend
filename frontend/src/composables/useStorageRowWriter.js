@@ -1,16 +1,19 @@
 import { ref } from 'vue'
+import { normalizeItemName } from '@/utils/storageStoredFilter'
 import { upsertElementInventoryRow } from '@/api/endpoints/builder-v2.api'
 
 /**
- * File d'écriture des lignes d'inventaire de la page Stockage : une requête d'upsert par élément
- * modifié, avec regroupement (debounce) des changements rapprochés et sérialisation par élément.
+ * File d'écriture des lignes d'inventaire de la page Stockage : une requête d'upsert par (élément, produit)
+ * modifié, avec regroupement (debounce) des changements rapprochés et sérialisation par élément (plusieurs produits d'un même
+ * élément ne s'écrasent pas : chacun garde sa propre écriture en attente).
  * Écrit sans configId : le backend applique l'upsert à toutes les configs où l'élément est membre.
  */
 export function useStorageRowWriter({ delay = 350, send = upsertElementInventoryRow } = {}) {
   const status = ref('idle') // idle | saving | saved | error
   const error = ref('')
   const wrote = ref(false)
-  const pending = new Map() // elementId -> { name, ...champs }
+  const pending = new Map() // elementId::produit -> { name, ...champs }
+  const elementOf = new Map() // clé d'écriture -> elementId
   const timers = new Map()
   const chains = new Map() // elementId -> Promise (sérialise les envois d'un même élément)
   let inFlight = 0
@@ -19,13 +22,15 @@ export function useStorageRowWriter({ delay = 350, send = upsertElementInventory
     if (inFlight > 0 || timers.size > 0) status.value = 'saving'
   }
 
-  async function flushElement(elementId) {
-    timers.delete(elementId)
-    const payload = pending.get(elementId)
-    pending.delete(elementId)
+  async function flushElement(key) {
+    timers.delete(key)
+    const payload = pending.get(key)
+    const elementId = elementOf.get(key)
+    pending.delete(key)
+    elementOf.delete(key)
     if (!payload) return
     inFlight += 1
-    const prev = chains.get(elementId) || Promise.resolve()
+    const prev = chains.get(String(elementId)) || Promise.resolve()
     const run = prev.then(async () => {
       try {
         await send(elementId, payload)
@@ -39,14 +44,15 @@ export function useStorageRowWriter({ delay = 350, send = upsertElementInventory
         if (inFlight === 0 && timers.size === 0 && !error.value) status.value = 'saved'
       }
     })
-    chains.set(elementId, run)
+    chains.set(String(elementId), run)
     return run
   }
 
   /** Ajoute un changement sur la ligne `name` de l'élément ; les changements rapprochés fusionnent. */
   function queue(elementId, name, patch) {
-    const key = String(elementId)
+    const key = `${elementId}::${normalizeItemName(name)}`
     error.value = ''
+    elementOf.set(key, String(elementId))
     pending.set(key, { ...(pending.get(key) || {}), name, ...patch })
     clearTimeout(timers.get(key))
     timers.set(key, setTimeout(() => flushElement(key), delay))
@@ -66,6 +72,7 @@ export function useStorageRowWriter({ delay = 350, send = upsertElementInventory
     timers.forEach((t) => clearTimeout(t))
     timers.clear()
     pending.clear()
+    elementOf.clear()
     chains.clear()
     inFlight = 0
     status.value = 'idle'

@@ -6,7 +6,11 @@
           <header class="ssd-head">
             <span class="ssd-head__tile" aria-hidden="true"><Store :size="22" /></span>
             <div class="ssd-head__text">
-              <h2 class="ssd-head__title">{{ productName }} - [{{ reference }}]</h2>
+              <template v-if="names.length > 1">
+                <h2 class="ssd-head__title">{{ t('storageProductsCount').replace('{n}', names.length) }}</h2>
+                <ul class="ssd-head__names"><li v-for="n in names" :key="n">{{ n }}</li></ul>
+              </template>
+              <h2 v-else class="ssd-head__title">{{ productName }} - [{{ reference }}]</h2>
               <p class="ssd-head__sub">{{ t('storageSpotsSubtitle') }}</p>
               <p v-if="spaceName" class="ssd-head__space">{{ spaceName }}</p>
             </div>
@@ -60,9 +64,9 @@
                 v-for="spot in visible"
                 :key="spot.id"
                 class="ssd-row"
-                :class="{ 'ssd-row--on': spot.stored, 'ssd-row--ro': readOnly }"
+                :class="{ 'ssd-row--on': spot.stored || spot.partial, 'ssd-row--ro': readOnly }"
                 role="checkbox"
-                :aria-checked="spot.stored"
+                :aria-checked="spot.partial ? 'mixed' : spot.stored"
                 :tabindex="readOnly ? -1 : 0"
                 @click="toggle(spot)"
                 @keydown.space.prevent="toggle(spot)"
@@ -73,7 +77,7 @@
                   <span class="ssd-row__name">{{ spot.name }}</span>
                   <span class="ssd-row__type">{{ spot.type || (tab === 'shops' ? t('storageTabShops') : t('storageTabStorages')) }}</span>
                 </span>
-                <span v-if="spot.stored" class="ssd-buffer" @click.stop>
+                <span v-if="spot.stored || spot.partial" class="ssd-buffer" @click.stop>
                   <label class="ssd-buffer__label" :for="`ssd-buf-${spot.id}`">{{ t('storageBuffer') }}</label>
                   <input
                     :id="`ssd-buf-${spot.id}`"
@@ -81,14 +85,16 @@
                     type="number"
                     min="0"
                     step="any"
-                    :value="spot.quantity"
+                    :value="spot.quantity === null ? '' : spot.quantity"
+                    :placeholder="spot.quantity === null ? t('storageMixedValues') : ''"
                     :disabled="readOnly"
                     @input="onBufferInput(spot, $event)"
                     @keydown.stop
                   />
                 </span>
-                <span class="ssd-row__check" :class="{ 'ssd-row__check--on': spot.stored }" aria-hidden="true">
-                  <Check v-if="spot.stored" :size="14" :stroke-width="3" />
+                <span class="ssd-row__check" :class="{ 'ssd-row__check--on': spot.stored || spot.partial }" aria-hidden="true">
+                  <Minus v-if="spot.partial" :size="14" :stroke-width="3" />
+                  <Check v-else-if="spot.stored" :size="14" :stroke-width="3" />
                 </span>
               </div>
             </template>
@@ -122,6 +128,8 @@ import { useStorageSpots } from '@/composables/useStorageSpots'
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   productName: { type: String, default: '' },
+  // Mode multi-produits : si renseigné (2 noms ou plus), remplace productName.
+  productNames: { type: Array, default: () => [] },
   reference: { type: String, default: '' },
   spaceId: { type: String, default: '' },
   spaceName: { type: String, default: '' },
@@ -131,17 +139,17 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue'])
 
 const { t } = useI18n()
+const names = computed(() => (props.productNames.length ? props.productNames : [props.productName]))
 const {
   loading, loadError, tab, search, visible, counts, allSelected,
-  saveStatus, saveError, toggle, toggleAll, setBuffer, finish,
+  someSelected, saveStatus, saveError, toggle, toggleAll, setBuffer, finish,
 } = useStorageSpots({
   isOpen: toRef(props, 'modelValue'),
   spaceId: toRef(props, 'spaceId'),
-  productName: toRef(props, 'productName'),
+  productNames: names,
   readOnly: toRef(props, 'readOnly'),
 })
 
-const someSelected = computed(() => !allSelected.value && visible.value.some((s) => s.stored))
 const spotIcon = computed(() => (tab.value === 'storages' ? Warehouse : Store))
 
 function onBufferInput(spot, event) {
@@ -167,6 +175,8 @@ async function close() {
 .ssd-head__tile { flex-shrink: 0; width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, 0.22); display: flex; align-items: center; justify-content: center; }
 .ssd-head__text { flex: 1; min-width: 0; }
 .ssd-head__title { font-size: var(--fs-lg); font-weight: 700; margin: 0; line-height: 1.3; overflow-wrap: anywhere; }
+.ssd-head__names { margin: 4px 0 0; padding: 0; list-style: none; font-size: var(--fs-sm); color: rgba(255, 255, 255, 0.9); max-height: 96px; overflow-y: auto; }
+.ssd-head__names li { overflow-wrap: anywhere; }
 .ssd-head__sub { font-size: var(--fs-sm); margin: 2px 0 0; color: rgba(255, 255, 255, 0.85); }
 .ssd-head__space { font-size: var(--fs-xs); margin: 2px 0 0; color: rgba(255, 255, 255, 0.75); }
 .ssd-head__close { flex-shrink: 0; width: 34px; height: 34px; border: none; border-radius: 10px; background: rgba(255, 255, 255, 0.22); color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; }
