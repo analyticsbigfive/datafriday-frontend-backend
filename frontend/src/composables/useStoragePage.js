@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import { useStore } from 'vuex'
+import { usePersistedFilters } from '@/composables/usePersistedFilters'
 import { getMarketPriceRecipeUsage } from '@/api/endpoints/market.price.api'
 import {
   buildStorageProducts, spaceFilterOptions, filterStorageProducts,
@@ -19,6 +20,7 @@ export function useStoragePage({ allSpacesLabel }) {
   const type = ref('All Types')
   const category = ref('All Categories')
   const spaceName = ref('')
+  usePersistedFilters('storage.filters.v1', { search, type, category, spaceName })
 
   const suppliers = computed(() => store.getters['suppliers/suppliers'] || [])
   const industrials = computed(() => store.getters['industrials/industrials'] || [])

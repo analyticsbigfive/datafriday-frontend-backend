@@ -63,6 +63,11 @@ export function buildStorageProducts(rows, { suppliers = [], industrials = [], u
   return cards
 }
 
+/** Référence affichée d'un produit (carte ET drawer) : réf. fournisseur, sinon nom du produit. */
+export function storageReference(supplierRow, name) {
+  return supplierRow?.supplierItemName || name
+}
+
 function makeCard(item, sr, spaceIds) {
   return {
     key: `${item.name}::${spaceSetKey(spaceIds)}`,
@@ -73,7 +78,7 @@ function makeCard(item, sr, spaceIds) {
     category: item.category,
     spaceIds,
     marketPriceId: sr?.id || '',
-    reference: sr?.supplierItemName || item.name,
+    reference: storageReference(sr, item.name),
     item,
   }
 }
