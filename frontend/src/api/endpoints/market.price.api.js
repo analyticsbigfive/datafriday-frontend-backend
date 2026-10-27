@@ -26,8 +26,8 @@ export async function getMarketPrices({ page, limit } = {}) {
  * @returns {Promise<{ marketPriceIds: string[] }>}
  */
 export async function getMarketPriceRecipeUsage() {
-  const response = await api.get('/market-prices/recipe-usage')
-  return response.data
+  // api.get renvoie déjà le corps de la réponse (extractData).
+  return api.get('/market-prices/recipe-usage')
 }
 
 /**
