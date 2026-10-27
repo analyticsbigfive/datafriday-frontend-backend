@@ -9,7 +9,7 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiHeader, ApiQuery } from '@nestjs/swagger';
 import {
   CreateZoneDto, UpdateZoneDto, ReorderZonesDto, CreateElementDto, UpdateElementDto,
-  BatchElementsDto, DuplicateElementDto, PutPerformanceDto, PutStaffDto, PutInventoryDto,
+  BatchElementsDto, DuplicateElementDto, PutPerformanceDto, PutStaffDto, PutInventoryDto, UpsertInventoryRowDto,
   CreateConfigurationDto, RenameConfigurationDto, DeleteConfigurationQueryDto,
   DeleteElementQueryDto, DeleteZoneQueryDto, PutMenuItemSalesInputDto,
 } from './dto/builder-v2.dto';
@@ -22,6 +22,7 @@ import { SpaceIdParam } from '../../core/auth/decorators/space-id-param.decorato
 import { BuilderV2ConfigurationService } from './services/builder-v2-configuration.service';
 import { BuilderV2ElementService } from './services/builder-v2-element.service';
 import { BuilderV2ElementSettingsService } from './services/builder-v2-element-settings.service';
+import { BuilderV2InventoryRowService } from './services/builder-v2-inventory-row.service';
 import { BuilderV2ZoneService } from './services/builder-v2-zone.service';
 
 @ApiTags('Builder v2')
@@ -33,7 +34,8 @@ export class BuilderV2Controller {
   constructor(private readonly builderV2ConfigurationService: BuilderV2ConfigurationService,
     private readonly builderV2ElementService: BuilderV2ElementService,
     private readonly builderV2ElementSettingsService: BuilderV2ElementSettingsService,
-    private readonly builderV2ZoneService: BuilderV2ZoneService) {}
+    private readonly builderV2ZoneService: BuilderV2ZoneService,
+    private readonly builderV2InventoryRowService: BuilderV2InventoryRowService) {}
 
   // ─── Bootstrap ──────────────────────────────────────────────────────────────
 
@@ -253,6 +255,23 @@ export class BuilderV2Controller {
     @Query('configId') configId?: string,
   ) {
     return this.builderV2ElementSettingsService.putInventory(id, tenantId, dto, configId || undefined, user);
+  }
+
+  @Put('elements/:id/inventory-row')
+  @RequirePermissions('space.edit')
+  @ApiOperation({
+    summary: 'Upsert d\'UNE ligne d\'inventaire (par nom) sans toucher aux autres',
+    description: 'Sans ?configId : écrit dans chaque configuration où l\'élément est membre.',
+  })
+  @ApiQuery({ name: 'configId', required: false })
+  async upsertInventoryRow(
+    @Param('id') id: string,
+    @CurrentTenant() tenantId: string,
+    @Body() dto: UpsertInventoryRowDto,
+    @CurrentUser() user: any,
+    @Query('configId') configId?: string,
+  ) {
+    return this.builderV2InventoryRowService.upsertRow(id, tenantId, dto, configId || undefined, user);
   }
 
   // ─── Adhésions élément ↔ configuration ─────────────────────────────────────

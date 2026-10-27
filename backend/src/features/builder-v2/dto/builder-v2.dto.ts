@@ -302,6 +302,19 @@ export class PutInventoryDto {
   inventory: InventoryRowDto[];
 }
 
+export class UpsertInventoryRowDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsOptional() @IsNumber() @Min(0) quantity?: number;
+  @IsOptional() @IsBoolean() isStored?: boolean;
+  /** null autorisé pour effacer le seuil (IsOptional ignore null). */
+  @IsOptional() @IsNumber() @Min(0) minStock?: number | null;
+  @IsOptional() @IsNumber() @Min(0) maxStock?: number | null;
+  @IsOptional() @IsString() unit?: string;
+}
+
 // ─── Configurations ───────────────────────────────────────────────────────────
 
 export class CreateConfigurationDto {
