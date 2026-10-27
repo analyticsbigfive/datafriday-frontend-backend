@@ -22,6 +22,15 @@ export async function getMarketPrices({ page, limit } = {}) {
 }
 
 /**
+ * Ids de MarketPrice utilisés dans au moins une recette.
+ * @returns {Promise<{ marketPriceIds: string[] }>}
+ */
+export async function getMarketPriceRecipeUsage() {
+  const response = await api.get('/market-prices/recipe-usage')
+  return response.data
+}
+
+/**
  * Récupérer une market price par ID
  * @param {string} id 
  * @returns {Promise<Object>}
