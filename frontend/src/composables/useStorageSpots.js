@@ -28,6 +28,7 @@ export function useStorageSpots({ isOpen, spaceId, productName, readOnly = ref(f
     return {
       id: el.id,
       name: el.name,
+      type: el.type,
       stored: o.isStored !== undefined ? o.isStored : isRowStored(row),
       quantity: o.quantity !== undefined ? o.quantity : (row ? Number(row.quantity) || 0 : 0),
     }
