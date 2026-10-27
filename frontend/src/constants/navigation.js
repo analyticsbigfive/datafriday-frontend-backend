@@ -57,11 +57,12 @@ export const SETTINGS_NAVIGATION = [
         items: [
           { title: 'suppliers', route: '/menu-fb/suppliers', permission: 'menu.fb.suppliers' },
           { title: 'navMarketPricesList', route: '/menu-fb/market-prices', permission: 'menu.fb.marketPrices' },
-          // Cuisines : au-dessus de Composants (demande Bertrand 2026-10-08), droit Composants.
-          { title: 'navKitchens', route: '/menu-fb/kitchens', permission: 'menu.fb.components' },
           { title: 'navComponents', route: '/menu-fb/components', permission: 'menu.fb.components' },
           { title: 'navMenuItems', route: '/menu-fb/menu-items', permission: 'menu.fb.menuItems' },
           { title: 'navSpaceMenu', route: '/menu-fb/space-menus', permission: 'menu.fb.spaceMenu' },
+          // Cuisines puis Stockage : apres Menu des espaces (demande Bertrand 2026-10-27), droit Composants.
+          { title: 'navKitchens', route: '/menu-fb/kitchens', permission: 'menu.fb.components' },
+          { title: 'navStorage', route: '/menu-fb/storage', permission: 'menu.fb.components' },
         ],
       },
       {
