@@ -15,6 +15,8 @@ export function useStoragePage({ allSpacesLabel }) {
   const loading = ref(false)
   const error = ref('')
   const usedIds = ref([])
+  // Faux tant que l'usage en recette n'a pas été chargé : on ne liste alors aucun produit.
+  const usageLoaded = ref(false)
 
   const search = ref('')
   const type = ref('All Types')
@@ -28,7 +30,7 @@ export function useStoragePage({ allSpacesLabel }) {
   const rows = computed(() => store.getters['marketPrices/rows'] || [])
 
   const cards = computed(() =>
-    buildStorageProducts(rows.value, { suppliers: suppliers.value, industrials: industrials.value, usedIds: usedIds.value }),
+    !usageLoaded.value ? [] : buildStorageProducts(rows.value, { suppliers: suppliers.value, industrials: industrials.value, usedIds: usedIds.value }),
   )
   const uniqSorted = (list) => Array.from(new Set(list.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)))
   const typeOptions = computed(() => ['All Types', ...uniqSorted(cards.value.map((c) => c.type))])
@@ -60,24 +62,28 @@ export function useStoragePage({ allSpacesLabel }) {
   async function load({ force = false } = {}) {
     loading.value = true
     error.value = ''
+    usageLoaded.value = false
     try {
       const [usage] = await Promise.all([
-        getMarketPriceRecipeUsage(),
+        getMarketPriceRecipeUsage().catch(() => null),
         store.dispatch('marketPrices/fetchRows', { forceRefresh: force }),
         store.dispatch('suppliers/fetchSuppliers'),
         store.dispatch('industrials/fetchIndustrials'),
         store.dispatch('spaces/fetchSpaces'),
       ])
-      usedIds.value = Array.isArray(usage?.marketPriceIds) ? usage.marketPriceIds : []
+      if (!Array.isArray(usage?.marketPriceIds)) throw new Error('usage-error')
+      usedIds.value = usage.marketPriceIds
+      usageLoaded.value = true
     } catch (e) {
-      error.value = e?.response?.data?.message || e?.message || 'load-error'
+      usedIds.value = []
+      error.value = e?.message === 'usage-error' ? 'usage-error' : (e?.response?.data?.message || e?.message || 'load-error')
     } finally {
       loading.value = false
     }
   }
 
   return {
-    loading, error, search, type, category, spaceName,
+    loading, error, usageLoaded, suppliers, search, type, category, spaceName,
     cards, filtered, typeOptions, categoryOptions, spaceOptions, hasFilters,
     spaceNameOf, clearFilters, load,
   }

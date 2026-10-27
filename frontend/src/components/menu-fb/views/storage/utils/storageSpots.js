@@ -30,3 +30,21 @@ export function filterSpots(list, query) {
   const q = String(query || '').trim().toLowerCase()
   return q ? list.filter((e) => String(e.name).toLowerCase().includes(q)) : list
 }
+
+/**
+ * État d'un élément pour un ou plusieurs produits. `rowFor(name)` renvoie la ligne d'inventaire du
+ * produit (ou null). stored = tous les produits y sont stockés, partial = une partie seulement,
+ * quantity = valeur commune des tampons, ou null si elles diffèrent. `override` = valeurs locales
+ * { isStored?, quantity? } appliquées à tous les produits.
+ */
+export function aggregateSpot(rowFor, names, override = {}) {
+  const rows = (names || []).map((n) => rowFor(n))
+  const storedCount = override.isStored !== undefined ? (override.isStored ? rows.length : 0) : rows.filter((r) => isRowStored(r)).length
+  const quantities = rows.map((r) => (r ? Number(r.quantity) || 0 : 0))
+  const common = quantities.length && quantities.every((q) => q === quantities[0]) ? quantities[0] : null
+  return {
+    stored: rows.length > 0 && storedCount === rows.length,
+    partial: storedCount > 0 && storedCount < rows.length,
+    quantity: override.quantity !== undefined ? override.quantity : common,
+  }
+}
