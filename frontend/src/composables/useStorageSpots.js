@@ -1,17 +1,17 @@
 import { computed, ref, watch } from 'vue'
 import { useStore } from 'vuex'
 import { useStorageRowWriter } from '@/composables/useStorageRowWriter'
-import { splitSpots, findProductRow, filterSpots } from '@/components/menu-fb/views/storage/utils/storageSpots'
-import { isRowStored } from '@/utils/storageRowStored'
+import { splitSpots, findProductRow, filterSpots, aggregateSpot } from '@/components/menu-fb/views/storage/utils/storageSpots'
 
 /**
  * Points de stockage d'un produit dans un espace : PDV et Storage du builder, case = ligne
  * d'inventaire cochée (isStored). Tampon (quantity) sur tout PDV ou Storage coché.
- * Les modifications sont appliquées localement tout de suite puis écrites par upsert de ligne.
+ * `productNames` (tableau) permet d'agir sur plusieurs produits à la fois : case cochée si tous y sont
+ * stockés, indéterminée si une partie, tampon commun ou null s'il diffère. Les modifications sont appliquées localement tout de suite puis écrites par upsert de ligne.
  *
- * @param {{ isOpen: import('vue').Ref<boolean>, spaceId: import('vue').Ref<string>, productName: import('vue').Ref<string>, readOnly?: import('vue').Ref<boolean> }} args
+ * @param {{ isOpen: import('vue').Ref<boolean>, spaceId: import('vue').Ref<string>, productNames: import('vue').Ref<string[]>, readOnly?: import('vue').Ref<boolean> }} args
  */
-export function useStorageSpots({ isOpen, spaceId, productName, readOnly = ref(false) }) {
+export function useStorageSpots({ isOpen, spaceId, productNames, readOnly = ref(false) }) {
   const store = useStore()
   const writer = useStorageRowWriter()
   const loading = ref(false)
@@ -23,15 +23,9 @@ export function useStorageSpots({ isOpen, spaceId, productName, readOnly = ref(f
   const elements = computed(() => store.getters['storageInventory/forSpace'](spaceId.value))
 
   const decorate = (el) => {
-    const row = findProductRow(el.inventoryByConfig, productName.value)
-    const o = local.value[el.id] || {}
-    return {
-      id: el.id,
-      name: el.name,
-      type: el.type,
-      stored: o.isStored !== undefined ? o.isStored : isRowStored(row),
-      quantity: o.quantity !== undefined ? o.quantity : (row ? Number(row.quantity) || 0 : 0),
-    }
+    const rowFor = (name) => findProductRow(el.inventoryByConfig, name)
+    const agg = aggregateSpot(rowFor, productNames.value, local.value[el.id] || {})
+    return { id: el.id, name: el.name, type: el.type, ...agg }
   }
 
   const groups = computed(() => {
@@ -41,6 +35,7 @@ export function useStorageSpots({ isOpen, spaceId, productName, readOnly = ref(f
   const visible = computed(() => filterSpots(groups.value[tab.value], search.value))
   const counts = computed(() => ({ shops: groups.value.shops.length, storages: groups.value.storages.length }))
   const allSelected = computed(() => visible.value.length > 0 && visible.value.every((s) => s.stored))
+  const someSelected = computed(() => !allSelected.value && visible.value.some((s) => s.stored || s.partial))
 
   async function load() {
     if (!spaceId.value) return
@@ -61,12 +56,13 @@ export function useStorageSpots({ isOpen, spaceId, productName, readOnly = ref(f
 
   function setStored(spot, stored) {
     if (readOnly.value) return
-    if (spot.stored === stored) return
+    if (spot.stored === stored && !spot.partial) return
     setLocal(spot.id, { isStored: stored })
-    writer.queue(spot.id, productName.value, { isStored: stored })
+    productNames.value.forEach((name) => writer.queue(spot.id, name, { isStored: stored }))
   }
 
-  const toggle = (spot) => setStored(spot, !spot.stored)
+  // Un état partiel se coche d'abord pour tous les produits.
+  const toggle = (spot) => setStored(spot, spot.partial ? true : !spot.stored)
   const toggleAll = () => {
     const next = !allSelected.value
     visible.value.forEach((s) => setStored(s, next))
@@ -78,7 +74,7 @@ export function useStorageSpots({ isOpen, spaceId, productName, readOnly = ref(f
     const n = Number(raw)
     if (raw === '' || !Number.isFinite(n) || n < 0) return
     setLocal(spot.id, { quantity: n })
-    writer.queue(spot.id, productName.value, { quantity: n })
+    productNames.value.forEach((name) => writer.queue(spot.id, name, { quantity: n }))
   }
 
   /** Fermeture : envoie les écritures en attente puis invalide le cache pour que l'inventaire se relise. */
@@ -106,7 +102,7 @@ export function useStorageSpots({ isOpen, spaceId, productName, readOnly = ref(f
   })
 
   return {
-    loading, loadError, tab, search, visible, counts, allSelected,
+    loading, loadError, tab, search, visible, counts, allSelected, someSelected,
     saveStatus: writer.status, saveError: writer.error,
     toggle, toggleAll, setBuffer, finish, load,
   }
