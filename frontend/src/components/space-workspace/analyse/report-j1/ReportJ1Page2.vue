@@ -36,6 +36,7 @@ import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { sizeOf, labelKeyOf } from '@/utils/reportJ1Page2Catalog'
 import { describeFilters } from '@/utils/reportJ1FilterSnapshot'
+import { clampAtWord } from '@/utils/reportJ1Page2Tables'
 import {
   GRID_W, GRID_H, GRID_GAP, CELL_PAD, CELL_BORDER, slotBox,
 } from '@/utils/reportJ1Page2Geometry'
@@ -66,7 +67,7 @@ const COMPONENTS = {
   'items-by-shop': PrintItemsByShop,
 }
 
-const spaceLabel = computed(() => (props.space?.name || '—').toUpperCase())
+const spaceLabel = computed(() => (props.space?.name || '').toUpperCase())
 const eventName = computed(() => props.event?.name || props.event?.eventName || '')
 
 const gridStyle = computed(() => ({
@@ -85,8 +86,9 @@ const cells = computed(() => (props.items || []).flatMap((item) => {
   const filters = describeFilters(slot.filters, t)
   return [{
     id: slot.id,
-    title: slot.label || (labelKey ? t(labelKey) : ''),
-    filters: `${t('rj1Page2Filters')} : ${filters || t('rj1Page2NoFilter')}`,
+    // Coupe au mot selon la largeur de la case (environ 8 px par caractère en titre, 6 en filtres).
+    title: clampAtWord(slot.label || (labelKey ? t(labelKey) : ''), Math.floor(box.renderWidth / 8)),
+    filters: clampAtWord(`${t('rj1Page2Filters')} : ${filters || t('rj1Page2NoFilter')}`, Math.floor(box.renderWidth / 6)),
     component: ok ? COMPONENTS[slot.kind] : PrintSlotState,
     data: ok ? item.data : null,
     state: ok ? 'ok' : (item.status === 'error' ? 'error' : 'empty'),
@@ -126,8 +128,9 @@ const cells = computed(() => (props.items || []).flatMap((item) => {
 .rj1p2-grid {
   margin-top: 12px;
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  grid-template-rows: repeat(3, 1fr);
+  /* minmax(0, 1fr) : sans ce plancher, un texte nowrap élargit la colonne au-delà de la page. */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: repeat(3, minmax(0, 1fr));
 }
 .rj1p2-cell {
   box-sizing: border-box;
@@ -137,6 +140,8 @@ const cells = computed(() => (props.items || []).flatMap((item) => {
   background: #ffffff;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  min-height: 0;
 }
 .rj1p2-cell__title { font-size: var(--fs-md); font-weight: var(--fw-bold); color: #0f172a; height: 22px; line-height: 22px; white-space: nowrap; }
 .rj1p2-cell__filters { font-size: var(--fs-xs); color: #64748b; height: 16px; line-height: 16px; margin-bottom: 6px; white-space: nowrap; }
