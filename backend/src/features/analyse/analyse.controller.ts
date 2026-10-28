@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
@@ -9,6 +9,8 @@ import { ArticleDimensionsService } from './article-dimensions.service';
 import { StockValuationService } from './stock-valuation.service';
 import { EventValuationService } from './event-valuation.service';
 import { EventCostsService } from './event-costs.service';
+import { ReportLayoutService } from './report-layout/report-layout.service';
+import { SaveReportLayoutDto } from './report-layout/report-layout.dto';
 
 @ApiTags('Analyse')
 @ApiBearerAuth('supabase-jwt')
@@ -21,6 +23,7 @@ export class AnalyseController {
     private readonly stockValuation: StockValuationService,
     private readonly eventValuation: EventValuationService,
     private readonly eventCosts: EventCostsService,
+    private readonly reportLayouts: ReportLayoutService,
   ) {}
 
   @Get('dashboard')
@@ -253,5 +256,29 @@ export class AnalyseController {
   @ApiQuery({ name: 'eventIds', required: true, description: 'CSV d\'Event.id (100 max)' })
   getEventCosts(@Req() req, @Param('spaceId') spaceId: string, @Query() query: EventCostsQueryDto) {
     return this.eventCosts.getEventCosts(req.user.tenantId, spaceId, query.eventIds, req.user);
+  }
+
+  @Get(':spaceId/report-layouts/:kind')
+  @RequirePermissions('front.fb.analyse')
+  @ApiOperation({
+    summary: 'Mise en page d\'un rapport pour l\'espace',
+    description: 'Retourne { layout, version }. Sans mise en page enregistrée : layout vide { version: 1, slots: [] } et version 0. Kind accepté : j1-page2.',
+  })
+  @ApiParam({ name: 'spaceId' })
+  @ApiParam({ name: 'kind', example: 'j1-page2' })
+  getReportLayout(@Req() req, @Param('spaceId') spaceId: string, @Param('kind') kind: string) {
+    return this.reportLayouts.get(req.user.tenantId, spaceId, kind, req.user);
+  }
+
+  @Put(':spaceId/report-layouts/:kind')
+  @RequirePermissions('front.fb.analyse')
+  @ApiOperation({
+    summary: 'Enregistre la mise en page d\'un rapport pour l\'espace',
+    description: 'Upsert avec verrou optimiste : 409 si `version` ne correspond pas à celle en base. Incrémente la version et retourne { layout, version }. 400 si le layout est invalide.',
+  })
+  @ApiParam({ name: 'spaceId' })
+  @ApiParam({ name: 'kind', example: 'j1-page2' })
+  saveReportLayout(@Req() req, @Param('spaceId') spaceId: string, @Param('kind') kind: string, @Body() body: SaveReportLayoutDto) {
+    return this.reportLayouts.save(req.user.tenantId, spaceId, kind, body.layout, body.version, req.user);
   }
 }

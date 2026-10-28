@@ -60,6 +60,7 @@
           </span>
         </div>
       </div>
+      <slot name="kpi-actions" />
     </div>
 
     <v-spacer />

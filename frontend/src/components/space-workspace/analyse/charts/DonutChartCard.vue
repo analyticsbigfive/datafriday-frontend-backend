@@ -6,6 +6,14 @@
     <div class="d-flex align-center mb-1">
       <v-icon size="14" color="#5B8DEF" class="mr-1">mdi-circle</v-icon>
       <span class="donut-title">{{ title }}</span>
+      <v-spacer />
+      <ReportJ1AddButton
+        v-if="reportVariant"
+        kind="donut"
+        :variant="reportVariant"
+        :label="title"
+        :readonly="readonly"
+      />
     </div>
     <div class="donut-subtitle mb-2">{{ loading ? t('anDonutLoading') : subtitle }}</div>
 
@@ -81,6 +89,7 @@ import { useI18n } from '@/i18n/useI18n'
 import { useFilters } from '@/composables/useFilters'
 import AnalyseSkeletonVeil from '@/components/space-workspace/analyse/AnalyseSkeletonVeil.vue'
 import DeltaPill from '@/components/space-workspace/shared/DeltaPill.vue'
+import ReportJ1AddButton from '@/components/space-workspace/analyse/report-j1/ReportJ1AddButton.vue'
 
 registerChartJs()
 
@@ -121,6 +130,8 @@ const props = defineProps({
   // Mode lecture seule (drawer Comparaison) : aucun clic ne filtre, pas de voile du
   // recalcul des filtres du principal (la sélection reste reçue via selectedLabels).
   readonly: { type: Boolean, default: false },
+  // Variante du catalogue rapport J+1 (page 2) : si posée, affiche le « + » d'ajout au rapport.
+  reportVariant: { type: String, default: null },
   // Écarts par ligne de légende : Map (ou objet) clé -> { text, tone, kind }, clés = itemKeys
   // (ou labels). Absent = aucune pastille.
   deltas: { type: [Map, Object], default: null },

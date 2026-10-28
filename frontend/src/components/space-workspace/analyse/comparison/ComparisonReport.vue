@@ -37,6 +37,7 @@
       <div class="cr__stack">
         <FinancialMetricsGrid
           v-can="'stats.financial.view'"
+          readonly
           :metrics="report.metrics"
           :source-state="report.kpiSourceState.value"
           :rendement="report.rendementCards.value"

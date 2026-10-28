@@ -538,6 +538,9 @@ model Space {
   // Staffing RH : associations Rôle ↔ Menu Item(s) scopées à cet espace (11_RH_STAFFING.md §11.16)
   hrRoleMenuItemRatios HrRoleMenuItemRatio[]
 
+  // Rapport J+1 : mises en page composables (page 2), une par kind
+  reportLayouts SpaceReportLayout[]
+
   @@index([tenantId])
   @@index([name])
   @@index([spaceType])
@@ -3917,4 +3920,23 @@ model EventSalesSource {
   @@unique([eventId, integrationId])
   @@index([tenantId, eventId])
   @@index([salesEventId])
+}
+
+/// Mise en page d'un rapport par espace (ex. kind `j1-page2` : grille 2x3 de la page 2 du rapport J+1).
+/// `version` sert au verrou optimiste (PUT refusé en 409 si périmée). tenantId scalaire requis.
+model SpaceReportLayout {
+  id          String   @id @default(cuid())
+  tenantId    String
+  spaceId     String
+  kind        String
+  layout      Json
+  version     Int      @default(0)
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  space Space @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@unique([spaceId, kind])
+  @@index([tenantId])
 }

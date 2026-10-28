@@ -16,6 +16,7 @@
       <v-col cols="12" md="4">
         <DonutChartCard
           :title="t('anByIndustrial')"
+          report-variant="industrial"
           :subtitle="t('anSubtitleIndustrials').replace('{n}', countWithoutNotSet(byIndustrial.keys))"
           :labels="byIndustrial.labels"
           :item-keys="byIndustrial.keys"
@@ -34,6 +35,7 @@
       <v-col cols="12" md="4">
         <DonutChartCard
           :title="t('anByBrand')"
+          report-variant="brand"
           :subtitle="t('anSubtitleBrands').replace('{n}', countWithoutNotSet(byBrand.keys))"
           :labels="byBrand.labels"
           :item-keys="byBrand.keys"
@@ -54,6 +56,7 @@
              (format monétaire), et le sous-titre le dit. -->
         <DonutChartCard
           :title="t('anSupplierCost')"
+          report-variant="supplier"
           :subtitle="t('anSubtitleSuppliers').replace('{amount}', formatCurrency(bySupplier.total))"
           :labels="bySupplier.labels"
           :item-keys="bySupplier.keys"
