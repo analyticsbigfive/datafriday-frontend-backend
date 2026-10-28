@@ -1,6 +1,11 @@
 <template>
   <div class="cbf mb-3" :class="{ 'cbf--dark': isDark }">
     <div v-if="label" class="cbf-label">{{ label }}</div>
+    <FilterSelectAll
+      :visible="items || []"
+      :selected="modelValue || []"
+      @update:selected="(v) => emit('update:modelValue', v)"
+    />
     <div class="cbf-list">
       <label v-for="opt in items" :key="opt" class="cbf-row">
         <input
@@ -22,6 +27,7 @@
 import { computed } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
+import FilterSelectAll from './FilterSelectAll.vue'
 
 const { t } = useI18n()
 const theme = useTheme()
