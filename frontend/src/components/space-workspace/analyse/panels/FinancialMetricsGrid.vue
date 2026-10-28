@@ -1,4 +1,5 @@
 <template>
+  <div class="fmg-wrap">
   <!-- 5 widgets sur une ligne en desktop (scroll horizontal si la place manque) :
        CA / TPE, CA / collaborateur, Marge, TX/MIN, Valorisation stock. CA et Percap
        restent dans la bande KPI du header. -->
@@ -56,6 +57,13 @@
       />
     </v-col>
   </v-row>
+  <ReportJ1AddButton
+    class="fmg-add"
+    kind="widget-bar"
+    :label="t('rj1KindWidgetBar')"
+    :readonly="readonly"
+  />
+  </div>
 </template>
 
 <script setup>
@@ -65,9 +73,12 @@ import { KPI_CARDS } from '@/constants/analyseColors'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 import { useI18n } from '@/i18n/useI18n'
+import ReportJ1AddButton from '@/components/space-workspace/analyse/report-j1/ReportJ1AddButton.vue'
 
 const props = defineProps({
   metrics: { type: Object, required: true },
+  // Rapport de comparaison : le « + » d'ajout au rapport J+1 est masqué.
+  readonly: { type: Boolean, default: false },
   summary: { type: Object, default: null },
   // BUG-350-01 — état de la source canonique : 'loading' | 'ready' | 'empty'.
   // 'empty' N'EST PAS 'loading' : un batch en échec ou un périmètre réellement
@@ -141,6 +152,8 @@ const transactionRateSubtext = computed(() => t('anKpiTxRateScope'))
 </script>
 
 <style scoped>
+.fmg-wrap { position: relative; }
+.fmg-add { position: absolute; top: -18px; right: 0; z-index: 1; }
 /* >= 600 px : les 5 widgets sur UNE ligne, même largeur et même hauteur (retour
    Bertrand 2026-10-14 : alignement). Si la place manque (filtres + résumé ouverts),
    la ligne défile horizontalement au lieu de passer à la ligne. */

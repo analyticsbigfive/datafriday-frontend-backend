@@ -21,6 +21,7 @@
       <v-col cols="12" md="6">
         <DonutChartCard
           :title="t('anPromoYesNo')"
+          report-variant="promotion"
           :subtitle="t('anPromoYesNoSub')"
           :labels="yesNo.labels"
           :item-keys="yesNo.keys"
@@ -39,6 +40,7 @@
       <v-col cols="12" md="6">
         <DonutChartCard
           :title="t('anPromoType')"
+          report-variant="promotionType"
           :subtitle="t('anPromoTypeSub').replace('{n}', byType.keys.filter((k) => k !== NOT_SET_KEY).length)"
           :labels="byType.labels"
           :item-keys="byType.keys"

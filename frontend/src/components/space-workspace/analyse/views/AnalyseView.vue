@@ -5,7 +5,11 @@
       :kpis="comparisonMainKpiStrip ? [] : headerKpis"
       show-home
       @kpi-click="onOpenChart"
-    />
+    >
+      <template #kpi-actions>
+        <ReportJ1AddButton kind="kpi-bar" :label="t('rj1KindKpiBar')" />
+      </template>
+    </WorkspaceAppHeader>
 
     <v-main id="header" class="main-content">
       <!-- Grille 3 colonnes (pattern EventPredict .ep-body) : filtres | contenu
@@ -416,6 +420,7 @@
             >{{ kpi.variation >= 0 ? '▲' : '▼' }}{{ Math.abs(kpi.variation).toFixed(1) }}%</span>
           </div>
         </div>
+        <ReportJ1AddButton kind="kpi-bar" :label="t('rj1KindKpiBar')" />
       </div>
 
       <!-- Onglets Live (module Live v2, 11_LIVE.md §3) : bascule Analyse / Inventaire,
@@ -809,6 +814,9 @@
       </div>
     </v-main>
 
+    <!-- Drawer « Ajouter au rapport J+1 » (page 2), ouvert par les boutons « + ». -->
+    <ReportJ1PlacementDrawer :placement="reportJ1" />
+
     <!-- Mobile uniquement : drawer de nav entre outils du workspace (☰ du header). -->
     <WorkspaceMobileToolDrawer
       v-model="showMobileToolDrawer"
@@ -910,6 +918,9 @@ import ComparisonMobileSwitch from '@/components/space-workspace/analyse/compari
 import ComparisonMenuItem from '@/components/space-workspace/analyse/comparison/ComparisonMenuItem.vue'
 import { useComparisonSwipe } from '@/composables/useComparisonSwipe'
 import ComparisonMainKpiStrip from '@/components/space-workspace/analyse/comparison/ComparisonMainKpiStrip.vue'
+import ReportJ1AddButton from '@/components/space-workspace/analyse/report-j1/ReportJ1AddButton.vue'
+import ReportJ1PlacementDrawer from '@/components/space-workspace/analyse/report-j1/ReportJ1PlacementDrawer.vue'
+import { provideReportJ1Placement } from '@/composables/useReportJ1Placement'
 import ComparisonDrawerHead from '@/components/space-workspace/analyse/comparison/ComparisonDrawerHead.vue'
 import { useComparisonRuntime } from '@/composables/useComparisonRuntime'
 import { useMainReportSnapshot } from '@/composables/useMainReportSnapshot'
@@ -1967,6 +1978,11 @@ function notifyComparison(text, color = 'success') {
   snackbarColor.value = color
   snackbar.value = true
 }
+// Rapport J+1, page 2 : état du drawer de placement, fourni aux boutons « + » des composants enfants.
+const reportJ1 = provideReportJ1Placement({
+  spaceId: computed(() => route.params.spaceId || null),
+  notify: notifyComparison,
+})
 const {
   exporting: comparisonExporting,
   exportCsv: onComparisonExportCsv,

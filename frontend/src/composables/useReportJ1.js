@@ -21,7 +21,10 @@
  * si l'article ne porte aucun signal.
  */
 
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, getCurrentInstance } from 'vue'
+import defaultStore from '@/store'
+import { getJ1Page2Layout } from '@/api/endpoints/report-layout.api'
+import { loadPage2 } from '@/composables/useReportJ1Page2Data'
 import { useI18n } from '@/i18n/useI18n'
 import {
   classifyMenuRevenueBucket,
@@ -232,6 +235,36 @@ async function renderPdf(fileName) {
  */
 export function useReportJ1({ space, reportEvent, metrics, articleRecords, menuItems, busy, notify }) {
   const { t } = useI18n()
+  // App Vue capturée dans le setup : la page 2 instancie des composables qui font inject()
+  // (route, store) hors setup, via app.runWithContext.
+  const app = getCurrentInstance()?.appContext?.app || null
+
+  /**
+   * Page 2 (sélection Analyse) : layout de l'espace puis données par groupe de filtres.
+   * Tout échec renvoie null : le PDF page 1 reste généré, l'utilisateur est prévenu.
+   */
+  async function loadPage2Data(ev) {
+    try {
+      const spaceId = space.value?.id
+      if (!spaceId || !app) return null
+      const payload = await getJ1Page2Layout(spaceId)
+      const layout = payload?.layout
+      if (!layout || !Array.isArray(layout.slots) || !layout.slots.length) return null
+      return await loadPage2({
+        app,
+        layout,
+        event: ev,
+        spaceId,
+        canView: !!defaultStore.getters['auth/can']?.('stats.financial.view'),
+        translate: t,
+      })
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[useReportJ1] page 2 indisponible', e)
+      notify(t('rj1Page2LoadError'), 'warning')
+      return null
+    }
+  }
 
   const generatingReport = ref(false)
   /** Données du rapport en cours — non-null = le composant hors écran est monté. */
@@ -246,6 +279,8 @@ export function useReportJ1({ space, reportEvent, metrics, articleRecords, menuI
     try {
       const eventDate = parseEventDate(ev.date ?? ev.eventDate)
       const weather = await fetchEventWeather(space.value, eventDate, ev.showTime)
+
+      const page2 = await loadPage2Data(ev)
 
       const trans = metrics.displayTransactions?.value ?? 0
       const att = metrics.displayAttendees?.value ?? 0
@@ -271,6 +306,7 @@ export function useReportJ1({ space, reportEvent, metrics, articleRecords, menuI
           dnIndex: buildDisplayNameIndex((menuItems?.value) || []),
           noDisplayNameLabel: t('anNoDisplayName'),
         }),
+        page2,
         generatedAt: new Date(),
       }
 

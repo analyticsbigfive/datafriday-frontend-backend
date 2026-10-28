@@ -90,6 +90,7 @@
       <v-col cols="12" md="4">
         <DonutChartCard
           :title="t('anTopItemsByRevenue')"
+          report-variant="displayName"
           :subtitle="t('anSubtitleItems').replace('{n}', byItem.labels.length)"
           :labels="byItem.labels.slice(0, 10)"
           :values="byItem.values.slice(0, 10)"
@@ -107,6 +108,7 @@
       <v-col cols="12" md="4">
         <DonutChartCard
           :title="t('anByItemType')"
+          report-variant="articleType"
           :subtitle="t('anSubtitleTypes').replace('{n}', byType.labels.length)"
           :labels="byType.labels"
           :item-keys="byType.keys"
@@ -124,6 +126,7 @@
       <v-col cols="12" md="4">
         <DonutChartCard
           :title="t('anByItemCategory')"
+          report-variant="articleCategory"
           :subtitle="t('anSubtitleCategories').replace('{n}', byCategory.labels.length)"
           :labels="byCategory.labels"
           :item-keys="byCategory.keys"
