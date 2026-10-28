@@ -152,6 +152,8 @@
         <v-expansion-panel value="shops" elevation="0">
           <v-expansion-panel-title class="px-2 py-2">
             <span class="section-title">{{ t('anShopPerformance') }}</span>
+            <v-spacer />
+            <ReportJ1AddButton kind="perf-table" variant="shops" :label="t('anShopPerformance')" />
           </v-expansion-panel-title>
           <v-expansion-panel-text class="px-0">
 
@@ -220,6 +222,8 @@
         <v-expansion-panel v-if="showEventsPerf" value="events" elevation="0">
           <v-expansion-panel-title class="px-2 py-2">
             <span class="section-title">{{ t('anEventsPerformance') }}</span>
+            <v-spacer />
+            <ReportJ1AddButton kind="perf-table" variant="events" :label="t('anEventsPerformance')" />
           </v-expansion-panel-title>
           <v-expansion-panel-text class="px-0">
 
@@ -273,6 +277,8 @@
         <v-expansion-panel value="items" elevation="0">
           <v-expansion-panel-title class="px-2 py-2">
             <span class="section-title">{{ t('anItemPerformance') }}</span>
+            <v-spacer />
+            <ReportJ1AddButton kind="perf-table" variant="items" :label="t('anItemPerformance')" />
           </v-expansion-panel-title>
           <v-expansion-panel-text class="px-0">
 
@@ -353,7 +359,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { useTheme } from 'vuetify'
 import { RANK_COLORS } from '@/constants/analyseColors'
-import { resolveItemName, NO_DISPLAY_NAME_KEY } from '@/utils/analyseDimensions'
+import { computeTopShops, computeTopEvents, computeTopItems } from '@/utils/reportJ1PerfTables'
 import { useItemGrouping } from '@/composables/useItemGrouping'
 import { formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import {
@@ -363,6 +369,7 @@ import {
   SUGGESTION_GROUPS,
 } from '@/utils/analyseAssistant'
 import { useI18n } from '@/i18n/useI18n'
+import ReportJ1AddButton from '@/components/space-workspace/analyse/report-j1/ReportJ1AddButton.vue'
 import store from '@/store'
 import { useFilters } from '@/composables/useFilters'
 import AnalyseSkeletonVeil from '@/components/space-workspace/analyse/AnalyseSkeletonVeil.vue'
@@ -497,63 +504,10 @@ watch(
   },
 )
 
-const topShops = computed(() => {
-  const map = new Map()
-  for (const r of props.records) {
-    const key = r.shopName || '—'
-    if (!map.has(key)) {
-      map.set(key, { name: key, revenue: 0, units: 0, eventIds: new Set() })
-    }
-    const e = map.get(key)
-    e.revenue += r.revenue || 0
-    e.units += r.quantity || 0
-    if (r.eventId) e.eventIds.add(r.eventId)
-  }
-  // Lookup transactionRate par nom de shop (fourni par useShopPerformance.enrich).
-  const rateByName = new Map()
-  for (const sh of props.shopRates || []) {
-    if (sh?.shopName && Number.isFinite(sh.transactionRate)) {
-      rateByName.set(sh.shopName, sh.transactionRate)
-    }
-  }
-  const list = [...map.values()].map((e) => {
-    const n = e.eventIds.size || 1
-    return {
-      name: e.name,
-      revenue: e.revenue,
-      units: e.units,
-      eventCount: e.eventIds.size,
-      avgRevenue: e.revenue / n,
-      avgUnits: e.units / n,
-      transactionRate: rateByName.get(e.name) ?? null,
-    }
-  })
-  const key = shopMode.value === 'avg' ? 'avgRevenue' : 'revenue'
-  return list.sort((a, b) => b[key] - a[key])
-})
+const topShops = computed(() => computeTopShops(props.records, props.shopRates, shopMode.value))
 
 // Lot 0.5 — Events Performance : top 5 événements par CA.
-const topEvents = computed(() => {
-  const totals = new Map()
-  for (const r of props.records) {
-    if (!r.eventId) continue
-    const cur = totals.get(r.eventId) || { revenue: 0, units: 0 }
-    cur.revenue += r.revenue || 0
-    cur.units += r.quantity || 0
-    totals.set(r.eventId, cur)
-  }
-  const list = (props.events || []).map((ev) => {
-    const t = totals.get(ev.id) || { revenue: 0, units: 0 }
-    return {
-      id: ev.id,
-      name: ev.name || ev.title || '—',
-      date: ev.date || ev.eventDate || null,
-      revenue: t.revenue,
-      units: t.units,
-    }
-  })
-  return list.sort((a, b) => b.revenue - a.revenue)
-})
+const topEvents = computed(() => computeTopEvents(props.records, props.events))
 
 function formatEventDate(d) {
   if (!d) return ''
@@ -570,48 +524,12 @@ const itemSource = computed(() =>
   props.itemRecords && props.itemRecords.length ? props.itemRecords : props.records,
 )
 
-const topItems = computed(() => {
-  const map = new Map()
-  const byDisplayName = itemGroupingMode.value === 'displayName'
-  for (const r of itemSource.value) {
-    // Résolution tolérante : les records sans `menuItemName` (predict, enrichissement
-    // partiel) portent `itemName`. Sans ce fallback, tout se regroupe sous « — »
-    // → « pas d'items item par item » sur un event sélectionné.
-    // En mode DisplayName, groupKeyOf agrège les articles d'un même libellé
-    // commercial (les articles sans DisplayName tombent dans NO_DISPLAY_NAME_KEY).
-    const key = groupKeyOf(r) || '—'
-    if (!map.has(key)) {
-      map.set(key, { name: key, revenue: 0, units: 0, eventIds: new Set(), itemNames: new Set() })
-    }
-    const e = map.get(key)
-    e.revenue += r.revenue || 0
-    e.units += r.quantity || 0
-    if (r.eventId) e.eventIds.add(r.eventId)
-    // Noms d'articles RÉELLEMENT présents dans les records : c'est eux qu'on
-    // envoie au filtre au clic (le filtre article travaille sur des noms), pas
-    // toute la liste catalogue du DisplayName — sinon on filtrerait sur des
-    // articles absents de la période.
-    const itemName = resolveItemName(r)
-    if (itemName) e.itemNames.add(itemName)
-  }
-  const list = [...map.values()].map((e) => {
-    const n = e.eventIds.size || 1
-    const isNoDisplayName = byDisplayName && e.name === NO_DISPLAY_NAME_KEY
-    return {
-      name: isNoDisplayName ? t('anNoDisplayName') : e.name,
-      key: e.name,
-      memberNames: [...e.itemNames],
-      itemCount: e.itemNames.size,
-      revenue: e.revenue,
-      units: e.units,
-      eventCount: e.eventIds.size,
-      avgRevenue: e.revenue / n,
-      avgUnits: e.units / n,
-    }
-  })
-  const key = menuMode.value === 'avg' ? 'avgRevenue' : 'revenue'
-  return list.sort((a, b) => b[key] - a[key])
-})
+const topItems = computed(() => computeTopItems(itemSource.value, {
+  groupKeyOf,
+  byDisplayName: itemGroupingMode.value === 'displayName',
+  noDisplayNameLabel: t('anNoDisplayName'),
+  mode: menuMode.value,
+}))
 
 function rankColor(rank) {
   if (rank === 1) return RANK_COLORS[1]

@@ -606,6 +606,9 @@ const DEFAULT_FILTERS = () => ({
 /** Période par défaut des filtres (lecture seule), pour les rapports qui décrivent leurs filtres hors store. */
 export const getDefaultTimeRange = () => DEFAULT_FILTERS().timeRange
 
+/** Filtres par défaut complets (lecture seule), base de fusion des filtres figés d'un rapport. */
+export const getDefaultFilters = () => DEFAULT_FILTERS()
+
 const state = () => ({
   // Data brute
   spaceId: null,

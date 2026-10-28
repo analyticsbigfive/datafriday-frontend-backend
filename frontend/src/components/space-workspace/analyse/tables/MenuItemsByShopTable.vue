@@ -14,9 +14,12 @@
           {{ t('anPredictNoItemDetail') }}
         </div>
       </div>
-      <v-btn icon size="small" variant="text" @click="exportExcel">
-        <v-icon>mdi-download</v-icon>
-      </v-btn>
+      <div class="d-flex align-center">
+        <ReportJ1AddButton kind="items-by-shop" :label="t('anMenuItemsByShop')" :readonly="readonly" />
+        <v-btn icon size="small" variant="text" @click="exportExcel">
+          <v-icon>mdi-download</v-icon>
+        </v-btn>
+      </div>
     </div>
 
     <!-- Toolbar -->
@@ -262,6 +265,7 @@ import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { formatNumber, formatCurrencyDetailed } from '@/composables/useFormatters'
 import { useFilters } from '@/composables/useFilters'
 import { useI18n } from '@/i18n/useI18n'
+import ReportJ1AddButton from '@/components/space-workspace/analyse/report-j1/ReportJ1AddButton.vue'
 import { resolveItemType, resolveItemCategory } from '@/utils/analyseDimensions'
 import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
 import {
