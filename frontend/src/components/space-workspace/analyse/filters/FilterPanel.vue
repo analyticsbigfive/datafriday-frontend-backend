@@ -387,6 +387,11 @@
               :placeholder="t('anSearchShop')"
               class="mb-2"
             />
+            <FilterSelectAll
+              :visible="filteredShopOptions"
+              :selected="filters.selectedShopIds"
+              @update:selected="(v) => setFilterImmediate('selectedShopIds', v)"
+            />
             <v-list density="compact" nav class="py-0 shops-scroll">
               <v-list-item
                 v-for="shop in filteredShopOptions"
@@ -405,6 +410,11 @@
         <v-expansion-panel value="shop-types">
           <v-expansion-panel-title class="section-title">{{ t('anShopTypes') }}</v-expansion-panel-title>
           <v-expansion-panel-text>
+            <FilterSelectAll
+              :visible="options.shopTypes.value"
+              :selected="filters.selectedShopTypes"
+              @update:selected="(v) => setFilterImmediate('selectedShopTypes', v)"
+            />
             <div class="fp-check-list">
               <label v-for="type in options.shopTypes.value" :key="type" class="fp-check-row">
                 <input
@@ -425,6 +435,11 @@
         <v-expansion-panel value="shop-areas">
           <v-expansion-panel-title class="section-title">{{ t('anZones') }}</v-expansion-panel-title>
           <v-expansion-panel-text>
+            <FilterSelectAll
+              :visible="options.shopAreas.value"
+              :selected="filters.selectedShopAreas"
+              @update:selected="(v) => setFilterImmediate('selectedShopAreas', v)"
+            />
             <div class="fp-check-list">
               <label v-for="area in options.shopAreas.value" :key="area" class="fp-check-row">
                 <input
@@ -469,6 +484,11 @@
                 :placeholder="t('anSearchMenuItems')"
               />
             </div>
+            <FilterSelectAll
+              :visible="filteredMenuItemNames"
+              :selected="filters.selectedMenuItemIds"
+              @update:selected="(v) => setFilterImmediate('selectedMenuItemIds', v)"
+            />
             <div class="fp-check-list">
               <label v-for="name in filteredMenuItemNames" :key="name" class="fp-check-row">
                 <input
@@ -490,6 +510,11 @@
           <v-expansion-panel-title class="section-title">{{ t('anTypeCategory') }}</v-expansion-panel-title>
           <v-expansion-panel-text>
             <div class="fp-sub-label">{{ t('anTypes') }}</div>
+            <FilterSelectAll
+              :visible="options.menuItemTypes.value"
+              :selected="filters.selectedMenuItemTypes"
+              @update:selected="(v) => setFilterImmediate('selectedMenuItemTypes', v)"
+            />
             <div class="fp-check-list">
               <label v-for="type in options.menuItemTypes.value" :key="type" class="fp-check-row">
                 <input
@@ -505,6 +530,11 @@
             </div>
 
             <div class="fp-sub-label fp-sub-label--mt">{{ t('anCategory') }}</div>
+            <FilterSelectAll
+              :visible="options.menuItemCategories.value"
+              :selected="filters.selectedMenuItemCategories"
+              @update:selected="(v) => setFilterImmediate('selectedMenuItemCategories', v)"
+            />
             <div class="fp-check-list">
               <label v-for="cat in options.menuItemCategories.value" :key="cat" class="fp-check-row">
                 <input
@@ -569,6 +599,7 @@ import { safePush } from '@/utils/chunkReload'
 import { useFilters } from '@/composables/useFilters'
 import { getDateRangePresets, PRESET_I18N_KEYS } from '@/constants/dateRangePresets'
 import CheckboxListFilter from './CheckboxListFilter.vue'
+import FilterSelectAll from './FilterSelectAll.vue'
 import ArticleDimensionFilters from './ArticleDimensionFilters.vue'
 import DayOfWeekFilter from './DayOfWeekFilter.vue'
 import WeatherTemperatureFilters from './WeatherTemperatureFilters.vue'
