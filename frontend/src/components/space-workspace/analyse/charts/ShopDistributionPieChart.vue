@@ -38,6 +38,7 @@
       <v-col cols="12" md="4">
         <DonutChartCard
           :title="t('anPieByShopTitle')"
+          report-variant="shop"
           :subtitle="`${byShop.labels.length} ${t('anPieByShopSubtitle')}`"
           :labels="byShop.labels"
           :values="byShop.values"
@@ -55,6 +56,7 @@
       <v-col cols="12" md="4">
         <DonutChartCard
           :title="t('anPieByTypeTitle')"
+          report-variant="shopType"
           :subtitle="`${byType.labels.length} ${t('anPieByTypeSubtitleSuffix')}`"
           :labels="byType.labels"
           :item-keys="byType.keys"
@@ -73,6 +75,7 @@
       <v-col cols="12" md="4">
         <DonutChartCard
           :title="t('anPieByAreaTitle')"
+          report-variant="shopArea"
           :subtitle="`${byArea.labels.length} ${t('anPieByAreaSubtitleSuffix')}`"
           :labels="byArea.labels"
           :values="byArea.values"

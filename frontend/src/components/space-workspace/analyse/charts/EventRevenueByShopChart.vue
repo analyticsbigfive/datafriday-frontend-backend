@@ -37,6 +37,7 @@
         {{ t('anChartPredictionsIncluded') }}
       </v-chip>
       <v-spacer />
+      <ReportJ1AddButton kind="revenue-bars" :label="t('rj1KindRevenueBars')" :readonly="readonly" />
       <v-switch
         v-if="cumulativeAvailable"
         v-model="showCumulative"
@@ -158,6 +159,7 @@ import { SHOP_COLORS } from '@/constants/analyseColors'
 import { parseEventDate, formatDateShort } from '@/utils/dateFr'
 import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
 import { useI18n } from '@/i18n/useI18n'
+import ReportJ1AddButton from '@/components/space-workspace/analyse/report-j1/ReportJ1AddButton.vue'
 import { useTheme } from 'vuetify'
 import { currentIntlLocale } from '@/composables/useNumberFormat'
 import { formatCurrency } from '@/composables/useFormatters'

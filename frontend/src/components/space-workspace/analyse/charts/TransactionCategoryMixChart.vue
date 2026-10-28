@@ -30,6 +30,7 @@
       <v-col cols="12" md="6">
         <DonutChartCard
           :title="t('anTxMixByCategoryTitle')"
+          report-variant="basketMix"
           :subtitle="t('anTxMixDrillHint')"
           :labels="byCategory.labels"
           :item-keys="byCategory.keys"
@@ -47,6 +48,7 @@
       <v-col cols="12" md="6">
         <DonutChartCard
           :title="t('anTxMixByItemTitle')"
+          report-variant="basketMixItem"
           :subtitle="itemSubtitle"
           :labels="byItem.labels"
           :values="byItem.values"
