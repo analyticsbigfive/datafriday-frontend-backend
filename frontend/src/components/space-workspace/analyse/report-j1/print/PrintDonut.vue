@@ -87,7 +87,7 @@ onMounted(() => {
 .pd__canvas { flex-shrink: 0; display: block; }
 .pd__legend { list-style: none; margin: 0; padding: 0; width: 100%; display: grid; column-gap: 16px; font-size: var(--fs-xs); }
 .pd__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.pd__bullet { margin-right: 4px; font-size: 10px; line-height: 1; }
+.pd__bullet { margin-right: 4px; font-size: var(--fs-xs); line-height: 1; }
 .pd__label { color: #334155; white-space: nowrap; line-height: 1.3; }
 .pd__pct { flex-shrink: 0; font-weight: var(--fw-bold); color: #0f172a; font-variant-numeric: tabular-nums; }
 </style>
