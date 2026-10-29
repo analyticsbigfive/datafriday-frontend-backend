@@ -53,6 +53,32 @@ export function filterStoredItems(items, savedRows) {
 }
 
 /**
+ * Articles d'un stockage = (articles construits ∩ lignes stockées) ∪ (lignes stockées
+ * absentes des articles construits). Les lignes cochées à la main hors recettes des
+ * boutiques liées sont ajoutées via `makeItem(row)` (dédupliquées par nom normalisé).
+ * savedRows non tableau = pas encore chargées : items inchangé (pas de clignotement).
+ *
+ * @param {Array<{name:string}>} items
+ * @param {Array|null|undefined} savedRows
+ * @param {(row:object) => object} makeItem
+ */
+export function mergeStoredItems(items, savedRows, makeItem) {
+  const list = Array.isArray(items) ? items : []
+  if (!Array.isArray(savedRows)) return list
+  const kept = filterStoredItems(list, savedRows)
+  const present = new Set(list.map((it) => normalizeItemName(it?.name)))
+  const out = [...kept]
+  for (const row of savedRows) {
+    if (!isRowStored(row)) continue
+    const key = normalizeItemName(row?.name)
+    if (!key || present.has(key)) continue
+    present.add(key)
+    out.push(makeItem(row))
+  }
+  return out
+}
+
+/**
  * Lignes sauvegardées de l'élément `elementId` dans la projection du store
  * `storageInventory` ({ id, inventoryByConfig }[]). Renvoie null quand elles ne sont
  * pas connues (store pas chargé, ou élément absent) : l'appelant ne filtre alors pas.
