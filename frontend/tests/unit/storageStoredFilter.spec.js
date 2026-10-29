@@ -1,4 +1,4 @@
-import { filterStoredItems, mergeStoredItems, rowsForConfig, rowsForConfigs } from '@/utils/storageStoredFilter'
+import { filterStoredItems, mergeStoredItems, rowMatchesItem, rowsForConfig, rowsForConfigs } from '@/utils/storageStoredFilter'
 import { buildManualStorageItem } from '@/utils/storageManualItem'
 
 const names = (l) => l.map((i) => i.name)
@@ -87,5 +87,41 @@ describe('buildManualStorageItem', () => {
   it('sans Market Price : item minimal', () => {
     const it = buildManualStorageItem({ name: ' Truc ', unit: 'kg' }, [])
     expect(it).toMatchObject({ name: 'Truc', marketPriceId: null, unit: 'kg', usedIn: [] })
+  })
+})
+
+describe('correspondance par marketPriceId', () => {
+  const its = [{ id: 'mp1', name: 'Coca-Cola 33cl' }, { id: 'mp2', name: 'Eau' }, { name: 'Sans id' }]
+  it('rowMatchesItem : id malgré un nom obsolète', () => {
+    expect(rowMatchesItem({ name: 'Coca 33', marketPriceId: 'mp1', isStored: true }, its[0])).toBe(true)
+  })
+  it('rowMatchesItem : item.marketPriceId accepté, repli sur le nom sans id', () => {
+    expect(rowMatchesItem({ name: 'x', marketPriceId: 'a' }, { name: 'y', marketPriceId: 'a' })).toBe(true)
+    expect(rowMatchesItem({ name: ' EAU ' }, its[1])).toBe(true)
+    expect(rowMatchesItem({ name: 'Autre' }, its[1])).toBe(false)
+    expect(rowMatchesItem(null, its[1])).toBe(false)
+  })
+  it('filterStoredItems : ligne au nom obsolète retrouve l article par id', () => {
+    const rows = [{ name: 'Ancien nom', marketPriceId: 'mp1', isStored: true }]
+    expect(filterStoredItems(its, rows).map((i) => i.id)).toEqual(['mp1'])
+  })
+  it('filterStoredItems : repli nom pour une ligne sans id', () => {
+    expect(filterStoredItems(its, [{ name: 'eau', isStored: true }]).map((i) => i.id)).toEqual(['mp2'])
+  })
+  it('mergeStoredItems : pas de doublon manuel quand l id correspond, ajout sinon', () => {
+    const mk = (row) => ({ name: row.name, manual: true })
+    const rows = [
+      { name: 'Ancien nom', marketPriceId: 'mp1', isStored: true },
+      { name: 'Hors liste', marketPriceId: 'mp9', isStored: true },
+      { name: 'hors liste', marketPriceId: 'mp9', isStored: true },
+    ]
+    const out = mergeStoredItems(its, rows, mk)
+    expect(out.map((i) => i.name)).toEqual(['Coca-Cola 33cl', 'Hors liste'])
+  })
+  it('buildManualStorageItem : résout le Market Price par id puis par nom', () => {
+    const mps = [{ id: 'mp1', itemName: 'Nouveau nom' }, { id: 'mp2', itemName: 'Eau' }]
+    expect(buildManualStorageItem({ name: 'Ancien', marketPriceId: 'mp1' }, mps)).toMatchObject({ name: 'Nouveau nom', marketPriceId: 'mp1' })
+    expect(buildManualStorageItem({ name: 'eau' }, mps)).toMatchObject({ name: 'Eau', marketPriceId: 'mp2' })
+    expect(buildManualStorageItem({ name: 'Inconnu', marketPriceId: 'zz' }, mps)).toMatchObject({ name: 'Inconnu', marketPriceId: 'zz' })
   })
 })

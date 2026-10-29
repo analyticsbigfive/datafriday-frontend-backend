@@ -33,4 +33,13 @@ describe('pdvBufferRequirements', () => {
     expect(targetWithBuffer(30, 10)).toBe(30)
     expect(targetWithBuffer(0, 40)).toBe(40)
   })
+
+  it('rapproche par marketPriceId malgré un nom différent', () => {
+    const els = [{ id: 'p1', inventoryByConfig: { c1: [{ name: 'Ancien nom', quantity: 8, marketPriceId: 'mp1', isStored: true }] } }]
+    const buffers = collectPdvBuffers({ configuration, builderElements: els, cfgIds: ['c1'] })
+    expect(buffers[0].marketPriceId).toBe('mp1')
+    const rows = applyPdvBuffers([{ shopId: 'p1', itemName: 'Nouveau nom', itemId: 'mp1', totalQuantity: 3 }], buffers)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].bufferQuantity).toBe(8)
+  })
 })

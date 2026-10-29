@@ -1,7 +1,7 @@
 import {
   pruneSelection, toggleKey, selectedCardsOf, commonSpaceIds, displayedSpaceIds, distinctProductNames, productsForSpaceClick,
 } from '@/components/menu-fb/views/storage/utils/storageSelection'
-import { aggregateSpot } from '@/components/menu-fb/views/storage/utils/storageSpots'
+import { aggregateSpot, findProductRow } from '@/components/menu-fb/views/storage/utils/storageSpots'
 
 const card = (key, name, spaceIds) => ({ key, name, spaceIds })
 const A = card('a', 'Cola', ['sp1', 'sp2'])
@@ -68,5 +68,17 @@ describe('aggregateSpot', () => {
   })
   it('valeurs locales appliquees a tous', () => {
     expect(aggregateSpot(rowFor, ['Cola', 'Jus'], { isStored: true, quantity: 3 })).toEqual({ stored: true, partial: false, quantity: 3 })
+  })
+})
+
+describe('findProductRow par marketPriceId', () => {
+  const by = { c1: [{ name: 'Ancien nom', marketPriceId: 'mp1', isStored: true }, { name: 'Eau', isStored: false }] }
+  it('id d abord malgré un nom obsolète', () => {
+    expect(findProductRow(by, { name: 'Nouveau nom', marketPriceId: 'mp1' }).name).toBe('Ancien nom')
+  })
+  it('repli par nom (string ou objet sans id)', () => {
+    expect(findProductRow(by, 'eau').name).toBe('Eau')
+    expect(findProductRow(by, { name: 'Eau', marketPriceId: 'inconnu' }).name).toBe('Eau')
+    expect(findProductRow(by, 'Rien')).toBeNull()
   })
 })
