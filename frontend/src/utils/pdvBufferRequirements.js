@@ -1,4 +1,5 @@
 import { collectFbElements } from '@/utils/stockPlanning'
+import { resolveMarketPrice } from '@/utils/storageManualItem'
 import { isBufferRow } from '@/utils/pdvBufferItems'
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 
@@ -35,7 +36,7 @@ export function pickInventoryRows(byConfig, cfgIds) {
  * Tampons des PDV de la configuration : [{ shop, name, unit, menuItemId, buffer }].
  * Seules les lignes cochées (isStored !== false) avec un tampon > 0 comptent.
  */
-export function collectPdvBuffers({ configuration, builderElements = [], cfgIds = [], closedShopNames = [] }) {
+export function collectPdvBuffers({ configuration, builderElements = [], cfgIds = [], closedShopNames = [], marketPrices = [] }) {
   const closed = new Set(closedShopNames.map(normalize).filter(Boolean))
   const byId = new Map(builderElements.map((e) => [String(e.id), e]))
   const byName = new Map()
@@ -52,7 +53,8 @@ export function collectPdvBuffers({ configuration, builderElements = [], cfgIds 
       out.push({
         shop,
         name: r.name,
-        unit: r.unit || 'pcs',
+        // Unité du Market Price (celle du colis affiché), puis celle de la ligne.
+        unit: resolveMarketPrice({ name: r.name, marketPriceId: r.marketPriceId }, marketPrices)?.unit || r.unit || 'pcs',
         menuItemId: r.menuItemId != null ? String(r.menuItemId) : null,
         marketPriceId: r.marketPriceId ? String(r.marketPriceId) : null,
         buffer,
