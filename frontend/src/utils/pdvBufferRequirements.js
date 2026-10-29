@@ -1,4 +1,5 @@
 import { collectFbElements } from '@/utils/stockPlanning'
+import { isBufferRow } from '@/utils/pdvBufferItems'
 
 /**
  * Stock tampon d'un PDV (page Stockage, ElementInventory.quantity) : stock requis
@@ -41,7 +42,7 @@ export function collectPdvBuffers({ configuration, builderElements = [], cfgIds 
     if (!builderEl) return
     pickInventoryRows(builderEl.inventoryByConfig, cfgIds).forEach((r) => {
       const buffer = Number(r?.quantity) || 0
-      if (!r?.name || buffer <= 0 || r.isStored === false) return
+      if (!r?.name || !isBufferRow(r)) return
       out.push({
         shop,
         name: r.name,

@@ -90,27 +90,3 @@ export function sharedPackLabel(mps, t, locale = 'fr') {
 
 /** Raccourci : Market Price d'une référence { name, marketPriceId } dans la liste du catalogue. */
 export const marketPriceOf = resolveMarketPrice
-
-/**
- * Pseudo Market Price d'un article de la Logistique (mêmes champs que la carte « Nombre de fûts de
- * 20 L » : type de conditionnement, contenance résolue, unité), pour réutiliser les libellés ci-dessus.
- */
-export function packagingFromLogisticItem(item, unitsPerPack) {
-  return {
-    inventoryPackaging: item?.packagingType ?? null,
-    inventoryQuantityPackaged: Number(unitsPerPack) > 0 ? Number(unitsPerPack) : null,
-    unit: item?.unit ?? null,
-  }
-}
-
-/** Stock total en unités de base d'une carte Logistique : colis * contenance + vrac. */
-export function logisticTotalUnits(packed, loose, unitsPerPack) {
-  const upp = Number(unitsPerPack) > 0 ? Number(unitsPerPack) : 1
-  return round((Number(packed) || 0) * upp + (Number(loose) || 0), 4)
-}
-
-/** Vrai si un tampon est défini (> 0) et que le total est strictement dessous. */
-export function isBelowBuffer(totalUnits, bufferUnits) {
-  const buffer = Number(bufferUnits)
-  return buffer > 0 && (Number(totalUnits) || 0) < buffer
-}

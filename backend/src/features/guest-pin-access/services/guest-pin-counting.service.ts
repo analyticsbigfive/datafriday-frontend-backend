@@ -154,12 +154,31 @@ export class GuestPinCountingService {
       this.menuComponents.findAll(user.tenantId, 1, 5000),
     ]);
 
+    // Lignes d'inventaire (tampon) de CE PDV : config de l'event, repli configId null ;
+    // sans config, toutes. Non filtrées : le front applique le critère « tampon > 0 et
+    // isStored !== false » (miroir de pdvBufferRequirements). Aucun attendu exposé.
+    const inventoryRows = await this.prisma.elementInventory.findMany({
+      where: { elementId: user.elementId },
+      select: { name: true, marketPriceId: true, quantity: true, unit: true, minStock: true, maxStock: true, isStored: true, configId: true },
+      orderBy: { name: 'asc' },
+    });
+    const bufferRows = scopeStorageRows(inventoryRows, event?.configurationId ?? 'all').map((r) => ({
+      name: r.name,
+      quantity: r.quantity,
+      unit: r.unit ?? null,
+      minStock: r.minStock ?? null,
+      maxStock: r.maxStock ?? null,
+      isStored: r.isStored ?? null,
+      marketPriceId: r.marketPriceId ?? null,
+    }));
+
     return {
       elementName,
       availableMenuItems: availableRecipes.items,
       allMenuItemsData: allRecipes.items,
       marketPrices: marketPricesPage.data,
       components: componentsPage.data,
+      bufferRows,
     };
   }
 

@@ -1,6 +1,6 @@
 import {
   packSizeOf, packLabelOf, unitsToPacks, packsToUnits, formatPacks, bufferPacksText,
-  sharedPackLabel, packagingFromLogisticItem, logisticTotalUnits, isBelowBuffer,
+  sharedPackLabel,
 } from '@/utils/bufferPackaging'
 
 const dict = { logiPackagingOf: 'de', bufferPacksGeneric: 'colis' }
@@ -72,18 +72,5 @@ describe('textes', () => {
     expect(sharedPackLabel([keg, keg], t, 'fr')).toBe('fûts de 20 L')
     expect(sharedPackLabel([keg, pack4], t, 'fr')).toBe('colis')
     expect(sharedPackLabel([keg, null], t, 'fr')).toBe('colis')
-  })
-})
-
-describe('carte Logistique', () => {
-  const item = { packagingType: 'Keg', unit: 'L' }
-  it('pseudo Market Price depuis l article', () => {
-    expect(bufferPacksText(240, packagingFromLogisticItem(item, 20), t, 'fr')).toBe('12 fûts de 20 L')
-  })
-  it('total et alerte sous le tampon', () => {
-    expect(logisticTotalUnits(11, 5, 20)).toBe(225)
-    expect(isBelowBuffer(225, 240)).toBe(true)
-    expect(isBelowBuffer(240, 240)).toBe(false)
-    expect(isBelowBuffer(0, 0)).toBe(false)
   })
 })
