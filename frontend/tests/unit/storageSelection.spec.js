@@ -71,6 +71,32 @@ describe('aggregateSpot', () => {
   })
 })
 
+describe('aggregateSpot : tampon en colis', () => {
+  const keg = { packedUnits: 20 }
+  const pack4 = { packedUnits: 4 }
+  const mps = { Biere: keg, Chips: pack4 }
+  const packOf = (n) => mps[n] || null
+  const rows = {
+    Biere: { name: 'Biere', isStored: true, quantity: 240 },
+    Chips: { name: 'Chips', isStored: true, quantity: 48 },
+  }
+  const rowFor = (n) => rows[n] || null
+
+  it('un produit : unités stockées affichées en colis', () => {
+    expect(aggregateSpot(rowFor, ['Biere'], {}, packOf).quantity).toBe(12)
+  })
+  it('plusieurs produits au même nombre de colis : valeur commune', () => {
+    expect(aggregateSpot(rowFor, ['Biere', 'Chips'], {}, packOf).quantity).toBe(12)
+  })
+  it('colis différents : valeurs mixtes (null)', () => {
+    const r = { ...rows, Chips: { name: 'Chips', isStored: true, quantity: 40 } }
+    expect(aggregateSpot((n) => r[n], ['Biere', 'Chips'], {}, packOf).quantity).toBeNull()
+  })
+  it('valeur locale déjà en colis', () => {
+    expect(aggregateSpot(rowFor, ['Biere'], { quantity: 3 }, packOf).quantity).toBe(3)
+  })
+})
+
 describe('findProductRow par marketPriceId', () => {
   const by = { c1: [{ name: 'Ancien nom', marketPriceId: 'mp1', isStored: true }, { name: 'Eau', isStored: false }] }
   it('id d abord malgré un nom obsolète', () => {

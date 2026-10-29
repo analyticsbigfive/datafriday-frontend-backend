@@ -2579,6 +2579,9 @@ export const translations = {
     logiPacked: 'Packed',
     logiLoose: 'Number of loose units',
     logiPackagingOf: 'of',
+    bufferPacksGeneric: 'packages',
+    logiBufferStock: 'Buffer stock',
+    logiBufferBelow: 'Total is below the buffer stock',
     logiNumberOf: 'Number of',
     logiTotal: 'Total',
     // Colonne SÉPARÉE du stock attendu : ce que le scénario Event Predict de
@@ -8261,6 +8264,9 @@ export const translations = {
     logiPacked: 'Emballé',
     logiLoose: "Nombre d'unités en vrac",
     logiPackagingOf: 'de',
+    bufferPacksGeneric: 'colis',
+    logiBufferStock: 'Stock tampon',
+    logiBufferBelow: 'Le total est sous le stock tampon',
     logiNumberOf: 'Nombre de',
     logiTotal: 'Total',
     // Colonne SÉPARÉE du stock attendu : ce que le scénario Event Predict de
