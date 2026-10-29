@@ -745,6 +745,15 @@ export function pluralizePackLabel(label, count) {
 }
 
 /**
+ * Libellé de colis au milieu d'une phrase : minuscules, et « fut » (saisi sans
+ * accent au catalogue) affiché « fût ». N'altère pas la donnée, seulement l'affichage.
+ */
+export function inlinePackLabel(label) {
+  const text = String(label || '').trim().toLowerCase()
+  return text.replace(/^fut(s?)$/, 'fût$1')
+}
+
+/**
  * BUG-296-01 — décomposition d'une ligne de réarmement (grain shop × article).
  * `restockQuantity` est la quantité DÉJÀ arrondie en colis entiers (sortie de
  * coveredQuantityForPackaging) : aucun arrondi n'est refait ici.
