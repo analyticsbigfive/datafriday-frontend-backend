@@ -25,15 +25,19 @@ function resolveQtyPackaged(mp) {
  */
 export function buildManualStorageItem(row, marketPrices) {
   const key = normalizeItemName(row?.name)
-  const mp = Array.isArray(marketPrices)
-    ? marketPrices.find((m) => normalizeItemName(m?.itemName) === key)
-    : null
+  const list = Array.isArray(marketPrices) ? marketPrices : []
+  // Id du Market Price d'abord (survit à un renommage), nom en repli (lignes historiques).
+  const rowId = row?.marketPriceId != null && row.marketPriceId !== '' ? String(row.marketPriceId) : null
+  const mp =
+    (rowId ? list.find((m) => m?.id != null && String(m.id) === rowId) : null) ||
+    list.find((m) => normalizeItemName(m?.itemName) === key) ||
+    null
   return {
     id: mp?.id ?? null,
     name: mp?.itemName ?? String(row?.name ?? '').trim(),
     storageType: null,
     picture: mp?.image ?? null,
-    marketPriceId: mp?.id ?? null,
+    marketPriceId: mp?.id ?? rowId,
     unit: mp?.unit ?? row?.unit ?? null,
     inventoryPackagingId: mp?.inventoryPackagingId ?? null,
     inventoryQuantityPackaged: mp ? (resolveQtyPackaged(mp) ?? null) : null,

@@ -2378,9 +2378,11 @@ export default {
               const buffer = Number(r.quantity) || 0
               const wantId = r.menuItemId != null ? String(r.menuItemId) : null
               const wantName = normalizeStr(r.name)
+              const wantMpId = r.marketPriceId ? String(r.marketPriceId) : null
               const remaining = counted
                 .filter(
                   (c) =>
+                    (wantMpId && (c.itemId === wantMpId || c.sourceId === wantMpId)) ||
                     (wantId && (c.itemId === wantId || c.sourceId === wantId)) ||
                     (wantName && normalizeStr(c.name) === wantName),
                 )

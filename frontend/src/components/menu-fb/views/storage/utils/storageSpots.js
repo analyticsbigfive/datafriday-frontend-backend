@@ -1,5 +1,5 @@
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
-import { rowsForConfigs, normalizeItemName } from '@/utils/storageStoredFilter'
+import { rowsForConfigs, normalizeItemName, rowMatchesItem } from '@/utils/storageStoredFilter'
 import { isRowStored } from '@/utils/storageRowStored'
 
 /** Éléments du builder d'un espace répartis en PDV (shop, merchshop) et Storage. */
@@ -19,9 +19,13 @@ export function splitSpots(elements) {
  * Ligne d'inventaire du produit sur un élément (union des configs) : la ligne cochée si une
  * l'est, sinon la première trouvée, sinon null.
  */
-export function findProductRow(inventoryByConfig, productName) {
-  const key = normalizeItemName(productName)
-  const matches = rowsForConfigs(inventoryByConfig, null).filter((r) => normalizeItemName(r?.name) === key)
+export function findProductRow(inventoryByConfig, product) {
+  // `product` = nom (string) ou { name, marketPriceId } : id du Market Price d'abord, nom en repli.
+  const target = typeof product === 'object' && product !== null ? product : { name: product }
+  const item = { name: target.name, marketPriceId: target.marketPriceId }
+  const all = rowsForConfigs(inventoryByConfig, null)
+  const byId = target.marketPriceId ? all.filter((r) => r?.marketPriceId && rowMatchesItem(r, { marketPriceId: item.marketPriceId })) : []
+  const matches = byId.length ? byId : all.filter((r) => normalizeItemName(r?.name) === normalizeItemName(item.name))
   return matches.find((r) => isRowStored(r)) || matches[0] || null
 }
 
@@ -32,7 +36,7 @@ export function filterSpots(list, query) {
 }
 
 /**
- * État d'un élément pour un ou plusieurs produits. `rowFor(name)` renvoie la ligne d'inventaire du
+ * État d'un élément pour un ou plusieurs produits. `rowFor(produit)` renvoie la ligne d'inventaire du
  * produit (ou null). stored = tous les produits y sont stockés, partial = une partie seulement,
  * quantity = valeur commune des tampons, ou null si elles diffèrent. `override` = valeurs locales
  * { isStored?, quantity? } appliquées à tous les produits.
