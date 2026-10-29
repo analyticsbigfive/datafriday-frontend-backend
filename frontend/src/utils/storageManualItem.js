@@ -13,6 +13,21 @@ function resolveQtyPackaged(mp) {
 }
 
 /**
+ * Market Price d'une ligne (ou d'une référence { name, marketPriceId }) : id d'abord (survit à un
+ * renommage), nom normalisé en repli (lignes historiques). null si introuvable.
+ */
+export function resolveMarketPrice(ref, marketPrices) {
+  const list = Array.isArray(marketPrices) ? marketPrices : []
+  const key = normalizeItemName(ref?.name)
+  const refId = ref?.marketPriceId != null && ref.marketPriceId !== '' ? String(ref.marketPriceId) : null
+  return (
+    (refId ? list.find((m) => m?.id != null && String(m.id) === refId) : null) ||
+    (key ? list.find((m) => normalizeItemName(m?.itemName) === key) : null) ||
+    null
+  )
+}
+
+/**
  * Fabrique d'article d'inventaire pour une ligne de stockage cochée à la main
  * (article ajouté depuis Menu F&B > Stockage, absent des recettes des boutiques liées).
  * Même forme que les items de buildStorageInventory. Le nom est l'itemName exact du
@@ -24,14 +39,8 @@ function resolveQtyPackaged(mp) {
  * @param {Array} marketPrices
  */
 export function buildManualStorageItem(row, marketPrices) {
-  const key = normalizeItemName(row?.name)
-  const list = Array.isArray(marketPrices) ? marketPrices : []
-  // Id du Market Price d'abord (survit à un renommage), nom en repli (lignes historiques).
   const rowId = row?.marketPriceId != null && row.marketPriceId !== '' ? String(row.marketPriceId) : null
-  const mp =
-    (rowId ? list.find((m) => m?.id != null && String(m.id) === rowId) : null) ||
-    list.find((m) => normalizeItemName(m?.itemName) === key) ||
-    null
+  const mp = resolveMarketPrice(row, marketPrices)
   return {
     id: mp?.id ?? null,
     name: mp?.itemName ?? String(row?.name ?? '').trim(),

@@ -1,6 +1,8 @@
 import { computed, ref, watch } from 'vue'
 import { useStore } from 'vuex'
+import { useI18n } from '@/i18n/useI18n'
 import { useStorageRowWriter } from '@/composables/useStorageRowWriter'
+import { marketPriceOf, packsToUnits, sharedPackLabel } from '@/utils/bufferPackaging'
 import { splitSpots, findProductRow, filterSpots, aggregateSpot } from '@/components/menu-fb/views/storage/utils/storageSpots'
 
 /**
@@ -16,6 +18,7 @@ import { splitSpots, findProductRow, filterSpots, aggregateSpot } from '@/compon
  */
 export function useStorageSpots({ isOpen, spaceId, productNames, products = ref([]), readOnly = ref(false) }) {
   const store = useStore()
+  const { t, locale } = useI18n()
   const writer = useStorageRowWriter()
   const loading = ref(false)
   const loadError = ref(false)
@@ -30,11 +33,17 @@ export function useStorageSpots({ isOpen, spaceId, productNames, products = ref(
   })
   const idPatch = (ref_) => (ref_.marketPriceId ? { marketPriceId: ref_.marketPriceId } : {})
 
+  // Market Price de chaque produit (liste déjà chargée par la page Stockage) : contenance et nom du colis.
+  const marketPrices = computed(() => store.getters['marketPrices/rows'] || [])
+  const packOf = (ref_) => marketPriceOf(ref_, marketPrices.value)
+  // Libellé du colis à côté du champ tampon : commun à tous les produits, sinon « colis » générique.
+  const bufferLabel = computed(() => sharedPackLabel(refs.value.map(packOf), t, locale.value))
+
   const elements = computed(() => store.getters['storageInventory/forSpace'](spaceId.value))
 
   const decorate = (el) => {
     const rowFor = (ref_) => findProductRow(el.inventoryByConfig, ref_)
-    const agg = aggregateSpot(rowFor, refs.value, local.value[el.id] || {})
+    const agg = aggregateSpot(rowFor, refs.value, local.value[el.id] || {}, packOf)
     return { id: el.id, name: el.name, type: el.type, ...agg }
   }
 
@@ -78,13 +87,13 @@ export function useStorageSpots({ isOpen, spaceId, productNames, products = ref(
     visible.value.forEach((s) => setStored(s, next))
   }
 
-  /** Tampon d'un Storage. Valeur invalide ou négative ignorée. */
+  /** Tampon d'un Storage, saisi en colis (décimaux permis) et écrit en unités de base. Valeur invalide ou négative ignorée. */
   function setBuffer(spot, raw) {
     if (readOnly.value) return
     const n = Number(raw)
     if (raw === '' || !Number.isFinite(n) || n < 0) return
     setLocal(spot.id, { quantity: n })
-    refs.value.forEach((r) => writer.queue(spot.id, r.name, { quantity: n, ...idPatch(r) }))
+    refs.value.forEach((r) => writer.queue(spot.id, r.name, { quantity: packsToUnits(n, packOf(r)), ...idPatch(r) }))
   }
 
   /** Fermeture : envoie les écritures en attente puis invalide le cache pour que l'inventaire se relise. */
@@ -112,7 +121,7 @@ export function useStorageSpots({ isOpen, spaceId, productNames, products = ref(
   })
 
   return {
-    loading, loadError, tab, search, visible, counts, allSelected, someSelected,
+    bufferLabel, loading, loadError, tab, search, visible, counts, allSelected, someSelected,
     saveStatus: writer.status, saveError: writer.error,
     toggle, toggleAll, setBuffer, finish, load,
   }

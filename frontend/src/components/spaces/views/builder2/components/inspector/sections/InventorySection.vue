@@ -36,10 +36,11 @@
                   class="inv-qty__input"
                   type="number"
                   min="0"
-                  :value="quantityFor(line.name)"
-                  @change="(e) => setQuantity(line.name, e.target.value)"
+                  step="any"
+                  :value="bufferDisplay(line.name)"
+                  @change="(e) => setQuantity(line.name, bufferToUnits(line.name, e.target.value))"
                 />
-                <span v-if="line.unit" class="inv-qty__unit">{{ line.unit }}</span>
+                <span v-if="bufferLabel(line.name, line.unit)" class="inv-qty__unit">{{ bufferLabel(line.name, line.unit) }}</span>
               </div>
             </div>
             <div class="inv-used">
@@ -81,9 +82,11 @@
                   class="inv-qty__input"
                   type="number"
                   min="0"
-                  :value="row.quantity"
-                  @change="(e) => setQuantity(row.name, e.target.value)"
+                  step="any"
+                  :value="bufferDisplay(row.name)"
+                  @change="(e) => setQuantity(row.name, bufferToUnits(row.name, e.target.value))"
                 />
+                <span v-if="bufferLabel(row.name)" class="inv-qty__unit">{{ bufferLabel(row.name) }}</span>
               </div>
               <button class="inv-card__remove" :title="t('b2Remove')" @click="removeManual(row.name)">
                 <v-icon icon="mdi-close" size="13" />
@@ -116,6 +119,7 @@ import { useI18n } from '@/i18n/useI18n'
 import SectionCard from './SectionCard.vue'
 import { putElementInventory } from '@/api/endpoints/builder-v2.api'
 import { getShopInventory } from '@/api/endpoints/menu.api'
+import { useBufferPacks } from '@/composables/useBufferPacks'
 
 const { t } = useI18n()
 const store = inject('builderStore')
@@ -159,6 +163,26 @@ const qtyByName = computed(() => {
 })
 function quantityFor(name) {
   return qtyByName.value.get(name) ?? 0
+}
+
+// Stock tampon du PDV : saisi et affiché en COLIS d'après le Market Price de la ligne
+// (id de la ligne sauvegardée ou du menu, nom en repli), stocké en unités de base.
+const bufferPacks = useBufferPacks()
+function bufferRefFor(name) {
+  const line = derived.value.find((l) => l.name === name)
+  const row = saved.value.find((r) => r.name === name)
+  return { name, marketPriceId: row?.marketPriceId || line?.marketPriceId || null }
+}
+function bufferDisplay(name) {
+  return bufferPacks.toPacks(bufferRefFor(name), quantityFor(name))
+}
+function bufferToUnits(name, raw) {
+  return bufferPacks.toUnits(bufferRefFor(name), raw)
+}
+/** Libellé du colis (« fûts de 20 L »), ou l'unité de la ligne si aucun Market Price n'est trouvé. */
+function bufferLabel(name, fallbackUnit = '') {
+  const ref = bufferRefFor(name)
+  return bufferPacks.mpFor(ref) ? bufferPacks.labelFor(ref) : fallbackUnit || ''
 }
 
 // Même forme multi-sources que MenuSection : un getter-de-tableau re-déclencherait
@@ -332,7 +356,10 @@ function removeManual(name) {
   display: flex;
   align-items: baseline;
   gap: 4px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 62%;
 }
 .inv-qty__input {
   width: 58px;
@@ -357,10 +384,9 @@ function removeManual(name) {
 .inv-qty__unit {
   font-size: var(--fs-xs);
   color: #9ca3af;
-  max-width: 48px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 /* Used in */
