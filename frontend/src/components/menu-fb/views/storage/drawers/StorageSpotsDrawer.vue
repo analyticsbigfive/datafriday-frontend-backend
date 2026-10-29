@@ -91,6 +91,7 @@
                     @input="onBufferInput(spot, $event)"
                     @keydown.stop
                   />
+                  <span class="ssd-buffer__pack">{{ bufferLabel }}</span>
                 </span>
                 <span class="ssd-row__check" :class="{ 'ssd-row__check--on': spot.stored || spot.partial }" aria-hidden="true">
                   <Minus v-if="spot.partial" :size="14" :stroke-width="3" />
@@ -143,7 +144,7 @@ const emit = defineEmits(['update:modelValue'])
 const { t } = useI18n()
 const names = computed(() => (props.productNames.length ? props.productNames : [props.productName]))
 const {
-  loading, loadError, tab, search, visible, counts, allSelected,
+  bufferLabel, loading, loadError, tab, search, visible, counts, allSelected,
   someSelected, saveStatus, saveError, toggle, toggleAll, setBuffer, finish,
 } = useStorageSpots({
   isOpen: toRef(props, 'modelValue'),
@@ -224,7 +225,9 @@ async function close() {
 .ssd-row__check { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #d1d5db; display: flex; align-items: center; justify-content: center; color: #fff; }
 .ssd-row__check--on { background: #ff3131; border-color: #ff3131; }
 
-.ssd-buffer { display: flex; align-items: center; gap: 10px; cursor: default; }
+.ssd-buffer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; cursor: default; }
+.ssd-buffer__pack { font-size: var(--fs-base); color: #6b7280; min-width: 0; overflow-wrap: anywhere; line-height: 1.25; }
+.ssd--dark .ssd-buffer__pack { color: #9ca3af; }
 .ssd-buffer__label { font-size: var(--fs-base); color: #374151; white-space: nowrap; }
 .ssd--dark .ssd-buffer__label { color: #d1d5db; }
 .ssd-buffer__input { width: 110px; height: 36px; padding: 0 10px; border: 1.5px solid #374151; border-radius: 10px; font-size: var(--fs-md); background: #fff; color: #111827; }

@@ -1,6 +1,7 @@
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 import { rowsForConfigs, normalizeItemName, rowMatchesItem } from '@/utils/storageStoredFilter'
 import { isRowStored } from '@/utils/storageRowStored'
+import { unitsToPacks } from '@/utils/bufferPackaging'
 
 /** Éléments du builder d'un espace répartis en PDV (shop, merchshop) et Storage. */
 export function splitSpots(elements) {
@@ -40,11 +41,14 @@ export function filterSpots(list, query) {
  * produit (ou null). stored = tous les produits y sont stockés, partial = une partie seulement,
  * quantity = valeur commune des tampons, ou null si elles diffèrent. `override` = valeurs locales
  * { isStored?, quantity? } appliquées à tous les produits.
+ * `packOf(produit)` (optionnel) renvoie le Market Price du produit : la quantité (stockée en unités
+ * de base) est alors comparée et renvoyée en COLIS ; `override.quantity` est déjà en colis. Sans
+ * `packOf`, contenance 1 (unités = colis).
  */
-export function aggregateSpot(rowFor, names, override = {}) {
+export function aggregateSpot(rowFor, names, override = {}, packOf = () => null) {
   const rows = (names || []).map((n) => rowFor(n))
   const storedCount = override.isStored !== undefined ? (override.isStored ? rows.length : 0) : rows.filter((r) => isRowStored(r)).length
-  const quantities = rows.map((r) => (r ? Number(r.quantity) || 0 : 0))
+  const quantities = rows.map((r, i) => unitsToPacks(r ? Number(r.quantity) || 0 : 0, packOf(names[i])))
   const common = quantities.length && quantities.every((q) => q === quantities[0]) ? quantities[0] : null
   return {
     stored: rows.length > 0 && storedCount === rows.length,

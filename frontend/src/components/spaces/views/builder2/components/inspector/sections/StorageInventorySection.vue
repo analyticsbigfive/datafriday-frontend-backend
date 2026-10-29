@@ -67,15 +67,16 @@
               <!-- Stock tampon, min/max, jauge : saisis en packs quand un Market Price connu
                    fixe le conditionnement, sinon repli sur l'unité de recette brute. -->
               <StorageRowFields
-                :quantity="displayValue(line.name, quantityFor(line.name))"
+                :quantity="bufferDisplay(line.name)"
                 :min="displayValue(line.name, boundsFor(line.name).min ?? '')"
                 :max="displayValue(line.name, boundsFor(line.name).max ?? '')"
                 :step="packInfoFor(line.name) ? '0.01' : '1'"
-                :unit-label="qtyUnitLabel(line.name)"
+                :quantity-step="bufferMpFor(line.name) ? '0.01' : null"
+                :unit-label="bufferUnitLabel(line.name)"
                 :hint="packInfoFor(line.name) ? packHintLabel(line.name) : ''"
                 :gauge="gaugeFor(line.name)"
                 :gauge-title="gaugeTitle(line.name)"
-                @quantity="(v) => setQuantity(line.name, toRaw(line.name, v))"
+                @quantity="(v) => setQuantity(line.name, bufferToRaw(line.name, v))"
                 @min="(v) => setBound(line.name, 'minStock', toRaw(line.name, v))"
                 @max="(v) => setBound(line.name, 'maxStock', toRaw(line.name, v))"
               />
@@ -147,15 +148,16 @@
             </div>
             <template v-if="isStoredFor(row.name) && !isCollapsed(row.name)">
               <StorageRowFields
-                :quantity="displayValue(row.name, quantityFor(row.name))"
+                :quantity="bufferDisplay(row.name)"
                 :min="displayValue(row.name, boundsFor(row.name).min ?? '')"
                 :max="displayValue(row.name, boundsFor(row.name).max ?? '')"
                 :step="packInfoFor(row.name) ? '0.01' : '1'"
-                :unit-label="qtyUnitLabel(row.name)"
+                :quantity-step="bufferMpFor(row.name) ? '0.01' : null"
+                :unit-label="bufferUnitLabel(row.name)"
                 :hint="packInfoFor(row.name) ? packHintLabel(row.name) : ''"
                 :gauge="gaugeFor(row.name)"
                 :gauge-title="gaugeTitle(row.name)"
-                @quantity="(v) => setQuantity(row.name, toRaw(row.name, v))"
+                @quantity="(v) => setQuantity(row.name, bufferToRaw(row.name, v))"
                 @min="(v) => setBound(row.name, 'minStock', toRaw(row.name, v))"
                 @max="(v) => setBound(row.name, 'maxStock', toRaw(row.name, v))"
               />
@@ -191,6 +193,7 @@ import { putElementInventory } from '@/api/endpoints/builder-v2.api'
 import { getStorageInventory } from '@/api/endpoints/menu.api'
 import { normalizeType } from '../../../constants/elementTaxonomy'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
+import { useBufferPacks } from '@/composables/useBufferPacks'
 
 const FB_STORAGE_TYPES = ['dry', 'cold', 'belowzero']
 const STOCKABLE_TYPES = new Set(['shop', 'merchshop'])
@@ -329,6 +332,32 @@ function toRaw(name, displayVal) {
   if (!info?.unitsPerPack) return trimmed
   return Math.round(Number(trimmed) * info.unitsPerPack * 100) / 100
 }
+// Stock tampon (quantité) : saisi et affiché en COLIS d'après le Market Price de la ligne
+// (id de la ligne sauvegardée ou de la ligne du menu, nom en repli), stocké en unités de base.
+// Sans Market Price trouvé, repli sur le comportement par pack du backend ci-dessus.
+// Min et max ne sont pas concernés.
+const bufferPacks = useBufferPacks()
+function bufferRefFor(name) {
+  const line = derived.value.find((l) => l.name === name)
+  return { name, marketPriceId: rowByName.value.get(name)?.marketPriceId || line?.marketPriceId || null }
+}
+function bufferMpFor(name) {
+  return bufferPacks.mpFor(bufferRefFor(name))
+}
+function bufferDisplay(name) {
+  return bufferMpFor(name)
+    ? bufferPacks.toPacks(bufferRefFor(name), quantityFor(name))
+    : displayValue(name, quantityFor(name))
+}
+function bufferToRaw(name, displayVal) {
+  if (!bufferMpFor(name)) return toRaw(name, displayVal)
+  const trimmed = String(displayVal).trim()
+  return trimmed === '' ? '' : bufferPacks.toUnits(bufferRefFor(name), trimmed)
+}
+function bufferUnitLabel(name) {
+  return bufferMpFor(name) ? bufferPacks.labelFor(bufferRefFor(name)) : qtyUnitLabel(name)
+}
+
 /** Chip courte à côté du champ Quantité (ex. "Cartons" au lieu de "Pc"). */
 function qtyUnitLabel(name) {
   const info = packInfoFor(name)

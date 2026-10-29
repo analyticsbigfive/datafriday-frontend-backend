@@ -669,7 +669,7 @@
                     </span>
                     <span class="sr-storage-chip">
                       {{ t('srStorageBuffer') }}
-                      <strong>{{ formatLooseQuantity(row.buffer, row.unit) }}</strong>
+                      <strong>{{ storageBufferText(row) }}</strong>
                     </span>
                     <span class="sr-storage-chip">
                       {{ t('srStorageRemaining') }}
@@ -1816,6 +1816,8 @@ import {
 import { useRestockPlans } from '@/composables/useRestockPlans'
 import { buildStorageRestockLines, storageRefillCoeffs, isStorageRestockLine } from '@/utils/storageRestockLines'
 import { useStorageInventory } from '@/composables/useStorageInventory'
+import { bufferPacksText } from '@/utils/bufferPackaging'
+import { resolveMarketPrice } from '@/utils/storageManualItem'
 import { collectPdvBuffers, applyPdvBuffers, targetWithBuffer } from '@/utils/pdvBufferRequirements'
 // Taxonomie builder2 (module de constantes pur) : 'Storage'/'storage_x'/code
 // département → 'storage'. Le blob de config v1 porte des types déjà en
@@ -1879,7 +1881,7 @@ export default {
     const store = useStore()
     const route = useRoute()
     const router = useRouter()
-    const { t } = useI18n()
+    const { t, locale } = useI18n()
     // Historique des plans (REST autoritaire, sans miroir localStorage).
     // Refs exposées à plat pour l'auto-unwrap Options API ; `plansApi` porte
     // les méthodes (refresh/load/create/…).
@@ -1887,7 +1889,7 @@ export default {
     // fiche 314-01 — stock tampon des espaces de stockage (builder state projeté).
     const storageInvApi = useStorageInventory()
     return {
-      store, route, router, t,
+      store, route, router, t, locale,
       plansApi,
       plans: plansApi.plans,
       plansLoading: plansApi.loading,
@@ -2405,6 +2407,7 @@ export default {
                 name: r.name,
                 unit: r.unit || '',
                 menuItemId: wantId,
+                marketPriceId: wantMpId,
                 buffer,
                 remaining,
                 defaultRequired,
@@ -5143,6 +5146,17 @@ export default {
      * Chaîne vide si le conditionnement ne se résout pas — la ligne garde alors
      * ses unités brutes, sans chip vide.
      */
+    /**
+     * Tampon d'une ligne storage affiché en colis (« 12 fûts de 20 L (240 L) »). `row.buffer` reste
+     * en unités de base, comme le restant : seul l'affichage change, le calcul du nécessaire non.
+     * Sans conditionnement connu sur le Market Price : unités brutes, comme avant.
+     */
+    storageBufferText(row) {
+      const mp = resolveMarketPrice({ name: row.name, marketPriceId: row.marketPriceId }, this.marketPrices)
+      const hasPack = !!(mp && (mp.inventoryPackaging || Number(mp.inventoryQuantityPackaged) > 0 || Number(mp.packedUnits) > 0))
+      if (!hasPack) return this.formatLooseQuantity(row.buffer, row.unit)
+      return `${bufferPacksText(row.buffer, mp, this.t, this.locale)} (${this.formatLooseQuantity(row.buffer, row.unit)})`
+    },
     storagePackFormat(row) {
       const packaging = this.storagePackagingByKey[row.key]
       if (!packSizeForPackaging(packaging)) return ''

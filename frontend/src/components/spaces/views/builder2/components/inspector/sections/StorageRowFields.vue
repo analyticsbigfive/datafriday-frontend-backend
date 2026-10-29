@@ -7,7 +7,7 @@
         class="srf__qty"
         type="number"
         min="0"
-        :step="step"
+        :step="quantityStep || step"
         :value="quantity"
         @change="(e) => emit('quantity', e.target.value)"
       />
@@ -54,6 +54,8 @@ defineProps({
   min: { type: [Number, String], default: '' },
   max: { type: [Number, String], default: '' },
   step: { type: String, default: '1' },
+  // Pas propre au champ stock tampon (colis décimaux) ; sinon `step`.
+  quantityStep: { type: String, default: null },
   unitLabel: { type: String, default: null },
   hint: { type: String, default: '' },
   gauge: { type: Object, default: null },
@@ -67,8 +69,9 @@ const { t } = useI18n()
 .srf { margin-top: 7px; }
 .srf__buffer {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
-  gap: 6px;
+  gap: 4px 6px;
   min-width: 0;
 }
 .srf__label,
@@ -94,9 +97,8 @@ const { t } = useI18n()
   min-width: 0;
   font-size: var(--fs-xs);
   color: #9ca3af;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 .srf__bounds {
   display: flex;
