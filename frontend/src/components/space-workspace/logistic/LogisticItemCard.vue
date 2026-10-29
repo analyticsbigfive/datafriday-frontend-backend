@@ -54,14 +54,6 @@
           {{ formatTotal(expected.packed, expected.loose) }}<span v-if="item?.unit" class="lg-field-unit">{{ item.unit }}</span>
         </div>
       </div>
-      <!-- Stock tampon du stockage (ligne ElementInventory, stocké en unités de base) affiché en
-           colis ; rouge avec icône quand le total passe sous le tampon. Absent si tampon nul. -->
-      <div v-if="bufferText" class="lg-field-row lg-field-row-buffer" :class="{ 'lg-field-row-buffer--low': bufferLow }">
-        <div class="lg-field-label">{{ t('logiBufferStock') }}</div>
-        <div class="lg-field-value lg-field-value--wrap" :title="bufferLow ? t('logiBufferBelow') : undefined">
-          <v-icon v-if="bufferLow" size="14" class="lg-buffer-alert" :aria-label="t('logiBufferBelow')">mdi-alert-outline</v-icon>{{ bufferText }}
-        </div>
-      </div>
       <!-- Colonne SÉPARÉE : besoin prédit Event Predict, brut. Ne se substitue pas
            au stock attendu au-dessus — l'un dit ce qu'il y a, l'autre ce qu'il
            faudrait pour le match. Le netting « à ramener » reste au Réarmement. -->
@@ -128,9 +120,6 @@ import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
 import { compactQtyLabel } from '@/composables/useLogisticUnitLabels'
-import {
-  packagingFromLogisticItem, bufferPacksText, logisticTotalUnits, isBelowBuffer,
-} from '@/utils/bufferPackaging'
 
 const { t, locale } = useI18n()
 
@@ -149,8 +138,6 @@ const props = defineProps({
   /** 'restock' : le chiffre vient de la feuille de réarmement, déjà déposé retiré
    *  (« À déposer », demande Bertrand 2026-10-08) ; sinon prévision (« Besoin prédit »). */
   needSource: { type: String, default: null },
-  /** Stock tampon du stockage en unités de base (0 = aucun, ligne masquée). */
-  bufferUnits: { type: Number, default: 0 },
   usedInLabel: { type: String, default: '' },
   /** 'bad' (rupture) | 'warn' (stock bas) | 'ok'. */
   status: { type: String, default: 'ok' },
@@ -216,16 +203,6 @@ const looseLabel = computed(() => {
   const unit = props.item?.unit
   return unit ? `${t('logiNumberOf')} ${t('logiLooseShort')} ${unit}` : t('logiLoose')
 })
-
-/** Tampon en colis (« 12 fûts de 20 L »), même type/contenance que la ligne « Nombre de fûts de 20 L ». */
-const bufferText = computed(() => {
-  if (!(props.bufferUnits > 0)) return ''
-  return bufferPacksText(props.bufferUnits, packagingFromLogisticItem(props.item, props.unitsPerPack), t, locale.value)
-})
-/** Rouge si le total (colis * contenance + vrac) est sous le tampon. */
-const bufferLow = computed(() =>
-  isBelowBuffer(logisticTotalUnits(props.expected?.packed, props.expected?.loose, props.unitsPerPack), props.bufferUnits),
-)
 
 /** Total en unité réelle (packed*unitsPerPack + loose), ex. 45l pour 1 fût + 0,5 en vrac.
  *  L'unité est rendue séparément dans le template (`.lg-field-unit`) — ne pas la
@@ -337,10 +314,6 @@ function pendingTransferQtyLabel(pt) {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.lg-field-value--wrap { white-space: normal; overflow-wrap: anywhere; }
-.lg-field-row-buffer--low .lg-field-label,
-.lg-field-row-buffer--low .lg-field-value { color: var(--fb-danger, #dc2626); }
-.lg-buffer-alert { margin-right: 4px; vertical-align: -2px; }
 .lg-field-unit {
   font-size: 0.72rem;
   font-weight: 600;
