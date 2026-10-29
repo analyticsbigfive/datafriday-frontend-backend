@@ -449,7 +449,6 @@
                   :predicted-need="predictedNeedFor(drillElement.element.id, item)"
                   :predicted-need-packs="predictedNeedPacksFor(drillElement.element.id, item)"
                   :need-source="needSource"
-                  :buffer-units="bufferUnitsFor(drillElement.element.id, item)"
                   :used-in-label="usedInLabel(item)"
                   :status="itemStatus(drillElement.element.id, item)"
                   :pending-transfers="pendingTransfersFor(drillElement.element.id, item.name)"
@@ -629,8 +628,7 @@ import { filterGroupsBySearch } from '@/utils/ventilationViews'
 import { suppliersOf } from '@/utils/ventilationSuppliers'
 import { ventilationExportTable, stockExportTable } from '@/utils/logisticExportTables'
 import { useStorageInventory } from '@/composables/useStorageInventory'
-import { filterStoredItems, savedRowsForElement, rowMatchesItem } from '@/utils/storageStoredFilter'
-import { isRowStored } from '@/utils/storageRowStored'
+import { filterStoredItems, savedRowsForElement } from '@/utils/storageStoredFilter'
 
 const TABS = [
   { value: 'shops', labelKey: 'logiTabShops', labelKeyShort: 'logiTabShopsShort', icon: 'mdi-store' },
@@ -1355,14 +1353,6 @@ export default {
     elementWithStock(entry, itemName) {
       const expected = itemName ? this.expectedDisplay(entry.element.id, { name: itemName }) : { packed: 0, loose: 0 }
       return { id: entry.element.id, name: entry.element.name, packed: expected.packed, loose: expected.loose, floorGroupId: entry.element.floorGroupId ?? null }
-    },
-    /** Stock tampon (unités de base) d'un article sur un stockage : ligne ElementInventory cochée de la
-     *  config sélectionnée. 0 pour un PDV, une ligne non cochée ou sans tampon. */
-    bufferUnitsFor(elementId, item) {
-      if (!this.storageEntries.some((e) => String(e.element.id) === String(elementId))) return 0
-      const rows = savedRowsForElement(this.storageInv.elementsForSpace(this.currentSpaceId), elementId, { configId: this.selectedConfigId })
-      const row = (rows || []).find((r) => rowMatchesItem(r, item))
-      return row && isRowStored(row) ? Number(row.quantity) || 0 : 0
     },
     unitsPerPackFor(elementId, item) {
       const level = this.store.getters['logistics/levelFor'](elementId, item.name)

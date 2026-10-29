@@ -24,6 +24,7 @@ import { configPlanZones } from '@/utils/configPlanZones'
 import { useStorageInventory } from '@/composables/useStorageInventory'
 import { mergeStoredItems, savedRowsForElement } from '@/utils/storageStoredFilter'
 import { buildManualStorageItem } from '@/utils/storageManualItem'
+import { appendBufferItems, buildBufferItem } from '@/utils/pdvBufferItems'
 import {
   buildConsolidatedInventory,
   buildStorageInventory,
@@ -466,7 +467,7 @@ export function useInventoryData(selectedConfigId) {
   const shopsWithInventory = computed(() =>
     shops.value.map((shop) => {
       const availableMenuItems = shop.items.map(enrichForBuild).filter(Boolean)
-      const consolidatedInventory = availableMenuItems.length
+      const builtInventory = availableMenuItems.length
         ? buildConsolidatedInventory(
             availableMenuItems,
             menuItems.value,
@@ -475,6 +476,18 @@ export function useInventoryData(selectedConfigId) {
             components.value,
           )
         : []
+      // Produits en tampon sur ce PDV (ElementInventory) absents des recettes : ajoutés,
+      // jamais de filtre sur les articles issus des recettes.
+      const bufferRows = savedRowsForElement(
+        elementsForSpace(storedSpaceId.value),
+        shop.shopId,
+        { configId: selectedConfigId?.value ?? null, allConfigs: storedAllConfigs.value },
+      )
+      const consolidatedInventory = appendBufferItems(
+        builtInventory,
+        bufferRows,
+        (row) => buildBufferItem(row, marketPrices.value),
+      )
       return {
         element: {
           id: shop.shopId,
