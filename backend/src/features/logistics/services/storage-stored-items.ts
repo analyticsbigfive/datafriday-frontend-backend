@@ -5,6 +5,8 @@ export type StorageInventoryRow = {
   elementId: string;
   configId: string | null;
   name: string;
+  /** Lien robuste vers le Market Price (prioritaire sur le nom). */
+  marketPriceId?: string | null;
   quantity: number | null;
   minStock: number | null;
   maxStock: number | null;
@@ -47,13 +49,16 @@ type MarketPriceLite = {
 
 /**
  * Items à AJOUTER à un stockage : lignes stockées absentes des articles issus des
- * boutiques liées. Résolus sur le Market Price de même nom (name = itemName du MP,
- * clé du ledger Logistic) ; sans MP, item minimal à id stable `custom:<nom normalisé>`.
+ * boutiques liées. Résolus sur le Market Price par `marketPriceId` d'abord (survit au
+ * renommage, même si le MP est supprimé : la trace du stock est gardée), puis par nom
+ * normalisé (name = itemName du MP, clé du ledger Logistic) ; sans MP, item minimal à id
+ * stable `custom:<nom normalisé>`. Dédoublonnage par marketPriceId puis par nom.
  */
 export function buildStoredOnlyItems(
-  storedRows: Array<Pick<StorageInventoryRow, 'name'>>,
+  storedRows: Array<Pick<StorageInventoryRow, 'name' | 'marketPriceId'>>,
   existing: Iterable<ElementItem>,
   mpByNormalizedName: Map<string, MarketPriceLite>,
+  mpById: Map<string, MarketPriceLite> = new Map(),
 ): ElementItem[] {
   const seenNames = new Set<string>();
   const seenMpIds = new Set<string>();
@@ -64,12 +69,12 @@ export function buildStoredOnlyItems(
   const out: ElementItem[] = [];
   for (const row of storedRows) {
     const key = normalizeItemName(row.name);
-    if (!key || seenNames.has(key)) continue;
-    const mp = mpByNormalizedName.get(key);
-    if (mp && seenMpIds.has(mp.id)) continue;
-    seenNames.add(key);
+    const mp = (row.marketPriceId ? mpById.get(row.marketPriceId) : undefined) ?? (key ? mpByNormalizedName.get(key) : undefined);
     if (mp) {
-      seenNames.add(normalizeItemName(mp.itemName));
+      const mpKey = normalizeItemName(mp.itemName);
+      if (seenMpIds.has(mp.id) || seenNames.has(mpKey)) continue;
+      seenNames.add(mpKey);
+      if (key) seenNames.add(key);
       seenMpIds.add(mp.id);
       out.push({
         name: mp.itemName.trim(),
@@ -83,20 +88,22 @@ export function buildStoredOnlyItems(
         picture: null,
         usedIn: [],
       });
-    } else {
-      out.push({
-        name: String(row.name).trim(),
-        id: `custom:${key}`,
-        kind: 'ingredient',
-        refKind: null,
-        unit: null,
-        marketPriceId: null,
-        unitsPerPack: null,
-        packagingType: null,
-        picture: null,
-        usedIn: [],
-      });
+      continue;
     }
+    if (!key || seenNames.has(key)) continue;
+    seenNames.add(key);
+    out.push({
+      name: String(row.name).trim(),
+      id: `custom:${key}`,
+      kind: 'ingredient',
+      refKind: null,
+      unit: null,
+      marketPriceId: null,
+      unitsPerPack: null,
+      packagingType: null,
+      picture: null,
+      usedIn: [],
+    });
   }
   return out;
 }

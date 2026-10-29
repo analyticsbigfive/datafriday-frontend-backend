@@ -151,6 +151,8 @@ describe('MarketPricesService.bulkCreate — upsert by id', () => {
       create: jest.fn(),
       update: jest.fn(),
     },
+    elementInventory: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   } as any;
 
   const mockStorage = {
@@ -187,6 +189,36 @@ describe('MarketPricesService.bulkCreate — upsert by id', () => {
     expect(mockPrisma.marketPrice.create).not.toHaveBeenCalled();
     expect(result.updated).toHaveLength(1);
     expect(result.created).toHaveLength(0);
+    // Le renommage via import se propage aux lignes d'inventaire liées par id.
+    expect(mockPrisma.elementInventory.updateMany).toHaveBeenCalledWith({
+      where: { marketPriceId: 'mp-existing' },
+      data: { name: 'Pomme de terre' },
+    });
+  });
+
+  const stubUpdateCollaborators = () => {
+    const svc = marketPricesService as any;
+    svc.marketPriceQueryService.findOne = jest.fn().mockResolvedValue({});
+    svc.marketPriceRecipeSyncService.resyncLinkedRecipeCosts = jest.fn().mockResolvedValue(undefined);
+    svc.costPropagation.propagate = jest.fn().mockResolvedValue(undefined);
+  };
+
+  it('update() propage le nouveau nom aux lignes ElementInventory liées, dans la même transaction', async () => {
+    stubUpdateCollaborators();
+    mockPrisma.marketPrice.update.mockResolvedValueOnce({ id: 'mp1', itemName: 'Nouveau nom', price: '1.00' });
+    await marketPricesService.update('mp1', { itemName: 'Nouveau nom' } as any, 'tenant-1');
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(mockPrisma.elementInventory.updateMany).toHaveBeenCalledWith({
+      where: { marketPriceId: 'mp1' },
+      data: { name: 'Nouveau nom' },
+    });
+  });
+
+  it('update() sans changement de nom ne touche pas ElementInventory', async () => {
+    stubUpdateCollaborators();
+    mockPrisma.marketPrice.update.mockResolvedValueOnce({ id: 'mp1', itemName: 'X', price: '2.00' });
+    await marketPricesService.update('mp1', { price: 2 } as any, 'tenant-1');
+    expect(mockPrisma.elementInventory.updateMany).not.toHaveBeenCalled();
   });
 
   it('falls back to normal create when dto.id is set but unknown to this tenant (first import of a legacy file)', async () => {

@@ -205,6 +205,7 @@ export class SpaceZoneElementsService {
         isCustom: i.isCustom,
         isStored: i.isStored,
         menuItemId: i.menuItemId,
+        marketPriceId: i.marketPriceId ?? null,
       })) || [],
     };
   }

@@ -37,7 +37,7 @@ function build(opts: { inventory: any[]; storageAttrs?: any; recipeItems?: any[]
   return { service, prisma };
 }
 
-const row = (over: any) => ({ elementId: 'st-1', configId: 'cfg-a', name: 'Paille Bio', quantity: 0, minStock: null, maxStock: null, isStored: true, ...over });
+const row = (over: any) => ({ elementId: 'st-1', configId: 'cfg-a', name: 'Paille Bio', marketPriceId: null, quantity: 0, minStock: null, maxStock: null, isStored: true, ...over });
 const storageItems = (els: any[]) => els.find((e) => e.id === 'st-1').items;
 
 describe('StockReferentialService.getSpaceElementsWithItems : articles de stockage hors recettes', () => {
@@ -87,5 +87,32 @@ describe('StockReferentialService.getSpaceElementsWithItems : articles de stocka
     const st = els.find((e) => e.id === 'st-1')!;
     expect(st.items).toHaveLength(2);
     expect([...(st.configIds ?? [])].sort()).toEqual(['cfg-a', 'cfg-b']);
+  });
+
+  it('ligne liée par marketPriceId dont le nom est obsolète : item résolu sur le MP par id, nom actuel du MP', async () => {
+    const { service } = build({ inventory: [row({ name: 'Ancien nom de paille', marketPriceId: 'mp-paille' })] });
+    const items = storageItems(await service.getSpaceElementsWithItems('sp', 't', 'cfg-a'));
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ name: 'Paille  Bio', id: 'mp-paille', marketPriceId: 'mp-paille' });
+  });
+
+  it('dédoublonne par marketPriceId : deux lignes (noms différents) sur le même MP donnent un seul item', async () => {
+    const { service } = build({
+      inventory: [
+        row({ name: 'Ancien nom', marketPriceId: 'mp-paille' }),
+        row({ name: 'Paille Bio', marketPriceId: null }),
+      ],
+    });
+    const items = storageItems(await service.getSpaceElementsWithItems('sp', 't', 'cfg-a'));
+    expect(items.map((i: any) => i.id)).toEqual(['mp-paille']);
+  });
+
+  it('MP supprimé (absent de la liste active) : item gardé avec son id grâce au chargement par id', async () => {
+    const deleted = { id: 'mp-old', itemName: 'Supprimé', unit: 'kg', recipeUnit: null, packedUnits: null, inventoryPackaging: null };
+    const { service, prisma } = build({ inventory: [row({ name: 'Supprimé', marketPriceId: 'mp-old' })] });
+    prisma.marketPrice.findMany.mockResolvedValueOnce([mpPaille]).mockResolvedValueOnce([deleted]);
+    const items = storageItems(await service.getSpaceElementsWithItems('sp', 't', 'cfg-a'));
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({ id: 'mp-old', marketPriceId: 'mp-old', name: 'Supprimé' });
   });
 });

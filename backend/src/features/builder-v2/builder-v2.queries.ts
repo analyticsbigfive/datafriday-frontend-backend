@@ -65,7 +65,7 @@ export function builderStatePayload(db: SqlClient, tenantId: string, spaceId: st
                 SELECT json_object_agg(g.cfg, g.rows) FROM (
                   SELECT COALESCE(inv."configId", '') AS cfg,
                          json_agg(json_build_object('id', inv.id, 'name', inv.name, 'quantity', inv.quantity, 'unit', inv.unit,
-                           'minStock', inv."minStock", 'maxStock', inv."maxStock", 'isCustom', inv."isCustom", 'isStored', inv."isStored", 'menuItemId', inv."menuItemId")) AS rows
+                           'minStock', inv."minStock", 'maxStock', inv."maxStock", 'isCustom', inv."isCustom", 'isStored', inv."isStored", 'menuItemId', inv."menuItemId", 'marketPriceId', inv."marketPriceId")) AS rows
                   FROM "ElementInventory" inv WHERE inv."elementId" = se.id GROUP BY 1
                 ) g
               ), '{}'::json),
