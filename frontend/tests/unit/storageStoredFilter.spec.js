@@ -1,4 +1,5 @@
-import { filterStoredItems, rowsForConfig, rowsForConfigs } from '@/utils/storageStoredFilter'
+import { filterStoredItems, mergeStoredItems, rowsForConfig, rowsForConfigs } from '@/utils/storageStoredFilter'
+import { buildManualStorageItem } from '@/utils/storageManualItem'
 
 const names = (l) => l.map((i) => i.name)
 const items = [{ name: 'Coca' }, { name: 'Bière' }, { name: 'Eau' }]
@@ -41,5 +42,50 @@ describe('rowsForConfig / rowsForConfigs', () => {
   it('union sur plusieurs configs', () => {
     expect(rowsForConfigs(by, ['a', 'b']).map((r) => r.name)).toEqual(['x', 'y'])
     expect(rowsForConfigs(by, []).map((r) => r.name)).toEqual(['x', 'y', 'z'])
+  })
+})
+
+describe('mergeStoredItems', () => {
+  const mk = (row) => ({ name: row.name, manual: true })
+  it('lignes non chargées : items inchangé', () => {
+    expect(mergeStoredItems(items, null, mk)).toBe(items)
+    expect(mergeStoredItems(items, undefined, mk)).toBe(items)
+  })
+  it('intersection plus lignes stockées absentes', () => {
+    const rows = [{ name: 'Coca', isStored: true }, { name: 'Jus', isStored: true }]
+    expect(names(mergeStoredItems(items, rows, mk))).toEqual(['Coca', 'Jus'])
+  })
+  it('ligne décochée absente des items : non ajoutée', () => {
+    expect(mergeStoredItems(items, [{ name: 'Jus', isStored: false, quantity: 4 }], mk)).toEqual([])
+  })
+  it('ligne déjà dans les items (casse différente) : pas de doublon', () => {
+    const out = mergeStoredItems(items, [{ name: ' coca ', isStored: true }], mk)
+    expect(out).toEqual([{ name: 'Coca' }])
+  })
+  it('doublons de lignes dédupliqués, ligne vide ignorée', () => {
+    const rows = [{ name: 'Jus', isStored: true }, { name: 'JUS', isStored: true }, { name: '', isStored: true }]
+    expect(names(mergeStoredItems([], rows, mk))).toEqual(['Jus'])
+  })
+  it('stockage sans articles construits', () => {
+    expect(mergeStoredItems([], [{ name: 'Jus', quantity: 2 }], mk)).toEqual([{ name: 'Jus', manual: true }])
+  })
+})
+
+describe('buildManualStorageItem', () => {
+  const mps = [{
+    id: 'mp1', itemName: 'Jus Orange', image: 'img.png', unit: 'L',
+    inventoryPackagingId: 'pk1', inventoryPackaging: 'Carton', packedUnits: 6,
+  }]
+  it('résout le Market Price (insensible casse/espaces), nom exact du MP', () => {
+    const it = buildManualStorageItem({ name: '  jus   orange ' }, mps)
+    expect(it).toMatchObject({
+      id: 'mp1', name: 'Jus Orange', marketPriceId: 'mp1', picture: 'img.png', unit: 'L',
+      inventoryPackagingId: 'pk1', inventoryPackaging: 'Carton', inventoryQuantityPackaged: 6,
+      usedIn: [], storageType: null,
+    })
+  })
+  it('sans Market Price : item minimal', () => {
+    const it = buildManualStorageItem({ name: ' Truc ', unit: 'kg' }, [])
+    expect(it).toMatchObject({ name: 'Truc', marketPriceId: null, unit: 'kg', usedIn: [] })
   })
 })
