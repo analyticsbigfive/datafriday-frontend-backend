@@ -1,5 +1,8 @@
 import { collectFbElements } from '@/utils/stockPlanning'
 import { isBufferRow } from '@/utils/pdvBufferItems'
+import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
+
+const SYNTHETIC_CONFIG_ID = 'synthetic-restock'
 
 /**
  * Stock tampon d'un PDV (page Stockage, ElementInventory.quantity) : stock requis
@@ -35,11 +38,14 @@ export function pickInventoryRows(byConfig, cfgIds) {
 export function collectPdvBuffers({ configuration, builderElements = [], cfgIds = [], closedShopNames = [] }) {
   const closed = new Set(closedShopNames.map(normalize).filter(Boolean))
   const byId = new Map(builderElements.map((e) => [String(e.id), e]))
+  const byName = new Map()
+  builderElements.forEach((e) => {
+    const k = normalize(e.name)
+    if (k && !byName.has(k)) byName.set(k, e)
+  })
   const out = []
-  collectFbElements(configuration).forEach((shop) => {
-    if (closed.size && closed.has(normalize(shop.name))) return
-    const builderEl = byId.get(String(shop.id))
-    if (!builderEl) return
+  const seen = new Set()
+  const pushRows = (shop, builderEl) => {
     pickInventoryRows(builderEl.inventoryByConfig, cfgIds).forEach((r) => {
       const buffer = Number(r?.quantity) || 0
       if (!r?.name || !isBufferRow(r)) return
@@ -52,7 +58,27 @@ export function collectPdvBuffers({ configuration, builderElements = [], cfgIds 
         buffer,
       })
     })
+  }
+  collectFbElements(configuration).forEach((shop) => {
+    if (closed.size && closed.has(normalize(shop.name))) return
+    // Config synthétique : les ids de shops viennent des records et peuvent ne pas
+    // être ceux des éléments builder, d'où le repli par nom.
+    const builderEl = byId.get(String(shop.id)) || byName.get(normalize(shop.name))
+    if (!builderEl) return
+    seen.add(String(builderEl.id))
+    pushRows(shop, builderEl)
   })
+  // Config synthétique : ajoute les PDV du builder membres des configs de tampon
+  // qui n'ont pas été rapprochés (aucun shop de la config reconstruite ne leur correspond).
+  if (configuration?.id === SYNTHETIC_CONFIG_ID) {
+    const wanted = new Set(cfgIds.map(String))
+    builderElements.forEach((el) => {
+      if (seen.has(String(el.id)) || normalizeType(el.type) !== 'shop') return
+      if (el.configIds != null && !el.configIds.some((id) => wanted.has(String(id)))) return
+      if (closed.size && closed.has(normalize(el.name))) return
+      pushRows({ id: String(el.id), name: el.name || '', type: 'shop', shopType: 'fb' }, el)
+    })
+  }
   return out
 }
 
