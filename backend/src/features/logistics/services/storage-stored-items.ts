@@ -26,6 +26,16 @@ export function isRowStored(row: Pick<StorageInventoryRow, 'isStored' | 'quantit
 }
 
 /**
+ * Tampon d'un PDV : quantité > 0 ET isStored !== false. Miroir exact de
+ * frontend/src/utils/pdvBufferRequirements.js (collectPdvBuffers) : pas de repli
+ * sur les seuils min/max, contrairement à isRowStored.
+ */
+export function isPdvBufferRow(row: Pick<StorageInventoryRow, 'isStored' | 'quantity'> | null | undefined): boolean {
+  if (!row) return false;
+  return (Number(row.quantity) || 0) > 0 && row.isStored !== false;
+}
+
+/**
  * Lignes d'un stockage pour une config : config demandée, repli sur les lignes
  * configId null. En vue agrégée (effectiveConfigId === 'all') : union de toutes.
  */
