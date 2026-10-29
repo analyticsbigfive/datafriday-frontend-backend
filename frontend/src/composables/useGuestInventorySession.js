@@ -25,6 +25,8 @@ import { ref, computed } from 'vue'
 import { useStore } from 'vuex'
 import { useRoute } from 'vue-router'
 import { buildConsolidatedInventory, buildStorageInventory } from '@/utils/inventoryUtils'
+import { mergeStoredItems } from '@/utils/storageStoredFilter'
+import { buildManualStorageItem } from '@/utils/storageManualItem'
 import {
   getGuestCatalog,
   getGuestInventory,
@@ -126,7 +128,7 @@ export function useGuestInventorySession() {
       name: fb.name,
       availableMenuItems: (fb.menuItemIds ?? []).map((id) => byId.get(String(id))).filter(Boolean),
     }))
-    return buildStorageInventory(
+    const built = buildStorageInventory(
       catalog?.storage?.storageTypes ?? [],
       fbElements,
       allMenuItemsData,
@@ -134,6 +136,13 @@ export function useGuestInventorySession() {
       catalog?.components ?? [],
       catalog?.marketPrices ?? [],
       catalog?.storageTypes ?? [],
+    )
+    // Articles cochés « stocké » hors recettes des PdV liés (catalog.storage.storedRows,
+    // absent = comportement inchangé).
+    return mergeStoredItems(
+      built,
+      catalog?.storage?.storedRows,
+      (row) => buildManualStorageItem(row, catalog?.marketPrices ?? []),
     )
   }
 

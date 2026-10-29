@@ -182,18 +182,18 @@ model Tenant {
   permissions Permission[] // Permissions custom du tenant (scope CUSTOM)
 
   // Menu domain relations (ajoutées pour isolation multi-tenant)
-  menuItems            MenuItem[]
-  menuItemPriceHistory MenuItemPriceHistory[]
+  menuItems             MenuItem[]
+  menuItemPriceHistory  MenuItemPriceHistory[]
   menuItemCostSnapshots MenuItemCostSnapshot[]
-  brickCostSnapshots   BrickCostSnapshot[]
-  menuComponents       MenuComponent[]
-  ingredients          Ingredient[]
-  packagings           Packaging[]
-  marketPrices         MarketPrice[]
-  csvMappings          CsvMapping[]
-  menus                Menu[]
-  auditLogs            AuditLog[]
-  webhooks             Webhook[]
+  brickCostSnapshots    BrickCostSnapshot[]
+  menuComponents        MenuComponent[]
+  ingredients           Ingredient[]
+  packagings            Packaging[]
+  marketPrices          MarketPrice[]
+  csvMappings           CsvMapping[]
+  menus                 Menu[]
+  auditLogs             AuditLog[]
+  webhooks              Webhook[]
 
   // Events domain
   teams Team[]
@@ -1098,27 +1098,31 @@ model ElementMenuItemSalesInput {
 // ==================== ELEMENT INVENTORY ====================
 
 model ElementInventory {
-  id         String   @id @default(cuid())
-  elementId  String
+  id            String   @id @default(cuid())
+  elementId     String
   // Scope par CONFIGURATION (cf. ElementPerformance) — stock prévu différent par config.
-  configId   String?
-  name       String
-  quantity   Float    @default(0)
-  unit       String? // "units", "kg", "liters", etc.
-  minStock   Float? // Niveau minimum d'alerte
-  maxStock   Float? // Capacité maximum
-  isCustom   Boolean  @default(true)
-  isStored   Boolean? // true = article stocké sur cette réserve ; null = historique
-  menuItemId String? // Référence optionnelle à un item du menu
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  configId      String?
+  name          String
+  quantity      Float    @default(0)
+  unit          String? // "units", "kg", "liters", etc.
+  minStock      Float? // Niveau minimum d'alerte
+  maxStock      Float? // Capacité maximum
+  isCustom      Boolean  @default(true)
+  isStored      Boolean? // true = article stocké sur cette réserve ; null = historique
+  menuItemId    String? // Référence optionnelle à un item du menu
+  // Lien robuste vers le Market Price (survit au renommage ; `name` reste synchronisé en cascade).
+  marketPriceId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
-  element SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
-  config  Config?      @relation(fields: [configId], references: [id], onDelete: Cascade)
+  element     SpaceElement @relation(fields: [elementId], references: [id], onDelete: Cascade)
+  config      Config?      @relation(fields: [configId], references: [id], onDelete: Cascade)
+  marketPrice MarketPrice? @relation(fields: [marketPriceId], references: [id], onDelete: SetNull)
 
   @@index([elementId])
   @@index([configId])
   @@index([name])
+  @@index([marketPriceId])
 }
 
 model Forecourt {
@@ -1242,6 +1246,7 @@ model MarketPrice {
   packagings          Packaging[]
   stockLevels         StockLevel[]
   stockMovements      StockMovement[]
+  elementInventories  ElementInventory[]
 
   @@index([tenantId])
   @@index([supplierId])

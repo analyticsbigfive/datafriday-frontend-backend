@@ -293,6 +293,8 @@ export class InventoryRowDto {
   @IsOptional() @IsBoolean() isCustom?: boolean;
   @IsOptional() @IsBoolean() isStored?: boolean;
   @IsOptional() @IsString() menuItemId?: string;
+  /** Lien Market Price par id (revalidé côté serveur ; repli sur le nom). */
+  @IsOptional() @IsString() marketPriceId?: string;
 }
 
 export class PutInventoryDto {
@@ -313,6 +315,8 @@ export class UpsertInventoryRowDto {
   @IsOptional() @IsNumber() @Min(0) minStock?: number | null;
   @IsOptional() @IsNumber() @Min(0) maxStock?: number | null;
   @IsOptional() @IsString() unit?: string;
+  /** Lien Market Price par id (revalidé côté serveur ; repli sur le nom). */
+  @IsOptional() @IsString() marketPriceId?: string;
 }
 
 // ─── Configurations ───────────────────────────────────────────────────────────

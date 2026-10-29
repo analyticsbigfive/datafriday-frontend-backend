@@ -111,6 +111,22 @@ export class MarketPricesService {
     return updateData;
   }
 
+  /**
+   * Met à jour un Market Price ; si son nom change, propage le nouveau nom aux lignes
+   * ElementInventory liées par marketPriceId dans la même transaction (le lien par id
+   * survit au renommage, `name` reste la clé du ledger Logistic).
+   */
+  private async updateAndSyncInventoryName(id: string, data: any, include?: any) {
+    const args: any = { where: { id }, data };
+    if (include) args.include = include;
+    if (data.itemName === undefined) return this.prisma.marketPrice.update(args);
+    const [price] = await this.prisma.$transaction([
+      this.prisma.marketPrice.update(args),
+      this.prisma.elementInventory.updateMany({ where: { marketPriceId: id }, data: { name: data.itemName } }),
+    ]);
+    return price;
+  }
+
   async update(id: string, dto: UpdateMarketPriceDto, tenantId: string, user?: SpaceScopedUser) {
     this.logger.log(`Updating market price ${id} for tenant ${tenantId}`);
     await this.marketPriceQueryService.findOne(id, tenantId, user);
@@ -118,11 +134,7 @@ export class MarketPricesService {
     const updateData = await this.buildMarketPriceUpdateData(dto);
 
     try {
-      const price = await this.prisma.marketPrice.update({
-        where: { id },
-        data: updateData,
-        include: { supplierRel: true },
-      });
+      const price = await this.updateAndSyncInventoryName(id, updateData, { supplierRel: true });
       this.logger.log(`Market price ${id} updated`);
 
       if (dto.goodType !== undefined) {
@@ -213,10 +225,7 @@ export class MarketPricesService {
             // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
             const updateData = await this.buildMarketPriceUpdateData(dto);
             // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
-            const updated = await this.prisma.marketPrice.update({
-              where: { id: existingById.id },
-              data: updateData,
-            });
+            const updated = await this.updateAndSyncInventoryName(existingById.id, updateData);
             // eslint-disable-next-line no-await-in-loop -- import CSV ligne par ligne : une ligne déjà créée plus haut dans le fichier doit être vue comme doublon
             await this.marketPriceRecipeSyncService.resyncLinkedRecipeCosts(updated, tenantId);
             updatedIds.push(updated.id);

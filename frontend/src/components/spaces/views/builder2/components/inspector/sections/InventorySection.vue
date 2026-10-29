@@ -193,6 +193,8 @@ function cleanRow(r) {
   if (r.maxStock != null) row.maxStock = r.maxStock
   if (r.isCustom != null) row.isCustom = r.isCustom
   if (r.menuItemId != null) row.menuItemId = r.menuItemId
+  // Id du Market Price : ne pas le perdre au re-save (le backend résout par nom s'il manque).
+  if (r.marketPriceId) row.marketPriceId = r.marketPriceId
   return row
 }
 
