@@ -27,6 +27,7 @@ import { useRoute } from 'vue-router'
 import { buildConsolidatedInventory, buildStorageInventory } from '@/utils/inventoryUtils'
 import { mergeStoredItems } from '@/utils/storageStoredFilter'
 import { buildManualStorageItem } from '@/utils/storageManualItem'
+import { appendBufferItems, buildBufferItem } from '@/utils/pdvBufferItems'
 import {
   getGuestCatalog,
   getGuestInventory,
@@ -84,12 +85,17 @@ export function useGuestInventorySession() {
 
     const consolidatedInventory = catalog?.elementType === 'storage'
       ? storageItems(catalog)
-      : buildConsolidatedInventory(
-        catalog?.availableMenuItems ?? [],
-        catalog?.allMenuItemsData ?? [],
-        catalog?.marketPrices ?? [],
-        false,
-        catalog?.components ?? [],
+      : appendBufferItems(
+        buildConsolidatedInventory(
+          catalog?.availableMenuItems ?? [],
+          catalog?.allMenuItemsData ?? [],
+          catalog?.marketPrices ?? [],
+          false,
+          catalog?.components ?? [],
+        ),
+        // Produits en tampon sur le PDV (contrat backend, absent = inchangé).
+        catalog?.bufferRows,
+        (row) => buildBufferItem(row, catalog?.marketPrices ?? []),
       )
 
     const savedCounts = inventory?.savedCounts ?? {}

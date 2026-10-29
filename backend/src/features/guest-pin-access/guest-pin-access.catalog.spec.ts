@@ -30,6 +30,7 @@ describe('GuestPinCountingService.getCatalog (BUG-383-02 : articles = union des 
                 }),
                 findMany: jest.fn(),
             },
+            elementInventory: { findMany: jest.fn().mockResolvedValue([]) },
         };
         menuItems = { getRecipes: jest.fn().mockResolvedValue({ items: [] }) };
         const marketPrices = { findAll: jest.fn().mockResolvedValue({ data: [] }) };
@@ -51,6 +52,29 @@ describe('GuestPinCountingService.getCatalog (BUG-383-02 : articles = union des 
         const enabledIds = menuItems.getRecipes.mock.calls.map((c: any[]) => c[0]).find((ids: any) => Array.isArray(ids) && ids.length);
         expect(enabledIds).toEqual(['mi-beer', 'mi-hotdog']);
         expect(spaceMenus.getConfigShopMenuItemsLight).not.toHaveBeenCalled();
+    });
+
+    it('expose les lignes de tampon du PDV (config de l\'event, non filtrées, sans valeur attendue)', async () => {
+        prisma.elementInventory.findMany.mockResolvedValue([
+            { name: 'Bière', marketPriceId: 'mp-biere', quantity: 4, unit: 'L', minStock: 1, maxStock: null, isStored: true, configId: 'cfg-pfc' },
+            { name: 'Chips', quantity: 0, unit: null, minStock: null, maxStock: null, isStored: false, configId: 'cfg-pfc' },
+            { name: 'Autre config', quantity: 9, unit: null, minStock: null, maxStock: null, isStored: true, configId: 'cfg-sfp' },
+        ]);
+        const catalog: any = await service.getCatalog(user);
+        expect(prisma.elementInventory.findMany.mock.calls[0][0].where).toEqual({ elementId: 'shop-1' });
+        expect(catalog.bufferRows).toEqual([
+            { name: 'Bière', quantity: 4, unit: 'L', minStock: 1, maxStock: null, isStored: true, marketPriceId: 'mp-biere' },
+            { name: 'Chips', quantity: 0, unit: null, minStock: null, maxStock: null, isStored: false, marketPriceId: null },
+        ]);
+    });
+
+    it('repli sur les lignes sans config quand aucune ligne de la config de l\'event', async () => {
+        prisma.elementInventory.findMany.mockResolvedValue([
+            { name: 'Eau', quantity: 2, unit: null, minStock: null, maxStock: null, isStored: null, configId: null },
+            { name: 'Autre config', quantity: 9, unit: null, minStock: null, maxStock: null, isStored: true, configId: 'cfg-sfp' },
+        ]);
+        const catalog: any = await service.getCatalog(user);
+        expect(catalog.bufferRows.map((r: any) => r.name)).toEqual(['Eau']);
     });
 
     it('refuse les routes de comptage à un jeton de ventilation (logisticien)', async () => {
