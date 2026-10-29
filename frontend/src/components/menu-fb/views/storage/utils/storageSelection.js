@@ -52,3 +52,23 @@ export function productsForSpaceClick(card, selectedCards) {
   }
   return [card.name]
 }
+
+/** Produits { name, marketPriceId } distincts par nom (ordre conservé) d'une liste de cartes. */
+export function distinctProductRefs(cards) {
+  const seen = new Set()
+  const out = []
+  for (const c of cards || []) {
+    if (!c.name || seen.has(c.name)) continue
+    seen.add(c.name)
+    out.push({ name: c.name, marketPriceId: c.marketPriceId || null })
+  }
+  return out
+}
+
+/** Même règle que productsForSpaceClick, avec l'id du Market Price de chaque produit. */
+export function productRefsForSpaceClick(card, selectedCards) {
+  if (selectedCards.length >= 2 && selectedCards.some((c) => c.key === card.key)) {
+    return distinctProductRefs(selectedCards)
+  }
+  return [{ name: card.name, marketPriceId: card.marketPriceId || null }]
+}

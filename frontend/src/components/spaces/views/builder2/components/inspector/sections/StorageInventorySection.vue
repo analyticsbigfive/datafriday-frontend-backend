@@ -402,6 +402,8 @@ function cleanRow(r) {
   if (r.isStored != null) row.isStored = r.isStored
   if (r.isCustom != null) row.isCustom = r.isCustom
   if (r.menuItemId != null) row.menuItemId = r.menuItemId
+  // Id du Market Price : ne pas le perdre au re-save (le backend résout par nom s'il manque).
+  if (r.marketPriceId) row.marketPriceId = r.marketPriceId
   return row
 }
 
@@ -431,10 +433,17 @@ function keepRow(r) {
   )
 }
 
+// Id du Market Price d'un article dérivé (lignes du menu), s'il est exposé par le backend.
+function marketPriceIdPatch(name) {
+  const line = derived.value.find((l) => l.name === name)
+  const id = line?.marketPriceId
+  return id ? { marketPriceId: id } : {}
+}
+
 function upsertRow(name, patch) {
   const rows = saved.value.some((r) => r.name === name)
     ? saved.value.map((r) => (r.name === name ? { ...r, ...patch } : r))
-    : [...saved.value, { name, quantity: 0, ...patch }]
+    : [...saved.value, { name, quantity: 0, ...marketPriceIdPatch(name), ...patch }]
   persist(rows.filter(keepRow))
 }
 

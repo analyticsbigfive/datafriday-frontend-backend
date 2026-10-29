@@ -9,9 +9,12 @@ import { splitSpots, findProductRow, filterSpots, aggregateSpot } from '@/compon
  * `productNames` (tableau) permet d'agir sur plusieurs produits à la fois : case cochée si tous y sont
  * stockés, indéterminée si une partie, tampon commun ou null s'il diffère. Les modifications sont appliquées localement tout de suite puis écrites par upsert de ligne.
  *
+ * `products` (optionnel) = [{ name, marketPriceId }] : id du Market Price des produits, utilisé pour
+ * retrouver les lignes (id d'abord, nom en repli) et envoyé à l'écriture.
+ *
  * @param {{ isOpen: import('vue').Ref<boolean>, spaceId: import('vue').Ref<string>, productNames: import('vue').Ref<string[]>, readOnly?: import('vue').Ref<boolean> }} args
  */
-export function useStorageSpots({ isOpen, spaceId, productNames, readOnly = ref(false) }) {
+export function useStorageSpots({ isOpen, spaceId, productNames, products = ref([]), readOnly = ref(false) }) {
   const store = useStore()
   const writer = useStorageRowWriter()
   const loading = ref(false)
@@ -20,11 +23,18 @@ export function useStorageSpots({ isOpen, spaceId, productNames, readOnly = ref(
   const search = ref('')
   const local = ref({}) // elementId -> { isStored?, quantity? } (valeurs affichées avant retour serveur)
 
+  // Produits agissants : id connu via `products` (rapproché par nom), sinon nom seul.
+  const refs = computed(() => {
+    const byName = new Map((products.value || []).map((p) => [p.name, p.marketPriceId || null]))
+    return productNames.value.map((name) => ({ name, marketPriceId: byName.get(name) || null }))
+  })
+  const idPatch = (ref_) => (ref_.marketPriceId ? { marketPriceId: ref_.marketPriceId } : {})
+
   const elements = computed(() => store.getters['storageInventory/forSpace'](spaceId.value))
 
   const decorate = (el) => {
-    const rowFor = (name) => findProductRow(el.inventoryByConfig, name)
-    const agg = aggregateSpot(rowFor, productNames.value, local.value[el.id] || {})
+    const rowFor = (ref_) => findProductRow(el.inventoryByConfig, ref_)
+    const agg = aggregateSpot(rowFor, refs.value, local.value[el.id] || {})
     return { id: el.id, name: el.name, type: el.type, ...agg }
   }
 
@@ -58,7 +68,7 @@ export function useStorageSpots({ isOpen, spaceId, productNames, readOnly = ref(
     if (readOnly.value) return
     if (spot.stored === stored && !spot.partial) return
     setLocal(spot.id, { isStored: stored })
-    productNames.value.forEach((name) => writer.queue(spot.id, name, { isStored: stored }))
+    refs.value.forEach((r) => writer.queue(spot.id, r.name, { isStored: stored, ...idPatch(r) }))
   }
 
   // Un état partiel se coche d'abord pour tous les produits.
@@ -74,7 +84,7 @@ export function useStorageSpots({ isOpen, spaceId, productNames, readOnly = ref(
     const n = Number(raw)
     if (raw === '' || !Number.isFinite(n) || n < 0) return
     setLocal(spot.id, { quantity: n })
-    productNames.value.forEach((name) => writer.queue(spot.id, name, { quantity: n }))
+    refs.value.forEach((r) => writer.queue(spot.id, r.name, { quantity: n, ...idPatch(r) }))
   }
 
   /** Fermeture : envoie les écritures en attente puis invalide le cache pour que l'inventaire se relise. */

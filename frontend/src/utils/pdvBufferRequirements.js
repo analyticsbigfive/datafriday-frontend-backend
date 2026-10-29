@@ -47,6 +47,7 @@ export function collectPdvBuffers({ configuration, builderElements = [], cfgIds 
         name: r.name,
         unit: r.unit || 'pcs',
         menuItemId: r.menuItemId != null ? String(r.menuItemId) : null,
+        marketPriceId: r.marketPriceId ? String(r.marketPriceId) : null,
         buffer,
       })
     })
@@ -61,12 +62,14 @@ export function collectPdvBuffers({ configuration, builderElements = [], cfgIds 
  */
 export function applyPdvBuffers(rows, buffers) {
   const out = rows.map((r) => ({ ...r }))
-  buffers.forEach(({ shop, name, unit, menuItemId, buffer }) => {
+  buffers.forEach(({ shop, name, unit, menuItemId, marketPriceId, buffer }) => {
     const wantName = normalize(name)
     const match = out.find(
       (r) =>
         r.shopId === shop.id &&
-        (normalize(r.itemName) === wantName || (menuItemId && (r.itemId === menuItemId || r.sourceId === menuItemId))),
+        ((marketPriceId && (r.itemId === marketPriceId || r.sourceId === marketPriceId)) ||
+          normalize(r.itemName) === wantName ||
+          (menuItemId && (r.itemId === menuItemId || r.sourceId === menuItemId))),
     )
     if (match) {
       match.bufferQuantity = Math.max(match.bufferQuantity || 0, buffer)

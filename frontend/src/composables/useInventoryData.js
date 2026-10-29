@@ -22,7 +22,8 @@ import {
 } from '@/utils/inventoryScope'
 import { configPlanZones } from '@/utils/configPlanZones'
 import { useStorageInventory } from '@/composables/useStorageInventory'
-import { filterStoredItems, savedRowsForElement } from '@/utils/storageStoredFilter'
+import { mergeStoredItems, savedRowsForElement } from '@/utils/storageStoredFilter'
+import { buildManualStorageItem } from '@/utils/storageManualItem'
 import {
   buildConsolidatedInventory,
   buildStorageInventory,
@@ -518,7 +519,12 @@ export function useInventoryData(selectedConfigId) {
           el.id,
           { configId: selectedConfigId?.value ?? null, allConfigs: storedAllConfigs.value },
         )
-        const storageInventory = filterStoredItems(builtInventory, savedRows)
+        // Lignes cochées hors recettes des boutiques liées : ajoutées (choix explicite).
+        const storageInventory = mergeStoredItems(
+          builtInventory,
+          savedRows,
+          (row) => buildManualStorageItem(row, marketPrices.value),
+        )
         return { element: el, storageInventory }
       })
   })

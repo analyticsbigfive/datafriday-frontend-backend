@@ -130,6 +130,8 @@ const props = defineProps({
   productName: { type: String, default: '' },
   // Mode multi-produits : si renseigné (2 noms ou plus), remplace productName.
   productNames: { type: Array, default: () => [] },
+  // Produits { name, marketPriceId } : permet d'écrire et de retrouver les lignes par id du Market Price.
+  products: { type: Array, default: () => [] },
   reference: { type: String, default: '' },
   spaceId: { type: String, default: '' },
   spaceName: { type: String, default: '' },
@@ -147,6 +149,7 @@ const {
   isOpen: toRef(props, 'modelValue'),
   spaceId: toRef(props, 'spaceId'),
   productNames: names,
+  products: toRef(props, 'products'),
   readOnly: toRef(props, 'readOnly'),
 })
 

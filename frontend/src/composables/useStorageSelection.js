@@ -1,6 +1,6 @@
 import { computed, ref, watch } from 'vue'
 import {
-  pruneSelection, toggleKey, selectedCardsOf, displayedSpaceIds, productsForSpaceClick,
+  pruneSelection, toggleKey, selectedCardsOf, displayedSpaceIds, productsForSpaceClick, productRefsForSpaceClick,
 } from '@/components/menu-fb/views/storage/utils/storageSelection'
 
 /**
@@ -23,5 +23,7 @@ export function useStorageSelection({ cards }) {
     if (next.length !== keys.value.length) keys.value = next
   })
 
-  return { count, isSelected, toggle, clear, spaceIdsFor, productNamesFor }
+  const productRefsFor = (card) => productRefsForSpaceClick(card, selectedCards.value)
+
+  return { count, isSelected, toggle, clear, spaceIdsFor, productNamesFor, productRefsFor }
 }

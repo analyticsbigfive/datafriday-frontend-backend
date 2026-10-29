@@ -81,6 +81,7 @@
       v-model="spotsOpen"
       :product-name="spotsNames.length === 1 ? spotsNames[0] : ''"
       :product-names="spotsNames.length > 1 ? spotsNames : []"
+      :products="spotsProducts"
       :reference="spotsNames.length === 1 ? spotsReference : ''"
       :space-id="spotsSpace.id"
       :space-name="spotsSpace.name"
@@ -139,10 +140,12 @@ const canEditSpots = computed(() => !!store.getters['auth/can']('space.edit'))
 
 const spotsOpen = ref(false)
 const spotsNames = ref([])
+const spotsProducts = ref([]) // { name, marketPriceId }, pour écrire les lignes par id
 const spotsReference = ref('')
 const spotsSpace = ref({ id: '', name: '' })
 const onOpenSpace = ({ card, spaceId, spaceName: name }) => {
   spotsNames.value = selection.productNamesFor(card)
+  spotsProducts.value = selection.productRefsFor(card)
   spotsReference.value = card.reference
   spotsSpace.value = { id: String(spaceId), name }
   spotsOpen.value = true
