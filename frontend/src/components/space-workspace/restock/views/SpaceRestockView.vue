@@ -2318,6 +2318,27 @@ export default {
       return ids
     },
     /**
+     * Ids de config pour LIRE les stocks tampons (inventoryByConfig) : d'abord la
+     * config DE L'ÉVÉNEMENT objectif (celle de l'inventaire et de la Logistique),
+     * puis les configs résolues (hors config synthétique, qui n'existe pas en base).
+     */
+    bufferConfigIds() {
+      const ids = []
+      const add = (id) => {
+        const s = id == null ? '' : String(id)
+        if (s && s !== 'synthetic-restock' && !ids.includes(s)) ids.push(s)
+      }
+      ;(this.objectiveEvents || []).forEach((ev) => {
+        // Id porté par l'événement d'abord : configurationForEvent peut retomber
+        // sur une autre config quand cet id est absent de la liste chargée.
+        add(ev?.configurationId)
+        add(ev?.configuration?.id)
+        add(this.configurationForEvent(ev)?.id)
+      })
+      this.resolvedObjectiveConfigIds.forEach(add)
+      return ids
+    },
+    /**
      * Éléments Storage affichés : UNION de deux découvertes —
      *  1. blob de config (collectStorageElements, `type === 'storage'` strict,
      *     chemin v1 historique du pool de netting) ;
@@ -2335,7 +2356,7 @@ export default {
           if (el?.id != null) out.set(String(el.id), { id: String(el.id), name: el.name || '' })
         })
       })
-      const cfgIds = this.resolvedObjectiveConfigIds
+      const cfgIds = new Set(this.bufferConfigIds)
       const builderStorages = this.storageBuilderElements.filter(
         (e) => normalizeType(e.type) === 'storage',
       )
@@ -2350,7 +2371,7 @@ export default {
     storageRestockGroups() {
       const groups = []
       const elementsById = new Map(this.storageBuilderElements.map((e) => [e.id, e]))
-      const cfgIds = Array.from(this.resolvedObjectiveConfigIds)
+      const cfgIds = this.bufferConfigIds
       // Lignes d'inventaire Builder pour cet élément : configs objectif d'abord,
       // puis clé '' (non scopé), puis — tolérance id de config v1 ≠ id builder —
       // l'unique config porteuse si UNE SEULE a des lignes.
@@ -2698,7 +2719,7 @@ export default {
           collectPdvBuffers({
             configuration,
             builderElements: this.storageBuilderElements,
-            cfgIds: Array.from(this.resolvedObjectiveConfigIds),
+            cfgIds: this.bufferConfigIds,
             closedShopNames: this.closedShopNames,
           }),
         )
