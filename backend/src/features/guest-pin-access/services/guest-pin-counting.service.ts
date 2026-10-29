@@ -1,4 +1,5 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
+import { scopeStorageRows } from '../../logistics/services/storage-stored-items';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { PreEventInventoryFlowService } from '../../inventory/pre-event-inventory-flow.service';
 import { MenuComponentsService } from '../../menu-components/menu-components.service';
@@ -208,10 +209,27 @@ export class GuestPinCountingService {
       this.storageTypes.findAll(user.tenantId, 1, 500),
     ]);
 
+    // Lignes d'inventaire du stockage (config de l'event, repli sur configId null ; sans
+    // config, toutes). Pas de filtre « stockée » ici : le front applique isRowStored.
+    // Aucune valeur attendue/baseline n'est exposée à un JWT invité.
+    const inventoryRows = await this.prisma.elementInventory.findMany({
+      where: { elementId: user.elementId },
+      select: { name: true, quantity: true, unit: true, minStock: true, maxStock: true, isStored: true, configId: true },
+      orderBy: { name: 'asc' },
+    });
+    const storedRows = scopeStorageRows(inventoryRows, configId ?? 'all').map((r) => ({
+      name: r.name,
+      quantity: r.quantity,
+      unit: r.unit ?? null,
+      minStock: r.minStock ?? null,
+      maxStock: r.maxStock ?? null,
+      isStored: r.isStored ?? null,
+    }));
+
     return {
       elementName: element.name,
       elementType: 'storage' as const,
-      storage: { storageTypes: element.storageTypes ?? [], selectedShopIds },
+      storage: { storageTypes: element.storageTypes ?? [], selectedShopIds, storedRows },
       fbElements,
       availableMenuItems: [],
       allMenuItemsData: allRecipes.items,
