@@ -79,9 +79,11 @@
                 </span>
                 <span v-if="spot.stored || spot.partial" class="ssd-buffer" @click.stop>
                   <label class="ssd-buffer__label" :for="`ssd-buf-${spot.id}`">{{ t('storageBuffer') }}</label>
+                  <span class="ssd-buffer__group" :class="{ 'ssd-buffer__group--off': readOnly }">
                   <input
                     :id="`ssd-buf-${spot.id}`"
                     class="ssd-buffer__input"
+                    :class="{ 'ssd-buffer__input--mixed': spot.quantity === null }"
                     type="number"
                     min="0"
                     step="any"
@@ -91,7 +93,8 @@
                     @input="onBufferInput(spot, $event)"
                     @keydown.stop
                   />
-                  <span class="ssd-buffer__pack">{{ bufferLabel }}</span>
+                    <span class="ssd-buffer__pack">{{ bufferLabel }}</span>
+                  </span>
                 </span>
                 <span class="ssd-row__check" :class="{ 'ssd-row__check--on': spot.stored || spot.partial }" aria-hidden="true">
                   <Minus v-if="spot.partial" :size="14" :stroke-width="3" />
@@ -211,29 +214,36 @@ async function close() {
 
 .ssd-list { flex: 1; min-height: 0; overflow-y: auto; }
 .ssd-section { margin: 0; padding: 10px 20px 6px; font-size: var(--fs-xs); font-weight: 700; letter-spacing: 0.06em; color: #9ca3af; text-transform: uppercase; }
-.ssd-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; column-gap: 12px; row-gap: 8px; padding: 10px 20px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
+.ssd-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; column-gap: 12px; row-gap: 8px; padding: 10px 20px; border-bottom: 1px solid #f0f0f0; cursor: pointer; }
 .ssd--dark .ssd-row { border-bottom-color: rgba(255, 255, 255, 0.07); }
 .ssd-row--on { background: #fef2f2; }
 .ssd--dark .ssd-row--on { background: rgba(255, 49, 49, 0.1); }
 .ssd-row--ro { cursor: default; }
 .ssd-row:focus-visible { outline: 2px solid #ff3131; outline-offset: -2px; }
-.ssd-row__tile { width: 36px; height: 36px; border-radius: 10px; background: #f3f4f6; color: #6b7280; display: flex; align-items: center; justify-content: center; }
+.ssd-row__tile { grid-column: 1; grid-row: 1; width: 36px; height: 36px; border-radius: 10px; background: #f3f4f6; color: #6b7280; display: flex; align-items: center; justify-content: center; }
 .ssd--dark .ssd-row__tile { background: rgba(255, 255, 255, 0.08); color: #9ca3af; }
-.ssd-row__info { display: flex; flex-direction: column; min-width: 0; }
-.ssd-row__name { font-size: var(--fs-md); font-weight: 700; overflow-wrap: anywhere; }
+.ssd-row__info { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; min-width: 0; }
+.ssd-row__name { font-size: var(--fs-md); font-weight: 700; overflow-wrap: normal; word-break: normal; line-height: 1.3; }
 .ssd-row__type { font-size: var(--fs-xs); color: #9ca3af; }
-.ssd-row__check { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #d1d5db; display: flex; align-items: center; justify-content: center; color: #fff; }
+.ssd-row__check { grid-column: 3; grid-row: 1; width: 24px; height: 24px; border-radius: 50%; border: 2px solid #d1d5db; display: flex; align-items: center; justify-content: center; color: #fff; }
 .ssd-row__check--on { background: #ff3131; border-color: #ff3131; }
 
-.ssd-buffer { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; cursor: default; }
-.ssd-buffer__pack { font-size: var(--fs-base); color: #6b7280; min-width: 0; overflow-wrap: anywhere; line-height: 1.25; }
-.ssd--dark .ssd-buffer__pack { color: #9ca3af; }
+/* Niveau 2 : aligné sous le nom (colonne 2 à 3), libellé puis champ collé à son unité de colis */
+.ssd-buffer { grid-column: 2 / 4; grid-row: 2; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; cursor: default; }
 .ssd-buffer__label { font-size: var(--fs-base); color: #374151; white-space: nowrap; }
 .ssd--dark .ssd-buffer__label { color: #d1d5db; }
-.ssd-buffer__input { width: 110px; height: 36px; padding: 0 10px; border: 1.5px solid #374151; border-radius: 10px; font-size: var(--fs-md); background: #fff; color: #111827; }
-.ssd--dark .ssd-buffer__input { background: rgba(255, 255, 255, 0.06); color: #e5e7eb; border-color: #9ca3af; }
-.ssd-buffer__input:focus { outline: none; border-color: #ff3131; }
-.ssd-buffer__input:disabled { opacity: .6; cursor: not-allowed; }
+.ssd-buffer__group { display: inline-flex; align-items: stretch; max-width: 100%; min-width: 0; height: 36px; border: 1.5px solid #374151; border-radius: 10px; background: #fff; overflow: hidden; }
+.ssd--dark .ssd-buffer__group { background: rgba(255, 255, 255, 0.06); border-color: #9ca3af; }
+.ssd-buffer__group:focus-within { border-color: #ff3131; }
+.ssd-buffer__group--off { opacity: .6; }
+.ssd-buffer__input { width: 88px; min-width: 0; padding: 0 10px; border: none; outline: none; background: transparent; font-size: var(--fs-md); color: #111827; text-align: right; -moz-appearance: textfield; appearance: textfield; }
+.ssd--dark .ssd-buffer__input { color: #e5e7eb; }
+.ssd-buffer__input::-webkit-outer-spin-button, .ssd-buffer__input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+/* Valeurs mixtes : le placeholder texte a besoin de plus de place qu'un nombre */
+.ssd-buffer__input--mixed { width: 120px; }
+.ssd-buffer__input:disabled { cursor: not-allowed; }
+.ssd-buffer__pack { display: inline-flex; align-items: center; padding: 0 10px; border-left: 1px solid #e5e7eb; background: #f3f4f6; font-size: var(--fs-base); color: #6b7280; line-height: 1.2; min-width: 0; overflow-wrap: normal; word-break: normal; }
+.ssd--dark .ssd-buffer__pack { background: rgba(255, 255, 255, 0.08); border-left-color: rgba(255, 255, 255, 0.12); color: #9ca3af; }
 
 .ssd-msg { padding: 28px 20px; text-align: center; font-size: var(--fs-base); color: #9ca3af; }
 .ssd-msg--err { color: #ff3131; }
@@ -252,9 +262,6 @@ async function close() {
   .ssd-head, .ssd-bar, .ssd-foot { padding-left: 16px; padding-right: 16px; }
   .ssd-all { margin-left: 16px; margin-right: 16px; width: calc(100% - 32px); }
   .ssd-section, .ssd-row { padding-left: 16px; padding-right: 16px; }
-  .ssd-row { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .ssd-row__check { grid-column: 3; grid-row: 1; }
-  .ssd-buffer { grid-column: 2 / 4; grid-row: 2; }
   .ssd-foot { flex-wrap: wrap; }
 }
 </style>
