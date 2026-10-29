@@ -143,12 +143,13 @@ export class StockReferentialService {
 
     // Lignes ElementInventory des stockages (une seule requête) : un article coché sur
     // un stockage mais absent des recettes des boutiques liées doit rester visible.
-    const inventoryByStorage = new Map<string, Array<{ elementId: string; configId: string | null; name: string; quantity: number; minStock: number | null; maxStock: number | null; isStored: boolean | null }>>();
+    const inventoryByStorage = new Map<string, Array<{ elementId: string; configId: string | null; name: string; marketPriceId: string | null; quantity: number; minStock: number | null; maxStock: number | null; isStored: boolean | null }>>();
     const mpByNormalizedName = new Map<string, any>();
+    const mpById = new Map<string, any>();
     if (storages.length) {
       const invRows = await this.prisma.elementInventory.findMany({
         where: { elementId: { in: storages.map((s: any) => s.id) } },
-        select: { elementId: true, configId: true, name: true, quantity: true, minStock: true, maxStock: true, isStored: true },
+        select: { elementId: true, configId: true, name: true, marketPriceId: true, quantity: true, minStock: true, maxStock: true, isStored: true },
       });
       for (const r of invRows) {
         if (!normalizeItemName(r.name)) continue;
@@ -157,13 +158,23 @@ export class StockReferentialService {
         inventoryByStorage.set(r.elementId, list);
       }
       if (invRows.length) {
+        const mpSelect = { id: true, itemName: true, unit: true, recipeUnit: true, packedUnits: true, inventoryPackaging: true };
         const mps = await this.prisma.marketPrice.findMany({
           where: { tenantId, deletedAt: null },
-          select: { id: true, itemName: true, unit: true, recipeUnit: true, packedUnits: true, inventoryPackaging: true },
+          select: mpSelect,
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         });
         for (const mp of mps) {
+          mpById.set(mp.id, mp);
           const k = normalizeItemName(mp.itemName);
           if (k && !mpByNormalizedName.has(k)) mpByNormalizedName.set(k, mp);
+        }
+        // Lignes liées à un MP absent de la liste active (supprimé) : on le charge quand même
+        // par id pour garder la trace du stock.
+        const missingIds = [...new Set(invRows.map((r) => r.marketPriceId).filter((x): x is string => !!x && !mpById.has(x)))];
+        if (missingIds.length) {
+          const extra = await this.prisma.marketPrice.findMany({ where: { tenantId, id: { in: missingIds } }, select: mpSelect });
+          for (const mp of extra) mpById.set(mp.id, mp);
         }
       }
     }
@@ -206,7 +217,7 @@ export class StockReferentialService {
           : this.logisticsElementScopeService.resolveElementConfigId(storage, configId);
         const storedRows = scopeStorageRows(storageRows, effectiveConfigId).filter(isRowStored);
         if (aggregateAllConfigs) for (const r of storedRows) if (r.configId) storageConfigIds.add(r.configId);
-        for (const extra of buildStoredOnlyItems(storedRows, merged.values(), mpByNormalizedName)) {
+        for (const extra of buildStoredOnlyItems(storedRows, merged.values(), mpByNormalizedName, mpById)) {
           merged.set(extra.id, extra);
         }
       }

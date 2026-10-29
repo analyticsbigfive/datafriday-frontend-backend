@@ -214,11 +214,12 @@ export class GuestPinCountingService {
     // Aucune valeur attendue/baseline n'est exposée à un JWT invité.
     const inventoryRows = await this.prisma.elementInventory.findMany({
       where: { elementId: user.elementId },
-      select: { name: true, quantity: true, unit: true, minStock: true, maxStock: true, isStored: true, configId: true },
+      select: { name: true, marketPriceId: true, quantity: true, unit: true, minStock: true, maxStock: true, isStored: true, configId: true },
       orderBy: { name: 'asc' },
     });
     const storedRows = scopeStorageRows(inventoryRows, configId ?? 'all').map((r) => ({
       name: r.name,
+      marketPriceId: r.marketPriceId ?? null,
       quantity: r.quantity,
       unit: r.unit ?? null,
       minStock: r.minStock ?? null,

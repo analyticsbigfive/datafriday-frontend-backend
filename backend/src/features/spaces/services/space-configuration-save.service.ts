@@ -3,6 +3,7 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { createSpaceElementWithUniqueSlug } from '../../../shared/utils/generate-space-element-slug';
 import { SpaceCacheService } from './space-cache.service';
 import { SpaceCrudService } from './space-crud.service';
+import { resolveInventoryLinks } from '../../logistics/services/inventory-market-price-resolver';
 import { SpaceZoneElementsService, toV1JsonElement } from './space-zone-elements.service';
 
 /**
@@ -37,6 +38,7 @@ export class SpaceConfigurationSaveService {
     // Config du floor/forecourt en cours de save : scope des données filles
     // perf/staff/inventaire (tables scopées par config depuis 20260704190000).
     configId: string,
+    tenantId: string,
   ) {
     const originalType = element.type;
     const data: any = {
@@ -115,11 +117,18 @@ export class SpaceConfigurationSaveService {
 
     if (Array.isArray(element.inventoryItems) && element.inventoryItems.length > 0) {
       await tx.elementInventory.deleteMany({ where: { elementId: createdElement.id, configId } });
+      // Lien Market Price revalidé côté serveur (id du payload si valide, sinon nom).
+      const links = await resolveInventoryLinks(
+        tx,
+        tenantId,
+        element.inventoryItems.map((item: any) => ({ name: item.name, marketPriceId: item.marketPriceId })),
+      );
       await tx.elementInventory.createMany({
-        data: element.inventoryItems.map((item: any) => ({
+        data: element.inventoryItems.map((item: any, idx: number) => ({
           elementId: createdElement.id,
           configId,
-          name: item.name,
+          name: links[idx].name,
+          marketPriceId: links[idx].marketPriceId,
           quantity: item.quantity || 0,
           unit: item.unit || null,
           minStock: item.minStock || null,
@@ -363,7 +372,7 @@ export class SpaceConfigurationSaveService {
         // eslint-disable-next-line no-await-in-loop -- quelques étages ou parvis par configuration, dans la transaction
         await Promise.all(
           (floor.elements || []).map((element: any) =>
-            this.reconcileElement(tx, element, { floorId: createdFloor.id }, seenElementIds, existingElementIdSet, config.id),
+            this.reconcileElement(tx, element, { floorId: createdFloor.id }, seenElementIds, existingElementIdSet, config.id, tenantId),
           ),
         );
       }
@@ -389,7 +398,7 @@ export class SpaceConfigurationSaveService {
         // Reconcile forecourt elements (en parallèle — cf. note floors)
         await Promise.all(
           (forecourt.elements || []).map((element: any) =>
-            this.reconcileElement(tx, element, { forecourtId: createdForecourt.id }, seenElementIds, existingElementIdSet, config.id),
+            this.reconcileElement(tx, element, { forecourtId: createdForecourt.id }, seenElementIds, existingElementIdSet, config.id, tenantId),
           ),
         );
       }

@@ -3,6 +3,8 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { StaffingCalculatorService } from '../../staffing/staffing-calculator.service';
 import { detectFnbTags } from '../../staffing/fnb-tags.util';
 import { PutPerformanceDto, PutStaffDto, PutInventoryDto, PutMenuItemSalesInputDto } from '../dto/builder-v2.dto';
+import { resolveInventoryLinks } from '../../logistics/services/inventory-market-price-resolver';
+import { normalizeItemName } from '../../logistics/services/storage-stored-items';
 import { BuilderV2SupportService } from './builder-v2-support.service';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
@@ -202,14 +204,34 @@ export class BuilderV2ElementSettingsService {
   async putInventory(elementId: string, tenantId: string, dto: PutInventoryDto, configId?: string, user?: SpaceScopedUser) {
     const element = await this.builderV2SupportService.getElementOrThrow(elementId, tenantId, user);
     const targetConfigId = await this.builderV2SupportService.resolveElementConfigId(elementId, configId);
+    // Le remplacement complet ne doit jamais perdre le lien Market Price : id du DTO s'il est
+    // valide, sinon celui de l'ancienne ligne de même nom normalisé, sinon résolution par nom.
+    const previous = await this.prisma.elementInventory.findMany({
+      where: { elementId, configId: targetConfigId },
+      select: { name: true, marketPriceId: true },
+    });
+    const previousIdByName = new Map<string, string>();
+    for (const p of previous) {
+      const k = normalizeItemName(p.name);
+      if (p.marketPriceId && k && !previousIdByName.has(k)) previousIdByName.set(k, p.marketPriceId);
+    }
+    const links = await resolveInventoryLinks(
+      this.prisma,
+      tenantId,
+      dto.inventory.map((i) => ({
+        name: i.name,
+        marketPriceId: i.marketPriceId ?? previousIdByName.get(normalizeItemName(i.name)),
+      })),
+    );
     await this.prisma.$transaction([
       this.prisma.elementInventory.deleteMany({ where: { elementId, configId: targetConfigId } }),
       ...(dto.inventory.length
         ? [
             this.prisma.elementInventory.createMany({
-              data: dto.inventory.map((i) => ({
+              data: dto.inventory.map((i, idx) => ({
                 elementId, configId: targetConfigId,
-                name: i.name, quantity: i.quantity, unit: i.unit ?? null,
+                name: links[idx].name, marketPriceId: links[idx].marketPriceId,
+                quantity: i.quantity, unit: i.unit ?? null,
                 minStock: i.minStock ?? null, maxStock: i.maxStock ?? null,
                 isCustom: i.isCustom ?? true, isStored: i.isStored ?? null, menuItemId: i.menuItemId ?? null,
               })),

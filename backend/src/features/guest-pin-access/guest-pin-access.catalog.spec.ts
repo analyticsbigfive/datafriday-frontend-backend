@@ -108,14 +108,14 @@ describe('GuestPinCountingService.getCatalog (BUG-383-02 : articles = union des 
 
         it('expose les lignes du stockage pour la config de l\'event, sans filtre « stockée » ni valeur attendue', async () => {
             prisma.elementInventory.findMany.mockResolvedValue([
-                { name: 'Bière', quantity: 4, unit: 'L', minStock: 1, maxStock: null, isStored: true, configId: 'cfg-pfc' },
+                { name: 'Bière', marketPriceId: 'mp-biere', quantity: 4, unit: 'L', minStock: 1, maxStock: null, isStored: true, configId: 'cfg-pfc' },
                 { name: 'Chips', quantity: 0, unit: null, minStock: null, maxStock: null, isStored: false, configId: 'cfg-pfc' },
                 { name: 'Autre config', quantity: 9, unit: null, minStock: null, maxStock: null, isStored: true, configId: 'cfg-sfp' },
             ]);
             const catalog: any = await service.getCatalog(storageUser);
             expect(catalog.storage.storedRows).toEqual([
-                { name: 'Bière', quantity: 4, unit: 'L', minStock: 1, maxStock: null, isStored: true },
-                { name: 'Chips', quantity: 0, unit: null, minStock: null, maxStock: null, isStored: false },
+                { name: 'Bière', marketPriceId: 'mp-biere', quantity: 4, unit: 'L', minStock: 1, maxStock: null, isStored: true },
+                { name: 'Chips', marketPriceId: null, quantity: 0, unit: null, minStock: null, maxStock: null, isStored: false },
             ]);
         });
 
