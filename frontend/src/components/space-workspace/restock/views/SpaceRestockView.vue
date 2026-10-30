@@ -1449,6 +1449,7 @@
       <!-- Colonne DROITE : aperçu fournisseurs (réutilise shoppingGroups) —
            carte englobante + items façon « Résumé inventaire » de Space Inventory. -->
       <aside class="sr-suppliers">
+        <RestockStorageSummary v-if="currentStep === 1" :summary="storageSummary" />
         <div class="sr-sup-card">
           <header class="sr-sup-head">
             <span class="sr-sup-title">
@@ -1840,6 +1841,8 @@ import { collectPdvBuffers, applyPdvBuffers, targetWithBuffer } from '@/utils/pd
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 import MarketPriceEditSupplierDrawer from '@/components/menu-fb/views/market-prices/drawers/MarketPriceEditSupplierDrawer.vue'
 import RestockPlansPanel from '@/components/space-workspace/restock/RestockPlansPanel.vue'
+import RestockStorageSummary from '@/components/space-workspace/restock/components/RestockStorageSummary.vue'
+import { buildStorageSummary } from '@/utils/restockStorageSummary'
 import NumberField from '@/components/common/NumberField.vue'
 import { isDemoMode } from '@/utils/demoMode'
 import { isEventOver } from '@/utils/eventLifecycle'
@@ -1891,7 +1894,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -3405,6 +3408,27 @@ export default {
       return groupComponentOrdersByKitchen(orders, {
         labels: { local: this.t('srKitchenLocal'), undefined: this.t('srKitchenUndefined') },
         search: this.shoppingSearch,
+      })
+    },
+    /** Résumé stockage (colonne droite, étape 1) : logique dans utils/restockStorageSummary. */
+    storageSummary() {
+      const shopRowsByItem = this.loadedPlan
+        ? groupRowsByItemKey(this.restockRows.filter((row) => row.elementType !== 'storage'))
+        : this.stockShopRowsByItem
+      const storageRows = this.storageRestockGroups.flatMap((g) => g.rows)
+      return buildStorageSummary({
+        rows: this.stockSettingsRows,
+        orderByItem: this.stockOrderByItem,
+        excluded: this.stockExcluded,
+        marketPriceFor: (row) => {
+          const ref = findStockReference(row, this.ingredients, this.components, this.menuItems)
+          const mpId = ref?.marketPriceId || ref?.marketPrice?.id || null
+          return resolveMarketPrice({ name: row.itemName, marketPriceId: mpId }, this.marketPrices)
+        },
+        packagingFor: (row, qty) => this.packagingForItem(row, qty),
+        buyLabel: (row) => this.buyInfo(row).main,
+        shopRowsByItem,
+        storageRows,
       })
     },
     /** Feuille de course en mode INGRÉDIENTS : explosion BOM groupée par fournisseur. */
