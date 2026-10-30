@@ -1,0 +1,362 @@
+/*
+ * Étape 1 de Commande (Éléments à stocker) : passe de design fidèle à la maquette.
+ * Tout est préfixé .sr-step1 (carte) ou .sr-suppliers--step1 (colonne de droite) :
+ * les étapes 2 et 3, qui partagent .sr-panel / .sr-setting-row / .sr-wizard-nav,
+ * ne sont pas touchées. Chargé APRÈS le bloc de style principal (même fichier
+ * logique, l'ordre tranche à spécificité égale ; ici la spécificité est de toute
+ * façon plus haute).
+ *
+ * Contrat visuel : un rayon de carte (12), un rayon de contrôle (8), une
+ * couleur de bordure, une hauteur de contrôle (32), pas de 4 px.
+ */
+.sr-step1,
+.sr-suppliers--step1 {
+  --s1-radius: 12px;
+  --s1-control-h: 32px;
+  --s1-control-radius: 8px;
+  --s1-border: #dde1e7;
+  --s1-control-border: #dde1e7;
+}
+
+/* ── Carte et en-tête ───────────────────────────────────────────────────── */
+.sr-step1.sr-panel {
+  border-color: var(--s1-border) !important;
+  border-radius: var(--s1-radius) !important;
+}
+.sr-step1 .sr-panel-head {
+  align-items: center;
+  gap: 12px 16px;
+  padding: 16px;
+  background: var(--sr-surface, #fff);
+  border-bottom: 1px solid var(--s1-border);
+}
+.sr-step1 .sr-panel-title {
+  flex: 1 1 320px;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.sr-step1 .sr-panel-head h2 {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  color: var(--sr-text, #0f172a);
+}
+.sr-step1 .sr-panel-head p {
+  margin: 4px 0 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  line-height: 1.35;
+  color: var(--sr-muted, #6b7280);
+}
+
+/* ── Onglets en pastilles ───────────────────────────────────────────────── */
+.sr-step1 .sr-stock-tabs {
+  gap: 8px;
+  padding: 12px 16px 8px;
+}
+.sr-step1 .sr-stock-tab {
+  height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--s1-border);
+  border-radius: 999px !important;
+  background: var(--sr-surface, #fff);
+  color: var(--sr-text, #111827);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+}
+.sr-step1 .sr-stock-tab:hover:not(.sr-stock-tab-active) {
+  background: var(--sr-subtle, #fafafa);
+  border-color: #9ca3af;
+  color: var(--sr-text, #111827);
+}
+.sr-step1 .sr-stock-tab.sr-stock-tab-active,
+.sr-step1 .sr-stock-tab.sr-stock-tab-active:hover {
+  border-color: var(--sr-primary);
+  background: var(--sr-primary);
+  color: #fff;
+}
+
+/* ── Barre de recherche + sélecteurs (AppSearchBar partagé, restylé ici) ── */
+.sr-step1 :deep(.appsb) {
+  border-bottom: 1px solid var(--s1-border);
+}
+.sr-step1 :deep(.appsb__inner) {
+  gap: 8px 12px;
+  padding: 8px 16px;
+  min-height: 48px;
+}
+.sr-step1 :deep(.appsb__input) {
+  height: var(--s1-control-h);
+  font-size: var(--fs-md);
+}
+.sr-step1 :deep(.appsb__filters) {
+  margin-left: auto;
+  flex: 0 1 auto;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ── Liste et lignes article ────────────────────────────────────────────── */
+.sr-step1 .sr-settings-list {
+  gap: 8px;
+  padding: 12px 16px;
+}
+.sr-step1 .sr-setting-row {
+  min-height: 0;
+  padding: 12px 14px;
+  border-color: var(--s1-border) !important;
+  border-radius: var(--s1-radius) !important;
+  background: var(--sr-surface, #fff);
+}
+.sr-step1 .sr-setting-row:not(.sr-storage-row) {
+  grid-template-columns: 20px minmax(0, 1fr) 224px;
+  gap: 8px 16px;
+  align-items: start;
+}
+.sr-step1 .sr-include-toggle {
+  align-items: flex-start;
+  padding-top: 1px;
+}
+.sr-step1 .sr-include-toggle input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+}
+
+/* Nom et fournisseur */
+.sr-step1 .sr-setting-info {
+  gap: 4px;
+}
+.sr-step1 .sr-setting-info strong {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  line-height: 1.3;
+  color: var(--sr-text, #0f172a);
+}
+.sr-step1 .sr-setting-meta {
+  gap: 4px 8px;
+}
+.sr-step1 .sr-setting-supplier {
+  gap: 4px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  line-height: 1.3;
+  color: var(--sr-muted, #6b7280);
+}
+.sr-step1 .sr-setting-supplier .v-icon {
+  font-size: 14px;
+  width: 14px;
+  height: 14px;
+}
+.sr-step1 .sr-setting-meta .sr-supplier-edit-btn {
+  padding: 2px;
+  border-radius: 4px;
+}
+
+/* Colonne du curseur : largeur fixe, libellé puis piste + bouton répartition */
+.sr-step1 .sr-slider-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.sr-step1 .sr-slider-label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1.3;
+  color: var(--sr-muted, #6b7280);
+}
+.sr-step1 .sr-slider-row--pdv {
+  grid-template-columns: minmax(0, 1fr) 28px;
+  gap: 8px;
+}
+.sr-step1 .sr-slider-row--pdv .sr-supplier-edit-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 6px;
+  color: var(--sr-text, #374151);
+}
+.sr-step1 .sr-slider-row--pdv .sr-supplier-edit-btn:hover {
+  background: var(--sr-subtle, #f3f4f6);
+  color: var(--sr-primary);
+}
+
+/* Curseur : piste fine remplie en rouge jusqu'au pouce rond (var --sr-fill). */
+.sr-step1 .sr-slider-row--pdv .sr-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  margin: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.sr-step1 .sr-slider-row--pdv .sr-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--sr-primary) var(--sr-fill, 50%), #e5e7eb var(--sr-fill, 50%));
+}
+.sr-step1 .sr-slider-row--pdv .sr-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--sr-primary);
+  box-shadow: 0 0 0 1px var(--sr-primary), 0 1px 2px rgba(15, 23, 42, 0.2);
+}
+.sr-step1 .sr-slider-row--pdv .sr-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: #e5e7eb;
+}
+.sr-step1 .sr-slider-row--pdv .sr-slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--sr-primary);
+}
+.sr-step1 .sr-slider-row--pdv .sr-slider::-moz-range-thumb {
+  width: 10px;
+  height: 10px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--sr-primary);
+  box-shadow: 0 0 0 1px var(--sr-primary), 0 1px 2px rgba(15, 23, 42, 0.2);
+}
+.sr-step1 .sr-slider-row--pdv .sr-slider:focus-visible {
+  outline: 2px solid rgba(255, 49, 49, 0.3);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* Bandeau détail : une ligne, retour à la ligne propre quand c'est étroit */
+.sr-step1 .sr-values {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 20px;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--s1-border);
+  border-radius: 8px;
+  background: var(--sr-subtle, #fafafa);
+}
+.sr-step1 .sr-value {
+  align-items: baseline;
+  gap: 6px;
+}
+.sr-step1 .sr-value-label {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
+  white-space: nowrap;
+  color: var(--sr-muted, #6b7280);
+}
+.sr-step1 .sr-value-num {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-bold);
+  white-space: nowrap;
+}
+.sr-step1 .sr-value-buy {
+  margin-left: 0;
+}
+.sr-step1 .sr-values-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.sr-step1 .sr-values-help {
+  font-size: 16px;
+  color: var(--sr-faint, #9ca3af);
+}
+
+/* Colonne étroite (la colonne centrale est comprimée par les deux rails) :
+   curseur sous le nom, bandeau pleine largeur. Même logique que le bloc
+   générique, avec les colonnes propres à l'étape 1. */
+@container (max-width: 519px) {
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) .sr-setting-info,
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) .sr-slider-wrap {
+    grid-column: 2;
+  }
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) .sr-values {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ── Pied : bouton de génération à droite ───────────────────────────────── */
+.sr-step1 .sr-wizard-nav {
+  padding: 12px 16px;
+  border-top: 1px solid var(--s1-border);
+  background: var(--sr-surface, #fff);
+}
+.sr-step1 .sr-wizard-nav :deep(.v-btn) {
+  height: var(--s1-control-h);
+  min-width: 0;
+  padding: 0 16px;
+  border-radius: var(--s1-control-radius) !important;
+  box-shadow: none;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.sr-step1 .sr-wizard-nav-hint {
+  font-size: var(--fs-sm);
+}
+
+/* ── Colonne de droite : même carte que le Résumé stockage ──────────────── */
+.sr-suppliers--step1 .sr-sup-card {
+  padding: 16px;
+  gap: 12px;
+  border-color: var(--s1-border);
+  border-radius: var(--s1-radius);
+}
+.sr-suppliers--step1 .sr-sup-title {
+  gap: 4px;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+.sr-suppliers--step1 .sr-sup-count {
+  min-width: 24px;
+  height: 24px;
+  font-size: var(--fs-sm);
+}
+.sr-suppliers--step1 .sr-sup-empty {
+  padding: 12px 8px 4px;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+
+@media (max-width: 720px) {
+  .sr-step1 .sr-panel-head {
+    padding: 12px;
+  }
+  .sr-step1 .sr-stock-tabs {
+    padding: 12px 12px 8px;
+  }
+  .sr-step1 :deep(.appsb__inner) {
+    padding: 8px 12px;
+  }
+  .sr-step1 :deep(.appsb__filters) {
+    flex: 1 1 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+  .sr-step1 .sr-settings-list {
+    padding: 12px;
+  }
+  .sr-step1 .sr-wizard-nav {
+    padding: 12px;
+  }
+}
