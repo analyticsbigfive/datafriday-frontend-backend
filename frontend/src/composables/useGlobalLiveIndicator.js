@@ -17,9 +17,14 @@
 // via `isSpaceLive`/`lastSeenAt`, jamais gérer le cycle de vie de la connexion.
 import { ref, computed, effectScope } from 'vue'
 import { useLiveStream } from '@/composables/useLiveStream'
+import { getSpaceLiveStatus } from '@/api/endpoints/space.api'
 
 const LIVE_WINDOW_MS = 30 * 60 * 1000
 const PRUNE_INTERVAL_MS = 60 * 1000
+// Un message du flux signale seulement qu'un job d'agrégation a fini (cron de secours compris),
+// pas qu'une vente réelle est arrivée : on revérifie via /live-status, au plus une fois par
+// intervalle et par espace.
+const VERIFY_THROTTLE_MS = 30 * 1000
 
 // Scope DÉTACHÉ : les `ref`/`computed` créés ici doivent survivre au-delà du cycle de vie du
 // PREMIER composant qui appelle `useGlobalLiveIndicator()` (sinon ils seraient détruits au
@@ -50,15 +55,31 @@ function createShared() {
       if (changed) lastSeenBySpace.value = next
     }
 
+    // Même définition que la carte de l'espace : seul /live-status (vente réelle récente) rend
+    // un espace live. Sans cela le badge global comptait des espaces sans vente (jobs d'agrégation
+    // du cron) que les cartes n'affichaient pas.
+    const lastVerifyBySpace = new Map()
+    async function verifySpace(spaceId) {
+      const now = Date.now()
+      if (now - (lastVerifyBySpace.get(spaceId) || 0) < VERIFY_THROTTLE_MS) return
+      lastVerifyBySpace.set(spaceId, now)
+      let live = false
+      try {
+        live = !!(await getSpaceLiveStatus(spaceId))?.isLive
+      } catch { /* 403 sans permission Live ou erreur réseau : non live */ }
+      const next = new Map(lastSeenBySpace.value)
+      if (live) next.set(spaceId, Date.now())
+      else if (!next.delete(spaceId)) return
+      lastSeenBySpace.value = next
+    }
+
     const stream = useLiveStream('/live/stream', (payload) => {
       if (payload?.kind === 'notification') {
         notificationListeners.forEach((cb) => { try { cb(payload) } catch { /* écouteur isolé */ } })
         return
       }
       if (!payload?.spaceId) return
-      const next = new Map(lastSeenBySpace.value)
-      next.set(payload.spaceId, Date.now())
-      lastSeenBySpace.value = next
+      verifySpace(payload.spaceId)
     })
 
     function start() {
