@@ -1259,8 +1259,8 @@
               </div>
               <span class="sr-badges">
                 <template v-if="shoppingGenerated">
-                  <v-chip size="x-small" variant="tonal" :color="shoppingGroups.length ? 'primary' : 'grey'">
-                    {{ shoppingGroups.length }} {{ shoppingGroups.length > 1 ? t('srSupplierPlural') : t('srSupplierSingular') }}
+                  <v-chip size="x-small" variant="tonal" :color="displayedShoppingGroups.length ? 'primary' : 'grey'">
+                    {{ displayedShoppingGroups.length }} {{ displayedShoppingGroups.length > 1 ? t(shoppingTab === 'components' ? 'srKitchenPlural' : 'srSupplierPlural') : t(shoppingTab === 'components' ? 'srKitchenSingular' : 'srSupplierSingular') }}
                   </v-chip>
                   <v-chip v-if="shoppingItemsCount" size="x-small" variant="tonal" color="indigo">
                     {{ shoppingItemsCount }} {{ shoppingItemsCount > 1 ? t('srArticlePlural') : t('srArticleSingular') }}
@@ -1296,16 +1296,16 @@
                 <button
                   type="button"
                   :class="{ active: shoppingTab === 'components' }"
-                  @click="shoppingTab = 'components'"
+                  @click="openComponentsTab"
                 >
                   {{ t('srShoppingModeComponents') }}
                 </button>
               </div>
               <div class="sr-inline-actions">
-                <button type="button" class="sr-inline-btn" :disabled="!shoppingGenerated || shoppingGroups.length === 0 || shoppingTab === 'components'" @click="exportShoppingCsv">
+                <button type="button" class="sr-inline-btn" :disabled="!shoppingGenerated || displayedShoppingGroups.length === 0" @click="exportShoppingCsv">
                   {{ t('srExportCsv') }}
                 </button>
-                <button type="button" class="sr-inline-btn" :disabled="!shoppingGenerated || shoppingGroups.length === 0 || shoppingTab === 'components'" @click="printShoppingList">
+                <button type="button" class="sr-inline-btn" :disabled="!shoppingGenerated || displayedShoppingGroups.length === 0" @click="printShoppingList">
                   {{ t('srPrint') }}
                 </button>
               </div>
@@ -1328,19 +1328,12 @@
             {{ t('srGenerateShoppingHint') }}
           </div>
 
-          <template v-else-if="shoppingTab === 'components'">
-            <div v-if="componentKitchenGroups.length === 0" class="sr-empty">
-              {{ t('srNoComponentToOrder') }}
-            </div>
-            <RestockComponentKitchenOrders v-else :groups="componentKitchenGroups" />
-          </template>
-
-          <div v-else-if="recipesLoading" class="sr-empty">
+          <div v-else-if="recipesLoading && shoppingTab !== 'components'" class="sr-empty">
             <v-progress-circular indeterminate size="18" width="2" class="mr-2" />{{ t('srRecipesLoading') }}
           </div>
 
-          <div v-else-if="shoppingGroups.length === 0" class="sr-empty">
-            {{ shoppingMode === 'ingredients' ? t('srNoIngredientNeeded') : t('srNoPurchaseNeeded') }}
+          <div v-else-if="displayedShoppingGroups.length === 0" class="sr-empty">
+            {{ shoppingTab === 'components' ? t('srNoComponentToOrder') : shoppingMode === 'ingredients' ? t('srNoIngredientNeeded') : t('srNoPurchaseNeeded') }}
           </div>
 
           <div v-else class="sr-supplier-list">
@@ -1388,7 +1381,8 @@
                         v-if="item.itemType !== 'MenuItem' && item.usedIn && item.usedIn.length"
                         style="display:block;font-size:0.72rem;color:var(--sr-muted, #64748b);font-weight:500;margin-top:2px;"
                       >{{ t('srUsedIn') }} {{ item.usedIn.slice(0, 4).join(', ') }}<template v-if="item.usedIn.length > 4"> +{{ item.usedIn.length - 4 }}</template></span>
-                      <span class="sr-shop-diag">
+                      <span v-if="item.quantitySub" class="sr-shop-diag">{{ item.quantitySub }}</span>
+                      <span v-else class="sr-shop-diag">
                         {{ t('srDiagPredicted') }} {{ formatDiagQty(item.predicted, item.unit) }}
                         · {{ t('srDiagShop') }} {{ formatDiagQty(item.shopOnHand, item.unit) }}
                         · {{ t('srDiagStorage') }} {{ formatDiagQty(item.storageOnHand, item.unit) }}
@@ -1402,9 +1396,9 @@
                     <td
                       :data-label="t('srColToBuyShort')"
                       class="sr-strong"
-                      :title="!item.packaging ? t('srShoppingNoPackaging') : undefined"
+                      :title="!item.packaging && !item.quantityLabel ? t('srShoppingNoPackaging') : undefined"
                     >{{ formatShoppingQuantity(item) }}<v-icon
-                      v-if="!item.packaging"
+                      v-if="!item.packaging && !item.quantityLabel"
                       size="13"
                       class="ml-1"
                       style="color:var(--sr-muted, #64748b);"
@@ -1438,7 +1432,7 @@
               {{ t('srPrevious') }}
             </v-btn>
             <v-pagination
-              v-if="shoppingPageCount > 1 && shoppingTab !== 'components'"
+              v-if="shoppingPageCount > 1"
               v-model="shoppingPage"
               :length="shoppingPageCount"
               :total-visible="5"
@@ -1460,15 +1454,15 @@
               <v-icon size="16" class="me-1">mdi-truck-outline</v-icon>
               {{ t('srSuppliersPreviewTitle') }}
             </span>
-            <span class="sr-sup-count">{{ shoppingGroups.length }}</span>
+            <span class="sr-sup-count">{{ displayedShoppingGroups.length }}</span>
           </header>
 
           <p v-if="!shoppingGenerated" class="sr-sup-empty">{{ t('srSuppliersPreviewHint') }}</p>
-          <p v-else-if="!shoppingGroups.length" class="sr-sup-empty">{{ t('srSuppliersPreviewEmpty') }}</p>
+          <p v-else-if="!displayedShoppingGroups.length" class="sr-sup-empty">{{ t('srSuppliersPreviewEmpty') }}</p>
 
           <div v-else class="sr-sup-list">
             <div
-              v-for="g in shoppingGroups"
+              v-for="g in displayedShoppingGroups"
               :key="g.supplierId"
               class="sr-sup-item"
               role="button"
@@ -1808,8 +1802,7 @@ import {
   isItemPercentMixed,
   groupRowsByItemKey,
 } from '@/utils/restockShopPercent'
-import RestockComponentKitchenOrders from '@/components/space-workspace/restock/components/RestockComponentKitchenOrders.vue'
-import { collectComponentOrders, groupComponentOrdersByKitchen } from '@/utils/componentKitchenOrders'
+import { collectComponentOrders, groupComponentOrdersByKitchen, buildKitchenShoppingGroups } from '@/utils/componentKitchenOrders'
 import RestockItemShopsDrawer from '@/components/space-workspace/restock/drawers/RestockItemShopsDrawer.vue'
 // Cloche de notifications (client-side) — seuils min/max storage.
 import { notify } from '@/utils/notify'
@@ -1894,7 +1887,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockComponentKitchenOrders },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -3188,11 +3181,19 @@ export default {
     /** Pagination étape 3 : sections fournisseur (l'aperçu latéral, l'export
      *  CSV et l'impression restent sur la liste COMPLÈTE shoppingGroups). */
     shoppingPageCount() {
-      return Math.max(1, Math.ceil(this.shoppingGroups.length / this.groupPageSize))
+      return Math.max(1, Math.ceil(this.displayedShoppingGroups.length / this.groupPageSize))
     },
     pagedShoppingGroups() {
       const start = (this.shoppingPage - 1) * this.groupPageSize
-      return this.shoppingGroups.slice(start, start + this.groupPageSize)
+      return this.displayedShoppingGroups.slice(start, start + this.groupPageSize)
+    },
+    /** Groupes de l'onglet affiché : fournisseurs (Produits finis / Ingrédients)
+     *  ou cuisines (Composants), les seconds habillés comme des fournisseurs. */
+    displayedShoppingGroups() {
+      if (this.shoppingTab === 'components') {
+        return buildKitchenShoppingGroups(this.componentKitchenGroups, this.store.getters['kitchens/kitchens'] || [])
+      }
+      return this.shoppingGroups
     },
     shoppingSupplierGroups() {
       const supplierMap = new Map()
@@ -3589,7 +3590,7 @@ export default {
       return this.restockRows.filter((row) => this.isRestocked(row.rowKey)).length
     },
     shoppingItemsCount() {
-      return this.shoppingGroups.reduce((sum, g) => sum + (g.items?.length || 0), 0)
+      return this.displayedShoppingGroups.reduce((sum, g) => sum + (g.items?.length || 0), 0)
     },
     restockCompletionRatio() {
       if (!this.restockRows.length) return 0
@@ -3781,6 +3782,8 @@ export default {
     if (mountSpaceId) this.plansApi.refresh(mountSpaceId)
     // Sélecteur « Inventaire source » : liste des inventaires sauvegardés.
     if (mountSpaceId) this.loadInventoryReconciliations(mountSpaceId)
+    // Cuisines (e-mail / téléphone de l'onglet Composants) : cache 15 min du module.
+    this.store.dispatch('kitchens/fetchKitchens').catch(() => {})
     await this.loadAll()
     // Assistant : le panneau de l'étape active doit s'afficher déplié. L'URL
     // (?step=) prime sur l'étape restaurée (deep-link / refresh / partage).
@@ -6051,6 +6054,8 @@ export default {
       return size ? `${label} ${this.t('srDepositHelpOf')} ${size}` : label
     },
     formatShoppingQuantity(item) {
+      // Ligne cuisine : libellé colis déjà formaté à l'étape 1 (buyInfo).
+      if (item.quantityLabel) return item.quantityLabel
       // Conditionnement résolu = paquets, sans mode figé : l'ancien latch
       // `stockPackedModes` (seedé false quand la résolution échouait, persisté
       // dans snapshots et plans, plus aucune UI pour le lever) gardait table,
@@ -6059,6 +6064,11 @@ export default {
         return this.formatPackedQuantity(item.packaging, item.unit)
       }
       return this.formatLooseQuantity(item.quantity, item.unit)
+    },
+    /** Onglet Composants : affichage seul, remet la pagination à la première page. */
+    openComponentsTab() {
+      this.shoppingTab = 'components'
+      this.shoppingPage = 1
     },
     /** Quantité brute pour le diagnostic feuille de course (prévu/shop/storage/…). */
     formatDiagQty(value, unit) {
@@ -6146,13 +6156,13 @@ export default {
     supplierShare(group) {
       const max = Math.max(
         1,
-        ...this.shoppingGroups.map((g) => this.supplierUnitsTotal(g)),
+        ...this.displayedShoppingGroups.map((g) => this.supplierUnitsTotal(g)),
       )
       return Math.round((this.supplierUnitsTotal(group) / max) * 100)
     },
     scrollToSupplier(supplierId) {
       // Liste paginée : bascule d'abord sur la page qui porte ce fournisseur.
-      const index = this.shoppingGroups.findIndex((g) => g.supplierId === supplierId)
+      const index = this.displayedShoppingGroups.findIndex((g) => g.supplierId === supplierId)
       if (index >= 0) this.shoppingPage = Math.floor(index / this.groupPageSize) + 1
       this.$nextTick(() => {
         const el = document.getElementById(`sr-supplier-${supplierId}`)
@@ -6160,16 +6170,16 @@ export default {
       })
     },
     exportShoppingCsv() {
-      if (!this.shoppingGroups.length) return
+      if (!this.displayedShoppingGroups.length) return
       const headers = [
-        this.t('srCsvSupplier'),
+        this.t(this.shoppingTab === 'components' ? 'srCsvKitchen' : 'srCsvSupplier'),
         this.t('srCsvItem'),
         this.t('srCsvQuantity'),
         this.t('srCsvUnit'),
         this.t('srColShops'),
       ]
       const lines = []
-      this.shoppingGroups.forEach((supplier) => {
+      this.displayedShoppingGroups.forEach((supplier) => {
         supplier.items.forEach((item) => {
           lines.push([
             supplier.supplierName,
@@ -6357,9 +6367,9 @@ export default {
       window.location.href = `tel:${String(supplier.supplierPhone).replace(/\s+/g, '')}`
     },
     printShoppingList() {
-      if (!this.shoppingGroups.length) return
+      if (!this.displayedShoppingGroups.length) return
       const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))
-      const groupsHtml = this.shoppingGroups.map((g) => {
+      const groupsHtml = this.displayedShoppingGroups.map((g) => {
         const rows = g.items.map((it) =>
           `<tr><td>${esc(it.itemName)}</td><td>${esc(this.formatShoppingQuantity(it))}</td><td>${esc((it.shopNames || []).join(', '))}</td></tr>`,
         ).join('')

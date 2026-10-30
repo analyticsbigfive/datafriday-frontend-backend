@@ -103,3 +103,40 @@ export function groupComponentOrdersByKitchen(orders = [], { labels = {}, search
     .map((g) => ({ ...g, rows: [...g.rows].sort((a, b) => String(a.itemName).localeCompare(String(b.itemName))) }))
     .sort((a, b) => rank(a) - rank(b) || String(a.name).localeCompare(String(b.name)))
 }
+
+/**
+ * Habille les groupes cuisine à la forme d'un groupe fournisseur de l'étape 3
+ * ({ supplierId, supplierName, supplierEmail, supplierPhone, items }), pour que
+ * la carte, l'e-mail, l'appel, l'export CSV et l'impression soient ceux des
+ * fournisseurs, la cuisine jouant le rôle du fournisseur. Les coordonnées
+ * viennent de la fiche Kitchen (email, tel) retrouvée par id ; Cuisine locale
+ * et Cuisine non définie n'ont pas de fiche : coordonnées vides (boutons
+ * désactivés).
+ *
+ * Chaque ligne porte `quantityLabel` / `quantitySub` (libellé colis de l'étape 1,
+ * déjà formaté dans `orderMain` / `orderSub`) : aucune quantité recalculée.
+ */
+export function buildKitchenShoppingGroups(groups = [], kitchens = []) {
+  return (groups || []).map((group) => {
+    const card =
+      group.kind === KITCHEN_KIND_CENTRAL && group.rows[0]?.kitchen?.id != null
+        ? (kitchens || []).find((k) => String(k?.id) === String(group.rows[0].kitchen.id))
+        : null
+    return {
+      supplierId: group.key,
+      supplierName: group.name,
+      supplierEmail: String(card?.email || '').trim(),
+      supplierPhone: String(card?.tel || '').trim(),
+      items: group.rows.map((row) => ({
+        itemKey: row.itemKey,
+        itemName: row.itemName,
+        itemType: 'Component',
+        unit: row.unit,
+        quantity: row.quantity,
+        quantityLabel: row.orderMain,
+        quantitySub: row.orderSub || '',
+        shopNames: row.shopNames || [],
+      })),
+    }
+  })
+}
