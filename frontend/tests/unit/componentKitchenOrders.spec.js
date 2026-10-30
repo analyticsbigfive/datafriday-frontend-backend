@@ -94,3 +94,26 @@ describe('groupComponentOrdersByKitchen', () => {
     expect(groupComponentOrdersByKitchen([], { labels })).toEqual([])
   })
 })
+
+describe('buildKitchenShoppingGroups', () => {
+  const { buildKitchenShoppingGroups } = require('@/utils/componentKitchenOrders')
+  const row = (extra = {}) => ({
+    itemKey: 'k1', itemName: 'Sauce', unit: 'L', quantity: 4, orderMain: '2 Carton', orderSub: '= 4 L',
+    shopNames: ['Bar 1'], kitchen: { kind: 'central', id: '7', name: 'Centrale' }, ...extra,
+  })
+  it('rattache email et tel de la fiche cuisine et habille comme un fournisseur', () => {
+    const out = buildKitchenShoppingGroups(
+      [{ key: 'kitchen:7', kind: 'central', name: 'Centrale', rows: [row()] }],
+      [{ id: 7, email: ' c@x.fr ', tel: '01 02' }],
+    )
+    expect(out[0]).toMatchObject({ supplierId: 'kitchen:7', supplierName: 'Centrale', supplierEmail: 'c@x.fr', supplierPhone: '01 02' })
+    expect(out[0].items[0]).toMatchObject({ itemKey: 'k1', quantity: 4, quantityLabel: '2 Carton', quantitySub: '= 4 L', shopNames: ['Bar 1'] })
+  })
+  it('Cuisine locale et non définie : pas de coordonnées', () => {
+    const out = buildKitchenShoppingGroups([
+      { key: 'local', kind: 'local', name: 'Cuisine locale', rows: [row({ kitchen: { kind: 'local', id: null, name: '' } })] },
+      { key: 'undefined', kind: 'undefined', name: 'x', rows: [row({ kitchen: { kind: 'undefined', id: null, name: '' } })] },
+    ], [{ id: 7, email: 'a@b.c', tel: '1' }])
+    expect(out.map((g) => [g.supplierEmail, g.supplierPhone])).toEqual([['', ''], ['', '']])
+  })
+})
