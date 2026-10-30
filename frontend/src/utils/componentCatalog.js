@@ -61,8 +61,12 @@ export function mergeSubComponentsFromCatalog(baseComponents = [], catalogCompon
  * qu'attend `flattenComponentDef`.
  *
  * Deux contrats backend à connaître :
- *  - `ingredient.ingredientId` EST le `marketPriceId` (cf. ComponentCreateView) —
- *    c'est l'identité « matière achetée », celle sur laquelle l'inventaire joint ;
+ *  - `ingredient.ingredientId` est l'id de l'Ingredient (FK ComponentIngredient →
+ *    Ingredient). Il reste la clé d'agrégation (`id`/`marketPriceId` historiques,
+ *    partagés avec les lignes ingrédient directes des plats) ;
+ *  - le fournisseur vient de `ingredient.marketPrice` (niché par le détail
+ *    backend) : sans lui, la feuille de course classait les ingrédients d'un
+ *    composant en « Fournisseur non défini » (retour Bertrand 30/10) ;
  *  - `child.componentId` est une ref vers une autre def (composant de composant).
  *
  * Une ligne sans nom résolvable est écartée : elle deviendrait une ligne fantôme
@@ -78,12 +82,18 @@ export function buildSubComponentsFromDetail(full, ingById = new Map()) {
     ...ings.map((ing) => {
       const iid = ing?.ingredientId || ing?.ingredient_id || null
       const cat = iid != null ? ingById.get(String(iid)) : null
+      const nested = ing?.ingredient && typeof ing.ingredient === 'object' ? ing.ingredient : null
+      const mp = nested?.marketPrice || cat?.marketPrice || null
+      const supplierId = mp?.supplierId || mp?.supplierRel?.id || null
+      const supplierName = mp?.supplierRel?.name || mp?.supplier || null
       return {
         itemType: 'Ingredient',
         id: iid,
         marketPriceId: iid,
+        ...(supplierId ? { supplierId } : {}),
+        ...(supplierName ? { supplierName } : {}),
         name:
-          ing?.itemName || ing?.name ||
+          ing?.itemName || ing?.name || nested?.name ||
           cat?.name || cat?.itemName || cat?.marketPrice?.supplierItem || null,
         numberOfUnits: Number(ing?.quantity ?? ing?.numberOfUnits ?? 0) || 0,
         unit: ing?.unit || ing?.recipeUnit || cat?.unit || 'unit',
