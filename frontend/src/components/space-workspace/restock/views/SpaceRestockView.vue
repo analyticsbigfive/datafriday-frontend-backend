@@ -5685,13 +5685,16 @@ export default {
       let mp = null
 
       // marketPriceId : depuis la recette, sinon via l'ingrédient du catalogue.
-      let marketPriceId = line.marketPriceId
-      if (!marketPriceId) {
-        const ing = this.ingredients.find((i) => i.id === line.sourceId || i.id === line.key)
-        marketPriceId = ing?.marketPriceId
+      // Une ligne issue d'un composant porte l'id de l'Ingredient dans
+      // marketPriceId (clé d'agrégation) : s'il ne désigne aucun market price,
+      // on repasse par l'ingrédient du catalogue.
+      if (line.marketPriceId) {
+        mp = this.marketPrices.find((m) => m.id === line.marketPriceId) || null
       }
-      if (marketPriceId) {
-        mp = this.marketPrices.find((m) => m.id === marketPriceId) || null
+      if (!mp) {
+        const ids = [line.sourceId, line.key, line.marketPriceId].filter(Boolean)
+        const ing = this.ingredients.find((i) => ids.includes(i.id))
+        if (ing?.marketPriceId) mp = this.marketPrices.find((m) => m.id === ing.marketPriceId) || null
       }
       if (!supplierId && mp) supplierId = mp.supplierId || mp.supplier?.id || mp.supplier
       if (!supplierName && mp) supplierName = mp.supplierRel?.name || mp.supplier?.name || mp.supplierName
