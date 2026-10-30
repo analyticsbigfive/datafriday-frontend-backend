@@ -29,6 +29,17 @@ describe('pdvBufferRequirements', () => {
     expect(rows[1]).toMatchObject({ itemName: 'Gants', totalQuantity: 0, bufferQuantity: 40, shopId: 'p1' })
   })
 
+  it('unité de la ligne de tampon : celle du Market Price (id puis nom), repli sur la ligne', () => {
+    const els = [{ id: 'p1', inventoryByConfig: { c1: [
+      { name: 'Gants', quantity: 5, unit: 'pcs', marketPriceId: 'mp1' },
+      { name: 'Bière', quantity: 5, unit: 'pcs' },
+      { name: 'Sac', quantity: 5, unit: 'kg' },
+    ] } }]
+    const marketPrices = [{ id: 'mp1', itemName: 'Autre', unit: 'Pc' }, { id: 'mp2', itemName: 'bière', unit: 'L' }]
+    const b = collectPdvBuffers({ configuration, builderElements: els, cfgIds: ['c1'], marketPrices })
+    expect(b.map((x) => x.unit)).toEqual(['Pc', 'L', 'kg'])
+  })
+
   it('cible = le plus grand du prévu et du tampon', () => {
     expect(targetWithBuffer(30, 10)).toBe(30)
     expect(targetWithBuffer(0, 40)).toBe(40)
