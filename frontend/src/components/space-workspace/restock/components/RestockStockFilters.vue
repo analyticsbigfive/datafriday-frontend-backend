@@ -1,32 +1,42 @@
 <template>
   <div class="rsf" role="group" :aria-label="t('srStockFiltersLabel')">
-    <v-select
-      v-for="filter in filters"
-      :key="filter.key"
-      :model-value="filter.value"
-      :items="filter.items"
-      :placeholder="filter.placeholder"
-      density="compact"
-      variant="outlined"
-      hide-details
-      clearable
-      persistent-placeholder
-      :menu-props="{ maxHeight: 320 }"
-      :aria-label="filter.placeholder"
-      class="rsf-select"
-      @update:model-value="$emit('update:' + filter.key, $event || '')"
-    />
+    <v-menu v-for="filter in filters" :key="filter.key" location="bottom end" offset="6" :max-height="320">
+      <template #activator="{ props: menuProps }">
+        <RestockSelectButton
+          v-bind="menuProps"
+          :label="filter.value || filter.placeholder"
+          :active="!!filter.value"
+          :aria-label="filter.placeholder"
+        />
+      </template>
+      <v-list density="compact" class="rsf-list">
+        <v-list-item :active="!filter.value" @click="$emit('update:' + filter.key, '')">
+          <v-list-item-title class="rsf-item">{{ filter.placeholder }}</v-list-item-title>
+        </v-list-item>
+        <v-list-item
+          v-for="option in filter.items"
+          :key="option"
+          :active="option === filter.value"
+          @click="$emit('update:' + filter.key, option)"
+        >
+          <v-list-item-title class="rsf-item">{{ option }}</v-list-item-title>
+        </v-list-item>
+      </v-list>
+    </v-menu>
   </div>
 </template>
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import RestockSelectButton from '@/components/space-workspace/restock/components/RestockSelectButton.vue'
 
-// Trois listes déroulantes (type, catégorie, fournisseur) à côté de la recherche
-// de l'étape 1 de Commande. Les options viennent des lignes présentes
-// (utils/stockRowFilters) ; une valeur vide veut dire « tous ».
+// Trois sélecteurs (type, catégorie, fournisseur) à côté de la recherche de
+// l'étape 1 de Commande, au même style que « Ajustement global » (RestockSelectButton).
+// Les options viennent des lignes présentes (utils/stockRowFilters) ; une valeur
+// vide veut dire « tous » : la première entrée du menu remet le filtre à zéro.
 export default {
   name: 'RestockStockFilters',
+  components: { RestockSelectButton },
   props: {
     type: { type: String, default: '' },
     category: { type: String, default: '' },
@@ -58,29 +68,8 @@ export default {
   gap: 8px;
   flex-wrap: wrap;
 }
-.rsf-select {
-  width: 190px;
-  max-width: 100%;
-  flex: 0 0 auto;
-  font-size: var(--fs-base);
+.rsf-item {
+  font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
-}
-.rsf-select :deep(.v-field) {
-  border-radius: 8px;
-  font-size: var(--fs-base);
-  font-weight: var(--fw-medium);
-}
-.rsf-select :deep(.v-field__input) {
-  min-height: 36px;
-  padding-top: 0;
-  padding-bottom: 0;
-}
-.rsf-select :deep(.v-select__selection-text),
-.rsf-select :deep(input::placeholder) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: #374151;
-  opacity: 1;
 }
 </style>

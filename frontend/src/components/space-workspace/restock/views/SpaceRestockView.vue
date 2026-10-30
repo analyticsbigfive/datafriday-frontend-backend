@@ -339,7 +339,7 @@
           </template>
         </nav>
 
-        <v-card v-show="currentStep === 1" variant="outlined" class="sr-panel">
+        <v-card v-show="currentStep === 1" variant="outlined" class="sr-panel sr-step1">
           <header class="sr-panel-head sr-panel-head-actions">
             <div
               class="sr-panel-title"
@@ -442,9 +442,6 @@
               <div class="sr-setting-info">
                 <strong>{{ item.itemName }}</strong>
                 <div class="sr-setting-meta">
-                  <span class="sr-setting-shops">
-                    {{ item.shopCount }} {{ item.shopCount > 1 ? t('srShopPlural') : t('srShopSingular') }}
-                  </span>
                   <!-- fiche 314-01 — Item Supplier Name : fournisseur résolu par
                        la MÊME cascade que la feuille de course ; crayon = édition
                        du Market Price sans quitter l'écran (permission requise). -->
@@ -494,6 +491,7 @@
                     step="5"
                     :value="stockAdjustment(item.itemKey)"
                     class="sr-slider"
+                    :style="{ '--sr-fill': stockSliderFill(item.itemKey) }"
                     :aria-label="t('srAdjustNeedLabel')"
                     @input="setStockAdjustment(item.itemKey, $event.target.value)"
                   />
@@ -541,28 +539,30 @@
                   <span class="sr-value-label">{{ t('srBreakdownRequired') }}</span>
                   <strong class="sr-value-num" :class="{ 'sr-value-ok': !(stockOutcomeByItem[item.itemKey].gap > 0) }">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].gap, item.unit) }}</strong>
                 </span>
-                <span class="sr-value sr-value-buy">
-                  <span class="sr-value-label">{{ t('srBreakdownToOrder') }}</span>
-                  <strong class="sr-value-num" :class="{ 'sr-value-ok': (buyInfoByItem[item.itemKey] || {}).covered, 'sr-value-dash': (buyInfoByItem[item.itemKey] || {}).unknown }">{{ (buyInfoByItem[item.itemKey] || {}).main }}</strong>
-                </span>
-                <v-tooltip location="bottom" max-width="320">
-                  <template #activator="{ props: helpProps }">
-                    <v-icon
-                      v-bind="helpProps"
-                      size="14"
-                      class="sr-values-help"
-                      tabindex="0"
-                      :aria-label="t('srValuesHelpTitle')"
-                    >mdi-information-outline</v-icon>
-                  </template>
-                  <div class="sr-values-help-body">
-                    <p><strong>{{ t('srBreakdownPredict') }}</strong> — {{ t('srHelpPredict') }}</p>
-                    <p><strong>{{ t('srBreakdownRemaining') }}</strong> — {{ t('srHelpRemaining') }}</p>
-                    <p><strong>{{ t('srBreakdownRequired') }}</strong> — {{ t('srHelpRequired') }}</p>
-                    <p><strong>{{ t('srBreakdownToOrder') }}</strong> — {{ t('srHelpToOrder') }}</p>
-                    <p v-if="(buyInfoByItem[item.itemKey] || {}).sub" class="sr-values-help-detail">{{ buyInfoByItem[item.itemKey].sub }}</p>
-                  </div>
-                </v-tooltip>
+                <div class="sr-values-end">
+                  <span class="sr-value sr-value-buy">
+                    <span class="sr-value-label">{{ t('srBreakdownToOrder') }}</span>
+                    <strong class="sr-value-num" :class="{ 'sr-value-ok': (buyInfoByItem[item.itemKey] || {}).covered, 'sr-value-dash': (buyInfoByItem[item.itemKey] || {}).unknown }">{{ (buyInfoByItem[item.itemKey] || {}).main }}</strong>
+                  </span>
+                  <v-tooltip location="bottom" max-width="320">
+                    <template #activator="{ props: helpProps }">
+                      <v-icon
+                        v-bind="helpProps"
+                        size="14"
+                        class="sr-values-help"
+                        tabindex="0"
+                        :aria-label="t('srValuesHelpTitle')"
+                      >mdi-information-outline</v-icon>
+                    </template>
+                    <div class="sr-values-help-body">
+                      <p><strong>{{ t('srBreakdownPredict') }}</strong> : {{ t('srHelpPredict') }}</p>
+                      <p><strong>{{ t('srBreakdownRemaining') }}</strong> : {{ t('srHelpRemaining') }}</p>
+                      <p><strong>{{ t('srBreakdownRequired') }}</strong> : {{ t('srHelpRequired') }}</p>
+                      <p><strong>{{ t('srBreakdownToOrder') }}</strong> : {{ t('srHelpToOrder') }}</p>
+                      <p v-if="(buyInfoByItem[item.itemKey] || {}).sub" class="sr-values-help-detail">{{ buyInfoByItem[item.itemKey].sub }}</p>
+                    </div>
+                  </v-tooltip>
+                </div>
               </div>
 
             </div>
@@ -1448,7 +1448,7 @@
 
       <!-- Colonne DROITE : aperçu fournisseurs (réutilise shoppingGroups) —
            carte englobante + items façon « Résumé inventaire » de Space Inventory. -->
-      <aside class="sr-suppliers">
+      <aside class="sr-suppliers" :class="{ 'sr-suppliers--step1': currentStep === 1 }">
         <RestockStorageSummary v-if="currentStep === 1" :summary="storageSummary" />
         <div class="sr-sup-card">
           <header class="sr-sup-head">
@@ -5096,6 +5096,12 @@ export default {
     },
     stockAdjustment(itemKey) {
       return Number(this.stockAdjustments[itemKey] ?? 100)
+    },
+    /** Part remplie (en %) de la piste rouge du curseur, même borne max que l'input. */
+    stockSliderFill(itemKey) {
+      const value = this.stockAdjustment(itemKey)
+      const max = Math.max(200, value)
+      return `${Math.min(100, Math.max(0, (value / max) * 100))}%`
     },
     /** Champ de valeur libre : n'écrit que si la valeur a changé (même règle
      *  qu'Event Predict, commitIfChanged). */
@@ -9689,3 +9695,6 @@ export default {
   }
 }
 </style>
+
+<!-- Étape 1 de Commande : passe de design dédiée, classes préfixées .sr-step1. -->
+<style scoped src="./restockStep1.css"></style>
