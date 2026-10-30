@@ -351,15 +351,21 @@
             >
               <v-icon size="20" class="sr-collapse-icon">{{ collapsed.stock ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
               <div>
-                <h2>{{ t('srItemsToStock') }}</h2>
+                <h2>{{ t('srItemsToStock') }}{{ t('srLabelColon') }} {{ stockSettingsRows.length }} {{ stockSettingsRows.length > 1 ? t('srItemPlural') : t('srItemSingular') }}</h2>
                 <p>{{ t('srItemsToStockDesc') }}</p>
               </div>
-              <span class="sr-badges">
-                <v-chip size="x-small" variant="tonal" :color="stockSettingsRows.length ? 'primary' : 'grey'">
-                  {{ stockSettingsRows.length }} {{ stockSettingsRows.length > 1 ? t('srItemPlural') : t('srItemSingular') }}
-                </v-chip>
-              </span>
             </div>
+            <RestockGlobalAdjustMenu
+              v-if="stockTab === 'shops'"
+              :label="t('srStorageGlobalAdjust')"
+              :reset-label="t('srReset')"
+              :select-all-label="t('srSelectAll')"
+              :deselect-all-label="t('srDeselectAll')"
+              :all-selected="allStockSelected"
+              @apply="applyStockAdjustmentToAll"
+              @reset="resetStockAdjustments"
+              @toggle-all="toggleAllStock"
+            />
           </header>
 
           <!-- fiche 314-01 — étape 1 en 2 onglets : « PDV à stocker » (existant)
@@ -398,16 +404,12 @@
             :clear-label="t('srClear') || 'Clear'"
           >
             <template #filters>
-              <span class="sr-step-toolbar-label">{{ t('srTargetPresets') }}</span>
-              <div class="sr-inline-actions">
-                <button type="button" class="sr-inline-btn" @click="applyStockAdjustmentToAll(80)">80%</button>
-                <button type="button" class="sr-inline-btn" @click="applyStockAdjustmentToAll(100)">100%</button>
-                <button type="button" class="sr-inline-btn" @click="applyStockAdjustmentToAll(120)">120%</button>
-                <button type="button" class="sr-inline-btn" @click="resetStockAdjustments">{{ t('srReset') }}</button>
-                <button type="button" class="sr-inline-btn sr-inline-btn-select" @click="toggleAllStock(!allStockSelected)">
-                  {{ allStockSelected ? t('srDeselectAll') : t('srSelectAll') }}
-                </button>
-              </div>
+              <RestockStockFilters
+                v-model:type="stockFilterType"
+                v-model:category="stockFilterCategory"
+                v-model:supplier="stockFilterSupplier"
+                :options="stockFilterOptions"
+              />
             </template>
           </AppSearchBar>
 
@@ -480,7 +482,10 @@
               </div>
 
               <div class="sr-slider-wrap">
-                <label class="sr-slider-label">{{ t('srAdjustNeedLabel') }}</label>
+                <label class="sr-slider-label">
+                  {{ t('srAdjustNeedLabel') }}{{ t('srLabelColon') }}
+                  <strong class="sr-slider-pct">{{ isStockAdjustmentMixed(item.itemKey) ? t('srMixed') : stockAdjustment(item.itemKey) + '%' }}</strong>
+                </label>
                 <div class="sr-slider-row sr-slider-row--pdv">
                   <input
                     type="range"
@@ -489,20 +494,9 @@
                     step="5"
                     :value="stockAdjustment(item.itemKey)"
                     class="sr-slider"
+                    :aria-label="t('srAdjustNeedLabel')"
                     @input="setStockAdjustment(item.itemKey, $event.target.value)"
                   />
-                  <!-- Valeur libre au-delà du curseur (retour Bertrand 2026-10-07). -->
-                  <span class="sr-pct-group" :class="{ 'sr-pct-group--mixed': isStockAdjustmentMixed(item.itemKey) }">
-                    <NumberField
-                      :model-value="isStockAdjustmentMixed(item.itemKey) ? null : stockAdjustment(item.itemKey)"
-                      :decimals="0"
-                      :min="0"
-                      :placeholder="t('srMixed')"
-                      :aria-label="t('srAdjustNeedLabel')"
-                      class="sr-value-input"
-                      @change="(v) => commitPercentIfChanged(v, isStockAdjustmentMixed(item.itemKey) ? null : stockAdjustment(item.itemKey), (n) => setStockAdjustment(item.itemKey, n))"
-                    /><span class="sr-pct-suffix" aria-hidden="true">%</span>
-                  </span>
                   <!-- Chantier 388 : répartition par PDV, drawer à gauche (même
                        bouton que la vue article d'Event Predict). -->
                   <button
@@ -525,9 +519,16 @@
                 {{ t('srBreakdownLoading') }}
               </div>
               <div v-else-if="stockOutcomeByItem[item.itemKey]" class="sr-values">
-                <span class="sr-value">
+                <!-- Stock tampon PDV : « Stock Tampon » remplace « Prédit » quand la
+                     prévision est nulle, s'ajoute à côté sinon. Même quantité que
+                     celle du calcul (targetWithBuffer), en unités de base. -->
+                <span v-if="!hasPdvBuffer(item.itemKey) || stockPredicted(item) > 0" class="sr-value">
                   <span class="sr-value-label">{{ t('srBreakdownPredict') }}</span>
-                  <strong class="sr-value-num">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].predictedQuantity ?? item.totalQuantity, item.unit) }}</strong>
+                  <strong class="sr-value-num">{{ formatLooseQuantity(stockPredicted(item), item.unit) }}</strong>
+                </span>
+                <span v-if="hasPdvBuffer(item.itemKey)" class="sr-value sr-value-buffer">
+                  <span class="sr-value-label">{{ t('storageBuffer') }}</span>
+                  <strong class="sr-value-num">{{ formatLooseQuantity(stockBufferByItem[item.itemKey], item.unit) }}</strong>
                 </span>
                 <span class="sr-value">
                   <span class="sr-value-label">{{ t('srBreakdownRemaining') }}</span>
@@ -1804,6 +1805,9 @@ import {
 } from '@/utils/restockShopPercent'
 import { collectComponentOrders, groupComponentOrdersByKitchen, buildKitchenShoppingGroups } from '@/utils/componentKitchenOrders'
 import RestockItemShopsDrawer from '@/components/space-workspace/restock/drawers/RestockItemShopsDrawer.vue'
+import RestockGlobalAdjustMenu from '@/components/space-workspace/restock/components/RestockGlobalAdjustMenu.vue'
+import RestockStockFilters from '@/components/space-workspace/restock/components/RestockStockFilters.vue'
+import { buildStockFilterOptions, filterStockRowsByMeta, marketPriceTypeCategory } from '@/utils/stockRowFilters'
 // Cloche de notifications (client-side) — seuils min/max storage.
 import { notify } from '@/utils/notify'
 // DB locale (localStorage) — persiste l'état réarmement sans backend.
@@ -1887,7 +1891,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -1971,6 +1975,10 @@ export default {
       // par évènement, pour reproduire les quantités EventPredict.
       predictionMetaByEventId: {},
       stockSearch: '',
+      // Filtres étape 1 (valeur vide = tous).
+      stockFilterType: '',
+      stockFilterCategory: '',
+      stockFilterSupplier: '',
       // Pagination des 3 étapes (contrôles centrés dans les pieds sticky) :
       // étape 1 = articles, étape 2 = groupes (PDV ou article), étape 3 =
       // fournisseurs.
@@ -2638,6 +2646,21 @@ export default {
     supplierInfoByItem() {
       const out = {}
       for (const item of this.pagedStockSettingsRows) {
+        const meta = this.stockItemMetaByItem[item.itemKey]
+        if (meta?.hasReference) out[item.itemKey] = { supplierName: meta.supplierName, marketPriceRow: meta.marketPriceRow }
+      }
+      return out
+    },
+    /**
+     * Fournisseur, type et catégorie de TOUTES les lignes de l'étape 1 (les
+     * filtres portent sur la liste entière, pas sur la page). Fournisseur : même
+     * cascade que la feuille de course. Type et catégorie : ceux du Market Price
+     * de la ligne (référentiel dynamique, texte goodType / category en repli).
+     * `hasReference` = fournisseur ou Market Price trouvé (affichage de la ligne).
+     */
+    stockItemMetaByItem() {
+      const out = {}
+      for (const item of this.stockSettingsRows) {
         const ref = findStockReference(item, this.ingredients, this.components, this.menuItems)
         if (!ref) continue
         let marketPriceId = ref.marketPriceId || ref.marketPrice?.id || null
@@ -2652,12 +2675,31 @@ export default {
           null
         const supplierName =
           supplier?.name || mp?.supplierRel?.name || mp?.supplier?.name || null
-        if (!supplierName && !mp) continue
+        const { typeName, categoryName } = marketPriceTypeCategory(
+          mp,
+          this.store.getters['marketPriceTypes/marketPriceTypes'] || [],
+          this.store.getters['marketPriceCategories/marketPriceCategories'] || [],
+        )
         out[item.itemKey] = {
-          supplierName: supplierName || this.t('srSupplierUndefined'),
+          hasReference: !!(supplierName || mp),
+          supplierName: supplierName || (mp ? this.t('srSupplierUndefined') : ''),
           marketPriceRow: mp,
+          typeName,
+          categoryName,
         }
       }
+      return out
+    },
+    stockFilterOptions() {
+      return buildStockFilterOptions(this.stockSettingsRows, this.stockItemMetaByItem)
+    },
+    /** Σ des tampons PDV par article (ceux déjà utilisés par targetWithBuffer). */
+    stockBufferByItem() {
+      const out = {}
+      this.liveRestockRowsAll.forEach((row) => {
+        const buffer = Number(row.bufferQuantity) || 0
+        if (buffer > 0) out[row.itemKey] = (out[row.itemKey] || 0) + buffer
+      })
       return out
     },
     /** 1er évènement sélectionné (contexte nav ?event= / comptages) — la
@@ -2835,9 +2877,14 @@ export default {
       }))
     },
     filteredStockSettingsRows() {
+      const base = filterStockRowsByMeta(this.stockSettingsRows, this.stockItemMetaByItem, {
+        type: this.stockFilterType,
+        category: this.stockFilterCategory,
+        supplier: this.stockFilterSupplier,
+      })
       const q = (this.stockSearch || '').trim().toLowerCase()
-      if (!q) return this.stockSettingsRows
-      return this.stockSettingsRows.filter((row) => {
+      if (!q) return base
+      return base.filter((row) => {
         const searchable = [
           row.itemName,
           ...(row.sourceNames || []),
@@ -3693,6 +3740,15 @@ export default {
     stockSearch() {
       this.stockPage = 1
     },
+    stockFilterType() {
+      this.stockPage = 1
+    },
+    stockFilterCategory() {
+      this.stockPage = 1
+    },
+    stockFilterSupplier() {
+      this.stockPage = 1
+    },
     // Les listes rétrécissent (recherche, filtres, régénération) → on reste
     // sur une page valide.
     stockPageCount(count) {
@@ -3829,6 +3885,9 @@ export default {
         }
         this.store.dispatch('inventory/loadMarketPrices')
         this.store.dispatch('inventory/loadPackagingTypes')
+        // Noms de type / catégorie des Market Price (filtres de l'étape 1, cache TTL).
+        this.store.dispatch('marketPriceTypes/fetchMarketPriceTypes').catch(() => {})
+        this.store.dispatch('marketPriceCategories/fetchMarketPriceCategories').catch(() => {})
         // fiche 314-01 — stock tampon des espaces de stockage (builder state,
         // TTL 15 min). Après loadSpace : l'id résolu prime sur le slug d'URL.
         this.loadStorageInventory(this.currentSpace?.id || spaceId)
@@ -5045,6 +5104,13 @@ export default {
     },
     // ── Chantier 388 : répartition du besoin par PDV (drawer article) ────────
     /** Vrai quand les PDV de l'article n'ont pas tous le même % (« Mixte »). */
+    /** Prévision brute de la ligne (avant curseur et tampon). */
+    stockPredicted(item) {
+      return this.stockOutcomeByItem[item.itemKey]?.predictedQuantity ?? item.totalQuantity
+    },
+    hasPdvBuffer(itemKey) {
+      return (this.stockBufferByItem[itemKey] || 0) > 0
+    },
     isStockAdjustmentMixed(itemKey) {
       const shopIds = (this.stockShopRowsByItem[itemKey] || []).map((row) => row.shopId)
       return isItemPercentMixed(this.stockShopPercents, this.stockAdjustments[itemKey], shopIds, itemKey)
@@ -8452,58 +8518,17 @@ export default {
   min-width: 44px;
 }
 
-/* Ligne PDV : curseur | champ % | bouton répartition. 3 pistes, la 3e reste
-   vide sans bouton : les curseurs ont la même longueur sur toutes les lignes. */
+/* Ligne PDV : curseur | bouton répartition. 2 pistes, la 2e reste vide sans
+   bouton : les curseurs ont la même longueur sur toutes les lignes. Le % courant
+   est dans le libellé au-dessus (plus de champ de saisie). */
 .sr-slider-row--pdv {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto 28px;
+  grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
   gap: 8px;
 }
 .sr-slider-row--pdv .sr-slider {
   min-width: 0;
-}
-
-/* Champ pourcentage : chiffre + « % » rattaché, même principe que le champ du
-   drawer points de stockage (.ssd-buffer__group). Jamais coupé ni superposé. */
-.sr-pct-group {
-  display: inline-flex;
-  align-items: stretch;
-  height: 28px;
-  min-width: 0;
-  overflow: hidden;
-  border: 1.5px solid #374151;
-  border-radius: 8px;
-  background: #fff;
-  white-space: nowrap;
-}
-.sr-pct-group:focus-within {
-  border-color: #ff3131;
-}
-.sr-pct-group .sr-value-input {
-  width: 46px;
-  min-width: 0;
-  padding: 0 6px;
-  border: none;
-  border-radius: 0;
-  outline: none;
-  background: transparent;
-  font-size: 12px;
-  font-weight: 700;
-  color: #111827;
-  text-align: right;
-}
-.sr-pct-group--mixed .sr-value-input {
-  width: 60px;
-}
-.sr-pct-suffix {
-  display: inline-flex;
-  align-items: center;
-  padding: 0 7px;
-  border-left: 1px solid #e5e7eb;
-  background: #f3f4f6;
-  font-size: 12px;
-  color: #6b7280;
 }
 
 .sr-include-toggle input {
@@ -9094,6 +9119,24 @@ export default {
   border-color: var(--sr-primary);
   background: var(--sr-primary);
   color: #fff;
+}
+/* Étape 1 : onglets en pastille (actif rempli couleur primaire, inactif bordé). */
+.sr-stock-tab {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 14px;
+  border-radius: 999px;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+}
+.sr-slider-label .sr-slider-pct {
+  font-size: inherit;
+  font-weight: var(--fw-semibold);
+  color: var(--sr-text, #111827);
+}
+.sr-value-buffer .sr-value-label {
+  color: var(--sr-text, #111827);
+  font-weight: var(--fw-medium);
 }
 .sr-storage-group-title {
   color: var(--sr-text);

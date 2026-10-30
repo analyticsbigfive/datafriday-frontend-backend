@@ -6,7 +6,7 @@ describe('Space Restock', () => {
     cy.contains('Éléments à stocker').should('be.visible')
     cy.get('.sr-setting-row', { timeout: 30000 }).should('have.length.greaterThan', 0)
 
-    cy.contains('button', 'Générer le réarmement').click()
+    cy.contains('button', 'Générer la Commande').click()
     cy.contains('Tableau de réarmement').should('be.visible')
     cy.get('.sr-table-group', { timeout: 30000 }).should('exist')
 
