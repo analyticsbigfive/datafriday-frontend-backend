@@ -1280,24 +1280,32 @@
               <div class="sr-segmented">
                 <button
                   type="button"
-                  :class="{ active: shoppingMode === 'finished' }"
+                  :class="{ active: shoppingTab === 'suppliers' && shoppingMode === 'finished' }"
                   @click="setShoppingMode('finished')"
                 >
                   {{ t('srShoppingModeFinished') }}
                 </button>
                 <button
                   type="button"
-                  :class="{ active: shoppingMode === 'ingredients' }"
+                  :class="{ active: shoppingTab === 'suppliers' && shoppingMode === 'ingredients' }"
                   @click="setShoppingMode('ingredients')"
                 >
                   {{ t('srShoppingModeIngredients') }}
                 </button>
+                <!-- Affichage seul : ne touche ni shoppingMode ni le plan chargé. -->
+                <button
+                  type="button"
+                  :class="{ active: shoppingTab === 'components' }"
+                  @click="shoppingTab = 'components'"
+                >
+                  {{ t('srShoppingModeComponents') }}
+                </button>
               </div>
               <div class="sr-inline-actions">
-                <button type="button" class="sr-inline-btn" :disabled="!shoppingGenerated || shoppingGroups.length === 0" @click="exportShoppingCsv">
+                <button type="button" class="sr-inline-btn" :disabled="!shoppingGenerated || shoppingGroups.length === 0 || shoppingTab === 'components'" @click="exportShoppingCsv">
                   {{ t('srExportCsv') }}
                 </button>
-                <button type="button" class="sr-inline-btn" :disabled="!shoppingGenerated || shoppingGroups.length === 0" @click="printShoppingList">
+                <button type="button" class="sr-inline-btn" :disabled="!shoppingGenerated || shoppingGroups.length === 0 || shoppingTab === 'components'" @click="printShoppingList">
                   {{ t('srPrint') }}
                 </button>
               </div>
@@ -1319,6 +1327,13 @@
           <div v-if="!shoppingGenerated" class="sr-empty">
             {{ t('srGenerateShoppingHint') }}
           </div>
+
+          <template v-else-if="shoppingTab === 'components'">
+            <div v-if="componentKitchenGroups.length === 0" class="sr-empty">
+              {{ t('srNoComponentToOrder') }}
+            </div>
+            <RestockComponentKitchenOrders v-else :groups="componentKitchenGroups" />
+          </template>
 
           <div v-else-if="recipesLoading" class="sr-empty">
             <v-progress-circular indeterminate size="18" width="2" class="mr-2" />{{ t('srRecipesLoading') }}
@@ -1423,7 +1438,7 @@
               {{ t('srPrevious') }}
             </v-btn>
             <v-pagination
-              v-if="shoppingPageCount > 1"
+              v-if="shoppingPageCount > 1 && shoppingTab !== 'components'"
               v-model="shoppingPage"
               :length="shoppingPageCount"
               :total-visible="5"
@@ -1793,6 +1808,8 @@ import {
   isItemPercentMixed,
   groupRowsByItemKey,
 } from '@/utils/restockShopPercent'
+import RestockComponentKitchenOrders from '@/components/space-workspace/restock/components/RestockComponentKitchenOrders.vue'
+import { collectComponentOrders, groupComponentOrdersByKitchen } from '@/utils/componentKitchenOrders'
 import RestockItemShopsDrawer from '@/components/space-workspace/restock/drawers/RestockItemShopsDrawer.vue'
 // Cloche de notifications (client-side) — seuils min/max storage.
 import { notify } from '@/utils/notify'
@@ -1877,7 +1894,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockComponentKitchenOrders },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -2026,6 +2043,10 @@ export default {
       // produire/acheter en cuisine centrale (ignore readyForSale) ; 'finished' =
       // produits finis transportés au PDV (réarmement). Voir bomPlanning.js.
       shoppingMode: 'ingredients',
+      // Onglet affiché à l'étape 3 : 'suppliers' (les deux modes ci-dessus) ou
+      // 'components' (composants par cuisine). Affichage seul, jamais enregistré
+      // dans un plan : shoppingMode reste le mode réel.
+      shoppingTab: 'suppliers',
       // Recettes détaillées hydratées depuis /menu-items/:id (la liste ne les
       // porte pas) : menuItemId -> normalizeRecipe(). Cache local non réactif côté
       // contenu mais réassigné en bloc pour déclencher la réactivité.
@@ -3311,6 +3332,32 @@ export default {
       if (this.loadedPlan || !this.shoppingGenerated || this.shoppingMode !== 'ingredients') return ''
       const ids = new Set(this.menuItemDemandRows.map((d) => d.menuItemId).filter(Boolean))
       return [...ids].filter((id) => !this.recipeByMenuItemId[id]).sort().join(',')
+    },
+    /**
+     * Onglet « Composants par cuisine » : lignes d'étape 1 qui sont des composants,
+     * quantité = « À commander » de l'étape 1 (stockOrderByItem : vivante, ou
+     * figée dans la photo si un plan est chargé), groupées par cuisine du
+     * composant. Libellé colis = celui de l'étape 1 (buyInfo). PdV : uniquement
+     * en calcul vivant (la photo d'un plan ne les porte pas).
+     */
+    componentKitchenGroups() {
+      if (this.shoppingTab !== 'components' || !this.shoppingGenerated) return []
+      const orders = collectComponentOrders({
+        rows: this.stockSettingsRows,
+        components: this.hydratedComponents.length ? this.hydratedComponents : this.components,
+        orderByItem: this.stockOrderByItem,
+        kitchens: this.store.getters['kitchens/kitchens'] || [],
+      }).map((order) => {
+        const buy = this.buyInfo(order.source)
+        const shopNames = this.loadedPlan
+          ? []
+          : [...new Set((this.stockShopRowsByItem[order.itemKey] || []).map((r) => r.shopName).filter(Boolean))]
+        return { ...order, orderMain: buy.main, orderSub: buy.sub, shopNames }
+      })
+      return groupComponentOrdersByKitchen(orders, {
+        labels: { local: this.t('srKitchenLocal'), undefined: this.t('srKitchenUndefined') },
+        search: this.shoppingSearch,
+      })
     },
     /** Feuille de course en mode INGRÉDIENTS : explosion BOM groupée par fournisseur. */
     shoppingIngredientGroups() {
@@ -5537,6 +5584,7 @@ export default {
       // La photo d'un plan ne contient les groupes que pour le mode sauvegardé :
       // il n'existe AUCUNE donnée figée pour l'autre → mutation invalidante.
       if (mode !== this.shoppingMode && !(await this.guardPlanEdit())) return
+      this.shoppingTab = 'suppliers'
       this.shoppingMode = mode
       if (mode === 'ingredients' && this.shoppingGenerated) await this.ensureRecipesLoaded()
     },
