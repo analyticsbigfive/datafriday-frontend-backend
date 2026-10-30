@@ -481,7 +481,7 @@
 
               <div class="sr-slider-wrap">
                 <label class="sr-slider-label">{{ t('srAdjustNeedLabel') }}</label>
-                <div class="sr-slider-row">
+                <div class="sr-slider-row sr-slider-row--pdv">
                   <input
                     type="range"
                     min="0"
@@ -492,7 +492,7 @@
                     @input="setStockAdjustment(item.itemKey, $event.target.value)"
                   />
                   <!-- Valeur libre au-delà du curseur (retour Bertrand 2026-10-07). -->
-                  <span class="sr-slider-value sr-value-input-wrap" :class="{ 'sr-slider-value-mixed': isStockAdjustmentMixed(item.itemKey) }">
+                  <span class="sr-pct-group" :class="{ 'sr-pct-group--mixed': isStockAdjustmentMixed(item.itemKey) }">
                     <NumberField
                       :model-value="isStockAdjustmentMixed(item.itemKey) ? null : stockAdjustment(item.itemKey)"
                       :decimals="0"
@@ -501,7 +501,7 @@
                       :aria-label="t('srAdjustNeedLabel')"
                       class="sr-value-input"
                       @change="(v) => commitPercentIfChanged(v, isStockAdjustmentMixed(item.itemKey) ? null : stockAdjustment(item.itemKey), (n) => setStockAdjustment(item.itemKey, n))"
-                    />%
+                    /><span class="sr-pct-suffix" aria-hidden="true">%</span>
                   </span>
                   <!-- Chantier 388 : répartition par PDV, drawer à gauche (même
                        bouton que la vue article d'Event Predict). -->
@@ -1732,6 +1732,7 @@ import {
   packSizeForPackaging,
   packCountForQuantity,
   pluralizePackLabel,
+  inlinePackLabel,
   roundForUnit,
   ceilForUnit,
   deriveSelectedMenuItemsByShop,
@@ -2721,6 +2722,7 @@ export default {
             builderElements: this.storageBuilderElements,
             cfgIds: this.bufferConfigIds,
             closedShopNames: this.closedShopNames,
+            marketPrices: this.marketPrices,
           }),
         )
 
@@ -5683,13 +5685,16 @@ export default {
       let mp = null
 
       // marketPriceId : depuis la recette, sinon via l'ingrédient du catalogue.
-      let marketPriceId = line.marketPriceId
-      if (!marketPriceId) {
-        const ing = this.ingredients.find((i) => i.id === line.sourceId || i.id === line.key)
-        marketPriceId = ing?.marketPriceId
+      // Une ligne issue d'un composant porte l'id de l'Ingredient dans
+      // marketPriceId (clé d'agrégation) : s'il ne désigne aucun market price,
+      // on repasse par l'ingrédient du catalogue.
+      if (line.marketPriceId) {
+        mp = this.marketPrices.find((m) => m.id === line.marketPriceId) || null
       }
-      if (marketPriceId) {
-        mp = this.marketPrices.find((m) => m.id === marketPriceId) || null
+      if (!mp) {
+        const ids = [line.sourceId, line.key, line.marketPriceId].filter(Boolean)
+        const ing = this.ingredients.find((i) => ids.includes(i.id))
+        if (ing?.marketPriceId) mp = this.marketPrices.find((m) => m.id === ing.marketPriceId) || null
       }
       if (!supplierId && mp) supplierId = mp.supplierId || mp.supplier?.id || mp.supplier
       if (!supplierName && mp) supplierName = mp.supplierRel?.name || mp.supplier?.name || mp.supplierName
@@ -5823,7 +5828,7 @@ export default {
         parts.push(`${this.formatLooseQuantity(loose, item.unit)} ${this.t('srBuyLooseAfter')}`)
       }
       return {
-        main: this.formatPackedQuantity(packaging, item.unit),
+        main: this.formatPackedQuantity(packaging, item.unit, { inline: true }),
         sub: parts.join(' · '),
         covered: false,
         unknown: false,
@@ -5987,10 +5992,12 @@ export default {
       return this.formatCeilQuantity(row.restockQuantity, row.unit)
     },
     /** « 3 Cartons de 6 bouteilles » — même accord que « À déposer ». */
-    formatPackedQuantity(packaging, unit) {
+    formatPackedQuantity(packaging, unit, { inline = false } = {}) {
       if (!packaging) return ''
       const count = Number(packaging.packedCount || 0)
-      const type = pluralizePackLabel(packaging.packagingType || this.t('srDepositPackSuffix'), count)
+      const rawType = pluralizePackLabel(packaging.packagingType || this.t('srDepositPackSuffix'), count)
+      // inline : bandeau de l'étape 1, le type vient au milieu d'une phrase (« 4 fûts de 30 L »).
+      const type = inline ? inlinePackLabel(rawType) : rawType
       const size = this.depositPackSizeLabel({ packaging, unit })
       const label = `${count.toLocaleString('fr-FR')} ${type}`
       return size ? `${label} ${this.t('srDepositHelpOf')} ${size}` : label
@@ -8276,7 +8283,9 @@ export default {
   /* Lot 4 — 2 rangs : [case | nom+compo | curseur] puis la ligne de valeurs
      étalée sur les colonnes 2-3. La 4e piste de 78px du Lot 2 n'avait aucun
      enfant : elle mangeait 78px + un gap à droite de chaque ligne. */
-  grid-template-columns: 24px minmax(260px, 1fr) minmax(220px, 260px);
+  /* Colonne de droite FIXE (260px) : curseurs alignés d'une ligne à l'autre,
+     quel que soit le fournisseur affiché dans la colonne du nom. */
+  grid-template-columns: 24px minmax(0, 1fr) 260px;
   gap: 6px 12px;
   align-items: start;
   min-height: 68px;
@@ -8383,6 +8392,60 @@ export default {
 .sr-storage-row .sr-slider-value {
   width: auto;
   min-width: 44px;
+}
+
+/* Ligne PDV : curseur | champ % | bouton répartition. 3 pistes, la 3e reste
+   vide sans bouton : les curseurs ont la même longueur sur toutes les lignes. */
+.sr-slider-row--pdv {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 28px;
+  align-items: center;
+  gap: 8px;
+}
+.sr-slider-row--pdv .sr-slider {
+  min-width: 0;
+}
+
+/* Champ pourcentage : chiffre + « % » rattaché, même principe que le champ du
+   drawer points de stockage (.ssd-buffer__group). Jamais coupé ni superposé. */
+.sr-pct-group {
+  display: inline-flex;
+  align-items: stretch;
+  height: 28px;
+  min-width: 0;
+  overflow: hidden;
+  border: 1.5px solid #374151;
+  border-radius: 8px;
+  background: #fff;
+  white-space: nowrap;
+}
+.sr-pct-group:focus-within {
+  border-color: #ff3131;
+}
+.sr-pct-group .sr-value-input {
+  width: 46px;
+  min-width: 0;
+  padding: 0 6px;
+  border: none;
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 700;
+  color: #111827;
+  text-align: right;
+}
+.sr-pct-group--mixed .sr-value-input {
+  width: 60px;
+}
+.sr-pct-suffix {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border-left: 1px solid #e5e7eb;
+  background: #f3f4f6;
+  font-size: 12px;
+  color: #6b7280;
 }
 
 .sr-include-toggle input {
@@ -8861,7 +8924,7 @@ export default {
 /* PDV, conteneur étroit : la grille [case | nom | curseur] exige ~528px au
    minimum (24 + 260 + 220 + gaps) — en dessous, la valeur du curseur sortait
    de la carte. Empilement identique au @media 760px. */
-@container (max-width: 559px) {
+@container (max-width: 619px) {
   .sr-setting-row:not(.sr-storage-row) {
     grid-template-columns: 24px minmax(0, 1fr);
     align-items: start;

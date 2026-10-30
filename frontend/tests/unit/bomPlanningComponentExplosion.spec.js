@@ -290,3 +290,55 @@ describe('componentCatalog', () => {
     expect(idx.get('id:y').id).toBe('y')
   })
 })
+
+// Retour Bertrand 30/10 : l'Ail pelé du Chimichuri tombait en « Fournisseur non
+// défini » à l'étape 3 alors que son market price pointe sur Metro Aix.
+describe('fournisseur des ingrédients d’un composant (détail backend)', () => {
+  const detail = {
+    id: 'cmp-chimi',
+    numberOfUnitsRecipe: 1,
+    ingredients: [
+      {
+        ingredientId: 'ing-ail',
+        quantity: 0.1,
+        unit: 'Kg',
+        ingredient: {
+          id: 'ing-ail',
+          name: 'Ail pelé',
+          marketPriceId: 'mp-ail-aix',
+          marketPrice: { supplier: null, supplierId: 'sup-metro-aix', supplierRel: { name: 'Metro Aix-en-Provence' } },
+        },
+      },
+    ],
+    children: [],
+  }
+
+  it('porte supplierId / supplierName depuis ingredient.marketPrice, clé inchangée', () => {
+    const [sub] = buildSubComponentsFromDetail(detail)
+    expect(sub).toMatchObject({
+      id: 'ing-ail',
+      marketPriceId: 'ing-ail',
+      name: 'Ail pelé',
+      supplierId: 'sup-metro-aix',
+      supplierName: 'Metro Aix-en-Provence',
+    })
+  })
+
+  it('la feuille de course groupe l’ingrédient sous son fournisseur', () => {
+    const components = [{ id: 'cmp-chimi', name: 'Chimichuri 26/27', numberOfUnitsRecipe: 1, subComponents: buildSubComponentsFromDetail(detail) }]
+    const groups = buildIngredientRequirements({
+      demand: [{ shopName: 'Buvette 1', menuItemId: 'mi-hotdog', menuItemName: 'Hot Dog (Aix)', quantity: 10 }],
+      recipeByMenuItemId: {
+        'mi-hotdog': {
+          numberOfPiecesRecipe: 1,
+          lines: [{ key: 'cmp-chimi', sourceId: 'cmp-chimi', name: 'Chimichuri 26/27', unit: 'Kg', numberOfUnits: 0.02, itemType: 'Component' }],
+        },
+      },
+      components,
+      resolveSupplier: (line) => ({ supplierId: line.supplierId || '__unknown_supplier__', supplierName: line.supplierName || '' }),
+    })
+    expect(groups).toHaveLength(1)
+    expect(groups[0].supplierName).toBe('Metro Aix-en-Provence')
+    expect(groups[0].items[0].itemName).toBe('Ail pelé')
+  })
+})
