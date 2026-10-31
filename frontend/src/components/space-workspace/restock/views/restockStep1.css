@@ -315,29 +315,6 @@
   font-size: var(--fs-sm);
 }
 
-/* ── Colonne de droite : même carte que le Résumé stockage ──────────────── */
-.sr-suppliers--step1 .sr-sup-card {
-  padding: 16px;
-  gap: 12px;
-  border-color: var(--s1-border);
-  border-radius: var(--s1-radius);
-}
-.sr-suppliers--step1 .sr-sup-title {
-  gap: 4px;
-  font-size: var(--fs-md);
-  font-weight: var(--fw-bold);
-}
-.sr-suppliers--step1 .sr-sup-count {
-  min-width: 24px;
-  height: 24px;
-  font-size: var(--fs-sm);
-}
-.sr-suppliers--step1 .sr-sup-empty {
-  padding: 12px 8px 4px;
-  font-size: var(--fs-sm);
-  line-height: 1.4;
-}
-
 @media (max-width: 720px) {
   .sr-step1 .sr-panel-head {
     padding: 12px;

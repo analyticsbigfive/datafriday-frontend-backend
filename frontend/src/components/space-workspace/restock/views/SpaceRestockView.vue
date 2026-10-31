@@ -776,7 +776,7 @@
           </footer>
         </v-card>
 
-        <v-card v-show="currentStep === 2" variant="outlined" class="sr-panel">
+        <v-card v-show="currentStep === 2" variant="outlined" class="sr-panel sr-step2">
           <header class="sr-panel-head sr-panel-head-actions">
             <div
               class="sr-panel-title"
@@ -793,19 +793,18 @@
               </div>
               <span class="sr-badges">
                 <template v-if="restockGenerated">
-                  <v-chip size="x-small" variant="tonal" :color="restockRows.length ? 'deep-orange' : 'grey'">
+                  <span class="sr-pill" :class="restockRows.length ? 'sr-pill--orange' : 'sr-pill--grey'">
                     {{ restockRows.length }} {{ t('srToDeposit') }}
-                  </v-chip>
-                  <v-chip
+                  </span>
+                  <span
                     v-if="restockRows.length"
-                    size="x-small"
-                    variant="tonal"
-                    :color="confirmedRestockCount === restockRows.length ? 'success' : 'grey'"
+                    class="sr-pill"
+                    :class="confirmedRestockCount === restockRows.length ? 'sr-pill--green' : 'sr-pill--grey'"
                   >
                     {{ confirmedRestockCount }}/{{ restockRows.length }} {{ t('srConfirmed') }}
-                  </v-chip>
+                  </span>
                 </template>
-                <v-chip v-else size="x-small" variant="tonal" color="grey">{{ t('srNotGenerated') }}</v-chip>
+                <span v-else class="sr-pill sr-pill--grey">{{ t('srNotGenerated') }}</span>
               </span>
             </div>
           </header>
@@ -1088,11 +1087,11 @@
                        résolu) — réunion Bertrand 2026-08-19. Absente → rien. -->
                   <span
                     v-if="marketPriceRefFor(group)"
-                    style="display:block;font-size:0.72rem;color:var(--sr-muted, #64748b);font-weight:500;margin-top:2px;"
+                    class="sr-group-ref"
                   >{{ t('srMarketRef') }} {{ marketPriceRefFor(group) }}</span>
                   <span
                     v-if="(group.sourceBreakdown || []).length < 2 && groupSourceSummary(group)"
-                    style="display:block;font-size:0.72rem;color:var(--sr-muted, #64748b);font-weight:500;margin-top:2px;"
+                    class="sr-group-ref"
                   >{{ t('srUsedIn') }} {{ groupSourceSummary(group) }}</span>
                   <ul v-else-if="(group.sourceBreakdown || []).length >= 2" class="sr-source-breakdown">
                     <li class="sr-source-breakdown-head"><span>{{ t('srUsedIn') }}</span></li>
@@ -1108,12 +1107,10 @@
                        du compteur de PdV et de « Tout confirmer » (retour JLH) :
                        c'est la quantité à préparer, pas une action.
                        Conditionnement non résolu → pas de chip. -->
-                  <v-chip
+                  <span
                     v-if="groupPackTotal(group) != null"
-                    size="x-small"
-                    variant="tonal"
-                    color="primary"
-                  >{{ groupPackTotalLabel(group) }}</v-chip>
+                    class="sr-pill sr-pill--red"
+                  >{{ groupPackTotalLabel(group) }}</span>
                   <div class="sr-group-head-actions">
                     <span>{{ group.rows.length }} {{ group.rows.length > 1 ? t('srShopPlural') : t('srShopSingular') }}</span>
                     <button
@@ -1450,50 +1447,12 @@
            carte englobante + items façon « Résumé inventaire » de Space Inventory. -->
       <aside class="sr-suppliers" :class="{ 'sr-suppliers--step1': currentStep === 1 }">
         <RestockStorageSummary v-if="currentStep === 1" :summary="storageSummary" />
-        <div class="sr-sup-card">
-          <header class="sr-sup-head">
-            <span class="sr-sup-title">
-              <v-icon size="16" class="me-1">mdi-truck-outline</v-icon>
-              {{ t('srSuppliersPreviewTitle') }}
-            </span>
-            <span class="sr-sup-count">{{ displayedShoppingGroups.length }}</span>
-          </header>
-
-          <p v-if="!shoppingGenerated" class="sr-sup-empty">{{ t('srSuppliersPreviewHint') }}</p>
-          <p v-else-if="!displayedShoppingGroups.length" class="sr-sup-empty">{{ t('srSuppliersPreviewEmpty') }}</p>
-
-          <div v-else class="sr-sup-list">
-            <div
-              v-for="g in displayedShoppingGroups"
-              :key="g.supplierId"
-              class="sr-sup-item"
-              role="button"
-              tabindex="0"
-              @click="scrollToSupplier(g.supplierId)"
-              @keyup.enter="scrollToSupplier(g.supplierId)"
-            >
-              <span class="sr-sup-item-copy">
-                <strong>{{ g.supplierName }}</strong>
-                <small>{{ g.items.length }} {{ g.items.length > 1 ? t('srArticlePlural') : t('srArticleSingular') }}</small>
-              </span>
-              <span class="sr-sup-item-total">
-                <strong>{{ supplierUnitsTotal(g) }}</strong>
-                <small>{{ t('srSuppliersUnits') }}</small>
-              </span>
-              <div class="sr-sup-item-bar">
-                <span :style="{ width: supplierShare(g) + '%' }" />
-              </div>
-              <button
-                type="button"
-                class="sr-sup-item-email"
-                @click.stop="openEmailDialog(g)"
-              >
-                <v-icon size="14" class="me-1">mdi-email-outline</v-icon>
-                {{ t('srSuppliersEmailBtn') }}
-              </button>
-            </div>
-          </div>
-        </div>
+        <RestockSuppliersPanel
+          :groups="displayedShoppingGroups"
+          :generated="shoppingGenerated"
+          @select="scrollToSupplier"
+          @email="openEmailDialog"
+        />
       </aside>
     </div>
 
@@ -1805,6 +1764,7 @@ import {
   groupRowsByItemKey,
 } from '@/utils/restockShopPercent'
 import { collectComponentOrders, groupComponentOrdersByKitchen, buildKitchenShoppingGroups } from '@/utils/componentKitchenOrders'
+import RestockSuppliersPanel from '@/components/space-workspace/restock/components/RestockSuppliersPanel.vue'
 import RestockItemShopsDrawer from '@/components/space-workspace/restock/drawers/RestockItemShopsDrawer.vue'
 import RestockGlobalAdjustMenu from '@/components/space-workspace/restock/components/RestockGlobalAdjustMenu.vue'
 import RestockStockFilters from '@/components/space-workspace/restock/components/RestockStockFilters.vue'
@@ -1894,7 +1854,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, RestockSuppliersPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -6245,17 +6205,6 @@ export default {
       this.downloadCsv('restock-table.csv', headers, lines)
     },
     // ── Aperçu fournisseurs (colonne droite) ──────────────────────────────
-    supplierUnitsTotal(group) {
-      const raw = (group.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0)
-      return Math.round(raw)
-    },
-    supplierShare(group) {
-      const max = Math.max(
-        1,
-        ...this.displayedShoppingGroups.map((g) => this.supplierUnitsTotal(g)),
-      )
-      return Math.round((this.supplierUnitsTotal(group) / max) * 100)
-    },
     scrollToSupplier(supplierId) {
       // Liste paginée : bascule d'abord sur la page qui porte ce fournisseur.
       const index = this.displayedShoppingGroups.findIndex((g) => g.supplierId === supplierId)
@@ -8145,67 +8094,7 @@ export default {
    récupère la track de gauche au lieu de s'écraser dedans. */
 .sr-body.sr-body--no-aside { grid-template-columns: minmax(0, 1fr) 340px; }
 
-/* ── Colonne droite : aperçu fournisseurs (design « Résumé inventaire »). ── */
 .sr-suppliers { min-width: 0; }
-.sr-sup-card {
-  background: var(--sr-surface, #ffffff);
-  border: 1px solid var(--sr-border, #d9e2ec);
-  border-radius: 18px;
-  box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.04));
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.sr-sup-head { display: flex; align-items: center; justify-content: space-between; }
-.sr-sup-title { display: flex; align-items: center; font-size: 0.85rem; font-weight: 700; color: var(--sr-text, #0f172a); }
-.sr-sup-count {
-  display: inline-flex; align-items: center; justify-content: center;
-  min-width: 22px; height: 22px; padding: 0 7px; border-radius: 100px;
-  background: rgba(255, 49, 49, 0.1); color: #ff3131; font-size: 0.75rem; font-weight: 700;
-}
-.sr-sup-empty { font-size: 0.8rem; color: var(--sr-faint, #9ca3af); text-align: center; padding: 16px 8px; margin: 0; }
-.sr-sup-list { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; }
-.sr-sup-item {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-areas: 'copy total' 'bar bar' 'email email';
-  gap: 4px 10px;
-  align-items: center;
-  text-align: left;
-  border: 1px solid var(--sr-border, #e5e7eb);
-  border-radius: 10px;
-  background: var(--sr-surface, #fff);
-  padding: 9px 11px;
-  cursor: pointer;
-  transition: border-color 160ms ease, box-shadow 160ms ease;
-}
-.sr-sup-item:hover { border-color: rgba(255, 49, 49, 0.26); box-shadow: 0 3px 12px rgba(15, 23, 42, 0.06); }
-.sr-sup-item-copy { grid-area: copy; display: flex; flex-direction: column; min-width: 0; }
-.sr-sup-item-copy strong { font-size: 0.82rem; color: var(--sr-text, #0f172a); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sr-sup-item-copy small { font-size: 0.68rem; color: var(--sr-muted, #6b7280); }
-.sr-sup-item-total { grid-area: total; text-align: right; display: flex; flex-direction: column; }
-.sr-sup-item-total strong { font-size: 0.9rem; color: #ff3131; font-variant-numeric: tabular-nums; }
-.sr-sup-item-total small { font-size: 0.62rem; color: var(--sr-faint, #9ca3af); }
-.sr-sup-item-bar { grid-area: bar; height: 4px; border-radius: 100px; background: var(--sr-border, #f1f5f9); overflow: hidden; }
-.sr-sup-item-bar span { display: block; height: 100%; background: #ff3131; border-radius: 100px; }
-.sr-sup-item-email {
-  grid-area: email;
-  justify-self: end;
-  display: inline-flex;
-  align-items: center;
-  margin-top: 4px;
-  padding: 4px 10px;
-  border-radius: 100px;
-  border: 1px solid rgba(255, 49, 49, 0.28);
-  background: rgba(255, 49, 49, 0.08);
-  color: #ff3131;
-  font-size: 0.72rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background-color 140ms ease;
-}
-.sr-sup-item-email:hover { background: rgba(255, 49, 49, 0.16); }
 
 /* ── Popup email fournisseur : hauteur bornée + éditeur WYSIWYG léger. ── */
 .sr-email-dialog { display: flex; flex-direction: column; max-height: 82vh; }
@@ -9698,3 +9587,4 @@ export default {
 
 <!-- Étape 1 de Commande : passe de design dédiée, classes préfixées .sr-step1. -->
 <style scoped src="./restockStep1.css"></style>
+<style scoped src="./restockStep2.css"></style>
