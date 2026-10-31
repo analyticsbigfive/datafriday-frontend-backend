@@ -39,7 +39,7 @@
              radio custom + nom + badge Active + stats revenue/units.
              Affichées pour CHAQUE évènement coché (scénario par évènement). -->
         <div v-if="isSelected(ev.id) && ev.scenarios.length" class="resp-scenarios">
-          <span class="resp-scenarios-label">Scénario</span>
+          <span class="resp-scenarios-label">{{ t('srScenarioLabel') }}</span>
           <div class="resp-scenario-cards">
             <div
               v-for="sc in ev.scenarios"
@@ -66,7 +66,7 @@
                 <span
                   v-if="selectedScenarioByEventId[ev.id] === sc.id"
                   class="resp-scenario-badge"
-                >Active</span>
+                >{{ t('srScenarioActive') }}</span>
               </div>
               <div v-if="sc.revenue != null || sc.units > 0" class="resp-scenario-stats">
                 <div v-if="sc.revenue != null" class="resp-scenario-stat-row">
@@ -118,6 +118,7 @@ function formatRevenue(n) {
 }
 </script>
 
+<style scoped src="./restockEventPicker.css"></style>
 <style scoped>
 .resp { display: flex; flex-direction: column; gap: 8px; }
 .resp-empty {

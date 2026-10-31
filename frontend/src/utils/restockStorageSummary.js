@@ -127,3 +127,35 @@ export function buildStorageSummary({
   lines.sort((a, b) => b.amount - a.amount || String(a.name).localeCompare(String(b.name)))
   return { total, selectedCount: selected.length, totalCount: list.length, lines }
 }
+
+/**
+ * CA prédit HT des versions d'événements sélectionnées (celles affichées dans
+ * les cartes de version de la colonne gauche : revenue du scénario retenu).
+ * Retourne null s'il n'y a aucun CA connu (jamais un 0 fabriqué).
+ * @param {Array<{id:string, scenarios:Array<{id:string, revenue:number|null}>}>} events
+ * @param {Array<string>} selectedIds événements sélectionnés
+ * @param {Object<string,string>} scenarioByEventId version retenue par événement
+ */
+export function selectedPredictedRevenue(events, selectedIds, scenarioByEventId) {
+  const ids = new Set((selectedIds || []).map(String))
+  let sum = 0
+  let known = false
+  for (const ev of events || []) {
+    if (!ev || !ids.has(String(ev.id))) continue
+    const wanted = (scenarioByEventId || {})[ev.id]
+    const sc = (ev.scenarios || []).find((s) => s.id === wanted)
+    const revenue = sc && sc.revenue != null ? Number(sc.revenue) : NaN
+    if (Number.isFinite(revenue)) {
+      sum += revenue
+      known = true
+    }
+  }
+  return known ? sum : null
+}
+
+/** Marge en % = (CA prédit - coût de la commande) / CA prédit ; null si CA prédit absent ou <= 0. */
+export function marginPercent(predictedRevenue, orderTotal) {
+  const revenue = Number(predictedRevenue)
+  if (!(revenue > 0)) return null
+  return ((revenue - (Number(orderTotal) || 0)) / revenue) * 100
+}

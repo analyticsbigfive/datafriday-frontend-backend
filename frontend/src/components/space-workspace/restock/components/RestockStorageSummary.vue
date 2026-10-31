@@ -1,11 +1,23 @@
 <template>
   <div class="rss-card">
     <header class="rss-head">
-      <div class="rss-head-copy">
+      <div class="rss-head-row">
         <span class="rss-title">{{ t('srStorageSummaryTitle') }}</span>
-        <span class="rss-subtitle">{{ subtitle }}</span>
+        <strong class="rss-total">{{ t('srStorageSummaryCa') }} {{ formatCurrencyDetailed(summary.total) }}</strong>
       </div>
-      <strong class="rss-total">{{ formatCurrencyDetailed(summary.total) }}</strong>
+      <div class="rss-sub-row">
+        <span class="rss-subtitle">{{ subtitle }}</span>
+        <span v-if="margin != null" class="rss-margin">{{ t('srStorageSummaryMargin') }} {{ marginLabel }}</span>
+      </div>
+      <div
+        class="rss-progress"
+        role="progressbar"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        :aria-valuenow="progressPercent"
+      >
+        <span class="rss-progress-fill" :style="{ width: progressPercent + '%' }" />
+      </div>
     </header>
 
     <p v-if="!summary.lines.length" class="rss-empty">{{ t('srStorageSummaryEmpty') }}</p>
@@ -28,7 +40,7 @@
     </ul>
 
     <button v-if="hiddenCount > 0 || expanded" type="button" class="rss-toggle" @click="expanded = !expanded">
-      <v-icon size="14" class="me-1">{{ expanded ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
+      <v-icon size="14" class="rss-toggle-icon">{{ expanded ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
       {{ expanded ? t('srStorageSummarySeeLess') : seeAllLabel }}
     </button>
   </div>
@@ -37,6 +49,7 @@
 <script>
 import { useI18n } from '@/i18n/useI18n'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
+import { marginPercent } from '@/utils/restockStorageSummary'
 
 const VISIBLE_COUNT = 5
 
@@ -45,6 +58,8 @@ export default {
   props: {
     /** Sortie de buildStorageSummary : { total, selectedCount, totalCount, lines }. */
     summary: { type: Object, required: true },
+    /** CA prédit HT des versions sélectionnées ; null/0 = marge masquée. */
+    predictedRevenue: { type: Number, default: null },
   },
   setup() {
     const { t } = useI18n()
@@ -58,6 +73,19 @@ export default {
       return this.t('srStorageSummarySubtitle')
         .replace('{n}', this.summary.selectedCount)
         .replace('{total}', this.summary.totalCount)
+    },
+    /** Marge en % (voir utils), null si pas de CA prédit. */
+    margin() {
+      return marginPercent(this.predictedRevenue, this.summary.total)
+    },
+    marginLabel() {
+      return `${new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(this.margin)} %`
+    },
+    /** Articles cochés / total, borné à 0-100 (barre fine sous le sous-titre). */
+    progressPercent() {
+      const total = Number(this.summary.totalCount) || 0
+      if (!total) return 0
+      return Math.min(100, Math.max(0, Math.round((Number(this.summary.selectedCount) / total) * 100)))
     },
     visibleLines() {
       return this.expanded ? this.summary.lines : this.summary.lines.slice(0, VISIBLE_COUNT)
@@ -93,49 +121,62 @@ export default {
 <style scoped>
 .rss-card {
   background: var(--sr-surface, #ffffff);
-  border: 1px solid var(--sr-border, #d9e2ec);
-  border-radius: 18px;
+  border: 1px solid var(--s1-border, var(--sr-border, #e5e7eb));
+  border-radius: var(--s1-radius, 12px);
   box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.04));
-  padding: 14px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
-.rss-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.rss-head-copy { display: flex; flex-direction: column; min-width: 0; }
-.rss-title { font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--sr-text, #0f172a); }
-.rss-subtitle { font-size: var(--fs-base); font-weight: var(--fw-medium); color: var(--sr-faint, #9ca3af); }
-.rss-total { font-size: var(--fs-lg); font-weight: var(--fw-bold); color: var(--sr-text, #0f172a); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.rss-empty { font-size: var(--fs-base); color: var(--sr-faint, #9ca3af); text-align: center; padding: 12px 8px; margin: 0; }
+.rss-head { display: flex; flex-direction: column; gap: 4px; }
+.rss-head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.rss-title {
+  min-width: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--sr-text, #0f172a);
+}
+.rss-total { font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--sr-text, #0f172a); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rss-sub-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.rss-subtitle,
+.rss-margin { font-size: var(--fs-sm); font-weight: var(--fw-regular); color: var(--sr-faint, #9ca3af); white-space: nowrap; }
+.rss-progress { height: 4px; margin-top: 4px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
+.rss-progress-fill { display: block; height: 100%; border-radius: 999px; background: var(--sr-muted, #6b7280); transition: width 160ms ease; }
+.rss-empty { font-size: var(--fs-sm); color: var(--sr-faint, #9ca3af); text-align: center; padding: 12px 8px; margin: 0; }
 .rss-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .rss-item {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 12px;
   align-items: center;
-  border: 1px solid var(--sr-border, #e5e7eb);
-  border-radius: 12px;
+  border: 1px solid var(--s1-border, var(--sr-border, #e5e7eb));
+  border-radius: var(--s1-radius, 12px);
   background: var(--sr-surface, #fff);
-  padding: 8px 10px;
+  padding: 8px 12px;
 }
 .rss-thumb {
-  width: 40px; height: 40px; border-radius: 10px; overflow: hidden;
+  width: 36px; height: 36px; border-radius: 8px; overflow: hidden;
   display: inline-flex; align-items: center; justify-content: center;
-  background: var(--sr-border, #f1f5f9);
+  background: #f3f4f6;
 }
 .rss-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .rss-thumb-icon { color: var(--sr-faint, #9ca3af); }
-.rss-copy { display: flex; flex-direction: column; min-width: 0; }
-.rss-name { font-size: var(--fs-base); font-weight: var(--fw-semibold); color: var(--sr-text, #0f172a); overflow-wrap: anywhere; }
-.rss-detail { font-size: var(--fs-base); font-weight: var(--fw-medium); color: var(--sr-faint, #9ca3af); }
-.rss-qty { display: flex; flex-direction: column; align-items: flex-end; text-align: right; max-width: 150px; }
-.rss-qty-main { font-size: var(--fs-base); font-weight: var(--fw-semibold); color: var(--sr-text, #0f172a); overflow-wrap: anywhere; }
-.rss-qty-amount { font-size: var(--fs-base); font-weight: var(--fw-medium); color: var(--sr-faint, #9ca3af); font-variant-numeric: tabular-nums; }
+.rss-copy { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.rss-name { font-size: var(--fs-sm); font-weight: var(--fw-bold); line-height: 1.25; color: var(--sr-text, #0f172a); overflow-wrap: anywhere; }
+.rss-detail { font-size: var(--fs-sm); font-weight: var(--fw-regular); line-height: 1.25; color: var(--sr-faint, #9ca3af); }
+.rss-qty { display: flex; flex-direction: column; gap: 2px; align-items: flex-end; text-align: right; max-width: 140px; }
+.rss-qty-main { font-size: var(--fs-sm); font-weight: var(--fw-bold); line-height: 1.25; color: var(--sr-text, #0f172a); overflow-wrap: anywhere; }
+.rss-qty-amount { font-size: var(--fs-sm); font-weight: var(--fw-regular); line-height: 1.25; color: var(--sr-faint, #9ca3af); font-variant-numeric: tabular-nums; }
 .rss-toggle {
   align-self: center;
-  display: inline-flex; align-items: center;
-  background: none; border: 0; cursor: pointer;
-  font-size: var(--fs-base); font-weight: var(--fw-medium); color: #3b82f6;
+  display: inline-flex; align-items: center; gap: 4px;
+  background: none; border: 0; padding: 4px 8px; cursor: pointer;
+  font-size: var(--fs-sm); font-weight: var(--fw-medium); color: #64748b;
 }
+.rss-toggle:hover { text-decoration: underline; }
+.rss-toggle:focus-visible { outline: 2px solid #64748b; outline-offset: 1px; border-radius: 4px; }
 </style>
