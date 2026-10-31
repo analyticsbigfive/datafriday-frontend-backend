@@ -31,11 +31,11 @@ export default {
   height: var(--s1-control-h, 32px);
   padding: 0 8px 0 12px;
   border: 1px solid var(--s1-border, #dde1e7);
-  border-radius: var(--s1-control-radius, 8px);
+  border-radius: 999px;
   background: var(--sr-surface, #fff);
   color: var(--sr-text, #111827);
   font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-medium);
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;

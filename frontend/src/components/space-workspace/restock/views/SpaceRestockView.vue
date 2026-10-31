@@ -340,61 +340,51 @@
         </nav>
 
         <v-card v-show="currentStep === 1" variant="outlined" class="sr-panel sr-step1">
-          <header class="sr-panel-head sr-panel-head-actions">
-            <div
-              class="sr-panel-title"
-              role="button"
-              tabindex="0"
-              :aria-expanded="!collapsed.stock"
-              @click="collapsed.stock = !collapsed.stock"
-              @keydown.enter.space.prevent="collapsed.stock = !collapsed.stock"
-            >
-              <v-icon size="20" class="sr-collapse-icon">{{ collapsed.stock ? 'mdi-chevron-right' : 'mdi-chevron-down' }}</v-icon>
-              <div>
-                <h2>{{ t('srItemsToStock') }}{{ t('srLabelColon') }} {{ stockSettingsRows.length }} {{ stockSettingsRows.length > 1 ? t('srItemPlural') : t('srItemSingular') }}</h2>
-                <p>{{ t('srItemsToStockDesc') }}</p>
-              </div>
+          <!-- Maquette 27/28 : titre, onglets PDV / STOCK (icône + texte, sans
+               pastille) et bouton de génération sur une seule ligne. -->
+          <header class="sr-panel-head s1-head">
+            <h2 class="s1-title">{{ t('srItemsToStock') }}</h2>
+            <div class="sr-stock-tabs s1-tabs" role="tablist">
+              <button
+                type="button"
+                class="s1-tab"
+                :class="{ 's1-tab-active': stockTab === 'shops' }"
+                role="tab"
+                :title="t('srTabShopsToStock')"
+                :aria-selected="stockTab === 'shops' ? 'true' : 'false'"
+                @click="stockTab = 'shops'"
+              >
+                <v-icon size="20">mdi-storefront-outline</v-icon>
+                {{ t('srTabShopsShort') }}
+              </button>
+              <button
+                type="button"
+                class="s1-tab"
+                :class="{ 's1-tab-active': stockTab === 'storage' }"
+                role="tab"
+                :title="t('srTabStorageSpaces')"
+                :aria-selected="stockTab === 'storage' ? 'true' : 'false'"
+                @click="stockTab = 'storage'"
+              >
+                <v-icon size="20">mdi-warehouse</v-icon>
+                {{ t('srTabStorageShort') }}
+                <v-chip v-if="storageAlertCount" size="x-small" variant="tonal" color="error" class="ml-1">
+                  {{ storageAlertCount }}
+                </v-chip>
+              </button>
             </div>
-            <RestockGlobalAdjustMenu
-              v-if="stockTab === 'shops'"
-              :label="t('srStorageGlobalAdjust')"
-              :reset-label="t('srReset')"
-              :select-all-label="t('srSelectAll')"
-              :deselect-all-label="t('srDeselectAll')"
-              :all-selected="allStockSelected"
-              @apply="applyStockAdjustmentToAll"
-              @reset="resetStockAdjustments"
-              @toggle-all="toggleAllStock"
-            />
-          </header>
-
-          <!-- fiche 314-01 — étape 1 en 2 onglets : « PDV à stocker » (existant)
-               / « Espaces de stockage » (réappro des réserves depuis le stock
-               tampon saisi dans le 3D Builder). Segmented control maison
-               (pattern .sr-inline-btn), pas de v-tabs. -->
-          <div class="sr-stock-tabs" role="tablist">
-            <button
-              type="button"
-              class="sr-inline-btn sr-stock-tab"
-              :class="{ 'sr-stock-tab-active': stockTab === 'shops' }"
-              role="tab"
-              :aria-selected="stockTab === 'shops' ? 'true' : 'false'"
-              @click="stockTab = 'shops'"
-            >{{ t('srTabShopsToStock') }}</button>
-            <button
-              type="button"
-              class="sr-inline-btn sr-stock-tab"
-              :class="{ 'sr-stock-tab-active': stockTab === 'storage' }"
-              role="tab"
-              :aria-selected="stockTab === 'storage' ? 'true' : 'false'"
-              @click="stockTab = 'storage'"
+            <v-btn
+              class="s1-generate"
+              color="primary"
+              variant="flat"
+              :disabled="!canGenerate"
+              :loading="previousInventoryLoading"
+              @click="generateRestockTable"
             >
-              {{ t('srTabStorageSpaces') }}
-              <v-chip v-if="storageAlertCount" size="x-small" variant="tonal" color="error" class="ml-1">
-                {{ storageAlertCount }}
-              </v-chip>
-            </button>
-          </div>
+              <v-icon size="16" class="mr-1">mdi-table-plus</v-icon>
+              {{ t('srGenerateRestock') }}
+            </v-btn>
+          </header>
 
           <AppSearchBar
             v-if="stockTab === 'shops'"
@@ -409,6 +399,16 @@
                 v-model:category="stockFilterCategory"
                 v-model:supplier="stockFilterSupplier"
                 :options="stockFilterOptions"
+              />
+              <RestockGlobalAdjustMenu
+                :label="t('srAdjustmentShort')"
+                :reset-label="t('srReset')"
+                :select-all-label="t('srSelectAll')"
+                :deselect-all-label="t('srDeselectAll')"
+                :all-selected="allStockSelected"
+                @apply="applyStockAdjustmentToAll"
+                @reset="resetStockAdjustments"
+                @toggle-all="toggleAllStock"
               />
             </template>
           </AppSearchBar>
@@ -478,9 +478,34 @@
                 </div>
               </div>
 
+                <div v-if="stockOutcomeByItem[item.itemKey] && !previousInventoryLoading" class="s1-order">
+                  <span class="sr-value sr-value-buy">
+                    <span class="sr-value-label">{{ t('srBreakdownToOrder') }}{{ t('srLabelColon') }}</span>
+                    <strong class="sr-value-num" :class="{ 'sr-value-ok': (buyInfoByItem[item.itemKey] || {}).covered, 'sr-value-dash': (buyInfoByItem[item.itemKey] || {}).unknown }">{{ (buyInfoByItem[item.itemKey] || {}).main }}</strong>
+                  </span>
+                  <v-tooltip location="bottom" max-width="320">
+                    <template #activator="{ props: helpProps }">
+                      <v-icon
+                        v-bind="helpProps"
+                        size="14"
+                        class="sr-values-help"
+                        tabindex="0"
+                        :aria-label="t('srValuesHelpTitle')"
+                      >mdi-information-outline</v-icon>
+                    </template>
+                    <div class="sr-values-help-body">
+                      <p><strong>{{ t('srBreakdownPredict') }}</strong> : {{ t('srHelpPredict') }}</p>
+                      <p><strong>{{ t('srBreakdownRemaining') }}</strong> : {{ t('srHelpRemaining') }}</p>
+                      <p><strong>{{ t('srBreakdownRequired') }}</strong> : {{ t('srHelpRequired') }}</p>
+                      <p><strong>{{ t('srBreakdownToOrder') }}</strong> : {{ t('srHelpToOrder') }}</p>
+                      <p v-if="(buyInfoByItem[item.itemKey] || {}).sub" class="sr-values-help-detail">{{ buyInfoByItem[item.itemKey].sub }}</p>
+                    </div>
+                  </v-tooltip>
+                </div>
+
               <div class="sr-slider-wrap">
                 <label class="sr-slider-label">
-                  {{ t('srAdjustNeedLabel') }}{{ t('srLabelColon') }}
+                  <span class="s1-sr-only">{{ t('srAdjustNeedLabel') }}{{ t('srLabelColon') }}</span>
                   <strong class="sr-slider-pct">{{ isStockAdjustmentMixed(item.itemKey) ? t('srMixed') : stockAdjustment(item.itemKey) + '%' }}</strong>
                 </label>
                 <div class="sr-slider-row sr-slider-row--pdv">
@@ -539,30 +564,6 @@
                   <span class="sr-value-label">{{ t('srBreakdownRequired') }}</span>
                   <strong class="sr-value-num" :class="{ 'sr-value-ok': !(stockOutcomeByItem[item.itemKey].gap > 0) }">{{ formatLooseQuantity(stockOutcomeByItem[item.itemKey].gap, item.unit) }}</strong>
                 </span>
-                <div class="sr-values-end">
-                  <span class="sr-value sr-value-buy">
-                    <span class="sr-value-label">{{ t('srBreakdownToOrder') }}</span>
-                    <strong class="sr-value-num" :class="{ 'sr-value-ok': (buyInfoByItem[item.itemKey] || {}).covered, 'sr-value-dash': (buyInfoByItem[item.itemKey] || {}).unknown }">{{ (buyInfoByItem[item.itemKey] || {}).main }}</strong>
-                  </span>
-                  <v-tooltip location="bottom" max-width="320">
-                    <template #activator="{ props: helpProps }">
-                      <v-icon
-                        v-bind="helpProps"
-                        size="14"
-                        class="sr-values-help"
-                        tabindex="0"
-                        :aria-label="t('srValuesHelpTitle')"
-                      >mdi-information-outline</v-icon>
-                    </template>
-                    <div class="sr-values-help-body">
-                      <p><strong>{{ t('srBreakdownPredict') }}</strong> : {{ t('srHelpPredict') }}</p>
-                      <p><strong>{{ t('srBreakdownRemaining') }}</strong> : {{ t('srHelpRemaining') }}</p>
-                      <p><strong>{{ t('srBreakdownRequired') }}</strong> : {{ t('srHelpRequired') }}</p>
-                      <p><strong>{{ t('srBreakdownToOrder') }}</strong> : {{ t('srHelpToOrder') }}</p>
-                      <p v-if="(buyInfoByItem[item.itemKey] || {}).sub" class="sr-values-help-detail">{{ buyInfoByItem[item.itemKey].sub }}</p>
-                    </div>
-                  </v-tooltip>
-                </div>
               </div>
 
             </div>
@@ -762,16 +763,6 @@
               <p v-if="!canGenerate" class="sr-wizard-nav-hint">
                 <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>{{ cannotGenerateReason }}
               </p>
-              <v-btn
-                color="primary"
-                variant="flat"
-                :disabled="!canGenerate"
-                :loading="previousInventoryLoading"
-                @click="generateRestockTable"
-              >
-                <v-icon size="16" class="mr-1">mdi-table-plus</v-icon>
-                {{ t('srGenerateRestock') }}
-              </v-btn>
             </div>
           </footer>
         </v-card>
@@ -1449,7 +1440,7 @@
       <!-- Colonne DROITE : aperçu fournisseurs (réutilise shoppingGroups) —
            carte englobante + items façon « Résumé inventaire » de Space Inventory. -->
       <aside class="sr-suppliers" :class="{ 'sr-suppliers--step1': currentStep === 1 }">
-        <RestockStorageSummary v-if="currentStep === 1" :summary="storageSummary" />
+        <RestockStorageSummary v-if="currentStep === 1" :summary="storageSummary" :predicted-revenue="storagePredictedRevenue" />
         <div class="sr-sup-card">
           <header class="sr-sup-head">
             <span class="sr-sup-title">
@@ -1842,7 +1833,7 @@ import { normalizeType } from '@/components/spaces/views/builder2/constants/elem
 import MarketPriceEditSupplierDrawer from '@/components/menu-fb/views/market-prices/drawers/MarketPriceEditSupplierDrawer.vue'
 import RestockPlansPanel from '@/components/space-workspace/restock/RestockPlansPanel.vue'
 import RestockStorageSummary from '@/components/space-workspace/restock/components/RestockStorageSummary.vue'
-import { buildStorageSummary } from '@/utils/restockStorageSummary'
+import { buildStorageSummary, selectedPredictedRevenue } from '@/utils/restockStorageSummary'
 import NumberField from '@/components/common/NumberField.vue'
 import { isDemoMode } from '@/utils/demoMode'
 import { isEventOver } from '@/utils/eventLifecycle'
@@ -3409,6 +3400,11 @@ export default {
         labels: { local: this.t('srKitchenLocal'), undefined: this.t('srKitchenUndefined') },
         search: this.shoppingSearch,
       })
+    },
+    /** CA prédit HT des versions sélectionnées (même valeur que les cartes de version), pour la marge. */
+    storagePredictedRevenue() {
+      if (this.objectiveSource !== 'forecast') return null
+      return selectedPredictedRevenue(this.predictedEvents, this.selectedEventIds, this.selectedScenarioByEventId)
     },
     /** Résumé stockage (colonne droite, étape 1) : logique dans utils/restockStorageSummary. */
     storageSummary() {
