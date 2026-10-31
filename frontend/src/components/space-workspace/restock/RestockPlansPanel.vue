@@ -12,7 +12,7 @@
         </p>
       </div>
       <v-progress-circular v-if="loading" indeterminate size="16" width="2" />
-      <v-chip v-else size="x-small" color="primary" variant="tonal">
+      <v-chip v-else size="x-small" class="rpp-count" variant="tonal">
         {{ plans.length }}
       </v-chip>
     </header>
@@ -330,5 +330,32 @@ export default {
 }
 .rpp-dialog-title {
   font-size: 1rem;
+}
+
+/* Maquette 27 a 29 : titre en gras, pastille rouge pale, carte de plan sobre. */
+.rpp-head h2 {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  letter-spacing: 0.04em;
+}
+.rpp-head p {
+  font-size: var(--fs-sm);
+  margin-top: 4px;
+}
+.rpp-count {
+  background: #fde8e8 !important;
+  color: #ef4444 !important;
+  font-weight: var(--fw-semibold);
+}
+.rpp-item {
+  border-radius: 8px;
+  padding: 8px 6px 8px 10px;
+}
+.rpp-item-name {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+.rpp-item-meta {
+  font-size: var(--fs-xs);
 }
 </style>

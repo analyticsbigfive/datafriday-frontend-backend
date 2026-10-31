@@ -1,0 +1,50 @@
+/* Sélecteur d'événements : fidèle aux maquettes 27 a 29. */
+.resp-item {
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.resp-item.is-selected {
+  background: #fff1f1;
+  border-color: rgba(255, 49, 49, 0.3);
+}
+.resp-check :deep(.v-selection-control__input .v-icon) {
+  color: var(--fb-text, #111827);
+  opacity: 1;
+}
+.resp-name {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+.resp-meta {
+  font-size: var(--fs-sm);
+}
+.resp-scenarios-label {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
+  letter-spacing: 0.02em;
+  color: var(--fb-text, #212121);
+}
+.resp-scenario-card {
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.resp-scenario-card.is-active {
+  background: #fff;
+  border-color: rgba(255, 49, 49, 0.3);
+}
+.resp-scenario-name {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+}
+.resp-scenario-badge {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  background: #ef4444;
+}
+.resp-scenario-stat-row {
+  font-size: var(--fs-sm);
+}
+.resp-scenario-stat-val {
+  font-weight: var(--fw-bold);
+}
