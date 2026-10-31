@@ -344,6 +344,62 @@
   }
 }
 
+/* Colonne large (rail gauche replié) : la carte tient sur 2 lignes.
+   Ligne 1 : nom à gauche, « Ajuster le besoin : 100% » + curseur à droite.
+   Ligne 2 : bandeau gris, « À commander » posé à son extrémité droite (même
+   cellule de grille que la fin du bandeau, d'où la réserve à droite). */
+@container (min-width: 640px) {
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) {
+    --s1-side: 300px;
+    grid-template-columns: 20px minmax(0, 1fr) var(--s1-side);
+    align-items: center;
+  }
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) .sr-include-toggle {
+    grid-row: 1;
+    align-self: start;
+  }
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) .sr-setting-info {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) .sr-slider-wrap {
+    grid-column: 3;
+    grid-row: 1;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+  }
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) .sr-slider-label {
+    min-width: 0;
+    font-weight: var(--fw-semibold);
+  }
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) .sr-slider-label .s1-sr-only {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
+  }
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) .sr-slider-pct {
+    font-weight: var(--fw-regular);
+    color: var(--sr-muted, #6b7280);
+  }
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) .sr-values {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    margin-top: 0;
+    padding-right: calc(var(--s1-side) + 12px);
+  }
+  .sr-step1 .sr-setting-row:not(.sr-storage-row) .s1-order {
+    grid-column: 3;
+    grid-row: 2;
+    justify-self: end;
+    position: relative;
+    z-index: 1;
+    padding-right: 12px;
+  }
+}
+
 /* ── Pied : bouton de génération à droite ───────────────────────────────── */
 .sr-step1 .sr-wizard-nav {
   padding: 12px 16px;
