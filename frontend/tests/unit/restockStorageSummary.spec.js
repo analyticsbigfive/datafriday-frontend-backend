@@ -4,6 +4,8 @@ import {
   unitPriceOfMarketPrice,
   pdvCounts,
   stockCounts,
+  selectedPredictedRevenue,
+  marginPercent,
 } from '@/utils/restockStorageSummary'
 
 const mps = {
@@ -109,5 +111,33 @@ describe('stockCounts', () => {
   })
   it('aucun stockage : null', () => {
     expect(stockCounts(mps.fut, row('a', '1664 - 30L'), storageRows)).toBeNull()
+  })
+})
+
+describe('selectedPredictedRevenue', () => {
+  const events = [
+    { id: 'e1', scenarios: [{ id: 'v1', revenue: 8069 }, { id: 'v2', revenue: 100 }] },
+    { id: 'e2', scenarios: [{ id: 'v1', revenue: 5678 }] },
+    { id: 'e3', scenarios: [{ id: 'v1', revenue: null }] },
+  ]
+  it('somme les versions retenues des evenements selectionnes', () => {
+    expect(selectedPredictedRevenue(events, ['e1', 'e2'], { e1: 'v1', e2: 'v1' })).toBe(13747)
+    expect(selectedPredictedRevenue(events, ['e1'], { e1: 'v2' })).toBe(100)
+  })
+  it('ignore les evenements non selectionnes ou sans CA', () => {
+    expect(selectedPredictedRevenue(events, ['e1'], { e1: 'v1', e2: 'v1' })).toBe(8069)
+    expect(selectedPredictedRevenue(events, ['e3'], { e3: 'v1' })).toBeNull()
+    expect(selectedPredictedRevenue(events, [], {})).toBeNull()
+  })
+})
+
+describe('marginPercent', () => {
+  it('(CA prevu - commande) / CA prevu', () => {
+    expect(marginPercent(10000, 2500)).toBeCloseTo(75, 5)
+    expect(marginPercent(8069, 4534.58)).toBeCloseTo(43.8, 1)
+  })
+  it('null sans CA prevu positif', () => {
+    expect(marginPercent(null, 100)).toBeNull()
+    expect(marginPercent(0, 100)).toBeNull()
   })
 })

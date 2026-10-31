@@ -3,9 +3,12 @@
     <header class="rss-head">
       <div class="rss-head-row">
         <span class="rss-title">{{ t('srStorageSummaryTitle') }}</span>
-        <strong class="rss-total">{{ formatCurrencyDetailed(summary.total) }}</strong>
+        <strong class="rss-total">{{ t('srStorageSummaryCa') }} {{ formatCurrencyDetailed(summary.total) }}</strong>
       </div>
-      <span class="rss-subtitle">{{ subtitle }}</span>
+      <div class="rss-sub-row">
+        <span class="rss-subtitle">{{ subtitle }}</span>
+        <span v-if="margin != null" class="rss-margin">{{ t('srStorageSummaryMargin') }} {{ marginLabel }}</span>
+      </div>
       <div
         class="rss-progress"
         role="progressbar"
@@ -46,6 +49,7 @@
 <script>
 import { useI18n } from '@/i18n/useI18n'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
+import { marginPercent } from '@/utils/restockStorageSummary'
 
 const VISIBLE_COUNT = 5
 
@@ -54,6 +58,8 @@ export default {
   props: {
     /** Sortie de buildStorageSummary : { total, selectedCount, totalCount, lines }. */
     summary: { type: Object, required: true },
+    /** CA prédit HT des versions sélectionnées ; null/0 = marge masquée. */
+    predictedRevenue: { type: Number, default: null },
   },
   setup() {
     const { t } = useI18n()
@@ -67,6 +73,13 @@ export default {
       return this.t('srStorageSummarySubtitle')
         .replace('{n}', this.summary.selectedCount)
         .replace('{total}', this.summary.totalCount)
+    },
+    /** Marge en % (voir utils), null si pas de CA prédit. */
+    margin() {
+      return marginPercent(this.predictedRevenue, this.summary.total)
+    },
+    marginLabel() {
+      return `${new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(this.margin)} %`
     },
     /** Articles cochés / total, borné à 0-100 (barre fine sous le sous-titre). */
     progressPercent() {
@@ -117,7 +130,7 @@ export default {
   gap: 12px;
   margin-bottom: 16px;
 }
-.rss-head { display: flex; flex-direction: column; gap: 4px; padding-bottom: 12px; border-bottom: 1px solid var(--s1-border, var(--sr-border, #e5e7eb)); }
+.rss-head { display: flex; flex-direction: column; gap: 4px; }
 .rss-head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .rss-title {
   min-width: 0;
@@ -128,7 +141,9 @@ export default {
   color: var(--sr-text, #0f172a);
 }
 .rss-total { font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--sr-text, #0f172a); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.rss-subtitle { font-size: var(--fs-sm); font-weight: var(--fw-medium); color: var(--sr-muted, #6b7280); }
+.rss-sub-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.rss-subtitle,
+.rss-margin { font-size: var(--fs-sm); font-weight: var(--fw-regular); color: var(--sr-faint, #9ca3af); white-space: nowrap; }
 .rss-progress { height: 4px; margin-top: 4px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
 .rss-progress-fill { display: block; height: 100%; border-radius: 999px; background: var(--sr-muted, #6b7280); transition: width 160ms ease; }
 .rss-empty { font-size: var(--fs-sm); color: var(--sr-faint, #9ca3af); text-align: center; padding: 12px 8px; margin: 0; }
@@ -160,8 +175,8 @@ export default {
   align-self: center;
   display: inline-flex; align-items: center; gap: 4px;
   background: none; border: 0; padding: 4px 8px; cursor: pointer;
-  font-size: var(--fs-sm); font-weight: var(--fw-medium); color: #3b82f6;
+  font-size: var(--fs-sm); font-weight: var(--fw-medium); color: #64748b;
 }
 .rss-toggle:hover { text-decoration: underline; }
-.rss-toggle:focus-visible { outline: 2px solid #3b82f6; outline-offset: 1px; border-radius: 4px; }
+.rss-toggle:focus-visible { outline: 2px solid #64748b; outline-offset: 1px; border-radius: 4px; }
 </style>
