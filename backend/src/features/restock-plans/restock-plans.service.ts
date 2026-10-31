@@ -2,9 +2,10 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../../core/database/prisma.service';
 import { SpaceAccessService } from '../../core/auth/space-access.service';
 
-/** Plafond de documents par espace — l'historique est une liste consultée à
- *  l'œil, pas un journal. Au-delà, l'utilisateur supprime avant d'ajouter. */
-const MAX_PLANS_PER_SPACE = 50;
+/** Pas de plafond de plans par espace : depuis le 31/10 le plan est sauvegardé
+ *  à chaque « Générer la Commande », un plafond bloquerait la génération.
+ *  `take` reste disponible pour borner une liste si un appelant le demande. */
+const MAX_LIST_TAKE = 1000;
 /** Garde-fous de taille. Le `bodyLimit` Fastify est déjà à 5 Mo : ces bornes
  *  protègent le débit (limiteur par tenant) et la lisibilité de la table, pas
  *  le parseur. */
@@ -73,15 +74,6 @@ export class RestockPlansService {
     }
   }
 
-  private async assertUnderCap(spaceId: string, tenantId: string): Promise<void> {
-    const count = await this.prisma.restockPlan.count({ where: { tenantId, spaceId } });
-    if (count >= MAX_PLANS_PER_SPACE) {
-      throw new BadRequestException(
-        `RESTOCK_PLAN_LIMIT: ${MAX_PLANS_PER_SPACE} plans maximum par espace.`,
-      );
-    }
-  }
-
   /** Compteurs dénormalisés — recalculés serveur pour qu'ils ne puissent pas
    *  mentir sur le contenu réel de la photo. */
   private counters(body: Record<string, unknown>) {
@@ -108,11 +100,11 @@ export class RestockPlansService {
   }
 
   /** Liste (métadonnées seules), la plus récemment modifiée en tête. */
-  async list(spaceId: string, tenantId: string, take = MAX_PLANS_PER_SPACE) {
+  async list(spaceId: string, tenantId: string, take?: number) {
     return this.prisma.restockPlan.findMany({
       where: { tenantId, spaceId },
       orderBy: { updatedAt: 'desc' },
-      take: Math.min(Math.max(Number(take) || MAX_PLANS_PER_SPACE, 1), MAX_PLANS_PER_SPACE),
+      take: Math.min(Math.max(Number(take) || MAX_LIST_TAKE, 1), MAX_LIST_TAKE),
       select: LIST_SELECT,
     });
   }
@@ -137,7 +129,6 @@ export class RestockPlansService {
     if (!name) throw new BadRequestException('Le plan doit porter un nom.');
     this.assertPayloadSize(body);
     await this.spaceAccess.assertSpaceInTenant(spaceId, tenantId);
-    await this.assertUnderCap(spaceId, tenantId);
     return this.prisma.restockPlan.create({
       data: {
         tenantId,
@@ -168,7 +159,6 @@ export class RestockPlansService {
    *  pour en faire une copie. */
   async duplicate(id: string, tenantId: string, name?: string, userId?: string) {
     const source = await this.findById(id, tenantId);
-    await this.assertUnderCap(source.spaceId, tenantId);
     const { id: _id, createdAt: _c, updatedAt: _u, createdBy: _b, ...rest } = source as any;
     return this.prisma.restockPlan.create({
       data: {
