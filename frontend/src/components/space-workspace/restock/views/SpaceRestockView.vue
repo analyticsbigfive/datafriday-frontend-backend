@@ -53,7 +53,7 @@
           @retry="refreshPlans"
         />
         <v-card variant="outlined" class="sr-panel">
-          <header class="sr-panel-head">
+          <header class="sr-panel-head sr-events-head">
             <div>
               <h2>{{ t('srEvents') }}</h2>
               <p>{{ predictedEvents.length }} {{ predictedEvents.length > 1 ? t('srPredictedPlural') : t('srPredictedSingular') }}</p>
@@ -9698,3 +9698,4 @@ export default {
 
 <!-- Étape 1 de Commande : passe de design dédiée, classes préfixées .sr-step1. -->
 <style scoped src="./restockStep1.css"></style>
+<style scoped src="./restockChrome.css"></style>

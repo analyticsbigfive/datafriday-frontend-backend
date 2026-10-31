@@ -3841,6 +3841,8 @@ export const translations = {
     srShopPlural: 'shops',
     srScenarioRevenue: 'Predicted revenue (excl. VAT)',
     srScenarioUnits: 'units',
+    srScenarioLabel: 'Scenario',
+    srScenarioActive: 'Active',
     srAdjustNeedLabel: 'Adjust the need',
     // Chantier 388: per-shop split of the need (step 1 drawer)
     srMixed: 'Mixed',
@@ -4014,7 +4016,7 @@ export const translations = {
     srSnackPredictionDegraded: 'Per-item forecast quantities unavailable — reopen EventPredict to refresh them.',
     srSnackCatalogDegraded: 'Incomplete product catalog for this space: forecast quantities show, but recipes, packaging and shopping list are degraded. Data fix in progress.',
     // Plans de réappro nommés (RestockPlan, ADR-0005) — documents figés.
-    srPlansPanelTitle: 'Saved plans',
+    srPlansPanelTitle: 'Saved ventilations',
     srPlansCountSingular: 'plan',
     srPlansCountPlural: 'plans',
     srPlansPanelEmpty: 'No saved plan for this space yet.',
@@ -4090,7 +4092,7 @@ export const translations = {
     srCsvQuantity: 'Quantity',
     // sr — wizard
     srStep1: 'Items to stock',
-    srStep2: 'Restock',
+    srStep2: 'Ventilation',
     srStep3: 'Shopping list',
     srPrevious: 'Previous',
     srStepOf: 'Step',
@@ -9530,6 +9532,8 @@ export const translations = {
     srShopPlural: 'boutiques',
     srScenarioRevenue: 'CA prédit HT',
     srScenarioUnits: 'unités',
+    srScenarioLabel: 'Scénario',
+    srScenarioActive: 'Active',
     srAdjustNeedLabel: 'Ajuster le besoin',
     // Chantier 388 : répartition du besoin par PDV (drawer de l'étape 1)
     srMixed: 'Mixte',
@@ -9703,7 +9707,7 @@ export const translations = {
     srSnackPredictionDegraded: 'Quantités prédites par item indisponibles — rouvrez EventPredict pour les rafraîchir.',
     srSnackCatalogDegraded: 'Catalogue produits incomplet pour cet espace : les quantités prévues s\'affichent, mais recettes, packaging et liste de courses sont dégradés. Correctif données en cours.',
     // Plans de réappro nommés (RestockPlan, ADR-0005) — documents figés. Cf. bloc EN.
-    srPlansPanelTitle: 'Plans sauvegardés',
+    srPlansPanelTitle: 'Ventilations sauvegardées',
     srPlansCountSingular: 'plan',
     srPlansCountPlural: 'plans',
     srPlansPanelEmpty: 'Aucun plan sauvegardé sur cet espace.',
@@ -9778,7 +9782,7 @@ export const translations = {
     srCsvQuantity: 'Quantite',
     // sr — wizard
     srStep1: 'Éléments à stocker',
-    srStep2: 'Réarmement',
+    srStep2: 'Ventilation',
     srStep3: 'Feuille de course',
     srPrevious: 'Précédent',
     srStepOf: 'Étape',
