@@ -51,7 +51,7 @@ export class RestockPlansController {
     summary: "Lister les plans de réarmement d'un espace (métadonnées seules, sans les lignes)",
   })
   @ApiParam({ name: 'spaceId', description: 'ID du space' })
-  @ApiQuery({ name: 'take', required: false, description: 'Nombre max de plans (défaut 50)' })
+  @ApiQuery({ name: 'take', required: false, description: 'Nombre max de plans (défaut 1000)' })
   @ApiResponse({ status: 200, description: 'Plans triés du plus récemment modifié au plus ancien' })
   async list(
     @Param('spaceId') spaceId: string,

@@ -10,7 +10,8 @@ describe('Space Restock', () => {
     cy.contains('Tableau de réarmement').should('be.visible')
     cy.get('.sr-table-group', { timeout: 30000 }).should('exist')
 
-    cy.contains('button', 'Feuille de course').click()
+    // Le bouton du bandeau a disparu : on passe par le pied de l'étape 2.
+    cy.get('.sr-wizard-nav:visible').contains('button', 'Feuille de course').click()
     cy.contains('Feuille de course').should('be.visible')
     cy.get('.sr-supplier-group', { timeout: 30000 }).should('exist')
   })
