@@ -1,4 +1,5 @@
 import { EventWindowReaggregateService } from './services/event-window-reaggregate.service';
+import { EventWindowAuditService } from './services/event-window-audit.service';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
@@ -33,6 +34,7 @@ export class EventsService {
     private readonly eventTeamService: EventTeamService,
     private readonly salesSources: EventSalesSourceService,
     private readonly windowReaggregate: EventWindowReaggregateService,
+    private readonly windowAudit: EventWindowAuditService,
   ) {}
 
   private readonly logger = new Logger(EventsService.name);
@@ -443,6 +445,7 @@ export class EventsService {
 
     // Date ou heure de fin corrigée : les agrégats gardent l'ancienne fenêtre de ventes, on les refait.
     await this.windowReaggregate.reaggregateIfWindowChanged(existing, updated);
+    await this.windowAudit.recordIfWindowChanged(tenantId, user?.id, existing, updated);
 
     // Démapper (étape 4 Data Integration) : purge l'agrégation minute-par-minute laissée
     // orpheline par ce space/event — sinon elle ne sera plus jamais lue (l'event a quitté
