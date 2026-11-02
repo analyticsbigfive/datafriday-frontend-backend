@@ -6,7 +6,12 @@
        sheet mobile (DRY). -->
   <div class="resp">
     <div v-if="!events.length" class="resp-empty">
-      Aucun évènement prédit. Créez une prévision dans Event Predict.
+      <p class="resp-empty-text">{{ t('srNoUpcomingPredicted') }}</p>
+      <router-link
+        v-if="route.params.spaceId"
+        class="resp-empty-link"
+        :to="{ name: 'space-predict', params: { spaceId: route.params.spaceId } }"
+      >{{ t('srOpenEventPredict') }}</router-link>
     </div>
 
     <div v-else class="resp-list">
@@ -93,10 +98,12 @@
 </template>
 
 <script setup>
+import { useRoute } from 'vue-router'
 import { useI18n } from '@/i18n/useI18n'
 import { formatCurrency, formatNumber } from '@/composables/useFormatters'
 
 const { t } = useI18n()
+const route = useRoute()
 
 const props = defineProps({
   // Évènements prédits enrichis : { id, name, dateLabel, showTime, configName,
@@ -122,10 +129,21 @@ function formatRevenue(n) {
 <style scoped>
 .resp { display: flex; flex-direction: column; gap: 8px; }
 .resp-empty {
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-regular);
   color: var(--muted-foreground, #6b7280);
   text-align: center;
   padding: 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+.resp-empty-text { margin: 0; }
+.resp-empty-link {
+  font-weight: var(--fw-medium);
+  color: var(--primary, #ff3131);
+  text-decoration: underline;
 }
 .resp-list { margin: 0; display: flex; flex-direction: column; }
 /* Label du v-checkbox : pleine largeur + pas d'atténuation Vuetify. */

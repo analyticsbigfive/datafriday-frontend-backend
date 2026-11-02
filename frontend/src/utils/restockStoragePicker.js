@@ -1,0 +1,39 @@
+/**
+ * Sélecteur « Ajouter un article » de l'onglet STOCK (étape 1 de Commande).
+ * Fonctions pures : une entrée par produit (nom) à partir des cartes de la page Stockage.
+ */
+
+const norm = (s) => String(s || '').trim().toLowerCase()
+
+/**
+ * Une entrée par nom de produit (une carte existe par ensemble d'espaces). On garde la première
+ * carte portant un marketPriceId, sinon la première. Triées par nom.
+ *
+ * @returns {Array<{ name: string, marketPriceId: string, reference: string, type: string, category: string }>}
+ */
+export function pickerProducts(cards) {
+  const byName = new Map()
+  for (const c of cards || []) {
+    const name = String(c?.name || '').trim()
+    if (!name) continue
+    const key = norm(name)
+    const prev = byName.get(key)
+    if (!prev || (!prev.marketPriceId && c.marketPriceId)) {
+      byName.set(key, {
+        name: prev ? prev.name : name,
+        marketPriceId: c.marketPriceId ? String(c.marketPriceId) : '',
+        reference: c.reference || name,
+        type: c.type || '',
+        category: c.category || '',
+      })
+    }
+  }
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/** Filtre par nom (ou référence), sans casse. Requête vide = tout. */
+export function filterPickerProducts(items, query) {
+  const q = norm(query)
+  if (!q) return items || []
+  return (items || []).filter((p) => norm(p.name).includes(q) || norm(p.reference).includes(q))
+}

@@ -122,6 +122,17 @@
   gap: 8px;
 }
 
+/* Ligne des filtres dépliée par l'icône de la barre : Type, Catégories,
+   Fournisseurs, Ajustement global côte à côte, retour à la ligne seulement
+   si la largeur manque. */
+.sr-step1 .sr-stock-filters-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 8px;
+}
+
 /* ── Liste et lignes article ────────────────────────────────────────────── */
 .sr-step1 .sr-settings-list {
   gap: 12px;
@@ -428,10 +439,8 @@
   .sr-step1 :deep(.appsb__inner) {
     padding: 8px 12px;
   }
-  .sr-step1 :deep(.appsb__filters) {
-    flex: 1 1 100%;
-    margin-left: 0;
-    justify-content: flex-start;
+  .sr-step1 .sr-stock-filters-row {
+    padding: 0 12px 8px;
   }
   .sr-step1 .sr-settings-list {
     padding: 12px;

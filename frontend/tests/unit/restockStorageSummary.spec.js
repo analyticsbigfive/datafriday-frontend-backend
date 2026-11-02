@@ -83,6 +83,106 @@ describe('buildStorageSummary', () => {
   })
 })
 
+describe('buildStorageSummary : composants, fusion et stock', () => {
+  const ail = { id: 'mpail', itemName: 'Ail', pricePerUnit: 2, purchaseUnitConversion: 1 }
+  const mpFor = (r) => ({ 'mpail|||kg': ail, 'mpail|||g': ail })[r.itemKey] || (r.itemKey === 'comp' ? mps.fut : null)
+  const kgRow = row('mpail|||kg', 'Ail', { unit: 'kg' })
+  const compRow = row('comp', 'Chimichurri', { unit: 'L' })
+  const common = (over = {}) => ({
+    rows: [kgRow, compRow],
+    orderByItem: { 'mpail|||kg': 2, comp: 5 },
+    excluded: {},
+    marketPriceFor: mpFor,
+    packagingFor: () => null,
+    buyLabel: (r) => `lbl-${r.itemKey}`,
+    quantityLabel: (r, q) => `tot-${r.itemKey}-${q}`,
+    excludeRow: (r) => r.itemKey === 'comp',
+    ...over,
+  })
+  const demand = (over = {}) => ({ itemKey: 'mpail|||kg', itemName: 'Ail', unit: 'kg', quantity: 1.5, marketPriceId: 'mpail', ...over })
+
+  it('exclut la ligne composant du résumé, de la liste et des compteurs', () => {
+    const s = buildStorageSummary(common())
+    expect(s.lines.map((l) => l.itemKey)).toEqual(['mpail|||kg'])
+    expect(s.totalCount).toBe(1)
+    expect(s.total).toBe(4)
+    expect(s.lines[0].quantityLabel).toBe('lbl-mpail|||kg')
+  })
+
+  it('fusionne un ingrédient de composant avec la ligne directe (une seule ligne, libellé total)', () => {
+    const s = buildStorageSummary(common({ extraDemands: [demand()] }))
+    expect(s.lines).toHaveLength(1)
+    expect(s.lines[0].amount).toBe(7)
+    expect(s.lines[0].quantityLabel).toBe('tot-mpail|||kg-3.5')
+    expect(s.total).toBe(7)
+  })
+
+  it('recalcule le colis sur la quantité totale fusionnée', () => {
+    const seen = []
+    const s = buildStorageSummary(
+      common({
+        extraDemands: [demand({ quantity: 1.5 })],
+        packagingFor: (r, q) => {
+          seen.push(q)
+          return { packedCount: Math.ceil(q / 5), packagingUnitNumber: 5 }
+        },
+      }),
+    )
+    expect(seen).toEqual([3.5])
+    expect(s.lines[0].amount).toBe(1 * 5 * 2)
+  })
+
+  it('ingrédient de composant sans ligne directe : ligne propre', () => {
+    const s = buildStorageSummary(common({ orderByItem: { comp: 5 }, extraDemands: [demand()] }))
+    expect(s.lines).toHaveLength(1)
+    expect(s.lines[0].name).toBe('Ail')
+    expect(s.lines[0].amount).toBe(3)
+    expect(s.lines[0].quantityLabel).toBe('tot-mpail|||kg-1.5')
+  })
+
+  it('unité différente : lignes séparées, pas de conversion', () => {
+    const s = buildStorageSummary(
+      common({ extraDemands: [demand({ itemKey: 'mpail|||g', unit: 'g', quantity: 500 })] }),
+    )
+    expect(s.lines.map((l) => l.itemKey).sort()).toEqual(['mpail|||g', 'mpail|||kg'])
+    expect(s.lines.find((l) => l.itemKey === 'mpail|||kg').amount).toBe(4)
+    expect(s.total).toBe(4 + 1000)
+  })
+
+  it('includeStorage off : les lignes de stockage sont ignorées ; on : ajoutées et fusionnées', () => {
+    const storageLines = [
+      { itemKey: 'storage:e1:ail', itemName: 'Ail', unit: 'kg', marketPriceId: 'mpail', restockQuantity: 2 },
+      { itemKey: 'storage:e2:ail', itemName: 'Ail', unit: 'kg', marketPriceId: 'mpail', restockQuantity: 1 },
+      { itemKey: 'storage:e1:sel', itemName: 'Sel', unit: 'kg', marketPriceId: 'mpsel', restockQuantity: 4 },
+    ]
+    const sel = { id: 'mpsel', itemName: 'Sel', pricePerUnit: 1 }
+    const marketPriceFor = (r) => (r.itemKey === 'mpsel|||kg' ? sel : mpFor(r))
+    const off = buildStorageSummary(common({ storageLines, marketPriceFor }))
+    expect(off.total).toBe(4)
+    expect(off.lines).toHaveLength(1)
+    const on = buildStorageSummary(common({ storageLines, marketPriceFor, includeStorage: true }))
+    expect(on.lines).toHaveLength(2)
+    expect(on.lines.find((l) => l.itemKey === 'mpail|||kg').amount).toBe((2 + 2 + 1) * 2)
+    expect(on.lines.find((l) => l.itemKey === 'mpsel|||kg').amount).toBe(4)
+    expect(on.total).toBe(14)
+  })
+
+  it('stockage rattaché par nom et unité quand le Market Price manque', () => {
+    const storageLines = [{ itemKey: 'storage:e1:ail', itemName: 'AIL', unit: 'kg', restockQuantity: 1 }]
+    const on = buildStorageSummary(common({ storageLines, includeStorage: true }))
+    expect(on.lines).toHaveLength(1)
+    expect(on.lines[0].amount).toBe(6)
+  })
+
+  it('marge recalculée avec le coût incluant le stock', () => {
+    const storageLines = [{ itemKey: 'x', itemName: 'Ail', unit: 'kg', marketPriceId: 'mpail', restockQuantity: 3 }]
+    const off = buildStorageSummary(common({ storageLines }))
+    const on = buildStorageSummary(common({ storageLines, includeStorage: true }))
+    expect(marginPercent(100, off.total)).toBe(96)
+    expect(marginPercent(100, on.total)).toBe(90)
+  })
+})
+
 describe('pdvCounts', () => {
   it('a = PDV avec quantité à déposer, b = PDV de l article', () => {
     const shopRows = [

@@ -38,7 +38,7 @@ export function resolveComponentKitchen(def, kitchens = []) {
  * `resolveComponentDef` sur le catalogue, lignes stockage exclues. Un article
  * décoché ou sans quantité figée est absent de `orderByItem` → écarté.
  *
- * @returns {Array<{ itemKey, itemName, unit, quantity, kitchen, source }>}
+ * @returns {Array<{ itemKey, itemName, unit, quantity, kitchen, def, source }>}
  */
 export function collectComponentOrders({ rows = [], components = [], orderByItem = {}, kitchens = [] } = {}) {
   const out = []
@@ -62,6 +62,7 @@ export function collectComponentOrders({ rows = [], components = [], orderByItem
       unit: row.unit,
       quantity,
       kitchen: resolveComponentKitchen(def, kitchens),
+      def,
       source: row,
     })
   }
