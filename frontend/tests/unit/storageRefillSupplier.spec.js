@@ -1,4 +1,4 @@
-import { findPurchaseFor, pickSpaceHomonym } from '@/utils/storageRefillSupplier'
+import { findPurchaseFor, pickSpaceHomonym, pickStorageMarketPrice } from '@/utils/storageRefillSupplier'
 
 describe('storageRefillSupplier', () => {
   const groups = [
@@ -28,6 +28,27 @@ describe('storageRefillSupplier', () => {
       expect(pickSpaceHomonym({ itemName: 'Coca-Cola Cherry - CAN 33CL', ingredients: ingredients.slice(0, 1), marketPrices, spaceSupplierIds: new Set(['loire']) })).toBeNull()
       expect(pickSpaceHomonym({ itemName: 'Coca-Cola Cherry - CAN 33CL', ingredients, marketPrices, spaceSupplierIds: null })).toBeNull()
       expect(pickSpaceHomonym({ itemName: 'Coca-Cola Cherry - CAN 33CL', ingredients, marketPrices, spaceSupplierIds: new Set(['socodis']) })).toBeNull()
+    })
+  })
+
+  describe('pickStorageMarketPrice', () => {
+    const marketPrices = [
+      { id: 'mp-a', itemName: 'Agitateur bois', supplierId: '' },
+      { id: 'mp-b', itemName: 'Agitateur bois', supplierId: 'nanterre' },
+      { id: 'mp-c', itemName: 'Agitateur bois', supplierId: 'episaveurs' },
+    ]
+
+    it('l’id de la ligne l’emporte sur les homonymes', () => {
+      expect(pickStorageMarketPrice({ marketPriceId: 'mp-c', itemName: 'Agitateur bois', marketPrices, spaceSupplierIds: null }).id).toBe('mp-c')
+    })
+
+    it('par nom : homonyme livré dans l’espace, sinon premier avec fournisseur lié', () => {
+      expect(pickStorageMarketPrice({ itemName: 'agitateur bois', marketPrices, spaceSupplierIds: new Set(['episaveurs']) }).id).toBe('mp-c')
+      expect(pickStorageMarketPrice({ itemName: 'Agitateur bois', marketPrices, spaceSupplierIds: null }).id).toBe('mp-b')
+    })
+
+    it('null si aucun Market Price ne correspond', () => {
+      expect(pickStorageMarketPrice({ itemName: 'Fanta', marketPrices, spaceSupplierIds: null })).toBeNull()
     })
   })
 })
