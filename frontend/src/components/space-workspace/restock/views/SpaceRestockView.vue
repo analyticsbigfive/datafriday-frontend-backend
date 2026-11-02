@@ -1650,7 +1650,7 @@ import { getShopElementMappings } from '@/utils/api'
 // nom (mêmes utilitaires qu'EventPredict, clé = nom de shop normalisé).
 import { runWithConcurrency } from '@/utils/asyncPool'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
-import { findPurchaseFor, pickSpaceHomonym } from '@/utils/storageRefillSupplier'
+import { findPurchaseFor, pickSpaceHomonym, pickStorageMarketPrice } from '@/utils/storageRefillSupplier'
 import { findBestMatch } from '@/utils/menuItemMatching'
 // Formule de restant compté partagée avec useShoppingList (Règle 3) — source unique.
 import { countedRemaining } from '@/utils/shoppingList'
@@ -2482,10 +2482,20 @@ export default {
           this.menuItems,
         )
         const isMenuItem = !!ref && this.menuItems.some((m) => m.id === ref.id)
+        // Article qui n'est pas une recette (emballage, réserve du Builder) : seul le
+        // Market Price porte le fournisseur, retrouvé par id puis par nom.
+        const storageMp = isMenuItem || ref?.marketPriceId || ref?.marketPrice?.id
+          ? null
+          : pickStorageMarketPrice({
+              marketPriceId: row.marketPriceId,
+              itemName: row.itemName,
+              marketPrices: this.marketPrices,
+              spaceSupplierIds: this.spaceSupplierIds,
+            })
         const supplier = this.resolveIngredientSupplier({
           itemType: isMenuItem ? 'MenuItem' : 'Ingredient',
-          supplierId: ref?.supplierId || ref?.supplier?.id || null,
-          marketPriceId: ref?.marketPriceId || ref?.marketPrice?.id || null,
+          supplierId: storageMp?.supplierId || ref?.supplierId || ref?.supplier?.id || null,
+          marketPriceId: storageMp?.id || ref?.marketPriceId || ref?.marketPrice?.id || null,
           sourceId: ref?.sourceId != null ? ref.sourceId : ref?.id || null,
           key: ref?.id || null,
         })
