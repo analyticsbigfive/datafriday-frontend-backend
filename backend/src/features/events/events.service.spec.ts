@@ -1,3 +1,5 @@
+import { EventWindowAuditService } from './services/event-window-audit.service';
+import { EventWindowReaggregateService } from './services/event-window-reaggregate.service';
 import { Test, TestingModule } from '@nestjs/testing';
 import { EventsService } from './events.service';
 import { EventSalesSourceService } from '../event-sales-sources/event-sales-source.service';
@@ -100,6 +102,8 @@ describe('EventsService', () => {
         EventTaxonomyService, EventTeamService, EventsService, 
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EventWeezeventLinkService, useValue: mockWeezeventLinkService },
+        { provide: EventWindowAuditService, useValue: { recordIfWindowChanged: jest.fn().mockResolvedValue(false) } },
+        { provide: EventWindowReaggregateService, useValue: { reaggregateIfWindowChanged: jest.fn().mockResolvedValue(false) } },
         { provide: SpaceAccessService, useValue: spaceAccessStub() },
         // Sources de ventes déclarées (ADR multi-source) : aucune, « Démapper » inchangé.
         { provide: EventSalesSourceService, useValue: { listActive: jest.fn().mockResolvedValue([]) } },

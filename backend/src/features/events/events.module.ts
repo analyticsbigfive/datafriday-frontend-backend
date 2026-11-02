@@ -5,16 +5,20 @@ import { PredictVersionsController, PredictVersionsStandaloneController } from '
 import { PredictVersionsSummaryController } from './predict-versions-summary.controller';
 import { PredictVersionsService } from './predict-versions.service';
 import { PrismaModule } from '../../core/database/prisma.module';
+import { AggregationModule } from '../aggregation/aggregation.module';
 import { EventSalesSourcesModule } from '../event-sales-sources/event-sales-sources.module';
 import { EventTaxonomyService } from './services/event-taxonomy.service';
 import { EventTeamService } from './services/event-team.service';
 import { EventsService } from './events.service';
+import { EventWindowAuditService } from './services/event-window-audit.service';
+import { EventWindowReaggregateService } from './services/event-window-reaggregate.service';
+import { EventSalesOutsideWindowService } from './services/event-sales-outside-window.service';
 import { EventWeatherService } from './weather/event-weather.service';
 import { EventWeatherFillService } from './weather/event-weather-fill.service';
 import { EventWeatherCronService } from './weather/event-weather.cron';
 
 @Module({
-  imports: [PrismaModule, EventSalesSourcesModule],
+  imports: [PrismaModule, EventSalesSourcesModule, AggregationModule],
   controllers: [
     EventsController,
     EventTypesController,
@@ -31,6 +35,9 @@ import { EventWeatherCronService } from './weather/event-weather.cron';
     EventTaxonomyService,
     EventTeamService,
     EventsService,
+    EventWindowReaggregateService,
+    EventWindowAuditService,
+    EventSalesOutsideWindowService,
     EventWeatherService,
     EventWeatherFillService,
     EventWeatherCronService,

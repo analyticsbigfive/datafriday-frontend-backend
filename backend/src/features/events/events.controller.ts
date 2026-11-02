@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiParam, ApiQuery, ApiResponse } from '@nestjs/swagger';
 import { EventsService } from './events.service';
+import { EventSalesOutsideWindowService } from './services/event-sales-outside-window.service';
 import { CreateEventDto } from './dto/create-event.dto';
 import { UpdateEventDto } from './dto/update-event.dto';
 import { ResolveWeezeventLinkDto } from './dto/resolve-weezevent-link.dto';
@@ -23,7 +24,10 @@ import { EventTeamService } from './services/event-team.service';
 @UseGuards(JwtDatabaseGuard)
 @Controller('events')
 export class EventsController {
-  constructor(private readonly eventsService: EventsService) {}
+  constructor(
+    private readonly eventsService: EventsService,
+    private readonly salesOutsideWindow: EventSalesOutsideWindowService,
+  ) {}
 
   @RequirePermissions('menu.events.manage')
   @Post()
@@ -70,6 +74,15 @@ export class EventsController {
   @ApiResponse({ status: 404, description: 'Événement non trouvé' })
   findOne(@Req() req, @Param('id') id: string) {
     return this.eventsService.findOne(id, req.user.tenantId, req.user);
+  }
+
+  @Get(':id/sales-outside-window')
+  @ApiOperation({ summary: 'Ventes arrivées après l’heure de fin déclarée (hors fenêtre de l’événement)' })
+  @ApiParam({ name: 'id', description: 'ID de l’événement' })
+  @ApiResponse({ status: 200, description: '{ count, firstAt, lastAt, windowEnd }' })
+  async getSalesOutsideWindow(@Req() req, @Param('id') id: string) {
+    await this.eventsService.findOne(id, req.user.tenantId, req.user);
+    return this.salesOutsideWindow.forEvent(id, req.user.tenantId);
   }
 
   @RequirePermissions('menu.events.manage')

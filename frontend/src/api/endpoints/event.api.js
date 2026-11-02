@@ -43,6 +43,15 @@ export async function createEvent(event) {
  * @param {Object} updates 
  * @returns {Promise<Object>}
  */
+/**
+ * Ventes arrivées après l'heure de fin déclarée d'un événement (hors fenêtre, donc non comptées).
+ * @param {string} id
+ * @returns {Promise<{count:number, firstAt:string|null, lastAt:string|null, windowEnd:string}>}
+ */
+export async function getEventSalesOutsideWindow(id) {
+  return api.get(`/events/${id}/sales-outside-window`)
+}
+
 export async function updateEvent(id, updates) {
   return api.patch(`/events/${id}`, updates)
 }
