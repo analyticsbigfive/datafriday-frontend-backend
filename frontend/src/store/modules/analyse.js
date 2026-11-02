@@ -10,6 +10,8 @@ import {
 } from '@/utils/timelineBucketing'
 import { runWithConcurrency } from '@/utils/asyncPool'
 import { makeCostFor } from '@/utils/eventCostLookup'
+import { eventHasSales, keepEventsWithSales } from '@/utils/eventHasSales'
+import { rollupByEvent } from '@/utils/analyseRollupTotals'
 import {
   resolveItemName,
   resolveShopType,
@@ -809,6 +811,8 @@ const getters = {
         const d = eventDateOf(e)
         return !d || d <= today
       })
+      // Règle Bertrand : un event sans vente n'a pas eu lieu, hors de tous les calculs.
+      evs = keepEventsWithSales(evs)
     }
     return evs
   },
@@ -825,7 +829,7 @@ const getters = {
     today.setHours(0, 0, 0, 0)
     return evs.filter((e) => {
       const d = eventDateOf(e)
-      return !d || d <= today
+      return (!d || d <= today) && eventHasSales(e)
     })
   },
 
@@ -1324,7 +1328,9 @@ const getters = {
   // Sert de base pour reconstruire les events de la période précédente / N-1
   // en réappliquant uniquement le filtre date sur la fenêtre voulue.
   eventsMatchingFiltersExceptDate(state, g) {
-    return filterEvents(g.eventsInActiveConfiguration, state.filters, null, { skipDate: true })
+    const isPredictTb = state.selectedToolbox === 'predict' || state.selectedToolbox === 'event-predict'
+    const evs = isPredictTb ? g.eventsInActiveConfiguration : keepEventsWithSales(g.eventsInActiveConfiguration)
+    return filterEvents(evs, state.filters, null, { skipDate: true })
   },
 
   // Totaux KPI sur la période courante (depuis filteredEvents/filteredShopGranularData)
@@ -1366,6 +1372,17 @@ const getters = {
       event.quantity += quantity
       if (!event.eventName && r.eventName) event.eventName = r.eventName
       if (!event.eventDate && r.eventDate) event.eventDate = r.eventDate
+    }
+
+    // CA et transactions : rollup Event quand le périmètre est « des events entiers »
+    // (même source que la bande KPI). Le coût et la quantité restent au grain records.
+    const isPredict = state.selectedToolbox === 'predict' || state.selectedToolbox === 'event-predict'
+    const rollup = rollupByEvent(g.filteredEvents, state.filters, isPredict)
+    if (rollup) {
+      for (const [id, agg] of byEvent) {
+        const r = rollup.get(id)
+        if (r) { agg.revenue = r.revenue; agg.transactions = r.transactions }
+      }
     }
 
     return Array.from(byEvent.values()).map((e) => ({
