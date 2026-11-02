@@ -51,7 +51,8 @@ export function revenueBySpace(db: SqlClient, tenantId: string, spaceIds: string
 /**
  * Billets scannés (sinon vendus) par espace, sur la saison la plus récente, des seuls events DÉJÀ
  * JOUÉS : même définition que la page Analyse (référence du per cap), sans les matchs à venir dont
- * les billets ne sont que prévus. `spaceIds` non vide.
+ * les billets ne sont que prévus. Règle Bertrand : un event sans vente (CA 0 et 0 transaction dans le
+ * rollup Event) n'a pas eu lieu, il est exclu. `spaceIds` non vide.
  */
 export function ticketsBySpace(db: SqlClient, tenantId: string, spaceIds: string[]): Promise<Array<{ spaceId: string; ticketsCount: number }>> {
   return db.$queryRaw(Prisma.sql`
@@ -61,6 +62,7 @@ export function ticketsBySpace(db: SqlClient, tenantId: string, spaceIds: string
     LEFT JOIN win w ON w."spaceId" = e."spaceId"
     WHERE e."tenantId" = ${tenantId} AND e."spaceId" IN (${Prisma.join(spaceIds)})
       AND e."eventDate" <= NOW()
+      AND (COALESCE(e."revenue", 0) > 0 OR COALESCE(e."transactionCount", 0) > 0)
       AND (w."spaceId" IS NULL OR (e."eventDate" >= w."startDate" AND e."eventDate" < w."endExclusive"))
     GROUP BY e."spaceId"
   `);
