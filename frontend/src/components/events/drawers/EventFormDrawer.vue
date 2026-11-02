@@ -407,6 +407,11 @@
         </div>
       </div>
 
+      <div v-if="mode === 'edit' && salesOutside.outside.value" class="efd-warning">
+        <AlertCircle :size="14" />
+        {{ salesOutsideMessage() }}
+      </div>
+
       <!-- BUG-146 : avertissement non bloquant, ne bloque ni la saisie ni submit() -->
       <div v-if="ticketsScannedExceedsSold" class="efd-warning">
         <AlertCircle :size="14" />
@@ -541,6 +546,7 @@ import { Plus, Save, Calendar, Building2, Tag, List, Ticket, Settings, CircleDol
 import EventDrawerShell from './EventDrawerShell.vue';
 import NumberField from '@/components/common/NumberField.vue';
 import { createEvent, updateEvent } from '@/api/endpoints/event.api';
+import { useEventSalesOutsideWindow } from '@/composables/useEventSalesOutsideWindow';
 import { getTeams as restGetTeams, createTeam as restCreateTeam } from '@/api/endpoints/team.api';
 import EventTypeDialog from '../dialogs/EventTypeDialog.vue';
 import EventCategoryDialog from '../dialogs/EventCategoryDialog.vue';
@@ -606,6 +612,10 @@ export default {
   },
 
   emits: ['update:modelValue', 'submitted'],
+
+  setup() {
+    return { salesOutside: useEventSalesOutsideWindow() };
+  },
 
   data() {
     return {
@@ -725,6 +735,7 @@ export default {
   watch: {
     async modelValue(isOpen) {
       if (!isOpen) return;
+      if (this.mode === 'edit') this.salesOutside.load(this.initialEvent?.id);
       this.loadTeams();
       if (!this.spaces.length) await this.$store.dispatch('spaces/fetchSpaces').catch(() => {});
       const taxonomyLoads = [];
@@ -811,6 +822,12 @@ export default {
 
   methods: {
     t(key) { return translate(key, this.locale); },
+    salesOutsideMessage() {
+      const o = this.salesOutside.outside.value;
+      if (!o) return '';
+      return this.t('eventsList.salesOutsideWindow')
+        .replace('{count}', o.count).replace('{first}', o.first).replace('{last}', o.last).replace('{end}', o.end);
+    },
     handleLocaleChange(event) { this.locale = event.detail.locale; },
 
     normalizeId(value) {
