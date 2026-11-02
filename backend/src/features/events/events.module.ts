@@ -10,6 +10,7 @@ import { EventSalesSourcesModule } from '../event-sales-sources/event-sales-sour
 import { EventTaxonomyService } from './services/event-taxonomy.service';
 import { EventTeamService } from './services/event-team.service';
 import { EventsService } from './events.service';
+import { EventWindowAuditService } from './services/event-window-audit.service';
 import { EventWindowReaggregateService } from './services/event-window-reaggregate.service';
 import { EventSalesOutsideWindowService } from './services/event-sales-outside-window.service';
 import { EventWeatherService } from './weather/event-weather.service';
@@ -35,6 +36,7 @@ import { EventWeatherCronService } from './weather/event-weather.cron';
     EventTeamService,
     EventsService,
     EventWindowReaggregateService,
+    EventWindowAuditService,
     EventSalesOutsideWindowService,
     EventWeatherService,
     EventWeatherFillService,
