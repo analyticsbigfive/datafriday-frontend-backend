@@ -45,3 +45,23 @@ export function computeEventRollupTotals(events, filters, isPredict = false) {
   }
   return { revenue, transactions, eventsWithRevenueCount }
 }
+
+/**
+ * CA / transactions du rollup PAR event (Map eventId -> { revenue, transactions }), ou null
+ * quand le rollup ne s'applique pas (mêmes conditions que computeEventRollupTotals).
+ * Sert aux graphiques « par événement » pour qu'ils donnent le même chiffre que la bande KPI :
+ * la somme des records shop-level (get_space_shop_details) ignore les locations Weezevent non
+ * rattachées à un PdV de la config (ex. 4 223,81 EUR / 234 tickets pour SFP-La Rochelle).
+ */
+export function rollupByEvent(events, filters, isPredict = false) {
+  if (isPredict || hasIntraEventFilters(filters)) return null
+  const evs = events || []
+  if (!evs.length) return null
+  const map = new Map()
+  for (const e of evs) {
+    const r = e.revenue
+    if (r == null || Number.isNaN(Number(r))) return null
+    map.set(e.id, { revenue: Number(r), transactions: Number(e.transactionCount || 0) })
+  }
+  return map
+}
