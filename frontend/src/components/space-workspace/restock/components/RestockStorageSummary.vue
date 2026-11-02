@@ -3,11 +3,23 @@
     <header class="rss-head">
       <div class="rss-head-row">
         <span class="rss-title">{{ t('srStorageSummaryTitle') }}</span>
-        <strong class="rss-total">{{ t('srStorageSummaryCa') }} {{ formatCurrencyDetailed(summary.total) }}</strong>
+        <strong class="rss-total">{{ t('srStorageSummaryCa') }} {{ revenueLabel }}</strong>
       </div>
       <div class="rss-sub-row">
         <span class="rss-subtitle">{{ subtitle }}</span>
-        <span v-if="margin != null" class="rss-margin">{{ t('srStorageSummaryMargin') }} {{ marginLabel }}</span>
+        <span class="rss-margin">{{ t('srStorageSummaryMargin') }} {{ marginLabel }}</span>
+      </div>
+      <div class="rss-sub-row">
+        <label class="rss-include">
+          <input
+            type="checkbox"
+            class="rss-include-box"
+            :checked="includeStorage"
+            @change="$emit('update:includeStorage', $event.target.checked)"
+          />
+          <span>{{ t('srStorageSummaryIncludeStock') }}</span>
+        </label>
+        <strong class="rss-cost">{{ t('srStorageSummaryCost') }} {{ formatCurrencyDetailed(summary.total) }}</strong>
       </div>
       <div
         class="rss-progress"
@@ -60,7 +72,10 @@ export default {
     summary: { type: Object, required: true },
     /** CA prédit HT des versions sélectionnées ; null/0 = marge masquée. */
     predictedRevenue: { type: Number, default: null },
+    /** Case « Inclure le stock » (état d'affichage, porté par la vue). */
+    includeStorage: { type: Boolean, default: false },
   },
+  emits: ['update:includeStorage'],
   setup() {
     const { t } = useI18n()
     return { t, formatCurrencyDetailed }
@@ -78,7 +93,11 @@ export default {
     margin() {
       return marginPercent(this.predictedRevenue, this.summary.total)
     },
+    revenueLabel() {
+      return this.predictedRevenue != null ? formatCurrencyDetailed(this.predictedRevenue) : '-'
+    },
     marginLabel() {
+      if (this.margin == null) return '-'
       return `${new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(this.margin)} %`
     },
     /** Articles cochés / total, borné à 0-100 (barre fine sous le sous-titre). */
@@ -140,10 +159,14 @@ export default {
   text-transform: uppercase;
   color: var(--sr-text, #0f172a);
 }
-.rss-total { font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--sr-text, #0f172a); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rss-total,
+.rss-cost { font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--sr-text, #0f172a); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rss-sub-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .rss-subtitle,
 .rss-margin { font-size: var(--fs-sm); font-weight: var(--fw-regular); color: var(--sr-faint, #9ca3af); white-space: nowrap; }
+.rss-include { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: var(--fs-sm); font-weight: var(--fw-regular); color: var(--sr-muted, #6b7280); }
+.rss-include-box { width: 16px; height: 16px; margin: 0; cursor: pointer; accent-color: var(--sr-text, #0f172a); }
+.rss-include-box:focus-visible { outline: 2px solid #64748b; outline-offset: 2px; }
 .rss-progress { height: 4px; margin-top: 4px; border-radius: 999px; background: #e5e7eb; overflow: hidden; }
 .rss-progress-fill { display: block; height: 100%; border-radius: 999px; background: var(--sr-muted, #6b7280); transition: width 160ms ease; }
 .rss-empty { font-size: var(--fs-sm); color: var(--sr-faint, #9ca3af); text-align: center; padding: 12px 8px; margin: 0; }
