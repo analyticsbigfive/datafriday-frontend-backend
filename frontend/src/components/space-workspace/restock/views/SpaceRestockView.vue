@@ -354,24 +354,37 @@
             :clear-label="t('srClear') || 'Clear'"
           >
             <template #filters>
-              <RestockStockFilters
-                v-model:type="stockFilterType"
-                v-model:category="stockFilterCategory"
-                v-model:supplier="stockFilterSupplier"
-                :options="stockFilterOptions"
-              />
-              <RestockGlobalAdjustMenu
-                :label="t('srAdjustmentShort')"
-                :reset-label="t('srReset')"
-                :select-all-label="t('srSelectAll')"
-                :deselect-all-label="t('srDeselectAll')"
-                :all-selected="allStockSelected"
-                @apply="applyStockAdjustmentToAll"
-                @reset="resetStockAdjustments"
-                @toggle-all="toggleAllStock"
+              <RestockFilterToggle
+                :label="t('srStockFiltersToggle')"
+                :expanded="stockFiltersOpen"
+                :active="stockFiltersActive"
+                controls-id="sr-stock-filters-row"
+                @toggle="stockFiltersOpen = !stockFiltersOpen"
               />
             </template>
           </AppSearchBar>
+          <div
+            v-if="stockTab === 'shops' && stockFiltersOpen"
+            id="sr-stock-filters-row"
+            class="sr-stock-filters-row"
+          >
+            <RestockStockFilters
+              v-model:type="stockFilterType"
+              v-model:category="stockFilterCategory"
+              v-model:supplier="stockFilterSupplier"
+              :options="stockFilterOptions"
+            />
+            <RestockGlobalAdjustMenu
+              :label="t('srAdjustmentShort')"
+              :reset-label="t('srReset')"
+              :select-all-label="t('srSelectAll')"
+              :deselect-all-label="t('srDeselectAll')"
+              :all-selected="allStockSelected"
+              @apply="applyStockAdjustmentToAll"
+              @reset="resetStockAdjustments"
+              @toggle-all="toggleAllStock"
+            />
+          </div>
 
           <v-expand-transition v-if="stockTab === 'shops'">
           <div v-show="!collapsed.stock">
@@ -538,6 +551,9 @@
                max(0, tampon − restant), ajustable jusqu'à 5× le tampon. -->
           <v-expand-transition v-else>
           <div v-show="!collapsed.stock">
+          <div v-if="selectedEvents.length" class="sr-storage-toolbar">
+            <RestockStorageProductPicker @pick="openStorageSpots" />
+          </div>
           <div v-if="!selectedEvents.length" class="sr-empty">
             {{ t('srSelectEventsEmpty') }}
           </div>
@@ -619,7 +635,18 @@
                      `.sr-setting-info span` (0,1,1) y écrasait la couleur des badges
                      d'alerte, gris sur fond rose depuis l'origine. -->
                 <div class="sr-storage-id">
-                  <strong class="sr-storage-name">{{ row.name }}</strong>
+                  <div class="sr-storage-name-line">
+                    <strong class="sr-storage-name">{{ row.name }}</strong>
+                    <button
+                      type="button"
+                      class="sr-storage-spots-btn"
+                      :aria-label="t('srStorageSpotsOpen')"
+                      :title="t('srStorageSpotsOpen')"
+                      @click="openStorageSpots({ name: row.name, marketPriceId: row.marketPriceId || '', reference: row.name })"
+                    >
+                      <v-icon size="16">mdi-tune-variant</v-icon>
+                    </button>
+                  </div>
                   <div class="sr-storage-chips">
                     <!-- Retour JLH 13/08 : le badge « Ré-approvisionnement à
                          considérer en priorité » (nearMin) est retiré — avec un
@@ -705,6 +732,13 @@
           </template>
           </div>
           </v-expand-transition>
+          <RestockStorageSpotsDrawer
+            v-model="storageSpotsOpen"
+            :product="storageSpotsProduct"
+            :space-id="storageSpaceId"
+            :space-name="currentSpace?.name || ''"
+            @closed="onStorageSpotsClosed"
+          />
 
           <!-- Assistant, pied d'étape 1 : sticky à l'écran. -->
           <footer class="sr-wizard-nav sr-wizard-nav-grid">
@@ -1388,7 +1422,13 @@
       <!-- Colonne DROITE : aperçu fournisseurs (réutilise shoppingGroups) —
            carte englobante + items façon « Résumé inventaire » de Space Inventory. -->
       <aside class="sr-suppliers" :class="{ 'sr-suppliers--step1': currentStep === 1 }">
-        <RestockStorageSummary v-if="currentStep === 1" :summary="storageSummary" :predicted-revenue="storagePredictedRevenue" />
+        <RestockStorageSummary
+          v-if="currentStep === 1"
+          v-model:include-storage="summaryIncludeStorage"
+          :summary="storageSummary"
+          :predicted-revenue="storagePredictedRevenue"
+        />
+        <RestockComponentOrdersPanel v-if="currentStep === 1" :panel="componentOrdersPanel" />
         <RestockSuppliersPanel
           :groups="displayedShoppingGroups"
           :generated="shoppingGenerated"
@@ -1683,6 +1723,9 @@ import { collectComponentOrders, groupComponentOrdersByKitchen, buildKitchenShop
 import RestockSuppliersPanel from '@/components/space-workspace/restock/components/RestockSuppliersPanel.vue'
 import RestockItemShopsDrawer from '@/components/space-workspace/restock/drawers/RestockItemShopsDrawer.vue'
 import RestockGlobalAdjustMenu from '@/components/space-workspace/restock/components/RestockGlobalAdjustMenu.vue'
+import RestockFilterToggle from '@/components/space-workspace/restock/components/RestockFilterToggle.vue'
+import RestockStorageProductPicker from '@/components/space-workspace/restock/components/RestockStorageProductPicker.vue'
+import RestockStorageSpotsDrawer from '@/components/space-workspace/restock/components/RestockStorageSpotsDrawer.vue'
 import RestockStockFilters from '@/components/space-workspace/restock/components/RestockStockFilters.vue'
 import { buildStockFilterOptions, filterStockRowsByMeta, marketPriceTypeCategory } from '@/utils/stockRowFilters'
 // Cloche de notifications (client-side) — seuils min/max storage.
@@ -1719,10 +1762,15 @@ import { normalizeType } from '@/components/spaces/views/builder2/constants/elem
 import MarketPriceEditSupplierDrawer from '@/components/menu-fb/views/market-prices/drawers/MarketPriceEditSupplierDrawer.vue'
 import RestockPlansPanel from '@/components/space-workspace/restock/RestockPlansPanel.vue'
 import RestockStorageSummary from '@/components/space-workspace/restock/components/RestockStorageSummary.vue'
+import RestockComponentOrdersPanel from '@/components/space-workspace/restock/components/RestockComponentOrdersPanel.vue'
 import { buildStorageSummary, selectedPredictedRevenue } from '@/utils/restockStorageSummary'
+import { componentIngredientDemands, buildComponentOrdersPanel } from '@/utils/restockComponentOrders'
+import { resolveComponentDef } from '@/utils/inventoryUtils'
 import NumberField from '@/components/common/NumberField.vue'
 import { isDemoMode } from '@/utils/demoMode'
 import { isEventOver } from '@/utils/eventLifecycle'
+import { upcomingPredictedEvents } from '@/utils/restockUpcomingEvents'
+import { resolvePredictedEventIds } from '@/utils/restockPredictedIds'
 
 // Garde-fou client AVANT le POST d'un plan — marge sous la garde backend
 // (restock-plans.service.ts : 1 000 000). Même métrique (JSON.stringify).
@@ -1771,7 +1819,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, RestockSuppliersPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageProductPicker, RestockStorageSpotsDrawer },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -1851,6 +1899,8 @@ export default {
       // sur le miroir localStorage. manualQuantities : colonne BDD prioritaire,
       // miroir local en repli (versions antérieures à la migration 20260625).
       bddVersionsByEventId: {},
+      // Ids des matchs à venir ayant une prédiction (summary API, repli local si échec).
+      predictedEventIds: [],
       // Méta des records lus depuis localStorage (ajustements % + menuConfig)
       // par évènement, pour reproduire les quantités EventPredict.
       predictionMetaByEventId: {},
@@ -1859,6 +1909,8 @@ export default {
       stockFilterType: '',
       stockFilterCategory: '',
       stockFilterSupplier: '',
+      // Ligne des filtres sous la barre de recherche : affichage seulement, non persisté.
+      stockFiltersOpen: false,
       // Pagination des 3 étapes (contrôles centrés dans les pieds sticky) :
       // étape 1 = articles, étape 2 = groupes (PDV ou article), étape 3 =
       // fournisseurs.
@@ -1886,6 +1938,9 @@ export default {
       // absolue est indistinguable d'un %, et la conversion exigerait
       // tampon/restant au restore, pas encore chargés à ce moment).
       stockTab: 'shops',
+      // Drawer Stockage ouvert depuis l'onglet STOCK (ligne ou sélecteur d'article).
+      storageSpotsOpen: false,
+      storageSpotsProduct: null,
       storagePercents: {},
       // « Ajustement Global » (maquette Réarmement-Stockage) : % appliqué aux
       // lignes storage SANS réglage individuel ; case décochée = inerte (100 %).
@@ -1939,6 +1994,8 @@ export default {
       // à l'entrée du mode ingrédients (cf. ensureRecipesLoaded).
       hydratedComponents: [],
       componentsHydrated: false,
+      /** Case « Inclure le stock » du résumé commande : affichage seulement, jamais sauvegardée. */
+      summaryIncludeStorage: false,
       // Catalogue fournisseurs complet (/suppliers) pour nommer le fournisseur
       // d'un ingrédient (le store analyse n'en a qu'un sous-ensemble).
       bomSuppliers: [],
@@ -2016,8 +2073,7 @@ export default {
     },
     selectedEvents() {
       const ids = new Set(this.selectedEventIds)
-      // Tous les events (pas seulement futurs) : un event AVEC prédiction peut
-      // être daté dans le passé et doit rester exploitable en réarmement.
+      // Tous les events : une sélection restaurée peut viser un event terminé.
       return this.events.filter((event) => ids.has(event.id))
     },
     canGenerate() {
@@ -2553,9 +2609,10 @@ export default {
       const out = {}
       for (const item of this.stockSettingsRows) {
         const ref = findStockReference(item, this.ingredients, this.components, this.menuItems)
-        if (!ref) continue
-        let marketPriceId = ref.marketPriceId || ref.marketPrice?.id || null
-        let supplierId = ref.supplierId || ref.supplier?.id || null
+        const isComponent = this.isComponentRow(item)
+        if (!ref && !isComponent) continue
+        let marketPriceId = ref?.marketPriceId || ref?.marketPrice?.id || null
+        let supplierId = ref?.supplierId || ref?.supplier?.id || null
         const mp = marketPriceId
           ? this.marketPrices.find((m) => m.id === marketPriceId) || null
           : null
@@ -2575,7 +2632,8 @@ export default {
           hasReference: !!(supplierName || mp),
           supplierName: supplierName || (mp ? this.t('srSupplierUndefined') : ''),
           marketPriceRow: mp,
-          typeName,
+          // Un composant n'a pas de type de Market Price : type système « Composant ».
+          typeName: isComponent ? this.t('srStockTypeComponent') : typeName,
           categoryName,
         }
       }
@@ -2599,17 +2657,19 @@ export default {
       return this.selectedEventIds[0] || null
     },
     /**
-     * Évènements PRÉDITS = futurs ayant une prévision/version sauvegardée par
-     * Event Predict (ou des records `current` persistés). Enrichis pour le
-     * picker : nom, date, showTime, config, scénarios (versions).
+     * Évènements PRÉDITS = matchs À VENIR (non terminés) ayant une prédiction
+     * Event Predict, du plus proche au plus lointain (utils/restockUpcomingEvents.js).
+     * Enrichis pour le picker : nom, date, showTime, config, scénarios (versions).
      */
     predictedEvents() {
-      return [...this.events]
-        .sort((a, b) => dateOnlyTs(a.eventDate || a.date) - dateOnlyTs(b.eventDate || b.date))
+      return upcomingPredictedEvents({
+        events: this.events,
+        predictedIds: this.predictedEventIds,
+        now: new Date(),
+        timeZone: this.spaceTimeZone,
+      })
         .map((event) => {
           const versions = this.versionsForEvent(event.id)
-          const hasCurrent = this.hasSavedPrediction(event.id)
-          if (!versions.length && !hasCurrent) return null
           return {
             id: event.id,
             name: this.eventLabel(event),
@@ -2625,7 +2685,6 @@ export default {
             })),
           }
         })
-        .filter(Boolean)
     },
     stockRowsRaw() {
       const grouped = new Map()
@@ -2766,6 +2825,9 @@ export default {
         sourceNames: [],
         recipeComponents: [],
       }))
+    },
+    stockFiltersActive() {
+      return !!(this.stockFilterType || this.stockFilterCategory || this.stockFilterSupplier)
     },
     filteredStockSettingsRows() {
       const base = filterStockRowsByMeta(this.stockSettingsRows, this.stockItemMetaByItem, {
@@ -3274,12 +3336,7 @@ export default {
      */
     componentKitchenGroups() {
       if (this.shoppingTab !== 'components' || !this.shoppingGenerated) return []
-      const orders = collectComponentOrders({
-        rows: this.stockSettingsRows,
-        components: this.hydratedComponents.length ? this.hydratedComponents : this.components,
-        orderByItem: this.stockOrderByItem,
-        kitchens: this.store.getters['kitchens/kitchens'] || [],
-      }).map((order) => {
+      const orders = this.componentOrders.map((order) => {
         const buy = this.buyInfo(order.source)
         const shopNames = this.loadedPlan
           ? []
@@ -3296,7 +3353,31 @@ export default {
       if (this.objectiveSource !== 'forecast') return null
       return selectedPredictedRevenue(this.predictedEvents, this.selectedEventIds, this.selectedScenarioByEventId)
     },
-    /** Résumé stockage (colonne droite, étape 1) : logique dans utils/restockStorageSummary. */
+    /** Catalogue des composants (recettes hydratées si disponibles). */
+    componentCatalog() {
+      return this.hydratedComponents.length ? this.hydratedComponents : this.components
+    },
+    /** Composants à commander de l'étape 1 (avec leur définition), base du résumé et de la carte. */
+    componentOrders() {
+      return collectComponentOrders({
+        rows: this.stockSettingsRows,
+        components: this.componentCatalog,
+        orderByItem: this.stockOrderByItem,
+        kitchens: this.store.getters['kitchens/kitchens'] || [],
+      })
+    },
+    /** Lignes de l'onglet STOCK : vivantes, ou photo figée du plan chargé. */
+    summaryStorageLines() {
+      return this.loadedPlan ? this.restockRows.filter((row) => row.elementType === 'storage') : this.liveStorageRestockRows
+    },
+    /** Carte COMMANDE COMPOSANTS : cuisine, « À commander » de l'étape 1, coût (unitCost x quantité). */
+    componentOrdersPanel() {
+      return buildComponentOrdersPanel(this.componentOrders, {
+        quantityLabel: (order) => this.buyInfo(order.source).main,
+        labels: { local: this.t('srKitchenLocal'), undefined: this.t('srKitchenUndefined') },
+      })
+    },
+    /** Résumé commande (colonne droite, étape 1) : logique dans utils/restockStorageSummary. */
     storageSummary() {
       const shopRowsByItem = this.loadedPlan
         ? groupRowsByItemKey(this.restockRows.filter((row) => row.elementType !== 'storage'))
@@ -3306,13 +3387,19 @@ export default {
         rows: this.stockSettingsRows,
         orderByItem: this.stockOrderByItem,
         excluded: this.stockExcluded,
+        // Les composants ne s'achètent pas à un fournisseur : leurs ingrédients les remplacent.
+        excludeRow: (row) => this.isComponentRow(row),
+        extraDemands: componentIngredientDemands(this.componentOrders, this.componentCatalog),
+        includeStorage: this.summaryIncludeStorage,
+        storageLines: this.summaryStorageLines,
         marketPriceFor: (row) => {
           const ref = findStockReference(row, this.ingredients, this.components, this.menuItems)
-          const mpId = ref?.marketPriceId || ref?.marketPrice?.id || null
+          const mpId = row.marketPriceId || ref?.marketPriceId || ref?.marketPrice?.id || null
           return resolveMarketPrice({ name: row.itemName, marketPriceId: mpId }, this.marketPrices)
         },
         packagingFor: (row, qty) => this.packagingForItem(row, qty),
         buyLabel: (row) => this.buyInfo(row).main,
+        quantityLabel: (row, qty) => this.buyInfoForQuantity(row, qty).main,
         shopRowsByItem,
         storageRows,
       })
@@ -3771,6 +3858,15 @@ export default {
     clearTimeout(this._planCorrectionsTimer)
   },
   methods: {
+    openStorageSpots(product) {
+      if (!product?.name || !this.storageSpaceId) return
+      this.storageSpotsProduct = product
+      this.storageSpotsOpen = true
+    },
+    /** Fermeture du drawer : relit l'inventaire (tampons, réassort, résumé commande). */
+    onStorageSpotsClosed() {
+      this.loadStorageInventory(this.storageSpaceId, { force: true })
+    },
     async loadAll() {
       this.loading = true
       try {
@@ -3794,6 +3890,8 @@ export default {
         this.loadStorageInventory(this.currentSpace?.id || spaceId)
         // fiche 314-01 — noms fournisseurs dès l'étape 1 (chips + drawer).
         this.ensureBomSuppliers()
+        // Recettes des composants dès l'étape 1 (ingrédients du résumé commande).
+        this.ensureComponentsHydrated()
 
         // #7 — si on arrive depuis l'inventaire/predict avec ?event=<id> et que
         // c'est un event passé, on le prend comme référence d'objectif.
@@ -3801,36 +3899,38 @@ export default {
         // Date prévue de l'évènement passée depuis EventPredict (?date=ISO).
         const queryDate = this.route?.query?.date || null
         if (queryDate) this.plannedEventDate = queryDate
-        // Un évènement AVEC prédiction EventPredict sauvegardée est exploitable
-        // en mode Prévision QUELLE QUE SOIT sa date (passé/futur). On essaie les
-        // deux clés space (URL slug vs id interne).
-        const eventHasPrediction = (id) => !!id && (
-          localDb.getEventPredictVersions(id).length > 0 ||
-          this.hasSavedPrediction(id)
+        // Matchs à venir prédits : un seul summary API (repli local si échec), puis les
+        // versions de ces matchs pour que chaque carte ait ses scénarios et son CA prédit.
+        const hasLocalPrediction = (id) =>
+          localDb.getEventPredictVersions(id).length > 0 || this.hasSavedPrediction(id)
+        this.predictedEventIds = await resolvePredictedEventIds(
+          this.futureEvents.map((e) => e.id),
+          hasLocalPrediction,
         )
+        await this.syncBddVersions(this.predictedEventIds)
+        // Seuls les ids de la liste (matchs à venir prédits) sont sélectionnables :
+        // un ?event= ou un cookie vers un match passé est ignoré.
+        const listedIds = new Set(this.predictedEvents.map((e) => e.id))
+        const queryListed = !!queryEventId && listedIds.has(queryEventId)
         // Fallback sans ?event= : dernier event prédit mémorisé (cookie local).
         let cookieEvent = null
         if (!queryEventId) {
           const last = localDb.getLastPredictedEvent(this.route?.params?.spaceId)
-          if (eventHasPrediction(last?.eventId)) cookieEvent = last
+          if (last?.eventId && listedIds.has(last.eventId)) cookieEvent = last
         }
-        const queryHasPrediction = eventHasPrediction(queryEventId)
         const queryEventIsPast = !!queryEventId &&
           this.pastEvents.some((e) => String(e.id) === String(queryEventId))
-        const queryEventIsFuture = !!queryEventId &&
-          this.futureEvents.some((e) => String(e.id) === String(queryEventId))
-        // Nav explicite (prédiction / futur / cookie) prime sur l'état persisté.
-        const hasNavEvent = queryHasPrediction || queryEventIsFuture || !!cookieEvent
+        // Nav explicite (liste / cookie) prime sur l'état persisté.
+        const hasNavEvent = queryListed || !!cookieEvent
 
-        // Référence ventes : event passé SANS prédiction uniquement.
-        if (queryEventIsPast && !queryHasPrediction) {
+        // Référence ventes (mode masqué, non touché) : event passé.
+        if (queryEventIsPast) {
           this.referenceEventId = queryEventId
         }
         if (!this.referenceEventId && this.pastEvents.length) {
           this.referenceEventId = this.pastEvents[this.pastEvents.length - 1].id
         }
-        // Sélection Prévision : ?event avec prédiction (toute date) ou futur, sinon cookie.
-        if ((queryHasPrediction || queryEventIsFuture) && !this.selectedEventIds.includes(queryEventId)) {
+        if (queryListed && !this.selectedEventIds.includes(queryEventId)) {
           this.selectedEventIds = [queryEventId]
           this.objectiveSource = 'forecast'
           this.ensureDefaultScenario(queryEventId)
@@ -3840,15 +3940,11 @@ export default {
           this.ensureDefaultScenario(cookieEvent.eventId)
           if (!this.plannedEventDate && cookieEvent.date) this.plannedEventDate = cookieEvent.date
         }
-        // Défaut si rien : 1er event prédit, sinon 1er event futur.
-        if (!this.selectedEventIds.length) {
-          if (this.predictedEvents.length) {
-            this.selectedEventIds = [this.predictedEvents[0].id]
-            this.objectiveSource = 'forecast'
-            this.ensureDefaultScenario(this.predictedEvents[0].id)
-          } else if (this.futureEvents.length) {
-            this.selectedEventIds = [this.futureEvents[0].id]
-          }
+        // Défaut si rien : le prochain match prédit (1er de la liste).
+        if (!this.selectedEventIds.length && this.predictedEvents.length) {
+          this.selectedEventIds = [this.predictedEvents[0].id]
+          this.objectiveSource = 'forecast'
+          this.ensureDefaultScenario(this.predictedEvents[0].id)
         }
         // Date prévue par défaut = date de l'event sélectionné si pas de ?date=.
         if (!this.plannedEventDate && this.selectedEventIds.length) {
@@ -3859,9 +3955,7 @@ export default {
         // loadSpace), APRÈS l'await. Sans lui, buildStockRequirements ne trouve
         // aucune recette → 0 ligne. On attend qu'il soit prêt (max ~6s).
         await this.waitForMenuItems()
-        // Rapatrie les versions BDD des events sélectionnés AVANT le calcul des
-        // prédictions → le réarmement reproduit la version active même sans pont.
-        await this.syncBddVersions(this.selectedEventIds)
+        // Les versions BDD des matchs prédits sont déjà rapatriées (plus haut), AVANT le calcul.
         this.refreshSelectedPredictions()
         // Assignation menu par shop (NestJS) → split « non rattachés » en step 2.
         this.loadRestockShopAssignment()
@@ -3917,7 +4011,12 @@ export default {
       if (!opts.keepNavSelection) {
         if (saved.objectiveSource) this.objectiveSource = saved.objectiveSource
         if (saved.referenceEventId != null) this.referenceEventId = saved.referenceEventId
-        if (Array.isArray(saved.selectedEventIds)) this.selectedEventIds = saved.selectedEventIds
+        if (Array.isArray(saved.selectedEventIds)) {
+          // Jamais d'id absent de la liste (match passé ou sans prédiction).
+          const listed = new Set(this.predictedEvents.map((e) => e.id))
+          const kept = saved.selectedEventIds.filter((id) => listed.has(id))
+          if (kept.length) this.selectedEventIds = kept
+        }
       }
       if (saved.stockAdjustments) this.stockAdjustments = { ...saved.stockAdjustments }
       // Chantier 388 : état antérieur sans le champ → aucun réglage PDV.
@@ -5636,6 +5735,40 @@ export default {
       if (mode === 'ingredients' && this.shoppingGenerated) await this.ensureRecipesLoaded()
     },
     /**
+     * Ligne d'étape 1 qui est un composant (MenuComponent) : même test que
+     * collectComponentOrders (resolveComponentDef sur le catalogue), lignes stockage exclues.
+     */
+    isComponentRow(row) {
+      if (!row || row.elementType === 'storage') return false
+      return !!resolveComponentDef({ sourceId: row.sourceId ?? row.itemId ?? null, name: row.itemName }, this.componentCatalog)
+    },
+    /**
+     * Recettes (subComponents) des composants : nécessaires dès l'étape 1 (ingrédients
+     * du résumé commande), pas seulement pour la feuille de course. Une seule fois.
+     */
+    async ensureComponentsHydrated() {
+      if (this.componentsHydrated || !this.components.length) return
+      this.componentsHydrated = true
+      try {
+        // Pas de `mergeSubComponentsFromCatalog` ici : il n'y a qu'UN catalogue
+        // (`store.analyse.components`), et le fusionner avec lui-même serait un
+        // no-op qui se lirait comme une étape utile. Ce catalogue est déjà hydraté
+        // quand il vient de `useSpaceData` (vague 2b → `SET_COMPONENTS`) : dans ce
+        // cas `hydrateSubComponents` ne déclenche aucun appel. Le fetch ne sert
+        // qu'au chemin legacy (`utils/api.js`, liste brute sans `subComponents`).
+        const { components: hydrated, hydrated: okCount, missing: koCount } =
+          await hydrateSubComponents(this.components, { ingredients: this.ingredients })
+        this.hydratedComponents = hydrated
+        console.log(
+          `[restock] recettes composants : ${hydrated.filter((c) => c?.subComponents?.length).length}/${hydrated.length} avec subComponents ` +
+            `(détail : ${okCount} hydratés, ${koCount} sans recette)`,
+        )
+      } catch (e) {
+        console.warn('[restock] hydratation composants échouée:', e?.message)
+        this.hydratedComponents = this.components
+      }
+    },
+    /**
      * Charge les recettes détaillées manquantes pour les menu items vendus/prédits.
      * La liste /menu-items ne porte pas ingredients/components/packagings : on lit
      * le détail /menu-items/:id (relations nichées) en parallèle, puis on cache.
@@ -5658,32 +5791,8 @@ export default {
         console.warn('[restock] loadMarketPrices échoué:', e?.message)
       }
       await this.ensureBomSuppliers()
-      // BUG-292-01 — recette des COMPOSANTS. La liste /menu-components ne renvoie
-      // pas `subComponents` : on complète depuis le catalogue déjà en mémoire, puis
-      // par fetch détail borné pour ce qu'il reste. Échec toléré (le composant
-      // reste une ligne d'achat), mais la couverture est tracée : un éclatement
-      // inerte doit être lisible dans les logs, pas silencieux.
-      if (!this.componentsHydrated) {
-        this.componentsHydrated = true
-        try {
-          // Pas de `mergeSubComponentsFromCatalog` ici : il n'y a qu'UN catalogue
-          // (`store.analyse.components`), et le fusionner avec lui-même serait un
-          // no-op qui se lirait comme une étape utile. Ce catalogue est déjà hydraté
-          // quand il vient de `useSpaceData` (vague 2b → `SET_COMPONENTS`) — dans ce
-          // cas `hydrateSubComponents` ne déclenche aucun appel. Le fetch ne sert
-          // qu'au chemin legacy (`utils/api.js`, liste brute sans `subComponents`).
-          const { components: hydrated, hydrated: okCount, missing: koCount } =
-            await hydrateSubComponents(this.components, { ingredients: this.ingredients })
-          this.hydratedComponents = hydrated
-          console.log(
-            `[restock] 🧩 recettes composants — ${hydrated.filter((c) => c?.subComponents?.length).length}/${hydrated.length} avec subComponents ` +
-              `(détail : ${okCount} hydratés, ${koCount} sans recette)`,
-          )
-        } catch (e) {
-          console.warn('[restock] hydratation composants échouée:', e?.message)
-          this.hydratedComponents = this.components
-        }
-      }
+      // BUG-292-01 : recette des COMPOSANTS (échec toléré, voir ensureComponentsHydrated).
+      await this.ensureComponentsHydrated()
       const ids = Array.from(
         new Set(this.menuItemDemandRows.map((d) => d.menuItemId).filter(Boolean)),
       )
@@ -5897,6 +6006,10 @@ export default {
       if (order == null) {
         return { main: '—', sub: '', covered: false, unknown: true }
       }
+      return this.buyInfoForQuantity(item, order)
+    },
+    /** Libellé « À commander » d'une quantité donnée (ligne fusionnée du résumé commande incluse). */
+    buyInfoForQuantity(item, order) {
       if (!(order > 0)) {
         return {
           main: this.t('srBuyNothing'),
@@ -6672,6 +6785,13 @@ export default {
 .sr-sidebar {
   /* Colonne à scroll propre (cf. .sr-body > *) — plus de sticky. */
   min-width: 0;
+}
+
+/* Les v-card Vuetify ont overflow:hidden : en colonne flex leur min-height
+   automatique vaut 0 et elles se compressent au lieu de déborder, la colonne
+   n'a alors rien à faire défiler sur un écran peu haut. */
+.sr-sidebar > * {
+  flex-shrink: 0;
 }
 
 .sr-toolbox-select {
@@ -8349,6 +8469,41 @@ export default {
 
 .sr-storage-id {
   min-width: 0;
+}
+
+.sr-storage-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 16px 8px;
+}
+
+.sr-storage-name-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.sr-storage-spots-btn {
+  appearance: none;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--sr-text-muted, #6b7280);
+  cursor: pointer;
+}
+
+.sr-storage-spots-btn:hover,
+.sr-storage-spots-btn:focus-visible {
+  background: rgba(128, 128, 128, 0.16);
+  color: var(--sr-text, #111827);
 }
 
 .sr-storage-name {

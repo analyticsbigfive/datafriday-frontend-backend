@@ -81,7 +81,10 @@ export function stockCounts(mp, row, storageRows) {
   return all.size ? { c: needed.size, d: all.size } : null
 }
 
+const keyUnit = (u) => (u == null || u === '' ? 'unit' : String(u))
+
 /**
+ * Résumé de la commande (étape 1).
  * @param {object} p
  * @param {Array} p.rows lignes de l'étape 1 (stockSettingsRows)
  * @param {Object<string, number>} p.orderByItem « À commander » par itemKey
@@ -89,6 +92,14 @@ export function stockCounts(mp, row, storageRows) {
  * @param {(row:object) => object|null} p.marketPriceFor Market Price de la ligne
  * @param {(row:object, qty:number) => object|null} p.packagingFor conditionnement
  * @param {(row:object) => string} p.buyLabel libellé colis de l'étape 1 (buyInfo.main)
+ * @param {(row:object, qty:number) => string} [p.quantityLabel] libellé colis pour une
+ *   quantité TOTALE (ligne fusionnée ou ajoutée) ; sans lui, une ligne fusionnée garde buyLabel
+ * @param {(row:object) => boolean} [p.excludeRow] lignes à ne pas lister (les composants)
+ * @param {Array<{itemKey,itemName,unit,quantity,sourceId?,marketPriceId?}>} [p.extraDemands]
+ *   besoins additionnels (ingrédients des composants), fusionnés par itemKey (même
+ *   Market Price ET même unité, aucune conversion)
+ * @param {boolean} [p.includeStorage] ajoute le réassort des stockages (onglet STOCK)
+ * @param {Array} [p.storageLines] lignes de l'onglet STOCK (elementType 'storage')
  * @param {Object<string, Array>} [p.shopRowsByItem] lignes PDV par itemKey
  * @param {Array} [p.storageRows] lignes des espaces de stockage
  * @returns {{total:number, selectedCount:number, totalCount:number, lines:Array}}
@@ -100,32 +111,107 @@ export function buildStorageSummary({
   marketPriceFor = () => null,
   packagingFor = () => null,
   buyLabel = () => '',
+  quantityLabel = null,
+  excludeRow = () => false,
+  extraDemands = [],
+  includeStorage = false,
+  storageLines = [],
   shopRowsByItem = {},
   storageRows = [],
 } = {}) {
-  const list = Array.isArray(rows) ? rows : []
-  const selected = list.filter((row) => row && !(excluded || {})[row.itemKey])
-  const lines = []
-  let total = 0
+  const all = Array.isArray(rows) ? rows : []
+  const list = all.filter((row) => row && !excludeRow(row))
+  const excl = excluded || {}
+  const selected = list.filter((row) => !excl[row.itemKey])
+  const rowByKey = new Map(list.map((row) => [row.itemKey, row]))
+  // itemKey -> { row, direct, added }
+  const entries = new Map()
   for (const row of selected) {
     const order = Number((orderByItem || {})[row.itemKey])
-    if (!(order > 0)) continue
+    if (order > 0) entries.set(row.itemKey, { row, direct: order, added: 0 })
+  }
+  const add = (key, fallbackRow, qty) => {
+    if (!(qty > 0)) return
+    const hit = entries.get(key)
+    if (hit) {
+      hit.added += qty
+      return
+    }
+    entries.set(key, { row: rowByKey.get(key) || fallbackRow, direct: 0, added: qty })
+  }
+
+  for (const d of extraDemands || []) {
+    if (!d || d.itemKey == null || excl[d.itemKey]) continue
+    add(d.itemKey, syntheticRow(d.itemKey, d), Number(d.quantity))
+  }
+
+  if (includeStorage) {
+    for (const line of storageLines || []) {
+      const qty = Number(line && line.restockQuantity)
+      if (!(qty > 0)) continue
+      const key = storageTargetKey(line, rowByKey, entries)
+      add(key, syntheticRow(key, line), qty)
+    }
+  }
+
+  const lines = []
+  let total = 0
+  for (const [itemKey, entry] of entries) {
+    const row = entry.row
+    const qty = entry.direct + entry.added
     const mp = marketPriceFor(row) || null
-    const amount = orderAmount(order, mp, packagingFor(row, order))
+    const amount = orderAmount(qty, mp, packagingFor(row, qty))
     total += amount
     const image = mp && typeof mp.image === 'string' && mp.image ? mp.image : ''
+    // Quantité fusionnée ou ajoutée : le libellé reflète la quantité TOTALE.
+    let label = buyLabel(row)
+    if (entry.added > 0) label = quantityLabel ? quantityLabel(row, qty) : entry.direct > 0 ? buyLabel(row) : ''
     lines.push({
-      itemKey: row.itemKey,
+      itemKey,
       name: row.itemName,
       amount,
-      quantityLabel: buyLabel(row),
+      quantityLabel: label,
       image,
-      pdv: pdvCounts(row, (shopRowsByItem || {})[row.itemKey]),
+      pdv: pdvCounts(row, (shopRowsByItem || {})[itemKey]),
       stock: stockCounts(mp, row, storageRows),
     })
   }
   lines.sort((a, b) => b.amount - a.amount || String(a.name).localeCompare(String(b.name)))
   return { total, selectedCount: selected.length, totalCount: list.length, lines }
+}
+
+/** Ligne minimale pour un article qui n'a pas de ligne directe à l'étape 1. */
+function syntheticRow(itemKey, src) {
+  return {
+    itemKey,
+    itemName: src.itemName,
+    unit: src.unit || '',
+    itemId: src.itemId || null,
+    sourceId: src.sourceId || null,
+    marketPriceId: src.marketPriceId || null,
+    shopCount: 0,
+  }
+}
+
+/**
+ * itemKey de l'étape 1 qui reçoit une ligne de stockage : Market Price + unité,
+ * puis id article + unité, puis nom + unité ; sinon une clé propre (ligne seule).
+ */
+function storageTargetKey(line, rowByKey, entries) {
+  const unit = keyUnit(line.unit)
+  const candidates = [line.marketPriceId, line.itemId]
+    .filter((v) => v != null && v !== '')
+    .map((v) => `${v}|||${unit}`)
+  for (const key of candidates) {
+    if (rowByKey.has(key) || entries.has(key)) return key
+  }
+  const name = norm(line.itemName)
+  if (name) {
+    const sameName = (r) => r && norm(r.itemName) === name && keyUnit(r.unit) === unit
+    for (const row of rowByKey.values()) if (sameName(row)) return row.itemKey
+    for (const [key, e] of entries) if (sameName(e.row)) return key
+  }
+  return candidates[0] || `name:${name}|||${unit}`
 }
 
 /**
