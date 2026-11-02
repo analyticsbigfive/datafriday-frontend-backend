@@ -63,3 +63,30 @@ export function pickSpaceHomonym({ itemName, ingredients, marketPrices, spaceSup
   })
   return inSpace ? String(inSpace.id) : null
 }
+
+/**
+ * Market Price d'une ligne de stockage qui n'est pas une recette (article d'emballage,
+ * réserve saisie dans le Builder). Id d'abord (survit aux homonymes), sinon le nom :
+ * parmi les homonymes, celui dont le fournisseur livre l'espace, puis le premier qui a
+ * un fournisseur lié. null si rien ne correspond.
+ * @param {object} p
+ * @param {string|null} [p.marketPriceId]
+ * @param {string} p.itemName
+ * @param {Array<{id:string, itemName?:string, supplierId?:string}>} p.marketPrices
+ * @param {Set<string>|null} p.spaceSupplierIds
+ * @returns {object|null}
+ */
+export function pickStorageMarketPrice({ marketPriceId, itemName, marketPrices, spaceSupplierIds }) {
+  const list = marketPrices || []
+  if (marketPriceId) {
+    const byId = list.find((mp) => String(mp?.id) === String(marketPriceId))
+    if (byId) return byId
+  }
+  const name = normalizeStr(itemName)
+  if (!name) return null
+  const homonyms = list.filter((mp) => normalizeStr(mp?.itemName) === name)
+  if (!homonyms.length) return null
+  const linked = homonyms.filter((mp) => mp.supplierId != null && mp.supplierId !== '')
+  const inSpace = spaceSupplierIds ? linked.find((mp) => spaceSupplierIds.has(String(mp.supplierId))) : null
+  return inSpace || linked[0] || homonyms[0]
+}
