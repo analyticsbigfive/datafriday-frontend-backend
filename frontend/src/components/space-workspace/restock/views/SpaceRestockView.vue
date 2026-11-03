@@ -551,13 +551,10 @@
                max(0, tampon − restant), ajustable jusqu'à 5× le tampon. -->
           <v-expand-transition v-else>
           <div v-show="!collapsed.stock">
-          <div v-if="selectedEvents.length" class="sr-storage-toolbar">
-            <RestockStorageProductPicker :space-id="storageSpaceId" @pick="openStorageSpots" />
-          </div>
           <div v-if="!selectedEvents.length" class="sr-empty">
             {{ t('srSelectEventsEmpty') }}
           </div>
-          <div v-else-if="storageInventoryLoading" class="sr-empty">
+          <div v-else-if="storageInventoryFirstLoad" class="sr-empty">
             {{ t('srBreakdownLoading') }}
           </div>
           <div v-else-if="storageRestockGroups.length === 0" class="sr-empty">
@@ -1741,7 +1738,6 @@ import RestockSuppliersPanel from '@/components/space-workspace/restock/componen
 import RestockItemShopsDrawer from '@/components/space-workspace/restock/drawers/RestockItemShopsDrawer.vue'
 import RestockGlobalAdjustMenu from '@/components/space-workspace/restock/components/RestockGlobalAdjustMenu.vue'
 import RestockFilterToggle from '@/components/space-workspace/restock/components/RestockFilterToggle.vue'
-import RestockStorageProductPicker from '@/components/space-workspace/restock/components/RestockStorageProductPicker.vue'
 import RestockStorageSpotsDrawer from '@/components/space-workspace/restock/components/RestockStorageSpotsDrawer.vue'
 import RestockStorageBuffersDrawer from '@/components/space-workspace/restock/components/RestockStorageBuffersDrawer.vue'
 import RestockStockFilters from '@/components/space-workspace/restock/components/RestockStockFilters.vue'
@@ -1837,7 +1833,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageProductPicker, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -2272,6 +2268,10 @@ export default {
     },
     storageInventoryLoading() {
       return this.store.getters['storageInventory/isFetching'](this.storageSpaceId)
+    },
+    /** Premier chargement seulement : un rechargement (fermeture d'un drawer) garde l'onglet affiché. */
+    storageInventoryFirstLoad() {
+      return this.storageInventoryLoading && !this.storageBuilderElements.length
     },
     /**
      * Groupes de l'onglet Espaces de stockage : un groupe par élément Storage
@@ -8510,11 +8510,6 @@ export default {
   font-weight: var(--fw-medium);
 }
 
-.sr-storage-toolbar {
-  display: flex;
-  justify-content: flex-end;
-  padding: 0 16px 8px;
-}
 
 .sr-storage-name-line {
   display: flex;

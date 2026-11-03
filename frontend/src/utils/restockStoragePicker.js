@@ -44,10 +44,3 @@ export function cardsForSpace(cards, spaceId) {
     return !ids.length || ids.map(String).includes(id)
   })
 }
-
-/** Filtre par nom (ou référence), sans casse. Requête vide = tout. */
-export function filterPickerProducts(items, query) {
-  const q = norm(query)
-  if (!q) return items || []
-  return (items || []).filter((p) => norm(p.name).includes(q) || norm(p.reference).includes(q))
-}

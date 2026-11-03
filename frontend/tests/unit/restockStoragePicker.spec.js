@@ -1,4 +1,4 @@
-import { pickerProducts, filterPickerProducts } from '@/utils/restockStoragePicker'
+import { pickerProducts } from '@/utils/restockStoragePicker'
 
 describe('restockStoragePicker', () => {
   const cards = [
@@ -18,14 +18,6 @@ describe('restockStoragePicker', () => {
   it('entrée vide ou absente', () => {
     expect(pickerProducts(null)).toEqual([])
     expect(pickerProducts([])).toEqual([])
-  })
-
-  it('filtre sans casse par nom ou référence, requête vide = tout', () => {
-    const items = pickerProducts(cards)
-    expect(filterPickerProducts(items, 'BIÈRE').map((p) => p.name)).toEqual(['Bière blonde'])
-    expect(filterPickerProducts(items, 'coc-33').map((p) => p.name)).toEqual(['Coca'])
-    expect(filterPickerProducts(items, '  ')).toHaveLength(2)
-    expect(filterPickerProducts(items, 'zzz')).toEqual([])
   })
 })
 
