@@ -1,4 +1,4 @@
-import { storageBufferRows, filterBufferRows } from '@/utils/restockStorageBuffers'
+import { storageBufferRows, filterBufferRows, isStorageBufferRow } from '@/utils/restockStorageBuffers'
 
 const products = [
   { name: 'Heineken - 30L', marketPriceId: 'mp-h' },
@@ -38,5 +38,18 @@ describe('filterBufferRows', () => {
     const rows = storageBufferRows(products, {})
     expect(filterBufferRows(rows, 'heine').map((r) => r.name)).toEqual(['Heineken - 30L'])
     expect(filterBufferRows(rows, '  ')).toHaveLength(2)
+  })
+})
+
+describe('isStorageBufferRow', () => {
+  it('ligne décochée exclue même avec un tampon', () => {
+    expect(isStorageBufferRow({ name: 'Ail Semoule', quantity: 5, isStored: false })).toBe(false)
+  })
+  it('tampon ou seuils : gardée ; rien : exclue', () => {
+    expect(isStorageBufferRow({ name: 'a', quantity: 5, isStored: true })).toBe(true)
+    expect(isStorageBufferRow({ name: 'a', quantity: 5 })).toBe(true)
+    expect(isStorageBufferRow({ name: 'a', quantity: 0, minStock: 2 })).toBe(true)
+    expect(isStorageBufferRow({ name: 'a', quantity: 0, isStored: true })).toBe(false)
+    expect(isStorageBufferRow({ quantity: 5 })).toBe(false)
   })
 })
