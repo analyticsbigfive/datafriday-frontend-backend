@@ -141,6 +141,8 @@ const props = defineProps({
   spaceName: { type: String, default: '' },
   readOnly: { type: Boolean, default: false },
   isDark: { type: Boolean, default: false },
+  // Onglet ouvert au départ : 'shops' (défaut) ou 'storages'.
+  initialTab: { type: String, default: 'shops' },
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -155,6 +157,7 @@ const {
   productNames: names,
   products: toRef(props, 'products'),
   readOnly: toRef(props, 'readOnly'),
+  initialTab: toRef(props, 'initialTab'),
 })
 
 const spotIcon = computed(() => (tab.value === 'storages' ? Warehouse : Store))
