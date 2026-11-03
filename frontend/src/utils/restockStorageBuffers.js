@@ -47,11 +47,13 @@ export function filterBufferRows(rows, query) {
 }
 
 /**
- * Ligne d'inventaire d'un stockage affichée dans l'onglet STOCK : stockée ici (case du drawer
- * non décochée) ET utile, c'est-à-dire avec un tampon ou des seuils. Une ligne décochée garde
- * son tampon en base (isStored: false) mais ne compte plus.
+ * Ligne d'inventaire d'un stockage affichée dans l'onglet STOCK :
+ *  - cochée dans le drawer (isStored: true) : toujours, même à tampon 0 (« Rien à commander ») ;
+ *  - décochée (isStored: false) : jamais, même si elle garde son tampon en base ;
+ *  - ligne historique sans case (isStored absent) : seulement avec un tampon ou des seuils.
  */
 export function isStorageBufferRow(r) {
   if (!r || !r.name || r.isStored === false) return false
+  if (r.isStored === true) return true
   return (Number(r.quantity) || 0) > 0 || r.minStock != null || r.maxStock != null
 }

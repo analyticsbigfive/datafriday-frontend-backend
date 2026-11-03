@@ -45,11 +45,14 @@ describe('isStorageBufferRow', () => {
   it('ligne décochée exclue même avec un tampon', () => {
     expect(isStorageBufferRow({ name: 'Ail Semoule', quantity: 5, isStored: false })).toBe(false)
   })
+  it('cochée à tampon 0 : gardée (Rien à commander)', () => {
+    expect(isStorageBufferRow({ name: 'Agitateur bois', quantity: 0, isStored: true })).toBe(true)
+  })
   it('tampon ou seuils : gardée ; rien : exclue', () => {
     expect(isStorageBufferRow({ name: 'a', quantity: 5, isStored: true })).toBe(true)
     expect(isStorageBufferRow({ name: 'a', quantity: 5 })).toBe(true)
     expect(isStorageBufferRow({ name: 'a', quantity: 0, minStock: 2 })).toBe(true)
-    expect(isStorageBufferRow({ name: 'a', quantity: 0, isStored: true })).toBe(false)
+    expect(isStorageBufferRow({ name: 'a', quantity: 0 })).toBe(false)
     expect(isStorageBufferRow({ quantity: 5 })).toBe(false)
   })
 })

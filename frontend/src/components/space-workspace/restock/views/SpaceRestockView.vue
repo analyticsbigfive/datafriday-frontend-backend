@@ -2373,7 +2373,7 @@ export default {
           const counted = this.aggregateCountsForElements([elId])
           const rows = invRows
             .filter((r) => {
-              // Ligne décochée (retirée du stockage) exclue même si elle garde un tampon.
+              // Cochée = affichée (même à tampon 0) ; décochée = exclue (cf. isStorageBufferRow).
               return isStorageBufferRow(r)
             })
             .map((r) => {
