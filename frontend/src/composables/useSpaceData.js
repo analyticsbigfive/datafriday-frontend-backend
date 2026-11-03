@@ -31,6 +31,7 @@ import { getAllPackagingTypes } from '@/api/endpoints/inventory.api'
 import { getWeezeventProducts } from '@/api/endpoints/aggregation.api'
 import { getProductMappings } from '@/api/endpoints/mapping.api'
 import { enrichGranularMenuDimensions } from '@/utils/analyseDimensions'
+import { retryRequest, settleRequest } from '@/utils/retryRequest'
 
 const normalizeList = (v) => (Array.isArray(v) ? v : v?.data || [])
 
@@ -200,12 +201,27 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
     // les données secondaires arrivent (two-phase rendering).
     const loadEnrichment = async (onPartial = null) => {
       const _t2 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
+      // ── Appels réseau de la vague 2b lancés DÈS MAINTENANT, en parallèle de 2a ──
+      // Ils ne dépendent ni du granular ni de menuItems (seule la FUSION plus bas
+      // les utilise) : avant, ils ne démarraient qu'après la fin de la jointure
+      // lourde des ventes, et le catalogue de Commandes restait bloqué derrière.
+      // `settleRequest` ne rejette jamais (pas de rejet non géré si 2a sort tôt) et
+      // retient l'erreur pour distinguer « vide » de « en échec ».
+      const _t2b = _t2
+      const recipeCatalogRequests = skipRecipeCatalog ? null : Promise.all([
+        // Boucle paginée OBLIGATOIRE (fiche 345-01) : sans elle, seuls les 100
+        // premiers ingrédients (tri alphabétique) arrivaient — « Tsingtao »,
+        // « X1 »… perdaient leur conditionnement au Réarmement.
+        settleRequest(() => fetchAllPaginated((p) => getIngredients(p)), { label: 'ingredients' }),
+        settleRequest(() => fetchAllMenuComponents(), { label: 'menuComponents' }),
+        settleRequest(() => getAllPackagingTypes(), { label: 'packagings' }),
+      ])
       // ── Vague 2a : tout ce dont les GRAPHES ont besoin ─────────────────────
       // Séparée de 2b (recettes) pour que `enriching` retombe dès que les ventes
       // détaillées sont là, sans attendre la pagination /menu-components + son
       // fan-out de détails (concurrence 5) qui n'alimente que Restock/Stock up.
-      const [apiMenuItems, granularDetails, apiProductTypes, apiProductCategories, apiWeezeventProducts, apiWeezeventProductMappings] = await Promise.all([
-        getAllMenuItems(spaceId).catch((e) => { console.warn('[useSpaceData] ⚠️ menuItems failed:', e?.response?.status, e?.message); return [] }),
+      const [menuItemsResult, granularDetails, apiProductTypes, apiProductCategories, apiWeezeventProducts, apiWeezeventProductMappings] = await Promise.all([
+        settleRequest(() => getAllMenuItems(spaceId), { label: 'menuItems' }),
         // Granular data — heavy join, lancé à t=0 (avant la phase 1), consommé ici.
         granularPromise,
         getProductTypes().catch(() => []),
@@ -237,7 +253,10 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         return emptyPayload
       }
 
-      const menuItems = normalizeList(apiMenuItems)
+      const menuItems = normalizeList(menuItemsResult.value)
+      // Erreurs de chargement par ressource (null = OK). Un échec n'est plus
+      // déguisé en liste vide : le store et la page Commandes peuvent réessayer.
+      const catalogErrors = { menuItems: menuItemsResult.error }
       const productTypes = normalizeList(apiProductTypes)
       const productCategories = normalizeList(apiProductCategories)
       const weezeventProducts = normalizeList(apiWeezeventProducts)
@@ -295,6 +314,7 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         // store (réconciliation). Jusqu'ici fetchée puis jetée.
         productTypes,
         productCategories,
+        catalogErrors: { ...catalogErrors },
       }
       console.log(
         `[useSpaceData] phase 2a ✅ ${normalizedMenuItems.length} menu items, ${granularData.length} granular records`,
@@ -316,15 +336,13 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
       // porte que des REFS ({ingredientId, numberOfUnits}) sans nom — on résout
       // les noms côté front (resolveComponentRefs) tant que le backend ne
       // dénormalise pas components[] (cf. docs/dejaFaits/menuItems.api.md).
-      const _t2b = (typeof performance !== 'undefined' ? performance.now() : Date.now())
-      const [apiIngredients, apiMenuComponents, apiPackagings] = await Promise.all([
-        // Boucle paginée OBLIGATOIRE (fiche 345-01) : sans elle, seuls les 100
-        // premiers ingrédients (tri alphabétique) arrivaient — « Tsingtao »,
-        // « X1 »… perdaient leur conditionnement au Réarmement.
-        fetchAllPaginated((p) => getIngredients(p)).catch((e) => { console.warn('[useSpaceData] ⚠️ ingredients failed:', e?.response?.status, e?.message); return [] }),
-        fetchAllMenuComponents().catch((e) => { console.warn('[useSpaceData] ⚠️ menuComponents failed:', e?.response?.status, e?.message); return [] }),
-        getAllPackagingTypes().catch((e) => { console.warn('[useSpaceData] ⚠️ packagings failed:', e?.response?.status, e?.message); return [] }),
-      ])
+      const [ingredientsResult, componentsResult, packagingsResult] = await recipeCatalogRequests
+      catalogErrors.ingredients = ingredientsResult.error
+      catalogErrors.components = componentsResult.error
+      catalogErrors.packagings = packagingsResult.error
+      const apiIngredients = ingredientsResult.value
+      const apiMenuComponents = componentsResult.value
+      const apiPackagings = packagingsResult.value
 
       const catalogIngredients = normalizeList(apiIngredients)
       const catalogComponents = normalizeList(apiMenuComponents)
@@ -384,6 +402,7 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         menuItems: taggedMenuItems,
         ingredients,
         components,
+        catalogErrors,
       }
     }
 
@@ -411,12 +430,15 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
           menuItems: full.menuItems, // refs catalogue résolues (mêmes ids qu'en 2a)
           ingredients: full.ingredients,
           components: full.components,
+          catalogErrors: full.catalogErrors,
         }))
         .catch((e) => {
           console.warn('[useSpaceData] ⚠️ enrichment background load failed:', e?.message)
           // Payload VIDE : lève le skeleton sans rien écraser. Un `menuItems: []`
           // ici effacerait ce que la vague 2a a déjà affiché si c'est 2b qui jette.
-          onEnrichment({})
+          // Signale l'échec du catalogue recette (sans rien écraser) : la page
+          // Commandes affiche le bandeau au lieu d'attendre des composants qui ne viendront pas.
+          onEnrichment(skipRecipeCatalog ? {} : { catalogErrors: { components: { status: null, message: e?.message || 'enrichment failed' } } })
         })
       return { ...phase1Result, menuItems: [], suppliers: [], ingredients: [], components: [] }
     }
