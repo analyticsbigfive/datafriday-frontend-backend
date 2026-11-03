@@ -394,7 +394,7 @@
       </div>
     </div>
 
-    <IngredientPickerDrawer v-model="ingredientDrawer" :is-dark="isDark" @add="onIngredientsAdded" />
+    <IngredientPickerDrawer v-model="ingredientDrawer" :is-dark="isDark" :space-ids="form.spaceIds" @add="onIngredientsAdded" />
 
     <!-- Prix du marché de l'ingrédient (même bloc que la Market Price List) -->
     <MarketPriceItemDrawer v-model="marketPriceDrawer" :item-name="marketPriceItemName" :is-dark="isDark" @changed="onMarketPricesChanged" />
