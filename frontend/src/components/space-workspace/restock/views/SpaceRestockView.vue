@@ -621,7 +621,16 @@
                   {{ group.rows.length }} {{ group.rows.length > 1 ? t('srItemPlural') : t('srItemSingular') }}
                 </v-chip>
               </h3>
-              <div v-if="!group.rows.length" class="sr-empty">{{ t('srStorageNoBuffer') }}</div>
+              <div v-if="!group.rows.length" class="sr-empty sr-storage-empty">
+                {{ t('srStorageNoBuffer') }}
+                <v-btn
+                  class="sr-storage-configure"
+                  variant="outlined"
+                  size="small"
+                  prepend-icon="mdi-tune-variant"
+                  @click="openStorageBuffers(group)"
+                >{{ t('srStorageConfigure') }}</v-btn>
+              </div>
               <div
                 v-for="row in group.rows"
                 :key="row.key"
@@ -732,6 +741,14 @@
           </template>
           </div>
           </v-expand-transition>
+          <RestockStorageBuffersDrawer
+            v-model="storageBuffersOpen"
+            :space-id="storageSpaceId"
+            :space-name="currentSpace?.name || ''"
+            :element-id="storageBuffersTarget?.elementId || ''"
+            :storage-name="storageBuffersTarget?.name || ''"
+            @closed="onStorageSpotsClosed"
+          />
           <RestockStorageSpotsDrawer
             v-model="storageSpotsOpen"
             :product="storageSpotsProduct"
@@ -1726,6 +1743,7 @@ import RestockGlobalAdjustMenu from '@/components/space-workspace/restock/compon
 import RestockFilterToggle from '@/components/space-workspace/restock/components/RestockFilterToggle.vue'
 import RestockStorageProductPicker from '@/components/space-workspace/restock/components/RestockStorageProductPicker.vue'
 import RestockStorageSpotsDrawer from '@/components/space-workspace/restock/components/RestockStorageSpotsDrawer.vue'
+import RestockStorageBuffersDrawer from '@/components/space-workspace/restock/components/RestockStorageBuffersDrawer.vue'
 import RestockStockFilters from '@/components/space-workspace/restock/components/RestockStockFilters.vue'
 import { buildStockFilterOptions, filterStockRowsByMeta, marketPriceTypeCategory } from '@/utils/stockRowFilters'
 // Cloche de notifications (client-side) — seuils min/max storage.
@@ -1819,7 +1837,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageProductPicker, RestockStorageSpotsDrawer },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageProductPicker, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -1941,6 +1959,8 @@ export default {
       // Drawer Stockage ouvert depuis l'onglet STOCK (ligne ou sélecteur d'article).
       storageSpotsOpen: false,
       storageSpotsProduct: null,
+      storageBuffersOpen: false,
+      storageBuffersTarget: null,
       storagePercents: {},
       // « Ajustement Global » (maquette Réarmement-Stockage) : % appliqué aux
       // lignes storage SANS réglage individuel ; case décochée = inerte (100 %).
@@ -3864,6 +3884,12 @@ export default {
       this.storageSpotsOpen = true
     },
     /** Fermeture du drawer : relit l'inventaire (tampons, réassort, résumé commande). */
+    /** « Paramétrer » d'un stockage sans tampon : drawer des stocks tampons de ce stockage. */
+    openStorageBuffers(group) {
+      if (!group?.elementId || !this.storageSpaceId) return
+      this.storageBuffersTarget = { elementId: String(group.elementId), name: group.elementName }
+      this.storageBuffersOpen = true
+    },
     onStorageSpotsClosed() {
       this.loadStorageInventory(this.storageSpaceId, { force: true })
     },
@@ -8469,6 +8495,19 @@ export default {
 
 .sr-storage-id {
   min-width: 0;
+}
+
+.sr-storage-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.sr-storage-configure {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-medium);
 }
 
 .sr-storage-toolbar {
