@@ -1,6 +1,7 @@
 // src/store/modules/inventory.js
 // Vuex module: inventaire (counts par space+event, market prices, packaging types).
 
+import { retryRequest } from '@/utils/retryRequest'
 import {
   getInventory as apiGetInventory,
   saveInventory as apiSaveInventory,
@@ -49,6 +50,8 @@ const state = () => ({
   inventoryCounts: {}, // { [shopId]: { [itemId]: InventoryCount } }
   marketPrices: [],
   marketPricesCachedAt: null,
+  // Erreur du dernier chargement des coûts (après essais) ; null = OK. Ne vide jamais la liste.
+  marketPricesError: null,
   packagingTypes: [],
   packagingTypesCachedAt: null,
   lastEvent: null,
@@ -92,7 +95,9 @@ const mutations = {
   SET_MARKET_PRICES(state, v) {
     state.marketPrices = Array.isArray(v) ? v : []
     state.marketPricesCachedAt = Date.now()
+    state.marketPricesError = null
   },
+  SET_MARKET_PRICES_ERROR(state, v) { state.marketPricesError = v || null },
   SET_PACKAGING_TYPES(state, v) {
     state.packagingTypes = Array.isArray(v) ? v : []
     state.packagingTypesCachedAt = Date.now()
@@ -344,12 +349,14 @@ const actions = {
         // Boucle paginée (fiche 345-01) : le backend plafonne à 200/page — un
         // catalogue plus gros était tronqué en silence (conditionnements et
         // fournisseurs introuvables au Réarmement pour la fin de l'alphabet).
-        const list = await fetchAllPaginated((params) => getMarketPrices(params), { limit: 200 })
+        const list = await fetchAllPaginated((params) => retryRequest(() => getMarketPrices(params)), { limit: 200 })
         commit('SET_MARKET_PRICES', list)
         localDb.setMarketPricesCache(list)
         console.log(`[inventory] 💰✅ loadMarketPrices OK — ${list.length} coût(s) récupéré(s) depuis l'API`, list.slice(0, 3))
       } catch (e) {
         console.error('[inventory] 💰❌ loadMarketPrices ÉCHEC —', e?.response?.status, e?.response?.data ?? e?.message)
+        // Échec signalé (et non plus confondu avec « vide ») ; la liste déjà présente est gardée.
+        commit('SET_MARKET_PRICES_ERROR', { status: e?.response?.status ?? null, message: e?.message || String(e) })
       } finally {
         _catalogInFlight.delete('marketPrices')
       }

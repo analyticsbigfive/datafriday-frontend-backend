@@ -39,6 +39,7 @@ import {
 import { filterEvents, eventDateOf } from '@/utils/analyseEventFilter'
 import { resolveDateBounds, previousPeriodBoundsOf, yearOverYearBoundsOf } from '@/utils/analyseDateBounds'
 import { buildActiveFilterChips, buildPeriodChip } from '@/utils/analyseFilterChips'
+import { pickCatalogList, hasCatalogError } from '@/utils/catalogLoadStatus'
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 // getConfiguration : MIGRÉ vers l'API NestJS (projet Supabase alsgd VIVANT) au lieu
 // du make-server Edge Function (projet uvxx MORT → 500/522). Import DYNAMIQUE au
@@ -632,6 +633,10 @@ const state = () => ({
   // Analyse et Live chargent avec `skipRecipeCatalog` : le cache 15 min ne doit alors pas
   // servir un store sans recette à Restock/Inventory/Predict, qui la lisent après `await`.
   recipeCatalogLoaded: false,
+  // Échec définitif (après essais) par ressource catalogue : { menuItems, ingredients,
+  // components, packagings } → erreur { status, message } ou null. Distingue « vide »
+  // de « en échec » pour la page Commandes (bandeau + bouton Réessayer).
+  catalogLoadErrors: {},
   weezeventProducts: [],       // WeezeventProduct[] — prix réels (basePrice) pour Event Predict
   weezeventProductMappings: [], // [{ weezeventProductId, menuItemId }] — lien produit→MenuItem (coûts)
   // Taxonomie DataFriday (catalogue) — source UNIQUE des dimensions item (type/catégorie).
@@ -1492,6 +1497,7 @@ const mutations = {
   SET_INGREDIENTS(state, i) { state.ingredients = i || [] },
   SET_COMPONENTS(state, c) { state.components = c || [] },
   SET_RECIPE_CATALOG_LOADED(state, v) { state.recipeCatalogLoaded = !!v },
+  SET_CATALOG_LOAD_ERRORS(state, errors) { state.catalogLoadErrors = errors ? { ...state.catalogLoadErrors, ...errors } : {} },
   SET_WEEZEVENT_PRODUCTS(state, p) { state.weezeventProducts = p || [] },
   SET_WEEZEVENT_PRODUCT_MAPPINGS(state, m) { state.weezeventProductMappings = m || [] },
   // Heavy arrays (>50k records on the Adidas Arena mock) — freeze so Vuex
@@ -1753,6 +1759,7 @@ const actions = {
     commit('SET_LOADING', true)
     commit('SET_ENRICHING', true)
     commit('SET_ERROR', null)
+    commit('SET_CATALOG_LOAD_ERRORS', null)
     try {
       await dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog })
     } catch (err) {
@@ -1801,7 +1808,10 @@ const actions = {
       // présentes — sinon la 2e passe, qui n'envoie que son delta, remettrait à []
       // la taxonomie et les suppliers posés par la 1re (et le fallback d'erreur
       // effacerait les menu items déjà affichés).
-      if (enrichment.menuItems) commit('SET_MENU_ITEMS', enrichment.menuItems)
+      // Un échec définitif (enrichment.catalogErrors) ne vide jamais une liste déjà présente.
+      const catalogErrors = enrichment.catalogErrors
+      if (catalogErrors) commit('SET_CATALOG_LOAD_ERRORS', catalogErrors)
+      if (enrichment.menuItems) commit('SET_MENU_ITEMS', pickCatalogList(enrichment.menuItems, catalogErrors?.menuItems, state.menuItems))
       // Taxonomie catalogue → source unique des dimensions item (réconciliation).
       if (enrichment.productTypes || enrichment.productCategories) {
         commit('SET_TAXONOMY', {
@@ -1810,10 +1820,12 @@ const actions = {
         })
       }
       if (enrichment.suppliers) commit('SET_SUPPLIERS', enrichment.suppliers)
-      if (enrichment.ingredients) commit('SET_INGREDIENTS', enrichment.ingredients)
+      if (enrichment.ingredients) commit('SET_INGREDIENTS', pickCatalogList(enrichment.ingredients, catalogErrors?.ingredients, state.ingredients))
       if (enrichment.components) {
-        commit('SET_COMPONENTS', enrichment.components)
-        commit('SET_RECIPE_CATALOG_LOADED', true)
+        commit('SET_COMPONENTS', pickCatalogList(enrichment.components, catalogErrors?.components, state.components))
+        // Pas « chargé » si un catalogue a échoué : le prochain loadSpace recharge
+        // au lieu de réutiliser un catalogue vide pendant 15 min (cache fresh).
+        commit('SET_RECIPE_CATALOG_LOADED', !hasCatalogError(catalogErrors))
       }
       // Coûts (MARGE) : complète le costMap de phase 1 (shop-details) avec les
       // coûts dérivés des menu items (phase 2). Shop-details prioritaire → on
@@ -1839,6 +1851,11 @@ const actions = {
       // Phase 2 terminée → on retire les skeletons des graphiques.
       commit('SET_ENRICHING', false)
     }, { excludeSimulated: !isLive, skipRecipeCatalog })
+    // Revalidation du MÊME espace : le résultat phase 1 porte des catalogues vides par
+    // construction (l'enrichissement arrive par callback). Les committer effaçait un
+    // catalogue déjà chargé, puis le laissait vide si la vague 2b échouait.
+    const sameSpaceReload = state.space?.id != null && String(state.space.id) === String(spaceId)
+    const keepIfEmpty = (next, current) => pickCatalogList(next, sameSpaceReload, current)
     commit('SET_SPACE', data.space)
     commit('SET_CONFIGURATIONS', data.configurations || [])
     commit('SET_SHOP_GRANULAR', data.shopGranularData || [])
@@ -1850,10 +1867,10 @@ const actions = {
       ...state.menuItemCostMap,
       ...(data.menuItemCostMap || {}),
     })
-    commit('SET_MENU_ITEMS', data.menuItems || [])
+    commit('SET_MENU_ITEMS', keepIfEmpty(data.menuItems, state.menuItems))
     commit('SET_SUPPLIERS', data.suppliers || [])
-    commit('SET_INGREDIENTS', data.ingredients || [])
-    commit('SET_COMPONENTS', data.components || [])
+    commit('SET_INGREDIENTS', keepIfEmpty(data.ingredients, state.ingredients))
+    commit('SET_COMPONENTS', keepIfEmpty(data.components, state.components))
     commit('SET_WEEZEVENT_PRODUCTS', data.weezeventProducts || [])
     commit('SET_WEEZEVENT_PRODUCT_MAPPINGS', data.weezeventProductMappings || [])
     commit('SET_SUMMARY', data.summary || null)
