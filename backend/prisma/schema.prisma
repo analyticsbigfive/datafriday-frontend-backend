@@ -628,6 +628,7 @@ model Season {
   spaces        SeasonSpace[]
   menuItems     MenuItem[]       @relation("LegacyMenuItemSeason")
   menuItemLinks MenuItemSeason[]
+  componentLinks MenuComponentSeason[]
 
   @@index([tenantId])
 }
@@ -653,6 +654,18 @@ model MenuItemSeason {
   season   Season   @relation(fields: [seasonId], references: [id], onDelete: Cascade)
 
   @@id([menuItemId, seasonId])
+  @@index([seasonId])
+}
+
+/// Saisons d'un composant (N-N), même contrat que MenuItemSeason.
+model MenuComponentSeason {
+  componentId String
+  seasonId    String
+
+  component MenuComponent @relation(fields: [componentId], references: [id], onDelete: Cascade)
+  season    Season        @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+
+  @@id([componentId, seasonId])
   @@index([seasonId])
 }
 
@@ -2094,6 +2107,7 @@ model MenuComponent {
   componentType        ComponentType?        @relation(fields: [componentTypeId], references: [id], onDelete: SetNull)
   componentCategoryRef ComponentCategory?    @relation(fields: [componentCategoryId], references: [id], onDelete: SetNull)
   kitchen              Kitchen?              @relation(fields: [kitchenId], references: [id], onDelete: SetNull)
+  seasonLinks          MenuComponentSeason[]
 
   @@index([tenantId])
   @@index([name])

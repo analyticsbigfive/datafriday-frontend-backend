@@ -12,6 +12,7 @@ import { TenantListCache } from '../../shared/cache/tenant-list-cache';
 import { MenuComponentCostService } from './services/menu-component-cost.service';
 import { MenuComponentValidationService } from './services/menu-component-validation.service';
 import { MenuComponentItemPropagationService } from './services/menu-component-item-propagation.service';
+import { assertSeasonsBelongToTenant, componentSeasonLinksInclude, seasonLinksWrite, withSeasonIds } from './services/menu-component-seasons';
 import { assertBrickUnused, getComponentUsage } from '../../shared/cost-propagation/brick-usage';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
@@ -173,6 +174,7 @@ export class MenuComponentsService {
   private readonly includeRelations = {
     // Nom de la cuisine : affiché même si elle est hors des espaces de l'utilisateur.
     kitchen: { select: { id: true, name: true } },
+    ...componentSeasonLinksInclude,
     ingredients: {
       // marketPrice scopé (supplier/supplierId/supplierRel.name seulement, PAS image qui peut
       // être un base64 volumineux) : nécessaire pour résoudre le fournisseur affiché colonne
@@ -220,6 +222,7 @@ export class MenuComponentsService {
         ),
         this.menuComponentValidationService.assertComponentTypeAccessible(dto.componentTypeId, tenantId),
         this.menuComponentValidationService.assertComponentCategoryAccessible(dto.componentCategoryId, tenantId),
+        assertSeasonsBelongToTenant(this.prisma, dto.seasonIds, tenantId),
       ]);
       const spaceIds = await this.scopedSpaces(dto.spaceIds ?? [], [], user);
       const kitchen = await resolveKitchenFields(this.prisma, dto, tenantId);
@@ -246,6 +249,7 @@ export class MenuComponentsService {
           spaceIds,
           componentTypeId: dto.componentTypeId,
           componentCategoryId: dto.componentCategoryId,
+          ...(dto.seasonIds?.length ? { seasonLinks: { create: seasonLinksWrite(dto.seasonIds).create } } : {}),
 
           ...(ingredientsLines
             ? {
@@ -292,7 +296,7 @@ export class MenuComponentsService {
       // Composant créé sans lignes (coût saisi à la main ou nul) : version initiale de l'historique.
       await this.menuComponentCostService.recordSnapshots(tenantId, [component.id], 'created', { componentId: component.id });
       await this.listCache.invalidate(tenantId);
-      return component;
+      return withSeasonIds(component);
     } catch (error) {
       this.logger.error(`Failed to create menu component: ${error.message}`, error.stack);
       if (error.code === 'P2003') {
@@ -340,7 +344,7 @@ export class MenuComponentsService {
           ]);
           this.logger.log(`Found ${components.length}/${total} menu components`);
           return {
-            data: components,
+            data: components.map(withSeasonIds),
             meta: { total, page, limit, totalPages: Math.ceil(total / limit) },
           };
         },
@@ -368,7 +372,7 @@ export class MenuComponentsService {
     }
 
     await this.assertComponentSpaces(component.spaceIds, user);
-    return component;
+    return withSeasonIds(component);
   }
 
   async update(id: string, dto: UpdateMenuComponentDto, tenantId: string, user?: SpaceScopedUser) {
@@ -414,7 +418,9 @@ export class MenuComponentsService {
       ),
       this.menuComponentValidationService.assertComponentTypeAccessible(dto.componentTypeId, tenantId),
       this.menuComponentValidationService.assertComponentCategoryAccessible(dto.componentCategoryId, tenantId),
+      assertSeasonsBelongToTenant(this.prisma, dto.seasonIds, tenantId),
     ]);
+    if (dto.seasonIds !== undefined) updateData.seasonLinks = seasonLinksWrite(dto.seasonIds);
 
     if (ingredientsLines) {
       updateData.ingredients = {
@@ -460,7 +466,7 @@ export class MenuComponentsService {
       if (dto.unitCost !== undefined) void this.itemPropagation.propagate(id, tenantId);
 
       await this.listCache.invalidate(tenantId);
-      return component;
+      return withSeasonIds(component);
     } catch (error) {
       this.logger.error(`Failed to update menu component ${id}: ${error.message}`, error.stack);
       if (error.code === 'P2003') {

@@ -188,6 +188,7 @@
 import { Check, ChevronDown, ChevronRight, Clock, Plus, Search, Truck, Wheat, X } from 'lucide-vue-next';
 import { useI18n } from '@/i18n/useI18n';
 import { formatCurrencyDetailed } from '@/composables/useFormatters';
+import { filterIngredientRowsBySpaces, getRowSupplierSiteIds } from '@/utils/ingredientSpaceFilter';
 
 export default {
   name: 'IngredientPickerDrawer',
@@ -195,6 +196,8 @@ export default {
   props: {
     modelValue: { type: Boolean, default: false },
     isDark: { type: Boolean, default: false },
+    // Espaces de la fiche : filtre les ingredients par les sites de leur fournisseur (vide = pas de filtre).
+    spaceIds: { type: Array, default: () => [] },
   },
   emits: ['update:modelValue', 'add'],
   setup() {
@@ -237,7 +240,7 @@ export default {
         }
       }
       // BUG-092 : masquer les ingrédients désactivés (active=false) des dialogs de sélection.
-      return rows.filter(r => r.active !== false);
+      return filterIngredientRowsBySpaces(rows.filter(r => r.active !== false), this.spaceIds);
     },
     groups() {
       const map = new Map();
@@ -378,6 +381,7 @@ export default {
         purchaseUnitConversion:  Number.isFinite(purchaseUnitConversion) ? purchaseUnitConversion : null,
         costPerRecipeUnit,
         supplier_id:             marketPrice?.supplierRel?.id ?? marketPrice?.supplier_id ?? marketPrice?.supplierId ?? null,
+        supplierSiteIds:         getRowSupplierSiteIds(marketPrice),
         createdAt:               marketPrice?.createdAt || null,
         storageType:             String(marketPrice?.storageType ?? '').trim(),
         // BUG-092 : soft-toggle porté par l'Ingredient (docs/modules/04_MENU_CATALOGUE.md), pas

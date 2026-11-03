@@ -70,6 +70,7 @@
             hide-details
             class="cl-filter-sel"
           />
+          <SeasonMultiFilter v-model="selectedSeasons" />
         </div>
         <span class="cl-searchbar__count">{{ filteredComponents.length }} composants</span>
       </div>
@@ -104,10 +105,10 @@
         <v-icon icon="mdi-package-variant-closed" size="72" color="#d1d5db" class="mb-4" />
         <h3 class="text-h6 font-weight-bold mb-2 text-medium-emphasis">{{ t('compListNoComponentsFound') }}</h3>
         <p class="text-body-2 text-medium-emphasis mb-4">
-          {{ searchQuery || selectedSpace !== null || selectedCategory !== null || selectedType !== null ? t('compListTryAdjusting') : t('compListNoComponentsMessage') }}
+          {{ searchQuery || selectedSpace !== null || selectedCategory !== null || selectedType !== null || selectedSeasons.length ? t('compListTryAdjusting') : t('compListNoComponentsMessage') }}
         </p>
         <v-btn
-          v-if="!searchQuery && selectedSpace === null && selectedCategory === null && selectedType === null"
+          v-if="!searchQuery && selectedSpace === null && selectedCategory === null && selectedType === null && !selectedSeasons.length"
           color="#ff3131"
           rounded="lg"
           variant="flat"
@@ -303,6 +304,8 @@
 <script>
 import { computed } from "vue";
 import { componentMatchesSpace } from '@/utils/componentSpaces';
+import { matchesSeasonFilter } from '@/utils/menuItemSeasonFilter';
+import SeasonMultiFilter from '@/components/common/SeasonMultiFilter.vue';
 import { useTheme } from "vuetify";
 import { Boxes, Copy, Download, Pencil, Plus, Search, Trash2, Upload, X } from "lucide-vue-next";
 import { useI18n } from '@/i18n/useI18n';
@@ -328,6 +331,7 @@ export default {
     ComponentDeleteDialog,
     ComponentCsvImportDrawer,
     BulkDeleteDialog,
+    SeasonMultiFilter,
   },
   setup() {
     const { t, locale } = useI18n();
@@ -341,6 +345,7 @@ export default {
       selectedCategory: null,
       duplicatingId: null,
       selectedType: null,
+      selectedSeasons: [], // IDs de saisons (multi-choix, [] = toutes)
       selectedSpace: null,
 
       loading: false,
@@ -439,6 +444,10 @@ export default {
         list = list.filter((c) => c.type === this.selectedType);
       }
 
+      if (this.selectedSeasons.length) {
+        list = list.filter((c) => matchesSeasonFilter(c, this.selectedSeasons));
+      }
+
       if (q) {
         list = list.filter((c) => (c.name || "").toLowerCase().includes(q));
       }
@@ -472,6 +481,7 @@ export default {
         id: String(id),
         name: String(name || ""),
         spaceIds: Array.isArray(raw?.spaceIds) ? raw.spaceIds.map(String) : [],
+        seasonIds: Array.isArray(raw?.seasonIds) ? raw.seasonIds.map(String) : [],
         category: String(category || ""),
         type: String(type || ""),
         unit: String(unit || ""),
@@ -1342,6 +1352,12 @@ export default {
   border-color: rgba(255, 255, 255, .12) !important;
   background: #1a2332 !important;
 }
+.cl--dark .cl-filter-pills :deep(.pill-multi-select .v-field) {
+  border-color: rgba(255, 255, 255, .12);
+  background: #1a2332;
+}
+.cl--dark .cl-filter-pills :deep(.pill-multi-select .v-field__input),
+.cl--dark .cl-filter-pills :deep(.pill-multi-select input::placeholder) { color: #e2e8f0; }
 .cl--dark .table-card { background: #1e293b; border-color: rgba(255, 255, 255, .08); }
 .cl--dark .cl-table :deep(.v-data-table__th) {
   background: #1a2332 !important;

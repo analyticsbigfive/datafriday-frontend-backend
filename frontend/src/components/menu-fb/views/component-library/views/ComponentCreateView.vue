@@ -225,6 +225,28 @@
                   <SpaceMultiSelect v-model="form.spaceIds" :hint="t('compCreateSpacesHint')" class="ccf-field" />
                 </div>
 
+                <!-- Saisons (Custom Dates de Configuration), même contrat que Menu Item. -->
+                <div class="ccf-field-wrap mb-3">
+                  <label class="ccf-field-label">{{ t('compCreateFieldSeasons') }}</label>
+                  <v-select
+                    v-model="form.seasonIds"
+                    :items="seasonOptions"
+                    item-title="name"
+                    item-value="id"
+                    multiple
+                    chips
+                    closable-chips
+                    :chip-props="{ size: 'small' }"
+                    variant="outlined"
+                    density="compact"
+                    hide-details
+                    :placeholder="t('compCreateSeasonPlaceholder')"
+                    rounded="lg"
+                    clearable
+                    class="ccf-field"
+                  />
+                </div>
+
                 <div class="ccf-field-wrap mb-3">
                   <label class="ccf-field-label">{{ t('compCreateFieldType') }} <span class="ccf-required">*</span></label>
                   <v-select
@@ -394,7 +416,7 @@
       </div>
     </div>
 
-    <IngredientPickerDrawer v-model="ingredientDrawer" :is-dark="isDark" @add="onIngredientsAdded" />
+    <IngredientPickerDrawer v-model="ingredientDrawer" :is-dark="isDark" :space-ids="form.spaceIds" @add="onIngredientsAdded" />
 
     <!-- Prix du marché de l'ingrédient (même bloc que la Market Price List) -->
     <MarketPriceItemDrawer v-model="marketPriceDrawer" :item-name="marketPriceItemName" :is-dark="isDark" @changed="onMarketPricesChanged" />
@@ -516,6 +538,7 @@ export default {
         kitchen: null,
         picture: "",
         spaceIds: [],
+        seasonIds: [],
         description: "",
         allergens: [],
         ingredients: [],
@@ -540,6 +563,11 @@ export default {
     };
   },
   computed: {
+    seasonOptions() {
+      return (this.$store.getters['seasons/seasons'] || [])
+        .map((s) => ({ id: String(s?.id || s?._id || ''), name: String(s?.name || '').trim() }))
+        .filter((s) => s.id && s.name);
+    },
     marketPricesLabel() {
       return (localStorage.getItem('appLocale') || 'en') === 'fr' ? 'Prix du marché' : 'Market prices';
     },
@@ -900,6 +928,7 @@ export default {
         this.loadedKitchen = component.kitchen || null;
         this.form.picture = component.picture || "";
         this.form.spaceIds = Array.isArray(component.spaceIds) ? component.spaceIds.map(String) : [];
+        this.form.seasonIds = Array.isArray(component.seasonIds) ? component.seasonIds.map(String) : [];
         this.form.description = component.description || "";
         this.form.allergens = Array.isArray(component.allergens) ? component.allergens : [];
         // BUG-053 : ces deux champs n'étaient jamais restaurés ici, donc une sauvegarde après
@@ -1084,6 +1113,7 @@ export default {
           ...kitchenPayloadFrom(this.form.kitchen),
           picture: this.form.picture || null,
           spaceIds: this.form.spaceIds,
+          seasonIds: this.form.seasonIds || [],
           ingredients: ingredientsPayload,
           children: childrenPayload,
           componentCategory: String(this.form.type || "").trim(),
@@ -1146,6 +1176,7 @@ export default {
           ...kitchenPayloadFrom(this.form.kitchen),
           picture: this.form.picture || null,
           spaceIds: this.form.spaceIds,
+          seasonIds: this.form.seasonIds || [],
           ingredients: ingredientsPayload,
           children: childrenPayload,
           componentCategory: String(this.form.type || "").trim(),
@@ -1178,6 +1209,7 @@ export default {
       this.isEditMode = true;
     }
 
+    this.$store.dispatch('seasons/fetchAll');
     this.$store.dispatch('componentCategories/fetchComponentCategories');
     this.$store.dispatch('componentTypes/fetchComponentTypes');
     this.$store.dispatch('packingTypes/fetchPackingTypes', { forceRefresh: true });
