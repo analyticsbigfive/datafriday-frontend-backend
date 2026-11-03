@@ -31,9 +31,16 @@ export function pickerProducts(cards) {
   return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** Filtre par nom (ou référence), sans casse. Requête vide = tout. */
-export function filterPickerProducts(items, query) {
-  const q = norm(query)
-  if (!q) return items || []
-  return (items || []).filter((p) => norm(p.name).includes(q) || norm(p.reference).includes(q))
+/**
+ * Cartes de la page Stockage proposées pour un espace : celles dont les espaces (sites du
+ * fournisseur) incluent l'espace, ou sans espace (fournisseur commun à tous les espaces, même
+ * contrat que Supplier.sites). Sans espace demandé : toutes.
+ */
+export function cardsForSpace(cards, spaceId) {
+  if (!spaceId) return cards || []
+  const id = String(spaceId)
+  return (cards || []).filter((c) => {
+    const ids = c?.spaceIds || []
+    return !ids.length || ids.map(String).includes(id)
+  })
 }

@@ -8,6 +8,7 @@
     :space-name="spaceName"
     :read-only="!canEdit"
     :is-dark="isDark"
+    initial-tab="storages"
     @update:model-value="onToggle"
   />
 </template>
