@@ -1,5 +1,7 @@
 import { getMarketPriceTypes } from '@/api/endpoints/market.price.api'
 
+import { retryRequest } from '@/utils/retryRequest'
+
 const TTL = 15 * 60 * 1000 // 15 minutes
 
 export default {
@@ -9,6 +11,8 @@ export default {
     list: [],
     cachedAt: null,
     fetching: false,
+    // Erreur du dernier chargement (après essais) ; null = OK. Ne vide jamais la liste.
+    loadError: null,
   }),
 
   getters: {
@@ -24,6 +28,9 @@ export default {
     },
     SET_FETCHING(state, val) {
       state.fetching = val
+    },
+    SET_LOAD_ERROR(state, err) {
+      state.loadError = err || null
     },
     INVALIDATE(state) {
       state.cachedAt = null
@@ -54,7 +61,7 @@ export default {
         // (MarketPriceCreateDrawer/EditDrawer/EditSupplierDrawer/CsvImportDrawer, filtres
         // de MarketPriceListView).
         while (true) {
-          const result = await getMarketPriceTypes({ page, limit })
+          const result = await retryRequest(() => getMarketPriceTypes({ page, limit }))
           const pageRows = Array.isArray(result)
             ? result
             : Array.isArray(result?.data)
@@ -74,6 +81,10 @@ export default {
           .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
 
         commit('SET_MARKET_PRICE_TYPES', list)
+        commit('SET_LOAD_ERROR', null)
+      } catch (e) {
+        commit('SET_LOAD_ERROR', { status: e?.response?.status ?? null, message: e?.message || String(e) })
+        throw e
       } finally {
         commit('SET_FETCHING', false)
       }

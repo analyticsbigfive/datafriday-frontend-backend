@@ -345,6 +345,26 @@
               {{ t('srGenerateRestock') }}
             </v-btn>
           </header>
+        <!-- Échec définitif d'un chargement catalogue (après essais) : bandeau discret. -->
+        <v-alert
+          v-if="hasCatalogFailure"
+          type="warning"
+          density="compact"
+          variant="tonal"
+          class="sr-catalog-warn"
+        >
+          <div class="sr-catalog-warn__row">
+            <span class="sr-catalog-warn__text">{{ t('srCatalogLoadWarn') }}</span>
+            <v-btn
+              size="small"
+              variant="text"
+              :loading="catalogRetrying"
+              @click="retryCatalogLoad"
+            >
+              {{ t('srCatalogRetry') }}
+            </v-btn>
+          </div>
+        </v-alert>
 
           <AppSearchBar
             v-if="stockTab === 'shops'"
@@ -1787,6 +1807,7 @@ import { upcomingPredictedEvents } from '@/utils/restockUpcomingEvents'
 import { storageRowSupplier } from '@/utils/restockStorageRowSupplier'
 import { isStorageBufferRow } from '@/utils/restockStorageBuffers'
 import { resolvePredictedEventIds } from '@/utils/restockPredictedIds'
+import { useRestockCatalogReadiness } from '../composables/useRestockCatalogReadiness'
 
 // Garde-fou client AVANT le POST d'un plan — marge sous la garde backend
 // (restock-plans.service.ts : 1 000 000). Même métrique (JSON.stringify).
@@ -1847,8 +1868,13 @@ export default {
     const plansApi = useRestockPlans()
     // fiche 314-01 — stock tampon des espaces de stockage (builder state projeté).
     const storageInvApi = useStorageInventory()
+    // État « catalogue prêt » (menuItems + composants + coûts) et échecs de chargement.
+    const catalogApi = useRestockCatalogReadiness(store)
     return {
       store, route, router, t, locale,
+      catalogApi,
+      catalogReady: catalogApi.catalogReady,
+      hasCatalogFailure: catalogApi.hasCatalogFailure,
       plansApi,
       plans: plansApi.plans,
       plansLoading: plansApi.loading,
@@ -1868,6 +1894,7 @@ export default {
       // l'icône du bandeau. Ouvert par défaut.
       showFilters: true,
       loading: false,
+      catalogRetrying: false,
       previousInventoryLoading: false,
       // Liste de courses : repli de la liste « Shops » par article (évite des
       // lignes très longues sur mobile). Clé = item.itemKey.
@@ -3733,6 +3760,11 @@ export default {
     },
   },
   watch: {
+    // Composants arrivés après loadAll (backend lent) : relance l'hydratation des
+    // recettes, sinon ensureComponentsHydrated restait no-op (liste vide à l'appel).
+    'components.length'(n) {
+      if (n) this.ensureComponentsHydrated()
+    },
     missingRecipeIdsKey(key) {
       if (key) this.ensureRecipesLoaded()
     },
@@ -3913,7 +3945,10 @@ export default {
         if (spaceId && (
           !this.currentSpace ||
           String(this.currentSpace.id) !== String(spaceId) ||
-          !this.menuItems.length
+          !this.menuItems.length ||
+          // Catalogue recette absent ou en échec : loadSpace le recharge (le cache
+          // « fresh » de 15 min ne le réutilise pas tant qu'il n'est pas complet).
+          !this.store.state.analyse?.recipeCatalogLoaded
         )) {
           await this.store.dispatch('analyse/loadSpace', spaceId)
         }
@@ -3988,10 +4023,14 @@ export default {
           const ev = this.events.find((e) => String(e.id) === String(this.selectedEventIds[0]))
           if (ev) this.plannedEventDate = ev.eventDate || ev.date || null
         }
-        // Le catalogue menuItems arrive en PHASE 2 (enrichissement async de
-        // loadSpace), APRÈS l'await. Sans lui, buildStockRequirements ne trouve
-        // aucune recette → 0 ligne. On attend qu'il soit prêt (max ~6s).
-        await this.waitForMenuItems()
+        // Le catalogue (menuItems, composants, coûts) arrive en PHASE 2 (enrichissement
+        // async de loadSpace), APRÈS l'await. Sans lui, buildStockRequirements ne trouve
+        // aucune recette → 0 ligne. Le squelette reste jusqu'à « prêt » : chaque
+        // ressource est arrivée ou en échec définitif (bandeau + Réessayer), plus de
+        // coupure à 6 s sur un catalogue partiel.
+        await this.catalogApi.waitUntilReady()
+        // Les composants sont là : recettes dès l'étape 1 (no-op si déjà fait).
+        this.ensureComponentsHydrated()
         // Les versions BDD des matchs prédits sont déjà rapatriées (plus haut), AVANT le calcul.
         this.refreshSelectedPredictions()
         // Assignation menu par shop (NestJS) → split « non rattachés » en step 2.
@@ -4008,16 +4047,15 @@ export default {
         this.loading = false
       }
     },
-    /**
-     * Attend que le catalogue menuItems (enrichissement phase 2 de loadSpace)
-     * soit chargé. buildStockRequirements en dépend pour les recettes.
-     */
-    async waitForMenuItems(timeoutMs = 6000) {
-      if (this.menuItems.length) return
-      const start = Date.now()
-      while (!this.menuItems.length && Date.now() - start < timeoutMs) {
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((resolve) => setTimeout(resolve, 150))
+    /** Bouton « Réessayer » du bandeau : ne relance que les ressources en échec. */
+    async retryCatalogLoad() {
+      if (this.catalogRetrying) return
+      this.catalogRetrying = true
+      try {
+        await this.catalogApi.retryFailed(this.route.params?.spaceId)
+        this.ensureComponentsHydrated()
+      } finally {
+        this.catalogRetrying = false
       }
     },
     /**
@@ -7850,6 +7888,23 @@ export default {
 }
 .sr-storage-warn {
   margin-bottom: 12px;
+}
+
+.sr-catalog-warn {
+  margin-bottom: 12px;
+}
+
+.sr-catalog-warn__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.sr-catalog-warn__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .sr-group-head,
