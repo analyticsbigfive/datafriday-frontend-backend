@@ -332,4 +332,10 @@ export class CreateMenuComponentDto {
   @IsArray()
   @IsString({ each: true })
   spaceIds?: string[];
+
+  @ApiPropertyOptional({ description: 'IDs des Saisons (Custom Dates de Configuration), multi-choix', type: [String] })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  seasonIds?: string[];
 }
