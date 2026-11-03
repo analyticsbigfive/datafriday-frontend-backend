@@ -316,7 +316,13 @@
              restait monté à vie avec ses charts et ses datasets. Au 7ᵉ outil, Vue
              démonte proprement le moins récent (vue-chartjs détruit ses instances
              au démontage) ; son état d'écran local est perdu, choix validé. -->
-        <keep-alive v-if="route.meta.keepAlive" :max="6">
+        <!-- Changement d'espace : les outils keepAlive sont cachés par nom de
+             route, donc Commandes de l'espace A était réactivé tel quel sur
+             l'espace B (en-tête, events, données de A). Le cache est indexé
+             sur le dernier espace visité : un autre espace vide le cache et
+             remonte les outils à neuf ; les pages hors espace (/events…) ne
+             changent pas la portée, le cache survit à un aller-retour. -->
+        <keep-alive v-if="route.meta.keepAlive" :key="keepAliveScope" :max="6">
           <component :is="Component" :key="route.name" />
         </keep-alive>
         <!-- :key=path (PAS fullPath) : la query (?event/?config/?toolbox) est
@@ -460,6 +466,8 @@ export default {
       // via window event). Pilote le drawer permanent+rail qui POUSSE l'overlay.
       eventPredictActive: false,
       settingsDrawer: false,
+      // Portée du cache keep-alive : dernier :spaceId vu dans l'URL.
+      keepAliveScope: this.$route?.params?.spaceId ? String(this.$route.params.spaceId) : '',
       // Filtre de la barre de recherche du groupe déroulant « Edit space ».
       editSpaceSearch: '',
       locale: localStorage.getItem('appLocale') || 'en',
@@ -611,6 +619,9 @@ export default {
     },
     '$route'(to) {
       this.applyRouteSidebarMode(to?.name);
+    },
+    '$route.params.spaceId'(spaceId) {
+      if (spaceId) this.keepAliveScope = String(spaceId);
     },
     // L'overlay EventPredict s'ouvre/ferme SANS changer de route (toolbox dans
     // AnalyseView) → recalcul du mode drawer + décalage overlay.
