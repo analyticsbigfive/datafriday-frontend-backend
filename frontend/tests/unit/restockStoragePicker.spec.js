@@ -28,3 +28,18 @@ describe('restockStoragePicker', () => {
     expect(filterPickerProducts(items, 'zzz')).toEqual([])
   })
 })
+
+describe('cardsForSpace', () => {
+  const { cardsForSpace } = require('@/utils/restockStoragePicker')
+  const cards = [
+    { name: 'Heineken', spaceIds: ['bj'] },
+    { name: 'Kronenbourg', spaceIds: ['paris'] },
+    { name: 'Gobelet', spaceIds: [] },
+  ]
+  it("garde les produits de l'espace et ceux sans espace", () => {
+    expect(cardsForSpace(cards, 'bj').map((c) => c.name)).toEqual(['Heineken', 'Gobelet'])
+  })
+  it('sans espace demandé : tout', () => {
+    expect(cardsForSpace(cards, '')).toHaveLength(3)
+  })
+})

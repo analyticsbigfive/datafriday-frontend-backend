@@ -17,7 +17,7 @@ const MAX_SHOWN = 100
 export function useStorageBuffers({ isOpen, spaceId, elementId, readOnly }) {
   const store = useStore()
   const writer = useStorageRowWriter()
-  const { products, loading: productsLoading, error: productsError, ensureLoaded } = useStorageProductOptions()
+  const { products, loading: productsLoading, error: productsError, ensureLoaded } = useStorageProductOptions(spaceId)
   const loading = ref(false)
   const loadError = ref(false)
   const search = ref('')

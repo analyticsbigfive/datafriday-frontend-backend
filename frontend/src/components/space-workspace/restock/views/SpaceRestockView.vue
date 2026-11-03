@@ -552,7 +552,7 @@
           <v-expand-transition v-else>
           <div v-show="!collapsed.stock">
           <div v-if="selectedEvents.length" class="sr-storage-toolbar">
-            <RestockStorageProductPicker @pick="openStorageSpots" />
+            <RestockStorageProductPicker :space-id="storageSpaceId" @pick="openStorageSpots" />
           </div>
           <div v-if="!selectedEvents.length" class="sr-empty">
             {{ t('srSelectEventsEmpty') }}

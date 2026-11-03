@@ -39,16 +39,20 @@
 </template>
 
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, toRef, watch } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { useStorageProductOptions } from '@/composables/useStorageProductOptions'
 import { filterPickerProducts } from '@/utils/restockStoragePicker'
 
 // Sélecteur de produit (page Stockage) pour ouvrir le drawer Stockage depuis l'onglet STOCK.
 // Émet `pick` avec { name, marketPriceId, reference } ; la vue ouvre le drawer.
+const props = defineProps({
+  /** Espace de la page : seuls ses produits sont proposés. */
+  spaceId: { type: String, default: '' },
+})
 const emit = defineEmits(['pick'])
 const { t } = useI18n()
-const { products, loading, error, ensureLoaded } = useStorageProductOptions()
+const { products, loading, error, ensureLoaded } = useStorageProductOptions(toRef(props, 'spaceId'))
 
 const open = ref(false)
 const query = ref('')
