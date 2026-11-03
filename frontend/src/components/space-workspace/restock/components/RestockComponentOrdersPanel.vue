@@ -1,14 +1,16 @@
 <template>
-  <div v-if="panel.lines.length" class="rco-card">
+  <div class="rco-card">
     <header class="rco-head">
       <div class="rco-head-row">
         <span class="rco-title">{{ t('srComponentOrdersTitle') }}</span>
-        <strong class="rco-total">{{ formatCurrencyDetailed(panel.total) }}</strong>
+        <strong v-if="panel.lines.length" class="rco-total">{{ formatCurrencyDetailed(panel.total) }}</strong>
       </div>
       <p v-if="panel.hasUnknownCost" class="rco-note">{{ t('srComponentOrdersCostUnknown') }}</p>
     </header>
 
-    <ul class="rco-list">
+    <p v-if="!panel.lines.length" class="rco-empty">{{ t('srComponentOrdersEmpty') }}</p>
+
+    <ul v-else class="rco-list">
       <li v-for="line in visibleLines" :key="line.itemKey" class="rco-item">
         <span class="rco-copy">
           <strong class="rco-name" :title="line.name">{{ line.name }}</strong>
@@ -91,6 +93,7 @@ export default {
 }
 .rco-total { font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--sr-text, #0f172a); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rco-note { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-regular); color: var(--sr-faint, #9ca3af); }
+.rco-empty { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-regular); color: var(--sr-faint, #9ca3af); }
 .rco-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .rco-item {
   display: grid;

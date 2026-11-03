@@ -2,14 +2,15 @@ import { computed, ref } from 'vue'
 import { useStore } from 'vuex'
 import { getMarketPriceRecipeUsage } from '@/api/endpoints/market.price.api'
 import { buildStorageProducts } from '@/components/menu-fb/views/storage/utils/storageProducts'
-import { pickerProducts } from '@/utils/restockStoragePicker'
+import { pickerProducts, cardsForSpace } from '@/utils/restockStoragePicker'
 
 /**
  * Produits de la page Stockage (Market Prices hors produits utilisés en recette), sans les
  * filtres persistés de cette page : sert au sélecteur de l'onglet STOCK de Commande.
+ * Limité aux produits de l'espace `spaceId` (ref, optionnel) : voir cardsForSpace.
  * Chargement paresseux (appeler `ensureLoaded` à l'ouverture du sélecteur).
  */
-export function useStorageProductOptions() {
+export function useStorageProductOptions(spaceId = ref('')) {
   const store = useStore()
   const loading = ref(false)
   const error = ref(false)
@@ -23,7 +24,7 @@ export function useStorageProductOptions() {
       industrials: store.getters['industrials/industrials'] || [],
       usedIds: usedIds.value,
     })
-    return pickerProducts(cards)
+    return pickerProducts(cardsForSpace(cards, spaceId.value))
   })
 
   async function ensureLoaded() {

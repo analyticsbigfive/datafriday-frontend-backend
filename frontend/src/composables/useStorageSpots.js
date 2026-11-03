@@ -16,7 +16,7 @@ import { splitSpots, findProductRow, filterSpots, aggregateSpot } from '@/compon
  *
  * @param {{ isOpen: import('vue').Ref<boolean>, spaceId: import('vue').Ref<string>, productNames: import('vue').Ref<string[]>, readOnly?: import('vue').Ref<boolean> }} args
  */
-export function useStorageSpots({ isOpen, spaceId, productNames, products = ref([]), readOnly = ref(false) }) {
+export function useStorageSpots({ isOpen, spaceId, productNames, products = ref([]), readOnly = ref(false), initialTab = ref('shops') }) {
   const store = useStore()
   const { t, locale } = useI18n()
   const writer = useStorageRowWriter()
@@ -107,7 +107,7 @@ export function useStorageSpots({ isOpen, spaceId, productNames, products = ref(
       writer.reset()
       local.value = {}
       search.value = ''
-      tab.value = 'shops'
+      tab.value = initialTab.value === 'storages' ? 'storages' : 'shops'
       load()
     }
   })
