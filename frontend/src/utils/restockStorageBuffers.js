@@ -45,3 +45,13 @@ export function filterBufferRows(rows, query) {
   const q = String(query || '').trim().toLowerCase()
   return q ? (rows || []).filter((r) => r.name.toLowerCase().includes(q)) : rows || []
 }
+
+/**
+ * Ligne d'inventaire d'un stockage affichée dans l'onglet STOCK : stockée ici (case du drawer
+ * non décochée) ET utile, c'est-à-dire avec un tampon ou des seuils. Une ligne décochée garde
+ * son tampon en base (isStored: false) mais ne compte plus.
+ */
+export function isStorageBufferRow(r) {
+  if (!r || !r.name || r.isStored === false) return false
+  return (Number(r.quantity) || 0) > 0 || r.minStock != null || r.maxStock != null
+}

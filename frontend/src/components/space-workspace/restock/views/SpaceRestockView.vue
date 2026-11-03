@@ -1785,6 +1785,7 @@ import { isDemoMode } from '@/utils/demoMode'
 import { isEventOver } from '@/utils/eventLifecycle'
 import { upcomingPredictedEvents } from '@/utils/restockUpcomingEvents'
 import { storageRowSupplier } from '@/utils/restockStorageRowSupplier'
+import { isStorageBufferRow } from '@/utils/restockStorageBuffers'
 import { resolvePredictedEventIds } from '@/utils/restockPredictedIds'
 
 // Garde-fou client AVANT le POST d'un plan — marge sous la garde backend
@@ -2372,11 +2373,8 @@ export default {
           const counted = this.aggregateCountsForElements([elId])
           const rows = invRows
             .filter((r) => {
-              if (!r || !r.name) return false
-              const buffer = Number(r.quantity) || 0
-              // Ligne utile = tampon saisi, OU seuils posés (alertes), OU stock
-              // compté présent — le reste est du bruit de catalogue.
-              return buffer > 0 || r.minStock != null || r.maxStock != null
+              // Ligne décochée (retirée du stockage) exclue même si elle garde un tampon.
+              return isStorageBufferRow(r)
             })
             .map((r) => {
               const buffer = Number(r.quantity) || 0
