@@ -162,6 +162,20 @@ export function clearSpaceSessionCachesExcept(spaceId) {
   }
 }
 
+/**
+ * Invalide les caches session timeline + paniers d'un espace (ou d'un seul event).
+ * A appeler quand l'historique peut avoir change (resync, edition, retour de page).
+ */
+export function invalidateSpaceEventCaches(spaceId, eventId = null) {
+  const exact = eventId != null ? `${spaceId}:${eventId}` : null
+  const prefix = `${spaceId}:`
+  for (const m of [_eventTimelineCache, _basketCache]) {
+    for (const key of [...m.keys()]) {
+      if (exact ? key === exact : key.startsWith(prefix)) m.delete(key)
+    }
+  }
+}
+
 export async function getSpaceEventTimeline(spaceId, eventId, { bypassCache = false } = {}) {
   // Mode démo : pas de backend → on reconstruit la timeline minute-level de
   // l'event à partir des records du mock (mêmes données minute que le graphe

@@ -46,6 +46,7 @@ import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStore } from 'vuex'
 import { asyncComponentWithChunkReload, safePush } from '@/utils/chunkReload'
+import { useRefreshOnReturn } from '@/composables/useRefreshOnReturn'
 // PERF: async → EventPredictView sort du chunk partagé 183 ; chargé à l'affichage.
 // Chunk obsolète après redéploiement : rechargement unique au lieu d'un échec silencieux (BUG-389-02).
 const EventPredictView = asyncComponentWithChunkReload(() => import('./EventPredictView.vue'))
@@ -65,6 +66,10 @@ onMounted(async () => {
     await store.dispatch('analyse/loadSpace', spaceId)
   }
 })
+
+// Keep-alive : onMounted ne rejoue pas au retour. loadSpace rend depuis le store (frais
+// moins de 15 min) et revalide en fond ; au-delà du TTL il recharge.
+useRefreshOnReturn(() => store.dispatch('analyse/loadSpace', route.params.spaceId))
 
 function onClose() {
   safePush(router, { name: 'space-analyse', params: { spaceId: route.params.spaceId } })

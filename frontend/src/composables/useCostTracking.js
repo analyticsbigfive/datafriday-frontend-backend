@@ -347,7 +347,8 @@ export function useCostTracking({ spaceId, enabled = ref(true) }) {
         selectedArticleId.value = null
       }
       if (id && on) {
-        loadCatalog()
+        // Le cache du catalogue est affiche tel quel, puis revalide en fond.
+        loadCatalog({ force: true })
         loadSeries()
       }
     },

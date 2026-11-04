@@ -32,21 +32,21 @@ export function useLiveHr({ eventId, active, basketRows, timelineRows, isLive })
     String(store.state.staffing?.eventId) === String(eventId.value) ? store.getters['staffing/elements'] : [],
   )
 
-  async function loadStaffing(evId) {
-    staffLoading.value = true
+  async function loadStaffing(evId, { silent = false } = {}) {
+    if (!silent) staffLoading.value = true
     staffError.value = false
     try {
       await store.dispatch('staffing/fetchStaffing', { eventId: evId })
     } catch (e) {
       staffError.value = true
     } finally {
-      staffLoading.value = false
+      if (!silent) staffLoading.value = false
     }
   }
 
-  async function loadPredicted(evId) {
+  async function loadPredicted(evId, { silent = false } = {}) {
     predictedError.value = false
-    predictedLoaded.value = false
+    if (!silent) predictedLoaded.value = false
     try {
       const versions = await listEventPredictVersions(evId)
       const list = Array.isArray(versions) ? versions : []
@@ -67,6 +67,14 @@ export function useLiveHr({ eventId, active, basketRows, timelineRows, isLive })
     if (!evId || loadedFor === evId) return
     loadedFor = evId
     await Promise.all([loadStaffing(evId), loadPredicted(evId)])
+  }
+
+  // Retour sur la page : relecture sans repasser par l'etat de chargement.
+  async function reloadSilently() {
+    const evId = eventId.value
+    if (!evId || !active.value) { loadedFor = null; return }
+    loadedFor = evId
+    await Promise.all([loadStaffing(evId, { silent: true }), loadPredicted(evId, { silent: true })])
   }
 
   watch([active, eventId], () => { if (active.value) load() }, { immediate: true })
@@ -94,5 +102,6 @@ export function useLiveHr({ eventId, active, basketRows, timelineRows, isLive })
     loading: computed(() => staffLoading.value || (active.value && !predictedLoaded.value && !!eventId.value)),
     staffError, predictedError, hasPredicted, hasStaff,
     reload: () => { loadedFor = null; return load() },
+    reloadSilently,
   }
 }

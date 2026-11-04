@@ -971,6 +971,8 @@ import Label from '../ui/label.vue'
 //import { EventRevenueChart } from './EventRevenueChart'
 import SpaceRevenueByMonthChart from './SpaceRevenueByMonthChart.vue'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
+import { getCurrentInstance } from 'vue'
+import { useRefreshOnReturn } from '@/composables/useRefreshOnReturn'
 
 export default {
   name: 'SpacesPage',
@@ -1170,6 +1172,16 @@ export default {
     },
   },
 
+  setup() {
+    // Route keep-alive : mounted ne se rejoue pas, on recharge en silence au retour.
+    const vm = getCurrentInstance()
+    useRefreshOnReturn(async () => {
+      await vm.proxy.loadSpaces({ silent: true })
+      await vm.proxy.loadSalesRevenue()
+    })
+    return {}
+  },
+
   mounted() {
 
     this.loadSpaces()
@@ -1182,9 +1194,9 @@ export default {
     formatCurrencyDetailed,
     formatNumber,
 
-    async loadSpaces() {
+    async loadSpaces({ silent = false } = {}) {
       try {
-        this.loading = true
+        if (!silent) this.loading = true
         const loadedSpaces = await api.getAllSpaces()
         this.spaces = loadedSpaces
 
@@ -1204,7 +1216,7 @@ export default {
       } catch (error) {
         console.error('Error loading spaces:', error)
       } finally {
-        this.loading = false
+        if (!silent) this.loading = false
       }
     },
 

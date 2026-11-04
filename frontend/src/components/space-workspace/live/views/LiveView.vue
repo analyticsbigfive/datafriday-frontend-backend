@@ -161,6 +161,7 @@ import { useLiveData } from '@/composables/useLiveData'
 import { useLiveItemRecords } from '@/composables/useLiveItemRecords'
 import { useLiveHr } from '@/composables/useLiveHr'
 import { useLivePredictBackground } from '@/composables/useLivePredictBackground'
+import { useRefreshOnReturn } from '@/composables/useRefreshOnReturn'
 import { useMetricsCalculator } from '@/composables/useMetricsCalculator'
 import { buildShopTotals } from '@/utils/liveKpis'
 import { preprocessTimelineRecords } from '@/utils/timelineBucketing'
@@ -420,6 +421,16 @@ const headerKpis = computed(() => {
 function onEventUpdated() {
   liveData.refresh()
 }
+
+// Retour sur la page (keep-alive) : evenement (titre, date, portes), catalogue de
+// l'espace et version Predict par defaut relus en silence. La colonne « Prevu restant »
+// du panneau Inventaire se relit elle-meme (LiveInventoryPanel).
+useRefreshOnReturn(() => Promise.all([
+  liveData.refresh(),
+  store.dispatch('analyse/loadSpace', { spaceId: spaceId.value, skipRecipeCatalog: true }),
+  predictBackground.reload(),
+  liveHr.reloadSilently(),
+]))
 
 onMounted(() => { ensureSpaceLoaded(); liveData.startPolling() })
 onActivated(() => { ensureSpaceLoaded(); liveData.startPolling() })
