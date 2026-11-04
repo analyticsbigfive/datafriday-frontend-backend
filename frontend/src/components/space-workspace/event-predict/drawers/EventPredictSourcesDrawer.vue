@@ -34,10 +34,7 @@
                   <span class="eps-source-title">{{ se.event.eventName || se.event.name }}</span>
                   <span class="eps-top-badge">TOP {{ i + 1 }}</span>
                 </span>
-                <span class="eps-source-date">
-                  {{ formatDateShort(se.event.eventDate) }}
-                  <template v-if="se.event.sessions?.[0]?.showTime"> · {{ se.event.sessions[0].showTime }}</template>
-                </span>
+                <span class="eps-source-date">{{ eventDateLabel(se.event) }}</span>
               </span>
               <span class="eps-source-metrics">
                 <span class="eps-source-metric">
@@ -85,7 +82,7 @@
                 <span class="eps-source-title-wrap">
                   <span class="eps-source-title">{{ u.event.eventName || u.event.name }}</span>
                 </span>
-                <span class="eps-source-date">{{ formatDateShort(u.event.eventDate) }}</span>
+                <span class="eps-source-date">{{ eventDateLabel(u.event) }}</span>
               </span>
               <span class="eps-source-metrics">
                 <span v-if="checked.has(u.event.id)" class="eps-source-metric">
@@ -213,6 +210,12 @@ export default {
     formatDateShort(v) {
       return fmtDateShort(v);
     },
+    /** « 12 oct. · 20:30 » : date courte + heure du spectacle si connue (même rendu pour toutes les lignes). */
+    eventDateLabel(event) {
+      const date = fmtDateShort(event?.eventDate);
+      const time = event?.sessions?.[0]?.showTime;
+      return time ? `${date} · ${time}` : date;
+    },
     /**
      * CA réel de l'évènement passé — KPI/total ⇒ sans décimale (charte).
      * Pas de coercition `|| 0` : `formatCurrency` rend déjà « — » pour null
@@ -248,8 +251,8 @@ export default {
   min-height: 100%;
 }
 .eps-section-label {
-  font-size: 0.6875rem;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted-foreground, #6b7280);
@@ -268,18 +271,27 @@ export default {
   gap: 0.625rem;
   padding: 0.625rem 0.75rem;
   margin-bottom: 0.5rem;
-  border: 1px solid var(--border, #e5e7eb);
-  border-radius: 0.5rem;
+  /* Même carte que .agg-item (InventoryAggregateView) : fond opaque, jamais le gris du drawer. */
+  --eps-card-bg: #fff;
+  --eps-card-border: #e5e7eb;
+  --eps-card-border-hover: #d1d5db;
+  border: 1px solid var(--eps-card-border);
+  border-radius: 10px;
   cursor: pointer;
-  background: var(--card, transparent);
+  background: var(--eps-card-bg);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.eps-source-row:hover {
+  border-color: var(--eps-card-border-hover);
+  box-shadow: 0 3px 12px rgba(15, 23, 42, 0.05);
 }
 .eps-source-row.is-checked {
-  border-color: color-mix(in srgb, var(--primary, #2563eb) 45%, transparent);
-  background: color-mix(in srgb, var(--primary, #2563eb) 6%, transparent);
+  border-color: color-mix(in srgb, #ff3131 45%, var(--eps-card-bg));
+  background: linear-gradient(color-mix(in srgb, #ff3131 5%, transparent), color-mix(in srgb, #ff3131 5%, transparent)), var(--eps-card-bg);
 }
 .eps-source-checkbox {
   margin-top: 0.2rem;
-  accent-color: var(--primary, #2563eb);
+  accent-color: #ff3131;
 }
 .eps-source-main {
   flex: 1;
@@ -299,8 +311,8 @@ export default {
   min-width: 0;
 }
 .eps-source-title {
-  font-size: 0.8125rem;
-  font-weight: 600;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -308,14 +320,14 @@ export default {
 .eps-top-badge {
   padding: 0 0.375rem;
   border-radius: 999px;
-  font-size: 0.625rem;
-  font-weight: 700;
-  color: var(--primary, #16a34a);
-  background: color-mix(in srgb, var(--primary, #16a34a) 12%, transparent);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
+  color: #ff3131;
+  background: color-mix(in srgb, #ff3131 12%, transparent);
   white-space: nowrap;
 }
 .eps-source-date {
-  font-size: 0.6875rem;
+  font-size: var(--fs-xs);
   color: var(--muted-foreground, #6b7280);
   white-space: nowrap;
 }
@@ -329,7 +341,7 @@ export default {
   display: inline-flex;
   gap: 0.25rem;
   align-items: baseline;
-  font-size: 0.6875rem;
+  font-size: var(--fs-xs);
   color: var(--muted-foreground, #6b7280);
 }
 .eps-source-metric strong {
@@ -338,17 +350,17 @@ export default {
 .eps-source-reason {
   display: block;
   margin-top: 0.375rem;
-  font-size: 0.6875rem;
+  font-size: var(--fs-xs);
   font-style: italic;
   color: var(--muted-foreground, #6b7280);
 }
 .eps-empty {
-  font-size: 0.75rem;
+  font-size: var(--fs-sm);
   color: var(--muted-foreground, #6b7280);
   margin: 0 0 0.5rem;
 }
 .eps-footer-count {
-  font-size: 0.75rem;
+  font-size: var(--fs-sm);
   color: var(--muted-foreground, #6b7280);
   margin-right: auto;
 }
@@ -366,8 +378,8 @@ export default {
   border-radius: 999px;
   border: 0;
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
   transition: all 0.2s;
 }
 .eps-footer-btn:disabled {
@@ -403,8 +415,13 @@ export default {
   --muted-foreground: #94a3b8;
   --border: #374151;
   --foreground: #f9fafb;
-  --card: transparent;
   color: #e5e7eb;
+}
+.eds--dark .eps-source-row {
+  --eps-card-bg: #1f2937;
+  --eps-card-border: #374151;
+  --eps-card-border-hover: #4b5563;
+  box-shadow: none;
 }
 .eds--dark .eps-footer-count {
   color: #94a3b8;
