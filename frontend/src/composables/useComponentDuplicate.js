@@ -33,6 +33,8 @@ export function buildComponentDuplicatePayload(mc, { suffix = ' (copie)', allowe
     kitchenId: mc?.kitchenId || null,
     picture: mc?.picture || null,
     spaceIds: allowed ? sourceSpaces.filter((id) => allowed.has(id)) : sourceSpaces,
+    // Recette source non recontrôlée par la règle espace/fournisseur (lignes déjà existantes).
+    duplicateOfId: mc?.id ? String(mc.id) : undefined,
     componentCategory: String(mc?.componentCategory || mc?.type || '').trim(),
     numberOfUnitsRecipe: num(mc?.numberOfUnitsRecipe, 1) || 1,
     componentTypeId: mc?.componentTypeId || undefined,
