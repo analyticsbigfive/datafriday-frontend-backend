@@ -4,14 +4,15 @@
        InventoryAggregateView, sans liste de courses ni events de référence. -->
   <div class="si-aggregate-root">
     <header class="agg-header">
-      <div class="agg-title-row">
-        <div>
-          <h3>{{ t('invStorageAggTitle') }}</h3>
-          <p>{{ stats.countedItems }} / {{ stats.totalItems }} {{ t('invMetricCounted') }}</p>
-        </div>
-        <strong class="agg-completion">{{ completionPercent }}%</strong>
-      </div>
- 
+      <InventorySummaryHeader
+        :title="t('invStorageAggTitle')"
+        :counted-items="stats.countedItems"
+        :total-items="stats.totalItems"
+        :percent="completionPercent"
+        :total-cost="totalCost"
+        @export="exportCsv"
+      />
+
       <!-- Indique que la sidebar est limitée au stockage en cours de comptage. -->
       <div v-if="focusStorage" class="agg-focus-hint">
         <Package class="w-3 h-3" />
@@ -72,10 +73,12 @@
             <strong>{{ item.itemName }}</strong>
             <small>{{ item.countedStorageCount }}/{{ item.totalStorageCount }} {{ t('invFilterStorages') }}</small>
           </span>
-          <span class="agg-item-total">
-            <strong>{{ formatUnits(item.totalUnits) }}</strong>
-            <small>{{ aggUnitLabel(item, t('invAggTotalUnits')) }}</small>
-          </span>
+          <InventorySummaryItemTotal
+            class="agg-item-total"
+            :units="item.totalUnits"
+            :label="aggUnitLabel(item, t('invAggTotalUnits'))"
+            :cost="item.costValue"
+          />
           <Check v-if="item.isCounted" class="agg-item-check" />
           <ChevronUp v-if="isAggExpanded(`${item.itemName}-${index}`)" class="agg-item-chevron" />
           <ChevronDown v-else class="agg-item-chevron" />
@@ -110,6 +113,10 @@ import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 import { aggPackagingLabel, aggUnitLabel } from '@/utils/inventoryAggLabels'
 import { currentIntlLocale } from '@/composables/useNumberFormat'
+import InventorySummaryHeader from '@/components/space-workspace/inventory/InventorySummaryHeader.vue'
+import InventorySummaryItemTotal from '@/components/space-workspace/inventory/InventorySummaryItemTotal.vue'
+import { sumRowCosts, lineCost } from '@/utils/reconciliationAggregate'
+import { buildSummaryCsv, downloadCsv, summaryCsvFilename } from '@/utils/summaryCsv'
 
 export default {
   name: 'InventoryStorageAggregateView',
@@ -118,6 +125,8 @@ export default {
     Check,
     ChevronDown,
     ChevronUp,
+    InventorySummaryHeader,
+    InventorySummaryItemTotal,
   },
   props: {
     inventoryCounts: { type: Object, required: true },
@@ -126,6 +135,8 @@ export default {
     // Mode focus : pendant le comptage d'un stockage, on n'affiche que SES
     // articles (id). null = agrégat global (tous stockages).
     focusStorageId: { type: [String, Number], default: null },
+    // itemId → coût unitaire (même source que la réconciliation) : valorise les cartes.
+    unitCostByItemId: { type: Object, default: () => ({}) },
   },
   emits: ['start-count-storage'],
   setup() {
@@ -150,6 +161,16 @@ export default {
     formatUnits,
     aggPackagingLabel,
     aggUnitLabel,
+    /** Exporte la section affichée (inventaire des stockages en cours). */
+    exportCsv() {
+      const csv = buildSummaryCsv(this.aggregatedInventory, {
+        item: this.t('invSummaryCsvItem'),
+        units: this.t('invSummaryCsvUnits'),
+        unit: this.t('invSummaryCsvUnit'),
+        cost: this.t('invSummaryCsvCost'),
+      })
+      downloadCsv(summaryCsvFilename('stockages'), csv)
+    },
     /** Items d'une entrée storage (merchInventory toléré par symétrie). */
     entryItems(entry) {
       return [...(entry?.storageInventory || []), ...(entry?.merchInventory || [])]
@@ -210,6 +231,7 @@ export default {
               totalPackedUnits: 0,
               totalLooseUnits: 0,
               totalUnits: 0,
+              costValue: null,
               countedStorageCount: 0,
               totalStorageCount: totalStoragesByName.get(itemName) || 0,
               isCounted: false,
@@ -220,6 +242,8 @@ export default {
           aggregated.totalPackedUnits += packedUnits
           aggregated.totalLooseUnits += looseUnits
           aggregated.totalUnits += totalUnits
+          const stCost = lineCost(totalUnits, this.unitCostByItemId?.[String(item.id)])
+          if (stCost != null) aggregated.costValue = (aggregated.costValue || 0) + stCost
           if (isCounted) aggregated.countedStorageCount += 1
           aggregated.storages.push({
             storageName: this.entryName(entry),
@@ -244,6 +268,9 @@ export default {
         if (b.totalUnits !== a.totalUnits) return b.totalUnits - a.totalUnits
         return String(a.itemName).localeCompare(String(b.itemName))
       })
+    },
+    totalCost() {
+      return sumRowCosts(this.aggregatedInventory)
     },
     /** Stockages où il reste au moins un article non compté — jumeau de
      *  `uncountedShops` (InventoryAggregateView). Les stockages sans article
@@ -471,9 +498,13 @@ export default {
   color: #9ca3af;
 }
 
-.agg-item-copy,
-.agg-item-total {
+.agg-item-copy {
   min-width: 0;
+}
+
+/* Le total (unités + coût) ne se coupe jamais : c'est le nom qui s'abrège. */
+.agg-item-total {
+  min-width: max-content;
 }
 
 .agg-item-copy strong,

@@ -598,17 +598,20 @@
       <div v-if="!guestSession.isGuestMode && !isMobile && (activeTab === 'shops' || activeTab === 'storage')" class="si-aggregate-col wsl-side">
         <aside class="si-aggregate">
         <InventoryAggregateView
-          v-if="activeTab === 'shops'"
+          v-if="activeTab === 'shops' || activeReconciliation"
           :inventory-counts="inventoryCounts"
           :shops-with-inventory="realShops"
           :past-events="pastEvents"
           :focus-shop-id="countingShop ? countingShop.element.id : null"
+          :unit-cost-by-item-id="summaryUnitCostByItemId"
+          :reconciliation="activeReconciliation"
           @start-count-shop="countingShop = $event"
         />
         <InventoryStorageAggregateView
           v-else
           :inventory-counts="inventoryCounts"
           :storages-with-inventory="realStorages"
+          :unit-cost-by-item-id="summaryUnitCostByItemId"
           :focus-storage-id="countingShop ? countingShop.element.id : null"
           @start-count-storage="startCount"
         />
@@ -645,17 +648,20 @@
            écran (masquée en bas de page sur mobile). -->
       <InventoryMobileSummaryDialog v-if="isMobile && !guestSession.isGuestMode" v-model="mobileSummaryOpen">
         <InventoryAggregateView
-          v-if="activeTab === 'shops'"
+          v-if="activeTab === 'shops' || activeReconciliation"
           :inventory-counts="inventoryCounts"
           :shops-with-inventory="realShops"
           :past-events="pastEvents"
           :focus-shop-id="countingShop ? countingShop.element.id : null"
+          :unit-cost-by-item-id="summaryUnitCostByItemId"
+          :reconciliation="activeReconciliation"
           @start-count-shop="mobileSummaryOpen = false; countingShop = $event"
         />
         <InventoryStorageAggregateView
           v-else-if="activeTab === 'storage'"
           :inventory-counts="inventoryCounts"
           :storages-with-inventory="realStorages"
+          :unit-cost-by-item-id="summaryUnitCostByItemId"
           :focus-storage-id="countingShop ? countingShop.element.id : null"
           @start-count-storage="mobileSummaryOpen = false; startCount($event)"
         />
@@ -842,6 +848,7 @@ import {
   buildCatalogNameById,
 } from '@/utils/reconciliationPerimeter'
 import { buildUnitCostByItemId } from '@/utils/reconciliationCosts'
+import { buildSummaryUnitCosts } from '@/utils/reconciliationAggregate'
 import { flattenLogisticExpected, splitBaselineByElement, describeBaseline } from '@/utils/postEventBaseline'
 import { buildUnitInfoByItemId } from '@/utils/reconciliationUnits'
 import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
@@ -1455,6 +1462,16 @@ export default {
         }
       }
       return out
+    },
+    /** itemId → coût unitaire des articles affichés : valorise les cartes du Résumé Inventaire
+     *  (même source que la réconciliation, utils/reconciliationAggregate). */
+    summaryUnitCostByItemId() {
+      return buildSummaryUnitCosts({
+        entries: [...(this.realShops || []), ...(this.realStorages || []), ...(this.realMerch || [])],
+        menuItemCostMap: this.store.state.analyse?.menuItemCostMap || {},
+        marketPrices: this.store.state.inventory?.marketPrices || [],
+        components: this.store.state.analyse?.components || [],
+      })
     },
     /** itemId → coût unitaire (map partagée du store analyse) → Écart €. */
     menuItemCostMapForReco() {

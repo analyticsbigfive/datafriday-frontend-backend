@@ -2,13 +2,16 @@
   <div class="si-aggregate-root">
     <!-- Toolbar : titre + bascule Inventaire compté / Liste de courses -->
     <header class="agg-header">
-      <div class="agg-title-row">
-        <div>
-          <h3>{{ viewMode === 'shopping' ? t('invPrintShopTitle') : t('invAggSummaryTitle') }}</h3>
-          <p v-if="viewMode === 'counted'">{{ stats.countedItems }} / {{ stats.totalItems }} {{ t('invMetricCounted') }}</p>
-        </div>
-        <strong v-if="viewMode === 'counted'" class="agg-completion">{{ completionPercent }}%</strong>
-      </div>
+      <InventorySummaryHeader
+        v-if="viewMode === 'counted'"
+        :title="t('invAggSummaryTitle')"
+        :counted-items="stats.countedItems"
+        :total-items="stats.totalItems"
+        :percent="completionPercent"
+        :total-cost="totalCost"
+        @export="exportCsv"
+      />
+      <h3 v-else class="agg-title-row">{{ t('invPrintShopTitle') }}</h3>
       <!-- Indique que la sidebar est limitée à la boutique en cours de comptage. -->
       <div v-if="focusShop" class="agg-focus-hint">
         <Package class="w-3 h-3" />
@@ -51,7 +54,8 @@
           <span>{{ t('invAggItemsToCount') }}</span>
           <strong>{{ stats.itemsToCount }}</strong>
         </div>
-        <div>
+        <!-- Document figé : le nombre de PdV restants n'est pas archivé, tuile masquée. -->
+        <div v-if="stats.shopsToCount != null">
           <span>{{ t('invAggShopsToCount') }}</span>
           <strong>{{ stats.shopsToCount }}</strong>
         </div>
@@ -105,23 +109,31 @@
             </span>
             <span class="agg-item-copy">
               <strong>{{ item.itemName }}</strong>
-              <small>{{ item.countedShopCount }}/{{ item.totalShopCount }} {{ t('invColShops') }}</small>
+              <small v-if="item.totalShopCount != null">{{ item.countedShopCount }}/{{ item.totalShopCount }} {{ t('invColShops') }}</small>
             </span>
-            <span class="agg-item-total">
-              <strong>{{ formatUnits(item.totalUnits) }}</strong>
-              <small>{{ aggUnitLabel(item, t('invAggTotalUnits')) }}</small>
-            </span>
+            <InventorySummaryItemTotal
+              class="agg-item-total"
+              :units="item.totalUnits"
+              :label="aggUnitLabel(item, t('invAggTotalUnits'))"
+              :cost="item.costValue"
+            />
             <Check v-if="item.isCounted" class="agg-item-check" />
             <ChevronUp v-if="isAggExpanded(`${item.itemName}-${index}`)" class="agg-item-chevron" />
             <ChevronDown v-else class="agg-item-chevron" />
           </button>
 
           <div v-show="isAggExpanded(`${item.itemName}-${index}`)" class="agg-item-detail">
-            <div class="agg-facts">
+            <div v-if="!item.snapshot" class="agg-facts">
               <span><small>{{ aggPackagingLabel(item, t('invColPacked')) }}</small><strong>{{ formatNumber(item.totalPackedUnits) }}</strong></span>
               <span><small>{{ aggUnitLabel(item, t('invColLoose')) }}</small><strong>{{ formatUnits(item.totalLooseUnits) }}</strong></span>
             </div>
-            <div v-if="item.shops.length" class="agg-shop-list">
+            <div v-if="item.snapshot && item.shops.length" class="agg-shop-list">
+              <div v-for="(shop, idx) in item.shops" :key="idx" class="agg-shop-row agg-shop-row--snapshot">
+                <span>{{ shop.shopName }}</span>
+                <strong>{{ formatUnits(shop.totalUnits) }}</strong>
+              </div>
+            </div>
+            <div v-else-if="item.shops.length" class="agg-shop-list">
               <div class="agg-shop-row agg-shop-head">
                 <span>{{ t('invColShops') }}</span>
                 <span>{{ aggPackagingLabel(item, t('invColPacked')) }}</span>
@@ -212,6 +224,10 @@ import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 import { aggPackagingLabel, aggUnitLabel } from '@/utils/inventoryAggLabels'
 import { currentIntlLocale } from '@/composables/useNumberFormat'
+import InventorySummaryHeader from '@/components/space-workspace/inventory/InventorySummaryHeader.vue'
+import InventorySummaryItemTotal from '@/components/space-workspace/inventory/InventorySummaryItemTotal.vue'
+import { buildReconciliationSummary, sumRowCosts, lineCost } from '@/utils/reconciliationAggregate'
+import { buildSummaryCsv, downloadCsv, summaryCsvFilename } from '@/utils/summaryCsv'
 
 export default {
   name: 'InventoryAggregateView',
@@ -220,6 +236,8 @@ export default {
     Check,
     ChevronDown,
     ChevronUp,
+    InventorySummaryHeader,
+    InventorySummaryItemTotal,
   },
   props: {
     inventoryCounts: { type: Object, required: true },
@@ -229,6 +247,10 @@ export default {
     // Mode focus : pendant le comptage d'une boutique, on n'affiche que les
     // articles de CETTE boutique (id). null = agrégat global (toutes boutiques).
     focusShopId: { type: [String, Number], default: null },
+    // itemId → coût unitaire (même source que la réconciliation) : valorise les cartes.
+    unitCostByItemId: { type: Object, default: () => ({}) },
+    // Réconciliation ouverte (pre ou post) : le résumé décrit CE document figé.
+    reconciliation: { type: Object, default: null },
   },
 
   emits: ['start-count-shop'],
@@ -287,6 +309,16 @@ export default {
     formatUnits,
     aggPackagingLabel,
     aggUnitLabel,
+    /** Exporte la section affichée (réconciliation ouverte ou inventaire en cours). */
+    exportCsv() {
+      const csv = buildSummaryCsv(this.aggregatedInventory, {
+        item: this.t('invSummaryCsvItem'),
+        units: this.t('invSummaryCsvUnits'),
+        unit: this.t('invSummaryCsvUnit'),
+        cost: this.t('invSummaryCsvCost'),
+      })
+      downloadCsv(summaryCsvFilename(this.reconciliation ? this.reconciliation.eventName : ''), csv)
+    },
   },
 
   computed: {
@@ -340,7 +372,19 @@ export default {
         })
         .filter((s) => s.total > 0 && s.counted >= s.total)
     },
+    /** Résumé dérivé du document figé (null hors réconciliation). */
+    recoSummary() {
+      if (!this.reconciliation) return null
+      return buildReconciliationSummary({
+        reconciliation: this.reconciliation,
+        unitCostByItemId: this.unitCostByItemId,
+      })
+    },
+    totalCost() {
+      return sumRowCosts(this.aggregatedInventory)
+    },
     aggregatedInventory() {
+      if (this.recoSummary) return this.recoSummary.rows
       const inventoryCounts = this.inventoryCounts || {}
       const shopsWithInventory = this.shopsWithInventory || []
 
@@ -365,6 +409,7 @@ export default {
             totalPackedUnits: packedUnits,
             totalLooseUnits: looseUnits,
             totalUnits,
+            costValue: lineCost(totalUnits, this.unitCostByItemId?.[String(item.id)]),
             countedShopCount: count.isCounted ? 1 : 0,
             totalShopCount: 1,
             isCounted: !!count.isCounted,
@@ -421,6 +466,7 @@ export default {
               totalPackedUnits: 0,
               totalLooseUnits: 0,
               totalUnits: 0,
+              costValue: null,
               countedShopCount: 0,
               totalShopCount: totalShopsByName.get(itemName) || 0,
               isCounted: false,
@@ -433,6 +479,8 @@ export default {
           aggregated.totalPackedUnits += packedUnits
           aggregated.totalLooseUnits += looseUnits
           aggregated.totalUnits += totalUnits
+          const shopCost = lineCost(totalUnits, this.unitCostByItemId?.[String(item.id)])
+          if (shopCost != null) aggregated.costValue = (aggregated.costValue || 0) + shopCost
           if (isCounted) aggregated.countedShopCount += 1
           aggregated.shops.push({
             shopName: shop?.element?.name || 'PdV sans nom',
@@ -473,6 +521,16 @@ export default {
       const shopsToCount = this.focusShop
         ? (countedItems < totalItems ? 1 : 0)
         : this.uncountedShops.length
+      if (this.recoSummary) {
+        const { totalItems: rt, countedItems: rc } = this.recoSummary.stats
+        return {
+          totalItems: rt,
+          countedItems: rc,
+          totalUnits,
+          itemsToCount: Math.max(0, rt - rc),
+          shopsToCount: null,
+        }
+      }
       return {
         totalItems,
         countedItems,
@@ -656,9 +714,13 @@ export default {
   color: #9ca3af;
 }
 
-.agg-item-copy,
-.agg-item-total {
+.agg-item-copy {
   min-width: 0;
+}
+
+/* Le total (unités + coût) ne se coupe jamais : c'est le nom qui s'abrège. */
+.agg-item-total {
+  min-width: max-content;
 }
 
 .agg-item-copy strong,
@@ -685,6 +747,7 @@ export default {
 }
 
 .agg-item-total {
+  flex-shrink: 0;
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
@@ -747,6 +810,8 @@ export default {
 }
 
 .agg-shop-row > :nth-child(n + 2) { justify-content: flex-end; text-align: right; }
+
+.agg-shop-row--snapshot { grid-template-columns: minmax(0, 1fr) auto; }
 
 .agg-shop-head {
   padding-bottom: 3px;

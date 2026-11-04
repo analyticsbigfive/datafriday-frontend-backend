@@ -77,11 +77,13 @@
             <th>{{ t('invRecoColCounted') }}</th>
             <th>{{ t('invRecoColDelta') }}</th>
             <th>{{ t('invRecoColDeltaValue') }}</th>
+            <th>{{ t('invRecoColInvCost') }}</th>
+            <th>{{ t('invRecoColLossCost') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!groups.length" class="irv-empty-row">
-            <td colspan="5">{{ t('invRecoNoMatch') }}</td>
+            <td colspan="7">{{ t('invRecoNoMatch') }}</td>
           </tr>
           <template v-for="g in groups" :key="g.key">
             <tr class="irv-row" :class="{ 'irv-row-open': isExpanded(g.key) }" @click="toggleExpand(g.key)">
@@ -89,19 +91,23 @@
                 <v-icon size="14" class="irv-caret">
                   {{ isExpanded(g.key) ? 'mdi-chevron-down' : 'mdi-chevron-right' }}
                 </v-icon>
-                {{ g.label || '—' }}
+                <span class="irv-name-text" :title="g.label || ''">{{ g.label || '—' }}</span>
               </td>
               <td>{{ g.expectedUnits == null ? '—' : formatUnits(g.expectedUnits) }}</td>
               <td>{{ formatUnits(g.countedUnits) }}<span v-if="g.fromLogistic" class="irv-src-l" :title="t('invRecoCountedFromLogistic')"> (L)</span></td>
               <td><span :class="deltaClass(g.deltaUnits)">{{ formatDelta(g.deltaUnits) }}</span></td>
               <td><span :class="deltaClass(g.deltaValue)">{{ g.deltaValue == null ? '—' : formatMoney(g.deltaValue) }}</span></td>
+              <td>{{ formatCost(g.inventoryCost) }}</td>
+              <td><span :class="lossClass(g.lossCost)">{{ formatCost(g.lossCost) }}</span></td>
             </tr>
             <tr v-for="sub in (isExpanded(g.key) ? g.children : [])" :key="`${g.key}::${sub.key}`" class="irv-subrow">
-              <td class="irv-col-name irv-subname">{{ sub.label || '—' }}</td>
+              <td class="irv-col-name irv-subname" :title="sub.label || ''"><span class="irv-name-text">{{ sub.label || '—' }}</span></td>
               <td>{{ sub.expectedUnits == null ? '—' : formatUnits(sub.expectedUnits) }}</td>
               <td>{{ formatUnits(sub.countedUnits) }}<span v-if="sub.fromLogistic" class="irv-src-l" :title="t('invRecoCountedFromLogistic')"> (L)</span></td>
               <td><span :class="deltaClass(sub.deltaUnits)">{{ formatDelta(sub.deltaUnits) }}</span></td>
               <td><span :class="deltaClass(sub.deltaValue)">{{ sub.deltaValue == null ? '—' : formatMoney(sub.deltaValue) }}</span></td>
+              <td>{{ formatCost(sub.inventoryCost) }}</td>
+              <td><span :class="lossClass(sub.lossCost)">{{ formatCost(sub.lossCost) }}</span></td>
             </tr>
           </template>
         </tbody>
@@ -120,11 +126,13 @@
             <th>{{ t('invRecoColLeft') }}</th>
             <th>{{ t('invRecoColInv') }}</th>
             <th>{{ t('invRecoColMiss') }}</th>
+            <th>{{ t('invRecoColInvCost') }}</th>
+            <th>{{ t('invRecoColLossCost') }}</th>
           </tr>
         </thead>
         <tbody>
           <tr v-if="!groups.length" class="irv-empty-row">
-            <td colspan="7">{{ t('invRecoNoMatch') }}</td>
+            <td colspan="9">{{ t('invRecoNoMatch') }}</td>
           </tr>
           <template v-for="g in groups" :key="g.key">
             <tr class="irv-row" :class="{ 'irv-row-open': isExpanded(g.key) }" @click="toggleExpand(g.key)">
@@ -132,7 +140,7 @@
                 <v-icon size="14" class="irv-caret">
                   {{ isExpanded(g.key) ? 'mdi-chevron-down' : 'mdi-chevron-right' }}
                 </v-icon>
-                {{ g.label || '—' }}
+                <span class="irv-name-text" :title="g.label || ''">{{ g.label || '—' }}</span>
               </td>
               <td>{{ formatQty(g.soldUnits, g.unitInfo) }}</td>
               <td>{{ formatQty(g.predictedUnits, g.unitInfo) }}</td>
@@ -142,9 +150,11 @@
               <td>
                 <span :class="missClass(g.missingUnits)">{{ formatQtyPack(g.missingUnits, g.unitInfo) }}</span>
               </td>
+              <td>{{ formatCost(g.inventoryCost) }}</td>
+              <td><span :class="lossClass(g.lossCost)">{{ formatCost(g.lossCost) }}</span></td>
             </tr>
             <tr v-for="sub in (isExpanded(g.key) ? g.children : [])" :key="`${g.key}::${sub.key}`" class="irv-subrow">
-              <td class="irv-col-name irv-subname">{{ sub.label || '—' }}</td>
+              <td class="irv-col-name irv-subname" :title="sub.label || ''"><span class="irv-name-text">{{ sub.label || '—' }}</span></td>
               <td>{{ formatQty(sub.soldUnits, sub.unitInfo) }}</td>
               <td>{{ formatQty(sub.predictedUnits, sub.unitInfo) }}</td>
               <td :class="diffClass(rowDiffPct(sub))">{{ formatPct(rowDiffPct(sub)) }}</td>
@@ -153,6 +163,8 @@
               <td>
                 <span :class="missClass(sub.missingUnits)">{{ formatQtyPack(sub.missingUnits, sub.unitInfo) }}</span>
               </td>
+              <td>{{ formatCost(sub.inventoryCost) }}</td>
+              <td><span :class="lossClass(sub.lossCost)">{{ formatCost(sub.lossCost) }}</span></td>
             </tr>
           </template>
         </tbody>
@@ -168,6 +180,7 @@ import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 import { computeReconciliationSummary } from '@/utils/postEventReconciliation'
 import { formatQuantityWithPack, sharedUnitInfo } from '@/utils/reconciliationUnits'
+import { lineCostColumns, sumCostColumns } from '@/utils/reconciliationCostColumns'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 
 const props = defineProps({
@@ -312,6 +325,7 @@ const lines = computed(() => {
     const cost = costOf(l.itemKey)
     return {
       ...l,
+      unitCost: cost,
       expectedUnits,
       countedUnits,
       deltaUnits,
@@ -388,6 +402,8 @@ const groups = computed(() => {
             deltaValue: null,
             // BUG-383-02 : « (L) » sur le total si au moins une ligne du groupe vient de Logistic.
             fromLogistic: false,
+            inventoryCost: null,
+            lossCost: null,
             children: [],
           }
         : {
@@ -398,6 +414,8 @@ const groups = computed(() => {
             leftFromSales: null,
             countedUnits: 0,
             missingUnits: null,
+            inventoryCost: null,
+            lossCost: null,
             children: [],
             lines: [],
             unitInfo: null,
@@ -412,9 +430,11 @@ const groups = computed(() => {
       g.deltaValue = foldNullable(g.deltaValue, l.deltaValue)
       const fromLogistic = l.countedSource === 'logistic'
       g.fromLogistic = g.fromLogistic || fromLogistic
+      const costs = lineCostColumns(l, { isPre: true })
       g.children.push({
         key: childKeyOf(l) || '—',
         label: childLabelOf(l),
+        ...costs,
         expectedUnits: l.expectedUnits,
         countedUnits: l.countedUnits || 0,
         deltaUnits: l.deltaUnits,
@@ -427,9 +447,11 @@ const groups = computed(() => {
       g.leftFromSales = foldNullable(g.leftFromSales, l.leftFromSales)
       g.missingUnits = foldNullable(g.missingUnits, l.missingUnits)
       g.lines.push(l)
+      const costs = lineCostColumns(l)
       g.children.push({
         key: childKeyOf(l) || '—',
         label: childLabelOf(l),
+        ...costs,
         soldUnits: l.soldUnits || 0,
         predictedUnits: l.predictedUnits,
         leftFromSales: l.leftFromSales,
@@ -443,6 +465,8 @@ const groups = computed(() => {
   const out = [...byGroup.values()]
   for (const g of out) {
     g.children.sort((a, b) => String(a.label).localeCompare(String(b.label)))
+    // Total du groupe = somme des coûts de ses enfants (lignes sans coût ignorées).
+    Object.assign(g, sumCostColumns(g.children))
     // Ligne de total : unité seulement si toutes les lignes du groupe la
     // partagent (mode PdV : litres + pièces additionnés → nombre nu).
     if (!pre) g.unitInfo = sharedUnitInfo(g.lines || [])
@@ -520,6 +544,13 @@ function formatMissChip() {
   }
   return '—'
 }
+/** Coût absent ou nul : « — », jamais un 0 € inventé. */
+function formatCost(v) {
+  return v == null ? '—' : formatMoney(v)
+}
+function lossClass(v) {
+  return v != null && v > 0 ? 'irv-miss' : v == null ? 'irv-muted' : ''
+}
 function formatMoney(v) {
   return formatCurrencyDetailed(v, 'EUR', intlLocale.value)
 }
@@ -543,7 +574,7 @@ function formatDateTime(v) {
 .irv-back { text-transform: none; letter-spacing: 0; font-weight: 600; }
 .irv-chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .irv-chip {
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   color: var(--fb-text, #424242);
   background: var(--fb-surface, #FFFFFF);
   border: 1px solid var(--fb-border, #EEEEEE);
@@ -565,13 +596,13 @@ function formatDateTime(v) {
 .irv-search-input {
   border: 0;
   outline: none;
-  font-size: 13px;
+  font-size: var(--fs-base);
   min-width: 190px;
   background: transparent;
   color: var(--fb-text, #212121);
 }
 .irv-toggle { border-radius: 999px; }
-.irv-meta { font-size: 12px; color: var(--fb-muted, #757575); }
+.irv-meta { font-size: var(--fs-sm); color: var(--fb-muted, #757575); }
 
 /* Bandeaux de contexte (sources manquantes/dégradées). Couleurs sémantiques
    conservées en clair ET en sombre : le fond passe par --fb-*, l'accent reste
@@ -581,7 +612,7 @@ function formatDateTime(v) {
   display: flex;
   align-items: flex-start;
   gap: 7px;
-  font-size: 12.5px;
+  font-size: var(--fs-sm);
   line-height: 1.35;
   padding: 7px 11px;
   border-radius: 8px;
@@ -600,38 +631,65 @@ function formatDateTime(v) {
   border-radius: 12px;
   overflow-x: auto;
 }
-.irv-table { width: 100%; border-collapse: collapse; min-width: 720px; }
+.irv-table { width: 100%; border-collapse: collapse; min-width: 900px; }
 .irv-table th, .irv-table td {
   padding: 9px 12px;
   text-align: right;
-  font-size: 13px;
+  font-size: var(--fs-base);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
 .irv-table th {
-  font-size: 11px;
+  font-size: var(--fs-xs);
   letter-spacing: .05em;
   text-transform: uppercase;
   color: var(--fb-muted, #757575);
-  font-weight: 600;
+  font-weight: var(--fw-semibold);
   border-bottom: 1.5px solid var(--fb-border, #EEEEEE);
+  background: var(--fb-surface, #FFFFFF);
 }
 .irv-table td { border-bottom: 1px solid var(--fb-border, #F5F5F5); color: var(--fb-text, #212121); }
-.irv-col-name { text-align: left !important; font-weight: 500; }
+/* Première colonne : étroite, ellipsis (title = texte complet) et collée à gauche
+   pendant le défilement horizontal (le conteneur de défilement est .irv-tablewrap,
+   sans overflow caché sur un ancêtre intermédiaire). Fond OPAQUE sur toutes les
+   variantes de ligne pour que les colonnes défilantes passent dessous. */
+.irv-col-name {
+  text-align: left !important;
+  font-weight: var(--fw-medium);
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  width: 150px;
+  min-width: 150px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: var(--fb-surface, #FFFFFF);
+  box-shadow: 1px 0 0 var(--fb-border, #EEEEEE);
+}
+.irv-table th.irv-col-name { z-index: 2; }
+.irv-name-text {
+  display: inline-block;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
 .irv-row { cursor: pointer; }
 .irv-row:hover td { background: var(--fb-subtle, #FAFAFA); }
 .irv-row-open td { background: var(--fb-subtle, #FAFAFA); }
 .irv-caret { color: var(--fb-faint, #9E9E9E); margin-right: 2px; }
-.irv-subrow td { background: var(--fb-subtle, #FCFCFC); font-size: 12.5px; }
-.irv-subname { padding-left: 34px !important; color: var(--fb-muted, #616161); font-weight: 400; }
+.irv-subrow td { background: var(--fb-subtle, #FCFCFC); font-size: var(--fs-sm); }
+.irv-subname { padding-left: 34px !important; color: var(--fb-muted, #616161); font-weight: var(--fw-regular); }
+.irv-subname .irv-name-text { max-width: 100%; }
 .irv-empty-row td { text-align: center; color: var(--fb-faint, #9E9E9E); padding: 22px; }
 /* Manquant / surplus : sémantique, pas décoratif — teintes qui tiennent sur les
    deux thèmes (le rouge clair d'origine disparaissait sur fond sombre). */
 .irv-neg { color: var(--fb-danger, #C62828); font-weight: 600; }
 .irv-pos { color: var(--fb-warning, #B45309); font-weight: 600; }
 .irv-muted { color: var(--fb-faint, #9E9E9E); }
-.irv-src-l { color: var(--fb-muted, #6B7280); font-size: 11px; }
-.irv-legend { margin: 0 0 8px; font-size: 11px; color: var(--fb-muted, #6B7280); }
+.irv-src-l { color: var(--fb-muted, #6B7280); font-size: var(--fs-xs); }
+.irv-legend { margin: 0 0 8px; font-size: var(--fs-xs); color: var(--fb-muted, #6B7280); }
 .irv-miss {
   color: var(--fb-danger, #C62828);
   font-weight: 700;
