@@ -529,6 +529,10 @@ export default {
 /* ── Filtre saison (multi-choix) ── */
 .smi-season-filter { display: flex; padding: 12px 12px 0; background: #fff; }
 .smi-panel--dark .smi-season-filter { background: #111827; }
+.smi-panel--dark .smi-season-filter :deep(.pill-multi-select .v-field) { background: #1e293b; border-color: #334155; }
+.smi-panel--dark .smi-season-filter :deep(.pill-multi-select .v-field--focused) { border-color: #ff3131; }
+.smi-panel--dark .smi-season-filter :deep(.v-field__input),
+.smi-panel--dark .smi-season-filter :deep(input::placeholder) { color: #e2e8f0; }
 
 /* ── Type pills (classification par type) ── */
 .smi-type-pills {

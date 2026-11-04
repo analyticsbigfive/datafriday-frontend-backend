@@ -10,6 +10,7 @@ import {
 } from '@/api/endpoints/seasons.api'
 
 const CACHE_TTL = 15 * 60 * 1000
+let inflight = null
 
 export default {
   namespaced: true,
@@ -20,6 +21,7 @@ export default {
   }),
   getters: {
     seasons: (s) => s.seasons,
+    fetching: (s) => s.fetching,
     isCacheValid: (s) => s.cachedAt > 0 && Date.now() - s.cachedAt < CACHE_TTL,
     /** Saisons applicables à un espace : allSpaces OU jointure explicite. */
     seasonsForSpace: (s) => (spaceId) =>
@@ -34,16 +36,22 @@ export default {
     setFetching(s, v) { s.fetching = v },
   },
   actions: {
-    async fetchAll({ commit, getters }, { force = false } = {}) {
-      if (!force && getters.isCacheValid) return
+    // Un seul appel réseau à la fois : les appelants simultanés partagent la promesse en vol.
+    // cachedAt n'est posé qu'en cas de succès (un échec laisse le cache invalide, retry possible).
+    fetchAll({ commit, getters }, { force = false } = {}) {
+      if (!force && getters.isCacheValid) return Promise.resolve()
+      if (inflight) return inflight
       commit('setFetching', true)
-      try {
-        const seasons = await getSeasons()
-        commit('setSeasons', seasons)
-        commit('setCachedAt', Date.now())
-      } finally {
-        commit('setFetching', false)
-      }
+      inflight = getSeasons()
+        .then((seasons) => {
+          commit('setSeasons', seasons)
+          commit('setCachedAt', Date.now())
+        })
+        .finally(() => {
+          commit('setFetching', false)
+          inflight = null
+        })
+      return inflight
     },
 
     // Mutation puis refetch (listes courtes, correction > micro-perf).
