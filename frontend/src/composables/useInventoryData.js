@@ -184,10 +184,11 @@ export function useInventoryData(selectedConfigId) {
   /**
    * @param {string} spaceId
    * @param {string} configId configuration de l'event
-   * @param {{ scope?: 'event'|'space' }} [opts] 'space' = « Voir tout l'inventaire »
-   *   (PdV et réserves de toutes les configurations de l'espace).
+   * @param {{ scope?: 'event'|'space', silent?: boolean }} [opts] 'space' = « Voir tout l'inventaire »
+   *   (PdV et réserves de toutes les configurations de l'espace). `silent` : revalidation
+   *   au retour sur la page, sans squelette et sans vider l'affichage si tout échoue.
    */
-  async function loadContext(spaceId, configId, { scope = INVENTORY_SCOPE_EVENT } = {}) {
+  async function loadContext(spaceId, configId, { scope = INVENTORY_SCOPE_EVENT, silent = false } = {}) {
     if (!spaceId || !configId) {
       resetContext()
       return
@@ -204,9 +205,11 @@ export function useInventoryData(selectedConfigId) {
     if (inflight.has(key)) return inflight.get(key)
     const myReq = ++reqSeq
     const stale = () => myReq !== reqSeq
-    contextLoading.value = true
-    contextError.value = null
-    contextWarning.value = null
+    if (!silent) {
+      contextLoading.value = true
+      contextError.value = null
+      contextWarning.value = null
+    }
 
     const run = (async () => {
       // --- Rows NestJS + détail config en parallèle : les floors servent à
@@ -256,6 +259,7 @@ export function useInventoryData(selectedConfigId) {
       const outsideEventConfig = (id) => allSpace && !eventElementIds.has(String(id))
 
       if (rowsFailed && configFailed) {
+        if (silent) return
         contextError.value = rowsRes.reason?.message || 'shops-load-failed'
         shops.value = []
         shopsByName.value = new Map()
@@ -428,7 +432,7 @@ export function useInventoryData(selectedConfigId) {
     })()
       .finally(() => {
         inflight.delete(key)
-        if (!stale()) contextLoading.value = false
+        if (!stale() && !silent) contextLoading.value = false
       })
 
     inflight.set(key, run)

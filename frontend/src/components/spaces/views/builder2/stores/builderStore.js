@@ -160,6 +160,9 @@ function createBuilderStore(spaceId) {
     state.error = null
     try {
       const data = await api.getBuilderState(spaceId)
+      // Une sauvegarde en attente porte des modifications locales plus récentes que
+      // la réponse serveur : hydrater les écraserait. Le prochain bootstrap resynchronise.
+      if (state.bootstrapped && hasPendingWork()) return
       hydrate(data)
       state.bootstrapped = true
     } catch (err) {

@@ -45,6 +45,31 @@ export function granularIdentityKey(arr) {
   }
   return `g${id}`
 }
+// Empreinte des entrées du scoring qui NE sont PAS dans le granular : attributs
+// de l'event cible (type / catégorie / sous-catégorie, filtres durs) et de chaque
+// event candidat (config, type, catégorie, date). Sans elle, changer l'un d'eux
+// (édition de l'event, config modifiée ailleurs puis retour keep-alive) rendait le
+// résultat mémoïsé : les sources ne bougeaient plus avant un hard refresh.
+export function scoringInputsKey(event, allEvents) {
+  const t = event
+    ? [event.eventTypeId, event.eventCategoryId, event.eventSubcategoryId, event.eventDate].join('|')
+    : ''
+  let h = 5381
+  const list = Array.isArray(allEvents) ? allEvents : []
+  for (const e of list) {
+    const part = [
+      e?.id,
+      e?.configurationId,
+      e?.eventTypeId,
+      e?.eventCategoryId,
+      e?.eventSubcategoryId,
+      e?.eventDate,
+      e?.ticketsScanned ?? e?.ticketsSold,
+    ].join('|')
+    for (let i = 0; i < part.length; i++) h = ((h << 5) + h + part.charCodeAt(i)) | 0
+  }
+  return `${t}#${list.length}#${h}`
+}
 // Granularité native : 1 minute (cf. React
 // `predictiveAnalyticsTimeline.ts`). Permet au slider du EventTimelineChart
 // de filtrer le KPI strip et la breakdown shop/item à la minute près sans
@@ -614,6 +639,7 @@ export function usePredictiveTimeline(options) {
       event.id,
       event.configurationId || '',
       granularIdentityKey(readGranular()),
+      scoringInputsKey(event, readEvents()),
       event.ticketsScanned || event.ticketsSold || 0,
       targetShowTime,
       Array.isArray(overridePredictionIds) ? overridePredictionIds.join(',') : '',
@@ -693,6 +719,7 @@ export function usePredictiveTimeline(options) {
         event.id,
         event.configurationId || '',
         granularIdentityKey(dataForScoring),
+        scoringInputsKey(event, allEvents),
         event.ticketsScanned || event.ticketsSold || 0,
         targetShowTime,
       ].join('::')
