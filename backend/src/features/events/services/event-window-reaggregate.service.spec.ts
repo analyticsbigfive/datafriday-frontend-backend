@@ -15,7 +15,7 @@ describe('EventWindowReaggregateService', () => {
     const build = () => {
         const prisma = { space: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Europe/Paris' }) } };
         const aggregation = { processEvents: jest.fn().mockResolvedValue({ jobId: 'j1' }) };
-        return { prisma, aggregation, service: new EventWindowReaggregateService(prisma as any, aggregation as any) };
+        return { prisma, aggregation, service: new EventWindowReaggregateService(prisma as any, { get: () => aggregation } as any) };
     };
 
     it('windowChanged : heure de fin ou date modifiée, pas un autre champ', () => {

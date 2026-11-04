@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { AggregationService } from '../../aggregation/aggregation.service';
 import { resolveEventTransactionWindow, type EventDayFields } from '../../../shared/utils/event-window.util';
@@ -23,8 +24,17 @@ export class EventWindowReaggregateService {
 
     constructor(
         private readonly prisma: PrismaService,
-        private readonly aggregation: AggregationService,
+        private readonly moduleRef: ModuleRef,
     ) {}
+
+    /**
+     * Résolu à l'appel et non injecté : importer AggregationModule dans EventsModule fermait le cycle
+     * Weezevent -> Events -> Aggregation -> Mappings -> Spaces -> Weezevent, et l'API ne démarrait plus
+     * (« module at index [2] of SpacesModule is undefined », Render du 03/11 au 04/11).
+     */
+    private get aggregation(): AggregationService {
+        return this.moduleRef.get(AggregationService, { strict: false });
+    }
 
     /** La fenêtre de ventes a-t-elle changé entre les deux versions de l'event ? */
     static windowChanged(before: EventWindowFields, after: EventWindowFields): boolean {
