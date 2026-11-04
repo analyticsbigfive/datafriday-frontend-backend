@@ -17,9 +17,9 @@ export function useLivePredictBackground(eventId, enabled) {
   const version = ref(null)
   let token = 0
 
-  async function load(id) {
+  async function load(id, { silent = false } = {}) {
     const mine = ++token
-    version.value = null
+    if (!silent) version.value = null
     if (!id || !enabled.value) return
     try {
       const list = await listEventPredictVersions(id)
@@ -27,15 +27,17 @@ export function useLivePredictBackground(eventId, enabled) {
       const def = Array.isArray(list) ? list.find((v) => v.isDefault) : null
       version.value = def && hasPredictedTimeline(def.predictedTimeline) ? def : null
     } catch (_) {
-      if (mine === token) version.value = null
+      if (mine === token && !silent) version.value = null
     }
   }
 
   watch([eventId, enabled], () => load(eventId.value), { immediate: true })
+  // Retour sur la page : la version par defaut a pu changer, on la relit sans vider le fond.
+  const reload = () => load(eventId.value, { silent: true })
 
   const rows = computed(() => snapshotToBackgroundRows(version.value?.predictedTimeline))
   const label = computed(() => version.value?.name || '')
   // Snapshot brut : le Live l'utilise aussi pour la cadence de vente (colonne Prévu restant).
   const timeline = computed(() => version.value?.predictedTimeline || null)
-  return { rows, label, timeline }
+  return { rows, label, timeline, reload }
 }

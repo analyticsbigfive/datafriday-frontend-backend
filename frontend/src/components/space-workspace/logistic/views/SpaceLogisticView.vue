@@ -592,6 +592,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { safePush } from '@/utils/chunkReload'
 import { useI18n } from '@/i18n/useI18n'
 import { useInventoryLivePolling } from '@/composables/useInventoryLivePolling'
+import { useRefreshOnReturn } from '@/composables/useRefreshOnReturn'
 import WorkspaceAppHeader from '@/components/WorkspaceAppHeader.vue'
 import AppSearchBar from '@/components/common/AppSearchBar.vue'
 import WorkspaceToolSelect from '@/components/WorkspaceToolSelect.vue'
@@ -721,6 +722,10 @@ export default {
       () => liveRefresh.value?.(),
       { intervalMs: 10 * 1000 },
     )
+    // Retour sur la page (keep-alive) : relecture silencieuse de la liste des matchs,
+    // de la feuille de réarmement et des dépôts. Assignée dans `created`.
+    const revalidate = ref(null)
+    useRefreshOnReturn(() => revalidate.value?.())
     // Mode Ventilation (feuille de réarmement, dépôts) : reactive() déballe les refs
     // du composable pour le template et `this.ventilation.*`.
     const ventilation = reactive(useLogisticVentilation({ store, t }))
@@ -731,7 +736,7 @@ export default {
     const ventilationAccess = reactive(useVentilationAccess())
     // Lignes « stocké » des réserves (builder state) pour filtrer les articles des Storages.
     const storageInv = useStorageInventory()
-    return { store, router, route, t, liveRefresh, storageInv, ventilation, ventilationLabels, eventSelection, ventilationAccess }
+    return { store, router, route, t, liveRefresh, revalidate, storageInv, ventilation, ventilationLabels, eventSelection, ventilationAccess }
   },
   data() {
     return {
@@ -981,6 +986,7 @@ export default {
   },
   created() {
     this.liveRefresh = () => this.refreshLive()
+    this.revalidate = () => this.revalidateOnReturn()
   },
   activated() {
     // Retour sur la vue keep-alive : le watcher a été court-circuité pendant
@@ -1196,6 +1202,19 @@ export default {
         this.activeTab === 'ventilation' ? this.ventilation.refresh(spaceId) : null,
       ])
     },
+    /** Retour sur la page : tout ce que le montage initial charge est relu sans squelette. */
+    async revalidateOnReturn() {
+      if (this.route?.name !== 'space-logistic') return
+      const spaceId = this.currentSpaceId
+      if (!spaceId || this.loading) return
+      // Contexte changé pendant l'absence : `activated` recharge déjà en entier.
+      if (this.routeContextKey !== this._loadedContextKey) return
+      await this.eventSelection.load(spaceId)
+      await Promise.all([
+        this.refreshLive(),
+        this.fetchPredictedNeed({ silent: true }),
+      ])
+    },
     async loadForSpace(spaceId) {
       this._loadedContextKey = this.routeContextKey
       this.loading = true
@@ -1236,18 +1255,21 @@ export default {
      *  sinon le prochain match jusqu'à sa fin réelle). Priorité aux feuilles de
      *  réarmement sauvegardées (décision opérationnelle) sur la prévision brute Event
      *  Predict (repli, premier match seulement). Sans match, la colonne reste absente. */
-    async fetchPredictedNeed() {
-      this.predictedNeed = null
-      this.needSource = null
+    async fetchPredictedNeed({ silent = false } = {}) {
       const eventIds = this.eventSelection.selectedIds
-      this.ventilation.reset(eventIds)
+      // silent : relecture au retour sur la page, l'affichage courant reste en place.
+      if (!silent) {
+        this.predictedNeed = null
+        this.needSource = null
+        this.ventilation.reset(eventIds)
+      }
       if (!eventIds.length) return
       const effectiveEventId = eventIds[0]
 
       try {
         // Feuilles de réarmement des matchs : « À déposer » (composable Ventilation).
         // Une feuille entièrement déposée ne retombe PAS sur la prévision brute.
-        if (await this.ventilation.loadForEvents(this.currentSpaceId, eventIds)) {
+        if (await this.ventilation.loadForEvents(this.currentSpaceId, eventIds, { silent })) {
           this.needSource = 'restock'
           return
         }

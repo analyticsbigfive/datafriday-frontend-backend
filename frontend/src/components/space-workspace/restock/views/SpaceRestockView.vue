@@ -1808,6 +1808,7 @@ import { storageRowSupplier } from '@/utils/restockStorageRowSupplier'
 import { isStorageBufferRow } from '@/utils/restockStorageBuffers'
 import { resolvePredictedEventIds } from '@/utils/restockPredictedIds'
 import { useRestockCatalogReadiness } from '../composables/useRestockCatalogReadiness'
+import { useRestockReturnRefresh, mergeFreshComponents } from '../composables/useRestockReturnRefresh'
 
 // Garde-fou client AVANT le POST d'un plan — marge sous la garde backend
 // (restock-plans.service.ts : 1 000 000). Même métrique (JSON.stringify).
@@ -1870,6 +1871,8 @@ export default {
     const storageInvApi = useStorageInventory()
     // État « catalogue prêt » (menuItems + composants + coûts) et échecs de chargement.
     const catalogApi = useRestockCatalogReadiness(store)
+    // keepAlive : revalidation silencieuse des données au retour sur la page.
+    useRestockReturnRefresh(store)
     return {
       store, route, router, t, locale,
       catalogApi,
@@ -3413,7 +3416,7 @@ export default {
     },
     /** Catalogue des composants (recettes hydratées si disponibles). */
     componentCatalog() {
-      return this.hydratedComponents.length ? this.hydratedComponents : this.components
+      return mergeFreshComponents(this.components, this.hydratedComponents)
     },
     /** Composants à commander de l'étape 1 (avec leur définition), base du résumé et de la carte. */
     componentOrders() {
@@ -3469,7 +3472,7 @@ export default {
         recipeByMenuItemId: this.recipeByMenuItemId,
         // BUG-292-01 : sans ce catalogue hydraté, l'éclatement composant →
         // ingrédients est inerte et la feuille de course s'arrête au composant.
-        components: this.hydratedComponents,
+        components: this.componentCatalog,
         resolveSupplier: (line) => this.resolveIngredientSupplier(line),
       })
       const q = (this.shoppingSearch || '').trim().toLowerCase()
@@ -3764,6 +3767,17 @@ export default {
     // recettes, sinon ensureComponentsHydrated restait no-op (liste vide à l'appel).
     'components.length'(n) {
       if (n) this.ensureComponentsHydrated()
+    },
+    // Catalogue renouvelé dans le store (retour sur la page) : recettes à relire.
+    components(_fresh, previous) {
+      if (!previous?.length) return
+      this.componentsHydrated = false
+      this.ensureComponentsHydrated()
+    },
+    // Évènement d'objectif d'une autre config : PdV fermés et assignation menu
+    // sont propres à la config (cache par config dans loadRestockShopAssignment).
+    objectiveEvents() {
+      this.loadRestockShopAssignment()
     },
     missingRecipeIdsKey(key) {
       if (key) this.ensureRecipesLoaded()
@@ -4284,7 +4298,7 @@ export default {
     },
     /** Payload complet depuis l'état VIVANT (photo au moment de la sauvegarde). */
     buildPlanPayload() {
-      const components = this.hydratedComponents.length ? this.hydratedComponents : this.components
+      const components = this.componentCatalog
       const restockRows = this.liveRestockRows
       return buildPlanSnapshot({
         stockRows: this.liveStockSettingsRows,
@@ -4753,7 +4767,13 @@ export default {
       }
     },
     /** Charge l'assignation menu par shop (NestJS getShopMenus), keyée par nom. */
-    async loadRestockShopAssignment() {
+    async loadRestockShopAssignment({ force = false } = {}) {
+      const token = (this._restockAssignmentToken = (this._restockAssignmentToken || 0) + 1)
+      if (force) {
+        this._restockAssignmentCache = null
+        this._restockClosedCache = null
+        this._restockUnavailableCache = null
+      }
       const spaceId = this.currentSpace?.id || this.route?.params?.spaceId
       const ev = (this.objectiveEvents && this.objectiveEvents[0]) || null
       const cfg = ev
@@ -4762,6 +4782,7 @@ export default {
       const cfgId = cfg?.id || null
       if (!spaceId || !cfgId) {
         this.restockAssignmentByName = null
+        this.closedShopNames = []
         this.unavailableStockItems = null
         return
       }
@@ -4774,9 +4795,11 @@ export default {
         this.unavailableStockItems = unavailCache[cfgId] || null
         return
       }
-      const rows = ((await this.store.dispatch('spaceShops/fetchForSpace', { spaceId }).catch(() => [])) || []).filter(
+      const rows = ((await this.store.dispatch('spaceShops/fetchForSpace', { spaceId, forceRefresh: force }).catch(() => [])) || []).filter(
         (r) => (r?.configId ?? r?._raw?.configId) === cfgId,
       )
+      // Un chargement plus récent (autre évènement) a pris le relais : on abandonne.
+      if (token !== this._restockAssignmentToken) return
       // Statut ouvert/fermé (même formule autoritaire qu'EventPredict isOpenByShop :
       // ouvert = isOpen===true OU menuItemsCount>0). Les fermés sont exclus du
       // réarmement (« on ne vend pas sur des points fermés »).
@@ -4814,7 +4837,7 @@ export default {
           // doit pas emporter la disponibilité avec lui, ni l'inverse.
           let unavailable = []
           try {
-            await this.store.dispatch('shopMenuAvailability/fetchForShop', { shopId, configId: cfgId })
+            await this.store.dispatch('shopMenuAvailability/fetchForShop', { shopId, configId: cfgId, forceRefresh: force })
             const availFor = this.store.getters['shopMenuAvailability/forShop']
             const rowsAvail = typeof availFor === 'function' ? availFor(shopId, cfgId) || [] : []
             // `available === false` STRICT : un backend antérieur qui n'enverrait
@@ -4824,7 +4847,7 @@ export default {
             /* disponibilité indisponible → on n'exclut rien (comportement antérieur) */
           }
           try {
-            await this.store.dispatch('shopMenuItems/fetchForShop', { shopId, configId: cfgId })
+            await this.store.dispatch('shopMenuItems/fetchForShop', { shopId, configId: cfgId, forceRefresh: force })
             const forShop = this.store.getters['shopMenuItems/forShop']
             const items = typeof forShop === 'function' ? forShop(shopId, cfgId) || [] : []
             results[idx] = { name, items, unavailable }
@@ -4856,6 +4879,7 @@ export default {
         const unavailableStockItems = unavailIds.size
           ? { ids: [...unavailIds], names: [...unavailNames] }
           : null
+        if (token !== this._restockAssignmentToken) return
         cache[cfgId] = map
         unavailCache[cfgId] = unavailableStockItems
         this.restockAssignmentByName = map

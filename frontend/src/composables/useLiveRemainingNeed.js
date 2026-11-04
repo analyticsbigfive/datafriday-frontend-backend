@@ -39,11 +39,13 @@ export function useLiveRemainingNeed({ eventId, spaceId, shops, timelineRows, pr
   let loadedFor = null
   let catalogRequested = false
 
-  async function loadVersion(id) {
-    if (!id || loadedFor === id) return
+  async function loadVersion(id, { silent = false } = {}) {
+    if (!id || (loadedFor === id && !silent)) return
     loadedFor = id
-    version.value = null
-    versionLoaded.value = false
+    if (!silent) {
+      version.value = null
+      versionLoaded.value = false
+    }
     try {
       // elements vide : on ne veut que la version (repli miroir local inclus).
       const res = await loadPredictedNeed({ eventId: id, elements: [], menuItems: [], components: [] })
@@ -57,7 +59,9 @@ export function useLiveRemainingNeed({ eventId, spaceId, shops, timelineRows, pr
       versionLoaded.value = true
     }
   }
-  watch(() => read(eventId), loadVersion, { immediate: true })
+  watch(() => read(eventId), (id) => loadVersion(id), { immediate: true })
+  // Retour sur la page : la version par defaut a pu changer, relue sans vider la colonne.
+  const reload = () => loadVersion(read(eventId), { silent: true })
 
   const analyse = computed(() => store.state.analyse)
   const catalogReady = computed(() => {
@@ -224,5 +228,5 @@ export function useLiveRemainingNeed({ eventId, spaceId, shops, timelineRows, pr
     { immediate: true },
   )
 
-  return { needLookup, hasPredict, catalogReady, status }
+  return { needLookup, hasPredict, catalogReady, status, reload }
 }
