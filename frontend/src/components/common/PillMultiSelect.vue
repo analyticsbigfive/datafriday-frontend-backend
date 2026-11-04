@@ -12,7 +12,7 @@
     persistent-placeholder
     menu-icon="mdi-chevron-down"
     :placeholder="placeholder"
-    :menu-props="{ maxHeight: 320 }"
+    :menu-props="{ maxHeight: 320, zIndex: 10000 }"
     class="pill-multi-select"
     @update:model-value="$emit('update:modelValue', $event || [])"
   >
