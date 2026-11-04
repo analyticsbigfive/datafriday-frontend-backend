@@ -795,6 +795,7 @@ import { useInventoryScope } from '@/composables/useInventoryScope'
 import { useGuestInventorySession } from '@/composables/useGuestInventorySession'
 import { usePreEventEditWindow } from '@/composables/usePreEventEditWindow'
 import { useInventoryLivePolling } from '@/composables/useInventoryLivePolling'
+import { useInventoryKeepAlive, inventoryRouteKey } from '@/components/space-workspace/inventory/useInventoryKeepAlive'
 import { formatUnits } from '@/composables/useFormatters'
 import { buildSpaceInventoryMock, buildInventoryCountsMock } from '@/data/spaceInventoryMock'
 import * as localDb from '@/data/localDb'
@@ -946,8 +947,17 @@ export default {
     // porte le rechargement des réconciliations (méthode de la vue).
     const livePollingEnabled = ref(false)
     const livePollExtra = ref(null)
+    // Keep-alive : handlers poses dans created() (méthodes de la vue). Les polls
+    // sont suspendus tant que la page est désactivée.
+    const keepAliveHandlers = { reload: null, revalidate: null, contextStale: null }
+    const keepAlive = useInventoryKeepAlive({
+      route,
+      reload: () => keepAliveHandlers.reload?.(),
+      revalidate: () => keepAliveHandlers.revalidate?.(),
+      contextStale: () => !!keepAliveHandlers.contextStale?.(),
+    })
     useInventoryLivePolling(
-      () => livePollingEnabled.value,
+      () => livePollingEnabled.value && keepAlive.isActive.value,
       async () => {
         await store.dispatch('inventory/refreshInventorySilently')
         const { currentSpaceId, currentEventId } = store.state.inventory
@@ -961,7 +971,7 @@ export default {
     // de phase) → 401 → page d'attente du PDV (intercepteur Axios), sans attendre sa
     // prochaine saisie (retour Bertrand 2026-10-07).
     useInventoryLivePolling(
-      () => guestSession.isGuestMode,
+      () => guestSession.isGuestMode && keepAlive.isActive.value,
       () => store.dispatch('guestPin/refreshSession'),
       { intervalMs: 30 * 1000 },
     )
@@ -988,6 +998,8 @@ export default {
       preEventWindow,
       livePollingEnabled,
       livePollExtra,
+      keepAlive,
+      keepAliveHandlers,
     }
   },
   data() {
@@ -1147,8 +1159,7 @@ export default {
     },
     /** Clé de contexte route : recharge sur changement d'espace OU d'event. */
     routeContextKey() {
-      const cfg = this.route?.query?.configuration || this.route?.query?.config || ''
-      return `${this.route?.params?.spaceId || ''}::${this.route?.query?.event || ''}::${cfg}`
+      return inventoryRouteKey(this.route)
     },
     inventoryError() { return this.store.state.inventory?.error || null },
     spaceLabel() { return this.currentSpace?.name || this.route?.params?.spaceId || null },
@@ -2057,6 +2068,57 @@ export default {
       const slug = this.guestSession.guestSlug
       await this.guestSession.logout()
       this.router.push(guestPinLandingRoute(slug || undefined))
+    },
+    /** Rechargement complet du contexte route (montage, changement d'espace ou d'event). */
+    async reloadForRoute() {
+      this.countingShop = null
+      this.search = ''
+      // Nouveau match : on repart des PdV de l'event.
+      this.setFullInventory(false)
+      if (this.guestSession.isGuestMode) {
+        await this.loadForGuest()
+        return
+      }
+      await this.loadForSpace(this.route?.params?.spaceId)
+    },
+    /** Le store inventaire (partagé pre/post) porte-t-il un autre event ou une autre phase ? */
+    inventoryContextStale() {
+      if (!this.selectedEventId || this.guestSession.isGuestMode) return false
+      const inv = this.store.state.inventory
+      return (
+        String(inv.currentEventId ?? '') !== String(this.selectedEventId) ||
+        inv.currentPhase !== (this.isPreMode ? 'pre-event' : 'post-event')
+      )
+    },
+    /** Retour sur la page en cache : revalide events, PdV et comptages sans squelette. */
+    async revalidateInventory() {
+      const spaceId = this.route?.params?.spaceId
+      const configId = this.selectedConfigId
+      const eventId = this.selectedEventId
+      if (this.guestSession.isGuestMode || isDemoMode() || !spaceId || !configId || !eventId) return
+      // Comptages d'une autre phase dans le store : affichage normal, pas de reprise silencieuse.
+      const foreign = this.inventoryContextStale()
+      await this.store.dispatch('analyse/loadSpace', spaceId)
+      const fullScope = this.scopeFor(!this.isPreMode)
+      await this.store.dispatch('spaceShops/fetchForSpace', {
+        spaceId,
+        configId: this.isFullInventory ? null : configId,
+        forceRefresh: true,
+      }).catch((e) => console.warn('[SpaceInventory] shops non rafraichis:', e?.message))
+      if (!this.keepAlive.canRun()) return
+      await Promise.all([
+        this.loadContext(spaceId, configId, { scope: fullScope, silent: true }),
+        this.store.dispatch('inventory/loadInventory', {
+          spaceId,
+          eventId,
+          phase: this.isPreMode ? 'pre-event' : 'post-event',
+          silent: !foreign,
+        }),
+        this.loadReconciliations(spaceId, { silent: true }),
+      ])
+      this.fetchPreExpected()
+      this.fetchPredictedNeed()
+      this.store.dispatch('logistics/loadStock', { spaceId, configId, eventId })
     },
     /** Charge toutes les données pour un space donné (mount + changement d'espace/event). */
     async loadForSpace(spaceId) {
@@ -3130,6 +3192,7 @@ export default {
     contextEvent: {
       immediate: true,
       handler(ev) {
+        if (!this.keepAlive.canRun()) return
         const spaceId = this.route.params.spaceId
         this.preEventAnchorKey = ev?.id && spaceId ? { spaceId, eventId: String(ev.id) } : null
       },
@@ -3138,6 +3201,7 @@ export default {
     // régénérée en brouillon (même système que le pre-event, demande Bertrand
     // 2026-09-29). Changement d'event = nouvel état de référence, rien de régénéré.
     postEventCompletedKey(key, previous) {
+      if (!this.keepAlive.canRun()) return
       const [eventId, ids] = key ? key.split('|') : [null, null]
       const [prevEventId, prevIds] = previous ? previous.split('|') : [null, null]
       if (!key || eventId !== prevEventId) return
@@ -3151,7 +3215,7 @@ export default {
     },
     // Échec de sync inventaire (upsert/save) remonté par le store → toast, puis reset.
     inventoryError(msg) {
-      if (!msg) return
+      if (!msg || !this.keepAlive.canRun()) return
       this.errorText = msg
       this.errorSnackbar = true
       this.store.commit('inventory/SET_ERROR', null)
@@ -3180,27 +3244,25 @@ export default {
     // Arrivée tardive des données store (events/configurations) alors qu'on est
     // resté sur « aucun contexte » : re-tente la résolution (guardé dans la
     // méthode contre les boucles — no-op si loading ou contexte déjà résolu).
-    events() { this.retryResolveIfEmptyContext() },
-    configurations() { this.retryResolveIfEmptyContext() },
+    events() { if (this.keepAlive.canRun()) this.retryResolveIfEmptyContext() },
+    configurations() { if (this.keepAlive.canRun()) this.retryResolveIfEmptyContext() },
     // Un SEUL watcher route : recharge sur changement d'espace OU d'event (même
     // route nommée → mounted ne re-tourne pas). `immediate` couvre le montage,
     // donc mounted n'appelle plus loadForSpace (pas de double-load).
     routeContextKey: {
       immediate: true,
       async handler() {
-        this.countingShop = null
-        this.search = ''
-        // Nouveau match : on repart des PdV de l'event.
-        this.setFullInventory(false)
-        if (this.guestSession.isGuestMode) {
-          await this.loadForGuest()
-          return
-        }
-        await this.loadForSpace(this.route?.params?.spaceId)
+        // Instance en cache : le retour sur la page rattrape (useInventoryKeepAlive).
+        if (!this.keepAlive.canRun()) return
+        this.keepAlive.markLoaded()
+        await this.reloadForRoute()
       },
     },
   },
   created() {
+    this.keepAliveHandlers.reload = () => this.reloadForRoute()
+    this.keepAliveHandlers.revalidate = () => this.revalidateInventory()
+    this.keepAliveHandlers.contextStale = () => this.inventoryContextStale()
     // Rechargement des réconciliations à chaque tick du polling live (méthode de
     // la vue, hors de portée du setup).
     this.livePollExtra = () => this.loadReconciliations(this.route?.params?.spaceId, { silent: true })

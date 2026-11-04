@@ -214,6 +214,7 @@ import { getSpaceLiveInventory } from '@/api/endpoints/space.api';
 import { buildLiveInventoryRows, countByStatus, countGlobalByStatus } from '@/utils/liveInventoryRows';
 import { useRestockerTaskQueue } from '@/composables/useRestockerTaskQueue';
 import { useLiveRemainingNeed } from '@/composables/useLiveRemainingNeed';
+import { useRefreshOnReturn } from '@/composables/useRefreshOnReturn';
 import RestockerDrawer from './live-inventory/RestockerDrawer.vue';
 import LiveInventoryPredictedCell from './live-inventory/LiveInventoryPredictedCell.vue';
 import LiveCadenceBadge from './live-inventory/LiveCadenceBadge.vue';
@@ -244,13 +245,15 @@ export default {
     const restockerTaskQueue = useRestockerTaskQueue();
     // PdV de l'inventaire (id, nom) pour convertir le restant Menu Item en besoin article.
     const predictShops = ref([]);
-    const { needLookup, status: predictStatus } = useLiveRemainingNeed({
+    const { needLookup, status: predictStatus, reload: reloadPredict } = useLiveRemainingNeed({
       eventId: () => props.eventId,
       spaceId: () => props.spaceId,
       shops: () => predictShops.value,
       timelineRows: () => props.timelineRows,
       predictedTimeline: () => props.predictedTimeline,
     });
+    // Retour sur la page (keep-alive) : version Predict par defaut relue en silence.
+    useRefreshOnReturn(() => reloadPredict());
     return { t, restockerTaskQueue, predictShops, needLookup, predictStatus };
   },
   data() {
@@ -343,6 +346,18 @@ export default {
   },
   beforeUnmount() {
     this.stopPolling();
+  },
+  // Page gardee en vie (keep-alive) : plus de relecture en arriere-plan une fois quittee.
+  deactivated() {
+    this._wasDeactivated = true;
+    this.stopPolling();
+  },
+  activated() {
+    if (!this._wasDeactivated) return;
+    this._wasDeactivated = false;
+    if (!this.active) return;
+    this.fetchInventory();
+    this.startPolling();
   },
   methods: {
     async fetchInventory() {

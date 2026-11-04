@@ -40,6 +40,7 @@ import { filterEvents, eventDateOf } from '@/utils/analyseEventFilter'
 import { resolveDateBounds, previousPeriodBoundsOf, yearOverYearBoundsOf } from '@/utils/analyseDateBounds'
 import { buildActiveFilterChips, buildPeriodChip } from '@/utils/analyseFilterChips'
 import { pickCatalogList, hasCatalogError } from '@/utils/catalogLoadStatus'
+import { mergeFreshCostMap, replaceCostMap, invalidateEventSessionCaches } from '@/utils/analyseSpaceRefresh'
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 // getConfiguration : MIGRÉ vers l'API NestJS (projet Supabase alsgd VIVANT) au lieu
 // du make-server Edge Function (projet uvxx MORT → 500/522). Import DYNAMIQUE au
@@ -1728,6 +1729,7 @@ const actions = {
     const prevSpaceId = state.spaceId || state.space?.id || null
     if (prevSpaceId && String(prevSpaceId) !== String(spaceId)) {
       commit('CLEAR_SPACE_KEYED_CACHES', { keepSpaceId: spaceId })
+      commit('SET_MENU_ITEM_COST_MAP', {})
       commit('SET_RECIPE_CATALOG_LOADED', false)
       // Import dynamique (comme useSpaceData ci-dessous) : un import statique de
       // space.api tirerait axios (ESM) dans les specs Jest du store — 3 suites
@@ -1746,12 +1748,21 @@ const actions = {
     resetBuilder2SubtypesCache()
     resetConfigShopEntryCache()
 
+    // Revalidation du même espace : menus et boutiques mis en cache par config peuvent
+    // avoir changé (Builder, Menus) ; ils se rechargent à la demande. Idem timeline/paniers.
+    if (force || fresh) {
+      commit('SET_SPACE_MENU_BY_CONFIG', {})
+      commit('SET_SHOP_MENUS_BY_SHOP', {})
+    }
+    if (force) invalidateEventSessionCaches(spaceId)
+
     if (fresh) {
       // Rendu immédiat depuis le store ; revalidation silencieuse en fond (les
       // données fraîches remplaceront réactivement celles affichées, sans skeleton).
       commit('SET_ERROR', null)
       dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog }).catch((err) => {
-        console.warn('[analyse] revalidation arrière-plan échouée:', err?.message)
+        // L'écran garde les données déjà affichées ; l'échec est seulement tracé.
+        console.warn('[analyse] revalidation arrière-plan échouée, données précédentes conservées:', err?.message)
       })
       return
     }
@@ -1802,6 +1813,9 @@ const actions = {
     // Phase 1 (critique) est attendue → loading=false dès qu'elle complète.
     // Phase 2 (enrichissement) rappelle onEnrichment en arrière-plan.
     const { fetchSpaceData } = await import('@/composables/useSpaceData')
+    // Carte de couts de la phase 1 : renseignée dès que fetchSpaceData répond, utilisée
+    // par l'enrichissement (qui peut arriver avant ou après cette affectation).
+    let phase1CostMap = null
     const data = await fetchSpaceData(spaceId, (enrichment) => {
       // Appelé PLUSIEURS fois : vague 2a (graphes : menu-items + granular + taxonomie),
       // puis vague 2b (catalogues recette). On ne commit QUE les clés réellement
@@ -1831,7 +1845,9 @@ const actions = {
       // coûts dérivés des menu items (phase 2). Shop-details prioritaire → on
       // n'écrase pas une valeur existante par celle des items.
       if (enrichment.menuItemCostMap && Object.keys(enrichment.menuItemCostMap).length) {
-        const merged = { ...enrichment.menuItemCostMap, ...(state.menuItemCostMap || {}) }
+        // Le frais gagne ; la phase 1 (shop-details) reste prioritaire sur les couts des items.
+        // Les entrées de l'ancienne carte ne survivent pas à la revalidation.
+        const merged = replaceCostMap(enrichment.menuItemCostMap, phase1CostMap)
         commit('SET_MENU_ITEM_COST_MAP', merged)
         console.log(`[analyse] 💶 costMap fusionné — ${Object.keys(merged).length} entrée(s) (shop-details prioritaire + fallback menu items)`)
       }
@@ -1860,13 +1876,11 @@ const actions = {
     commit('SET_CONFIGURATIONS', data.configurations || [])
     commit('SET_SHOP_GRANULAR', data.shopGranularData || [])
     commit('SET_EVENTS', data.events || [])
+    phase1CostMap = data.menuItemCostMap || {}
     // MERGE (pas d'écrasement) : la map phase-1 (shop-details) est souvent vide ;
     // un re-dispatch loadSpace effaçait le costMap déjà mergé en phase 2 →
     // cost/margin EventPredict intermittents. Phase 1 fraîche prioritaire.
-    commit('SET_MENU_ITEM_COST_MAP', {
-      ...state.menuItemCostMap,
-      ...(data.menuItemCostMap || {}),
-    })
+    commit('SET_MENU_ITEM_COST_MAP', mergeFreshCostMap(data.menuItemCostMap, state.menuItemCostMap, { sameSpace: sameSpaceReload }))
     commit('SET_MENU_ITEMS', keepIfEmpty(data.menuItems, state.menuItems))
     commit('SET_SUPPLIERS', data.suppliers || [])
     commit('SET_INGREDIENTS', keepIfEmpty(data.ingredients, state.ingredients))
@@ -2399,10 +2413,22 @@ const actions = {
    * Appelé après save EventPredict / changement de configuration / menu /
    * ajustement de quantité.
    */
-  invalidateEvent({ commit }, eventId) {
+  invalidateEvent({ commit, state }, eventId) {
     if (!eventId) return
     commit('INVALIDATE_TIMELINE_FOR_EVENT', eventId)
     commit('INVALIDATE_PREDICTIONS_FOR_EVENT', eventId)
+    invalidateEventSessionCaches(state?.spaceId || state?.space?.id, eventId)
+  },
+
+  /**
+   * Vide les caches par config/event/boutique de l'espace courant sans changer d'espace
+   * (apres une edition dans le Builder, par exemple). Rechargés à la demande.
+   */
+  invalidateSpaceCaches({ commit, state }) {
+    const spaceId = state.spaceId || state.space?.id || null
+    // Sans keepSpaceId : les boutiques de l'espace courant sont aussi relues.
+    commit('CLEAR_SPACE_KEYED_CACHES')
+    invalidateEventSessionCaches(spaceId)
   },
 
   setActivePredictionVersion({ commit }, payload) {

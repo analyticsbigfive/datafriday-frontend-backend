@@ -78,6 +78,7 @@ import { ref, watch, onMounted, onBeforeUnmount, provide } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { getBuilderStore } from './stores/builderStore'
 import { useBuilderBootstrap } from './composables/useBuilderBootstrap'
+import { useBuilderExitInvalidation } from './composables/useBuilderExitInvalidation'
 import BuilderHeader from './components/BuilderHeader.vue'
 import ZonePanel from './components/panels/ZonePanel.vue'
 import PalettePanel from './components/panels/PalettePanel.vue'
@@ -94,6 +95,7 @@ const { t } = useI18n()
 const store = getBuilderStore(props.spaceId)
 provide('builderStore', store)
 useBuilderBootstrap(store)
+useBuilderExitInvalidation(props.spaceId)
 
 // ── Raccourcis clavier : undo/redo ───────────────────────────────────────────
 function onKeydown(event) {

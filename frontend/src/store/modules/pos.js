@@ -13,6 +13,7 @@ import {
 } from '@/api/endpoints/pos.api'
 
 const TTL = 15 * 60 * 1000 // 15 minutes, gabarit standard du projet
+let detailToken = 0 // garde de course : seule la derniere requete de detail est appliquee
 
 /**
  * Statut d'une caisse après ▶ / ■, aligné sur la règle du serveur (pos-events.service.ts) :
@@ -147,12 +148,16 @@ export default {
     /** `silent` : relecture périodique sans passer par l'état de chargement. */
     async fetchDetail({ commit }, { spaceId, eventId, silent = false }) {
       if (!silent) commit('SET_DETAIL_FETCHING', true)
+      const token = ++detailToken
       try {
         const detail = await getPosEventDetail(spaceId, eventId)
+        if (token !== detailToken) return detail
         commit('SET_DETAIL', detail)
         return detail
       } finally {
-        if (!silent) commit('SET_DETAIL_FETCHING', false)
+        // La derniere requete (silencieuse ou non) libere le flag, sinon un poll
+        // qui double une requete visible laisserait le chargement allume.
+        if (token === detailToken) commit('SET_DETAIL_FETCHING', false)
       }
     },
 

@@ -18,19 +18,24 @@ export function toHrPersonOption(person) {
 
 export function usePosHrPersons() {
   async function load() {
-    if (loaded.value) return
+    // Stale-while-revalidate : la liste connue reste affichee, remplacee a la reponse.
     if (inflight) return inflight
     inflight = getPosHrPersons()
       .then((rows) => {
         persons.value = (Array.isArray(rows) ? rows : []).filter((p) => p.active !== false)
         forbidden.value = false
       })
+      .then(() => {
+        loaded.value = true
+      })
       .catch((e) => {
-        persons.value = []
-        forbidden.value = e?.response?.status === 403
+        if (e?.response?.status === 403) {
+          persons.value = []
+          forbidden.value = true
+          loaded.value = true
+        }
       })
       .finally(() => {
-        loaded.value = true
         inflight = null
       })
     return inflight

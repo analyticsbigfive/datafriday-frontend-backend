@@ -109,12 +109,14 @@ export function useLogisticVentilation({ store, t }) {
    * @param {string[]} orderedEventIds matchs choisis, ordre chronologique
    * @returns {Promise<boolean>} true si au moins une feuille existe
    */
-  async function loadForEvents(spaceId, orderedEventIds) {
+  async function loadForEvents(spaceId, orderedEventIds, { silent = false } = {}) {
     const seq = ++loadSeq
-    reset(orderedEventIds)
+    // silent : relecture au retour sur la page, on garde l'affichage courant (ni vidage ni chargement).
+    if (silent) eventIds.value = [...(orderedEventIds || [])].map(String)
+    else reset(orderedEventIds)
     shownSpaceId.value = spaceId || null
     if (!spaceId || !eventIds.value.length) return false
-    loading.value = true
+    if (!silent) loading.value = true
     // Indépendant des feuilles : la section s'affiche dès qu'il y a quelque chose à déposer.
     getVentilationStorages(spaceId, eventIds.value)
       .then((list) => { if (seq === loadSeq) storages.value = Array.isArray(list) ? list : [] })

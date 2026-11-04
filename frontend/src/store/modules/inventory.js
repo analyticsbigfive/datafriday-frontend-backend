@@ -147,7 +147,8 @@ const actions = {
     // JAMAIS écraser les comptages / couper le spinner d'un event B plus récent.
     const isActive = () =>
       String(state.currentSpaceId ?? '') === String(spaceId) &&
-      String(state.currentEventId ?? '') === String(eventId)
+      String(state.currentEventId ?? '') === String(eventId) &&
+      String(state.currentPhase ?? '') === String(phase ?? '')
 
     _loadInFlightKey = key
     _loadInFlight = (async () => {
