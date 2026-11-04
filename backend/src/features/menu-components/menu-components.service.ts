@@ -13,6 +13,7 @@ import { MenuComponentCostService } from './services/menu-component-cost.service
 import { MenuComponentValidationService } from './services/menu-component-validation.service';
 import { MenuComponentItemPropagationService } from './services/menu-component-item-propagation.service';
 import { assertSeasonsBelongToTenant, componentSeasonLinksInclude, seasonLinksWrite, withSeasonIds } from './services/menu-component-seasons';
+import { assertIngredientsAllowedForSpaces } from '../../shared/utils/ingredient-space-rule';
 import { assertBrickUnused, getComponentUsage } from '../../shared/cost-propagation/brick-usage';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
@@ -66,6 +67,33 @@ export class MenuComponentsService {
     return spaces;
   }
 
+  /**
+   * Règle espace/fournisseur : seules les lignes nouvelles (absentes de la recette en base) sont contrôlées.
+   * `componentId` : fiche modifiée, ou composant source en duplication.
+   */
+  private async assertIngredientSpaces(
+    tenantId: string,
+    spaceIds: string[],
+    lines: any[] | undefined,
+    componentId?: string,
+  ) {
+    if (!lines?.length || !spaceIds.length) return;
+    const existingIngredientIds = componentId
+      ? (
+          await this.prisma.componentIngredient.findMany({
+            where: { componentId, component: { tenantId } },
+            select: { ingredientId: true },
+          })
+        ).map((r) => r.ingredientId)
+      : [];
+    await assertIngredientsAllowedForSpaces(this.prisma, {
+      tenantId,
+      spaceIds,
+      ingredientIds: lines.map((l: any) => l?.ingredientId),
+      existingIngredientIds,
+    });
+  }
+
   private readonly listCache = new TenantListCache(this.redis, 'menu-components');
 
   async replaceIngredients(
@@ -74,7 +102,7 @@ export class MenuComponentsService {
     tenantId: string,
   ) {
     this.logger.log(`Replacing ingredient lines for component ${componentId} (tenant ${tenantId})`);
-    await this.findOne(componentId, tenantId);
+    const current = await this.findOne(componentId, tenantId);
 
     const lines = Array.isArray(ingredients) ? ingredients : [];
 
@@ -82,6 +110,7 @@ export class MenuComponentsService {
       lines.map((l: any) => l?.ingredientId),
       tenantId,
     );
+    await this.assertIngredientSpaces(tenantId, current.spaceIds ?? [], lines, componentId);
 
     try {
       await this.prisma.menuComponent.update({
@@ -225,6 +254,12 @@ export class MenuComponentsService {
         assertSeasonsBelongToTenant(this.prisma, dto.seasonIds, tenantId),
       ]);
       const spaceIds = await this.scopedSpaces(dto.spaceIds ?? [], [], user);
+      await this.assertIngredientSpaces(
+        tenantId,
+        spaceIds,
+        ingredientsLines,
+        typeof dto.duplicateOfId === 'string' && dto.duplicateOfId ? dto.duplicateOfId : undefined,
+      );
       const kitchen = await resolveKitchenFields(this.prisma, dto, tenantId);
       const picture = await this.storage.resolveImage(dto.picture ?? undefined, 'components');
 
@@ -421,6 +456,7 @@ export class MenuComponentsService {
       assertSeasonsBelongToTenant(this.prisma, dto.seasonIds, tenantId),
     ]);
     if (dto.seasonIds !== undefined) updateData.seasonLinks = seasonLinksWrite(dto.seasonIds);
+    await this.assertIngredientSpaces(tenantId, updateData.spaceIds ?? existing.spaceIds ?? [], ingredientsLines, id);
 
     if (ingredientsLines) {
       updateData.ingredients = {
