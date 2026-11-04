@@ -8,6 +8,7 @@ import { MenuItemCostSnapshotService } from './menu-item-cost-snapshot.service';
 import { MenuItemSupportService } from './menu-item-support.service';
 import { MenuItemQueryService } from './menu-item-query.service';
 import { resolveKitchenFields } from '../../../shared/utils/resolve-kitchen';
+import { assertMenuItemIngredientSpaces } from './menu-item-ingredient-space.guard';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
@@ -66,6 +67,13 @@ export class MenuItemCommandService {
         return this.menuItemQueryService.findOne(existing.id, tenantId);
       }
     }
+
+    await assertMenuItemIngredientSpaces(this.prisma, {
+      tenantId,
+      spaceIds: (dto as any).spaceIds,
+      sourceMenuItemId: (dto as any).duplicateOfId,
+      ingredientLines: (dto as any).ingredients,
+    });
 
     try {
       const componentsLines = Array.isArray((dto as any).components) ? (dto as any).components : undefined;
@@ -219,6 +227,14 @@ export class MenuItemCommandService {
     this.logger.log(`Updating menu item ${id} for tenant ${tenantId}`);
     // Contrôle d'existence et d'accès espace (404/403) avant toute écriture.
     await this.menuItemQueryService.findOne(id, tenantId, user);
+
+    // Règle espace/fournisseur : seules les lignes nouvelles de la recette sont contrôlées.
+    await assertMenuItemIngredientSpaces(this.prisma, {
+      tenantId,
+      menuItemId: id,
+      spaceIds: (dto as any).spaceIds,
+      ingredientLines: (dto as any).ingredients,
+    });
 
     const updateData: any = {};
     if (dto.name !== undefined) updateData.name = dto.name;

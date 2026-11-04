@@ -340,6 +340,11 @@ export class CreateMenuItemDto {
   @IsString({ each: true })
   spaceIds?: string[];
 
+  @ApiPropertyOptional({ description: 'Duplication : id du menu item source, ses ingrédients ne sont pas recontrôlés (règle espace/fournisseur)' })
+  @IsOptional()
+  @IsString()
+  duplicateOfId?: string;
+
   @ApiPropertyOptional({
     description:
       "Si true, réutilise un MenuItem actif du même nom (tenant, casse/espaces ignorés) au lieu d'en créer un doublon — utilisé par le quick-create de la Data Integration (BUG-052). Ignoré par défaut pour ne pas changer le comportement du builder manuel.",

@@ -45,6 +45,8 @@ export function buildDuplicatePayload(mi, { suffix = ' (copie)' } = {}) {
     inventoryNumberOfUnits: num(mi?.inventoryNumberOfUnits, 1) || 1,
     inventoryUnit: mi?.inventoryUnit || null,
     spaceIds: Array.isArray(mi?.spaceIds) ? mi.spaceIds : [],
+    // Recette source non recontrôlée par la règle espace/fournisseur (lignes déjà existantes).
+    duplicateOfId: mi?.id ? String(mi.id) : undefined,
     spacePrices: mi?.spacePrices || {},
     brandId: mi?.brandId || mi?.brand?.id || null,
     displayNameId: mi?.displayNameId || mi?.displayName?.id || null,
