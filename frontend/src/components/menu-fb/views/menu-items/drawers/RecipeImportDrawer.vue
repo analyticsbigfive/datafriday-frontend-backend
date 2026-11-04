@@ -63,6 +63,9 @@
                   <b>{{ result.rfsOk }}</b> {{ t('menuItemCreate.recipeImportResultReadyForSaleUpdated') }} · <b>{{ result.ok }}</b> {{ t('menuItemCreate.recipeImportResultRecipesUpdated') }}
                   <span v-if="result.fail">· <b class="text-error">{{ result.fail }}</b> {{ t('menuItemCreate.recipeImportResultFailures') }}</span>
                 </div>
+                <ul v-if="result.failures && result.failures.length" class="text-error text-caption mt-2 pl-4">
+                  <li v-for="(f, i) in result.failures" :key="`rf-${i}`">{{ f.name }} : {{ f.message }}</li>
+                </ul>
                 <div v-if="result.rfsFail" class="text-error text-caption mt-2">
                   {{ t('menuItemCreate.recipeImportRfsFailMessage') }} {{ result.rfsFailNames.join(', ') }}
                 </div>
@@ -239,6 +242,7 @@ export default {
       this.applying = true
       let ok = 0, fail = 0, rfsOk = 0, rfsFail = 0
       const rfsFailNames = []
+      const failures = []
       const a = this.analysis
       // 1. readyForSale sur TOUS les plats résolus (No = composé → réarmement
       //    sur ingrédients ; Yes = vendu tel quel → réarmement sur le plat).
@@ -261,9 +265,12 @@ export default {
           ok += 1
         } catch (e) {
           fail += 1
+          const mi = this.menuItems.find((m) => m?.id === menuItemId)
+          const msg = e?.response?.data?.message || e?.message || ''
+          failures.push({ name: mi?.name || menuItemId, message: Array.isArray(msg) ? msg.join(', ') : msg })
         }
       }
-      this.result = { ok, fail, rfsOk, rfsFail, rfsFailNames }
+      this.result = { ok, fail, rfsOk, rfsFail, rfsFailNames, failures }
       this.applying = false
       this.$emit('imported', { ok, fail, rfsOk, rfsFail })
     },

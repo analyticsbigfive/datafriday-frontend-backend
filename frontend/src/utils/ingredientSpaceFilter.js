@@ -4,7 +4,7 @@ import { getSupplierSiteIds } from '@/utils/supplierHelpers'
 // Un ingredient n'a pas d'espace en propre : il vient de son fournisseur (Supplier.sites).
 // Regles :
 //  - fiche sans espace : aucun filtre
-//  - ingredient sans fournisseur : visible (comportement historique)
+//  - ingredient sans fournisseur : masque des que la fiche a un espace (regle validee 03/11)
 //  - fournisseur avec sites vide : commun a tous les espaces, visible
 //  - sinon visible si ses sites croisent au moins un espace de la fiche
 
@@ -27,7 +27,7 @@ export function isIngredientVisibleForSpaces(row, spaceIds) {
   const wanted = normalizeSpaceIds(spaceIds)
   if (!wanted.length) return true
   const hasSupplier = !!(row?.supplier_id || row?.supplierName)
-  if (!hasSupplier) return true
+  if (!hasSupplier) return false
   const sites = Array.isArray(row?.supplierSiteIds) ? row.supplierSiteIds : []
   if (!sites.length) return true
   return sites.some((id) => wanted.includes(String(id)))

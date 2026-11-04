@@ -26,8 +26,12 @@ describe('ingredientSpaceFilter', () => {
     expect(isIngredientVisibleForSpaces(row('a', ['x']), ['y'])).toBe(false)
   })
 
-  it('ingredient sans fournisseur : visible', () => {
-    expect(isIngredientVisibleForSpaces({ id: 'a', supplierSiteIds: [] }, ['y'])).toBe(true)
+  it('ingredient sans fournisseur : masque si la fiche a un espace', () => {
+    expect(isIngredientVisibleForSpaces({ id: 'a', supplierSiteIds: [] }, ['y'])).toBe(false)
+  })
+
+  it('ingredient sans fournisseur : visible si la fiche n a aucun espace', () => {
+    expect(isIngredientVisibleForSpaces({ id: 'a', supplierSiteIds: [] }, [])).toBe(true)
   })
 
   it('accepte des espaces sous forme d objets et compare en chaine', () => {

@@ -4,6 +4,7 @@ import { CreateMenuItemDto } from '../dto/create-menu-item.dto';
 import { MenuItemCostService } from './menu-item-cost.service';
 import { MenuItemSupportService } from './menu-item-support.service';
 import { MenuItemQueryService } from './menu-item-query.service';
+import { assertMenuItemIngredientSpaces } from './menu-item-ingredient-space.guard';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
@@ -60,6 +61,7 @@ export class MenuItemCompositionService {
     this.logger.log(`Replacing ingredients for menu item ${menuItemId} (tenant ${tenantId})`);
     await this.menuItemQueryService.findOne(menuItemId, tenantId, user);
     const lines = Array.isArray(ingredients) ? ingredients : [];
+    await assertMenuItemIngredientSpaces(this.prisma, { tenantId, menuItemId, ingredientLines: lines });
 
     try {
       await this.prisma.menuItem.update({

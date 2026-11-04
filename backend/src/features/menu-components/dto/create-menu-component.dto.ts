@@ -338,4 +338,9 @@ export class CreateMenuComponentDto {
   @IsArray()
   @IsString({ each: true })
   seasonIds?: string[];
+
+  @ApiPropertyOptional({ description: 'Duplication : id du composant source, ses ingrédients ne sont pas recontrôlés (règle espace/fournisseur)' })
+  @IsOptional()
+  @IsString()
+  duplicateOfId?: string;
 }
