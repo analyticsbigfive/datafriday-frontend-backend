@@ -69,6 +69,7 @@
               <!-- Tout sélectionner — onglet « Disponible » uniquement : les items non
                    disponibles restent volontairement non sélectionnables (toggleMenuItem sort
                    sur !item.available), une barre grisée n'apporterait rien. -->
+              <div class="smi-toolbar">
               <div
                 v-if="availabilityTab === 'available' && availableCount > 0"
                 class="smi-select-all"
@@ -101,6 +102,7 @@
               <!-- Filtre saison multi-choix : un article sans saison est masqué dès qu'une saison est choisie. -->
               <div class="smi-season-filter">
                 <SeasonMultiFilter v-model="seasonFilters" />
+              </div>
               </div>
 
               <!-- Classification par type (pills) — filtre la liste de l'onglet courant. -->
@@ -499,7 +501,7 @@ export default {
 /* ── Select all ── (repris de ShopDetailView.vue, transposé sur l'accent rouge du drawer) */
 .smi-select-all {
   display: flex; align-items: center; gap: 10px;
-  margin: 12px 12px 0; padding: 10px 14px;
+  flex: 1 1 0; min-width: 0; padding: 0 14px; height: 38px;
   background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px;
   cursor: pointer; transition: background .15s;
 }
@@ -527,8 +529,9 @@ export default {
 .smi-panel--dark .smi-check-box.indeterminate { background: #ff3131; border-color: #ff3131; }
 
 /* ── Filtre saison (multi-choix) ── */
-.smi-season-filter { display: flex; padding: 12px 12px 0; background: #fff; }
-.smi-panel--dark .smi-season-filter { background: #111827; }
+.smi-toolbar { display: flex; align-items: center; gap: 8px; padding: 12px 12px 0; background: #fff; }
+.smi-panel--dark .smi-toolbar { background: #111827; }
+.smi-season-filter { display: flex; flex: 0 0 auto; }
 .smi-panel--dark .smi-season-filter :deep(.pill-multi-select .v-field) { background: #1e293b; border-color: #334155; }
 .smi-panel--dark .smi-season-filter :deep(.pill-multi-select .v-field--focused) { border-color: #ff3131; }
 .smi-panel--dark .smi-season-filter :deep(.v-field__input),
