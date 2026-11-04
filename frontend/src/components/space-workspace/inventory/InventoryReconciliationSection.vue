@@ -23,6 +23,8 @@
             type="button"
             class="irs-item"
             :class="{ 'irs-item-active': reco.id === selectedId }"
+            :title="reco.eventName || t('invRecoUnknownEvent')"
+            :aria-pressed="reco.id === selectedId"
             @click="$emit('select', reco.id)"
           >
             <span class="irs-item-name">{{ reco.eventName || t('invRecoUnknownEvent') }}</span>
@@ -110,13 +112,13 @@ function formatDate(v) {
   flex: 0 0 auto;
 }
 .irs-title {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
   color: var(--fb-text, #212121);
 }
 .irs-count {
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-semibold);
   color: var(--fb-danger, #C62828);
   background: var(--fb-danger-soft, #FDECEA);
   border-radius: 999px;
@@ -132,7 +134,7 @@ function formatDate(v) {
   overflow-y: auto;
 }
 .irs-empty {
-  font-size: 12px;
+  font-size: var(--fs-sm);
   color: var(--fb-faint, #9E9E9E);
   padding: 2px 0 6px;
 }
@@ -176,8 +178,8 @@ function formatDate(v) {
 .irs-item-active { background: var(--fb-danger-soft, #FDECEA); }
 .irs-item-active:hover { background: var(--fb-danger-soft, #FDECEA); }
 .irs-item-name {
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-medium);
   color: var(--fb-text, #212121);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -186,14 +188,14 @@ function formatDate(v) {
 .irs-item-active .irs-item-name { color: var(--fb-danger, #C62828); }
 .irs-item-date {
   margin-left: auto;
-  font-size: 11px;
+  font-size: var(--fs-xs);
   color: var(--fb-muted, #9E9E9E);
   flex: none;
 }
 .irs-item-kind {
   flex: none;
-  font-size: 9.5px;
-  font-weight: 700;
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-bold);
   letter-spacing: .04em;
   text-transform: uppercase;
   color: var(--fb-muted, #757575);
