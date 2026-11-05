@@ -1192,7 +1192,7 @@ describe('InventoryService', () => {
 
     function wireCatalogs({
       menuItems = [] as Array<{ id: string; name: string; inventoryNumberOfUnits?: number }>,
-      marketPrices = [] as Array<{ id: string; itemName: string; packedUnits?: number | null }>,
+      marketPrices = [] as Array<{ id: string; itemName: string; packedUnits?: number | null; unitsPerPurchase?: number | null }>,
       components = [] as Array<{ id: string; name: string; packedUnits?: number | null }>,
     }) {
       mockPrisma.menuItem.findMany.mockImplementation(
@@ -1320,6 +1320,20 @@ describe('InventoryService', () => {
       expect(upp.get('mp-y')).toBe(12);
       expect(upp.get('comp-z')).toBe(8);
       expect(upp.get('inconnu')).toBe(1);
+    });
+
+    it('conditionnement : une variante MarketPrice à packedUnits 0 garde son unitsPerPurchase, sans emprunter celui d\'un autre fournisseur du même nom', async () => {
+      wireCatalogs({
+        menuItems: [],
+        marketPrices: [
+          { id: 'mp-defacto', itemName: 'Barquette Hot dog', packedUnits: 1200, unitsPerPurchase: 1200 },
+          { id: 'mp-0000000', itemName: 'Barquette Hot dog', packedUnits: 0, unitsPerPurchase: 100 },
+        ],
+        components: [],
+      });
+      const upp = await (inventoryUnitResolverService as any).resolveInventoryUnitsPerPack(['mp-0000000', 'mp-defacto'], 'tenant-1');
+      expect(upp.get('mp-0000000')).toBe(100);
+      expect(upp.get('mp-defacto')).toBe(1200);
     });
   });
 
