@@ -26,7 +26,14 @@ export default {
 
   getters: {
     payload: (s) => s.payload,
-    elements: (s) => s.payload?.elements ?? [],
+    // Lignes ajoutées à la main en tête (la plus récente d'abord, le backend les renvoie par date de
+    // création) : elles sont à configurer, donc visibles sans descendre en bas de la liste.
+    elements: (s) =>
+      (s.payload?.elements ?? []).map((el) => {
+        const lines = el.lines ?? []
+        const manual = lines.filter((l) => l.source === 'MANUAL').reverse()
+        return { ...el, lines: [...manual, ...lines.filter((l) => l.source !== 'MANUAL')] }
+      }),
     settings: (s) => s.payload?.settings ?? null,
     schedule: (s) => s.payload?.schedule ?? null,
     totals: (s) => s.payload?.totals ?? null,

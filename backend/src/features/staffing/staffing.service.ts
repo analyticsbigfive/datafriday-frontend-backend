@@ -183,9 +183,18 @@ export class StaffingService {
     if (endTime <= startTime) {
       throw new BadRequestException("L'heure de fin doit être postérieure à l'heure de début.");
     }
+    // Changement de rôle sans taux explicite : le taux horaire suit le rôle choisi
+    // (ligne ajoutée à la main, créée sans rôle donc à 0 €).
+    let roleRate: number | null = null;
+    if (input.roleId && input.roleId !== line.roleId) {
+      const role = await this.prisma.hrRole.findFirst({ where: { id: input.roleId, tenantId } });
+      if (!role) throw new BadRequestException(`Rôle ${input.roleId} introuvable`);
+      if (input.hourlyRate === undefined) roleRate = this.calculator.hourlyRateFrom(role.rateType, role.rate);
+    }
     const updated = await this.prisma.eventStaffLine.update({
       where: { id },
       data: {
+        ...(roleRate !== null && { hourlyRate: roleRate }),
         ...(input.enabled !== undefined && { enabled: !!input.enabled }),
         ...(input.roleId !== undefined && { roleId: input.roleId }),
         ...(input.supplierType !== undefined && { supplierType: input.supplierType }),
