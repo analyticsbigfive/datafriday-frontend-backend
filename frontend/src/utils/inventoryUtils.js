@@ -504,12 +504,17 @@ export function buildConsolidatedInventory(
   // Le drawer Market Price « Inventory Information » persiste la qté/paquet dans
   // `packedUnits` (jamais dans `inventoryQuantityPackaged`, réservé au backend) :
   // on replie donc sur `packedUnits` quand `inventoryQuantityPackaged` est vide/0.
+  // Repli `unitsPerPurchase` (qté par achat de CETTE variante) : une variante de Market Price
+  // à `packedUnits` 0/vide (ex. « Barquette Hot dog / 0000000 », 100 par pack) ne doit pas
+  // retomber sur un autre fournisseur du même nom.
   const resolveQtyPackaged = (src) =>
     Number(src?.inventoryQuantityPackaged) > 0
       ? src.inventoryQuantityPackaged
       : Number(src?.packedUnits) > 0
         ? src.packedUnits
-        : src?.inventoryQuantityPackaged;
+        : Number(src?.unitsPerPurchase) > 0
+          ? src.unitsPerPurchase
+          : src?.inventoryQuantityPackaged;
   // Index marketPrices UNE fois (id + itemName) : les Step 0/2a résolvaient par
   // `marketPrices.find(...)` PAR article → O(articles × catalogue). Première
   // occurrence conservée (parité avec le premier match de `.find`).
