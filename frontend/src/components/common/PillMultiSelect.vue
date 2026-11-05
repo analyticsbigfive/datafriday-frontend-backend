@@ -12,7 +12,7 @@
     persistent-placeholder
     menu-icon="mdi-chevron-down"
     :placeholder="placeholder"
-    :menu-props="{ maxHeight: 320, zIndex: 10000 }"
+    :menu-props="{ maxHeight: 320, zIndex: 10000, contentClass: 'pill-multi-menu' }"
     class="pill-multi-select"
     @update:model-value="$emit('update:modelValue', $event || [])"
   >
@@ -88,4 +88,40 @@ export default {
   font-size: var(--fs-xs); font-weight: var(--fw-semibold);
   background: #ff3131; color: #fff;
 }
+</style>
+
+<!-- Le menu Vuetify est téléporté hors du composant : styles non-scopés via contentClass.
+     Même rendu que le menu des filtres voisins de la barre Menu Item (mil-filter-menu). -->
+<style>
+.pill-multi-menu {
+  border-radius: 14px !important;
+  box-shadow: 0 10px 34px rgba(17, 24, 39, .14) !important;
+  overflow: hidden;
+  margin-top: 6px;
+}
+.pill-multi-menu .v-list { padding: 6px !important; background: #fff; }
+.pill-multi-menu .v-list-item {
+  border-radius: 9px !important;
+  min-height: 36px !important;
+  margin-bottom: 2px;
+  padding-inline: 10px !important;
+}
+.pill-multi-menu .v-list-item:last-child { margin-bottom: 0; }
+.pill-multi-menu .v-list-item__overlay { opacity: 0 !important; }
+.pill-multi-menu .v-list-item:hover { background: #f4f5f7; }
+.pill-multi-menu .v-list-item-title {
+  font-size: var(--fs-base) !important;
+  font-weight: var(--fw-medium);
+  color: #374151;
+}
+.pill-multi-menu .v-list-item--active { background: rgba(255, 49, 49, .08) !important; }
+.pill-multi-menu .v-list-item--active .v-list-item-title { color: #ff3131 !important; font-weight: var(--fw-semibold); }
+.pill-multi-menu .v-list-item .v-list-item__prepend > .v-selection-control { --v-selection-control-size: 18px; }
+.pill-multi-menu .v-list-item .v-selection-control .v-icon { font-size: var(--fs-lg); opacity: 1; }
+.pill-multi-menu .v-list-item--active .v-selection-control { color: #ff3131; }
+.pill-multi-menu .v-list-item .v-list-item__spacer { width: 10px !important; }
+.pill-multi-menu.v-theme--dark .v-list { background: #1f2937; }
+.pill-multi-menu.v-theme--dark .v-list-item:hover { background: #374151; }
+.pill-multi-menu.v-theme--dark .v-list-item-title { color: #e5e7eb; }
+.pill-multi-menu.v-theme--dark .v-list-item--active { background: rgba(255, 49, 49, .16) !important; }
 </style>
