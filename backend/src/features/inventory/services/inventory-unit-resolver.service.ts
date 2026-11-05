@@ -139,7 +139,7 @@ export class InventoryUnitResolverService {
       }),
       this.prisma.marketPrice.findMany({
         where: { tenantId, id: { in: ids } },
-        select: { id: true, itemName: true, packedUnits: true },
+        select: { id: true, itemName: true, packedUnits: true, unitsPerPurchase: true },
       }),
       this.prisma.menuComponent.findMany({
         where: { tenantId, id: { in: ids } },
@@ -209,7 +209,8 @@ export class InventoryUnitResolverService {
         intent(mi.get(id)?.inventoryNumberOfUnits) ??
         miIntentByName.get(nk) ??
         positive(mp.get(id)?.packedUnits) ??
-        mpPackByName.get(nk) ??
+        positive(mp.get(id)?.unitsPerPurchase) ??
+        (mp.has(id) ? null : mpPackByName.get(nk)) ??
         positive(comp.get(id)?.packedUnits) ??
         compPackByName.get(nk) ??
         1;
