@@ -120,7 +120,14 @@
               @change="setField(line, 'enabled', $event.target.checked)"
             />
 
-            <span class="ep-role-badge" :class="{ 'role-warn': !line.roleId }">
+            <StaffRoleSelect
+              v-if="line.source === 'MANUAL'"
+              :model-value="line.roleId"
+              :roles="roles"
+              :disabled="saving"
+              @update:model-value="onRoleChange(line, $event)"
+            />
+            <span v-else class="ep-role-badge" :class="{ 'role-warn': !line.roleId }">
               {{ line.roleName || line.algoKey || t('epsRoleMissing') }}
             </span>
             <span v-if="line.source === 'MANUAL'" class="eps-manual-tag">{{ t('epsManual') }}</span>
@@ -267,8 +274,9 @@
 import { computed, onMounted, reactive, ref, watch, onBeforeUnmount } from 'vue'
 import { useStore } from 'vuex'
 import { t } from '@/i18n'
-import { getHrPersons } from '@/api/endpoints/hr.api'
+import { getHrPersons, getHrRoles } from '@/api/endpoints/hr.api'
 import NumberField from '@/components/common/NumberField.vue'
+import StaffRoleSelect from './StaffRoleSelect.vue'
 import HrSpaceEditDrawer from '@/components/hr/HrSpaceEditDrawer.vue'
 import { useHrSpaceGoalRatio } from '@/composables/useHrSpaceGoalRatio'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
@@ -461,6 +469,7 @@ function durationLabel(line) {
 
 // ── Personnes internes (dropdown « Nom » si CDI/CDD) ─────────────────────────
 const persons = ref([])
+const roles = ref([])
 function isInternal(line) {
   const type = draft(line.id).supplierType
   return type === 'CDI' || type === 'CDD'
@@ -521,6 +530,12 @@ async function onGenerate() {
 async function onAddLine(elementId) {
   await store.dispatch('staffing/addLine', { eventId: props.eventId, elementId })
 }
+// Rôle d'une ligne manuelle : envoi immédiat (sans debounce) pour que le backend recalcule le
+// taux horaire du rôle et que les brouillons se resynchronisent avec le taux rafraîchi.
+async function onRoleChange(line, roleId) {
+  if (!roleId) return
+  await store.dispatch('staffing/patchLine', { lineId: line.id, roleId })
+}
 async function onRemoveLine(line) {
   await store.dispatch('staffing/removeLine', line.id)
 }
@@ -532,6 +547,10 @@ onMounted(async () => {
     persons.value = await getHrPersons()
   } catch (_) {
     persons.value = []
+  }  try {
+    roles.value = await getHrRoles()
+  } catch (_) {
+    roles.value = []
   }
 })
 </script>
