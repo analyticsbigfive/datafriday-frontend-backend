@@ -3460,6 +3460,26 @@ enum StockTransferStatus {
   CONFIRMED
 }
 
+/// Validations de dépôt de la Ventilation (Logistique), partagées entre appareils.
+/// elementId '' = coche de l'ARTICLE entier (pas NULL : Postgres traite NULL comme distinct dans un unique).
+model VentilationDepositCheck {
+  id        String   @id @default(cuid())
+  tenantId  String
+  spaceId   String
+  eventKey  String // ids des matchs triés, joints par ","
+  itemKey   String // nom de l'article tel qu'utilisé côté Ventilation
+  elementId String   @default("")
+  checked   Boolean  @default(false)
+  quantity  Decimal? @db.Decimal(14, 3)
+  comment   String?
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, spaceId, eventKey, itemKey, elementId])
+  @@index([spaceId, eventKey])
+}
+
 // Ledger append-only des mouvements de stock. Deltas SIGNÉS (positif = entrée,
 // négatif = sortie). BUG-259-02 : un transfert ne crée plus qu'UNE ligne à
 // l'émission (source négative, status=PENDING) ; la ligne miroir (cible positive,
