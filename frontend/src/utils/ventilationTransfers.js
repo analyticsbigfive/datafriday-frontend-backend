@@ -14,16 +14,46 @@
 const wholePacks = (n) => (Number.isFinite(Number(n)) && Number(n) > 0 ? Math.floor(Number(n)) : 0)
 
 /**
+ * Colis reçus d'autres PDV pour une ligne (circuit de réarmement), répartis entre
+ * transferts « PDV vers PDV » (restant du cédant lu dans Logistic) et `unverified`
+ * (restant issu d'un comptage inventaire : aucune tâche). Colis ENTIERS, plafonnés
+ * au besoin de la ligne ; ce qui reste à couvrir passe par le stockage source.
+ * @returns {{shopTransfers:Array, unverified:Array, rest:number}}
+ */
+function receivedPart(row, need, base) {
+  const shopTransfers = []
+  const unverified = []
+  let rest = need
+  const entries = Array.isArray(row.receivedFrom) ? row.receivedFrom : []
+  for (const entry of entries) {
+    if (!entry || entry.remainingFromLogistic !== true) continue
+    const given = Math.min(wholePacks(entry.packs), rest)
+    if (given <= 0) continue
+    rest -= given
+    shopTransfers.push({ ...base, packs: given, fromShopId: String(entry.shopId), fromShopName: entry.shopName || '' })
+  }
+  for (const entry of entries) {
+    if (!entry || entry.remainingFromLogistic === true) continue
+    const packs = Math.min(wholePacks(entry.packs), need)
+    if (packs <= 0) continue
+    unverified.push({ ...base, packs, fromShopId: String(entry.shopId), fromShopName: entry.shopName || '' })
+  }
+  return { shopTransfers, unverified, rest }
+}
+
+/**
  * @param {object} p
  * @param {Array} p.groups groupes de groupDepositLinesByItem
  * @param {(itemKey:string) => number|null} p.sourcePacks colis entiers en stock à la source (null = inconnu)
  * @param {(itemKey:string) => number} [p.reservedPacks] colis gardés par la source
- * @returns {{transfers:Array, shortages:Array, unknown:Array}}
+ * @returns {{transfers:Array, shortages:Array, unknown:Array, unverified:Array}}
+ *   Un transfert PDV vers PDV porte `fromShopId` / `fromShopName` (absents : stockage source).
  */
 export function buildTransfers({ groups = [], sourcePacks = () => null, reservedPacks = () => 0 } = {}) {
   const transfers = []
   const shortages = []
   const unknown = []
+  const unverified = []
   for (const group of groups || []) {
     if (!group) continue
     const stock = sourcePacks(group.itemKey)
@@ -35,28 +65,38 @@ export function buildTransfers({ groups = [], sourcePacks = () => null, reserved
       }
       continue
     }
+    const baseOf = (row) => ({
+      itemKey: group.itemKey,
+      itemName: group.itemName,
+      packagingType: group.packagingType ?? null,
+      unitsPerPack: group.unitsPerPack ?? null,
+      shopId: row.shopId,
+      shopName: row.shopName,
+    })
+    // 1. Colis reçus d'autres PDV : indépendants du stock du stockage source.
+    const needs = rows.map((row) => {
+      const part = receivedPart(row, wholePacks(row.packs), baseOf(row))
+      transfers.push(...part.shopTransfers)
+      unverified.push(...part.unverified)
+      return { row, need: part.rest }
+    })
+    // 2. Le reste passe par le stockage source.
+    if (!needs.some((n) => n.need > 0)) continue
     if (stock == null) {
       unknown.push({ itemKey: group.itemKey, itemName: group.itemName, reason: 'no-stock' })
       continue
     }
     let left = Math.max(0, wholePacks(stock) - wholePacks(reservedPacks(group.itemKey)))
-    for (const row of rows) {
-      const need = wholePacks(row.packs)
+    for (const { row, need } of needs) {
+      if (need <= 0) continue
       const given = Math.min(need, left)
       left -= given
-      const base = {
-        itemKey: group.itemKey,
-        itemName: group.itemName,
-        packagingType: group.packagingType ?? null,
-        unitsPerPack: group.unitsPerPack ?? null,
-        shopId: row.shopId,
-        shopName: row.shopName,
-      }
+      const base = baseOf(row)
       if (given > 0) transfers.push({ ...base, packs: given })
       if (need > given) shortages.push({ ...base, packs: need - given })
     }
   }
-  return { transfers, shortages, unknown }
+  return { transfers, shortages, unknown, unverified }
 }
 
 /**
@@ -74,7 +114,8 @@ export function toTaskLines(transfers, { sourceElementId, assigneeFor, priority 
     return {
       itemKey: t.itemKey,
       ...(ref?.refKind ? { itemKind: ref.refKind, itemRefId: ref.id } : {}),
-      sourceElementId,
+      // PDV vers PDV : la source est le PDV cédant, sinon le stockage choisi.
+      sourceElementId: t.fromShopId ?? sourceElementId,
       destinationElementId: t.shopId,
       packed: t.packs,
       loose: 0,
@@ -85,7 +126,10 @@ export function toTaskLines(transfers, { sourceElementId, assigneeFor, priority 
 }
 
 /** Clé stable d'un transfert (choix du logisticien par PDV). */
-export const transferKey = (t) => `${t.shopId}::${t.itemKey}`
+export const transferKey = (t) => `${t.shopId}::${t.itemKey}${t.fromShopId ? `::${t.fromShopId}` : ''}`
+
+/** Transfert PDV vers PDV (source = PDV cédant) ? */
+export const isShopTransfer = (t) => !!t?.fromShopId
 
 /**
  * Colis gardés par le stockage source pour son besoin propre : la ligne « À déposer »
@@ -122,7 +166,8 @@ export function summarizeSource({ groups = [], result, sourcePacks, reservedPack
     const stock = wholePacks(stockRaw)
     const reserved = Math.min(stock, wholePacks(reservedPacks(g.itemKey)))
     const available = stock - reserved
-    const deposited = sum(result.transfers, g.itemKey)
+    // Seuls les transferts du stockage source comptent (pas ceux entre PDV).
+    const deposited = sum((result.transfers || []).filter((t) => !isShopTransfer(t)), g.itemKey)
     out.push({
       itemKey: g.itemKey,
       itemName: g.itemName,

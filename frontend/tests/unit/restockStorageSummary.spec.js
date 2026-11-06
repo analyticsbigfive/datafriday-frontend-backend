@@ -262,3 +262,38 @@ describe('marginPercent', () => {
     expect(marginPercent(0, 100)).toBeNull()
   })
 })
+
+describe('buildStorageSummary, transferts du circuit', () => {
+  it('transferPacks : total des colis transférés par article, 0 sans paramètre', () => {
+    const withTr = buildStorageSummary(base({
+      transfersByItem: { a: [{ packs: 3 }, { packs: 1 }] },
+    }))
+    expect(withTr.lines.find((l) => l.itemKey === 'a').transferPacks).toBe(4)
+    expect(withTr.lines.find((l) => l.itemKey === 'b').transferPacks).toBe(0)
+    const without = buildStorageSummary(base())
+    expect(without.lines.every((l) => l.transferPacks === 0)).toBe(true)
+  })
+
+  it('article sans achat mais avec transferts : ligne visible, quantité vide et montant 0', () => {
+    const r = buildStorageSummary(base({
+      orderByItem: { a: 0, b: 2 },
+      transfersByItem: { a: [{ packs: 4 }] },
+    }))
+    const a = r.lines.find((l) => l.itemKey === 'a')
+    expect(a).toBeTruthy()
+    expect(a.transferPacks).toBe(4)
+    expect(a.quantityLabel).toBe('')
+    expect(a.amount).toBe(0)
+  })
+
+  it('article sans achat ni transfert : toujours absent, et décoché : absent', () => {
+    const r = buildStorageSummary(base({ orderByItem: { a: 0, b: 2 } }))
+    expect(r.lines.find((l) => l.itemKey === 'a')).toBeUndefined()
+    const x = buildStorageSummary(base({
+      orderByItem: { a: 0, b: 2 },
+      transfersByItem: { a: [{ packs: 4 }] },
+      excluded: { a: true },
+    }))
+    expect(x.lines.find((l) => l.itemKey === 'a')).toBeUndefined()
+  })
+})

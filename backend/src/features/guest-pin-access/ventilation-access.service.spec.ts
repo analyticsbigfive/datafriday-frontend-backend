@@ -103,7 +103,7 @@ describe('VentilationAccessService', () => {
           id: 'p1',
           name: 'Nantes-Nancy',
           selectedEventIds: ['ev-1', 'ev-0'],
-          restockLines: [{ rowKey: 'r1', shopId: 'shop-1', itemName: 'Coca', restockQuantity: 24, sourceBreakdown: [{ name: 'x' }] }],
+          restockLines: [{ rowKey: 'r1', shopId: 'shop-1', itemName: 'Coca', restockQuantity: 24, received: 6, ceded: 0, fromStorage: 3, receivedFrom: [{ shopId: 'shop-2', shopName: 'Buvette', packs: 1, quantity: 6, remainingFromLogistic: true }], remainingFromLogistic: false, prix: 9, sourceBreakdown: [{ name: 'x' }] }],
           lineOverrides: { r1: 12 },
           restockedRows: {},
         },
@@ -120,7 +120,7 @@ describe('VentilationAccessService', () => {
         orderBy: { updatedAt: 'desc' },
       });
       expect(sheet.eventOrder).toEqual(['ev-1']);
-      expect(sheet.plans[0].restockLines).toEqual([{ rowKey: 'r1', shopId: 'shop-1', itemName: 'Coca', restockQuantity: 24 }]);
+      expect(sheet.plans[0].restockLines).toEqual([{ rowKey: 'r1', shopId: 'shop-1', itemName: 'Coca', restockQuantity: 24, received: 6, ceded: 0, fromStorage: 3, receivedFrom: [{ shopId: 'shop-2', shopName: 'Buvette', packs: 1, quantity: 6, remainingFromLogistic: true }], remainingFromLogistic: false }]);
       // Les dépôts comptent pour tous les matchs de la feuille, pas seulement celui de l'accès.
       expect(deposits.sumByEvents).toHaveBeenCalledWith('space-1', ['ev-1', 'ev-0'], 'tenant-1');
       expect(deposits.storagesOfConfigs).toHaveBeenCalledWith('space-1', 'tenant-1', ['cfg-l2']);

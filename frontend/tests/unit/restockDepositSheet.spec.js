@@ -133,3 +133,38 @@ describe('pré-remplissage du dépôt (même règle Logistique et logisticien)',
     expect(lookup('s2', 'Bière Pression')).toBeNull()
   })
 })
+
+describe('circuit : receivedFrom conservé jusqu\'au regroupement', () => {
+  const from = (shopId, packs, remainingFromLogistic = true) => ({ shopId, shopName: `PDV ${shopId}`, packs, quantity: packs * 30, remainingFromLogistic })
+
+  it('buildDepositLines garde received / receivedFrom / remainingFromLogistic, y compris après correction', () => {
+    const plan = {
+      restockLines: [line({ rowKey: 'a', received: 60, ceded: 0, fromStorage: 0, receivedFrom: [from('s9', 2)], remainingFromLogistic: true })],
+      lineOverrides: { a: 90 },
+    }
+    const [l] = buildDepositLines(plan)
+    expect(l.restockQuantity).toBe(90)
+    expect(l.received).toBe(60)
+    expect(l.receivedFrom).toEqual([from('s9', 2)])
+    expect(l.remainingFromLogistic).toBe(true)
+  })
+
+  it('groupDepositLinesByItem porte receivedFrom sur la ligne du PDV receveur', () => {
+    const [g] = groupDepositLinesByItem([line({ rowKey: 'a', receivedFrom: [from('s9', 2)] })])
+    expect(g.rows[0].receivedFrom).toEqual([from('s9', 2)])
+  })
+
+  it('fusionne les cédants quand la même destination est sur 2 feuilles', () => {
+    const [g] = groupDepositLinesByItem([
+      line({ rowKey: 'a', receivedFrom: [from('s9', 1), from('s8', 1)] }),
+      line({ rowKey: 'b', receivedFrom: [from('s9', 2, false)] }),
+    ])
+    const merged = g.rows[0].receivedFrom
+    expect(merged.map((e) => [e.shopId, e.packs, e.remainingFromLogistic])).toEqual([['s9', 3, false], ['s8', 1, true]])
+  })
+
+  it('ancien plan sans receivedFrom : aucun champ ajouté', () => {
+    const [g] = groupDepositLinesByItem([line({ rowKey: 'a' })])
+    expect('receivedFrom' in g.rows[0]).toBe(false)
+  })
+})
