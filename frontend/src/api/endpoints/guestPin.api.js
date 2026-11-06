@@ -97,3 +97,15 @@ export async function cancelGuestVentilationDeposit(movementId) {
   const response = await api.post(`/guest-pin/ventilation/deposits/${movementId}/cancel`, {}, { headers: guestDeviceHeaders() })
   return response.data
 }
+
+/** Validations de dépôt (coches, quantité modifiée, commentaire) des matchs de l'accès. */
+export async function getGuestVentilationChecks() {
+  const response = await api.get('/guest-pin/ventilation/checks', { headers: guestDeviceHeaders() })
+  return response.data
+}
+
+/** `change` : `{ itemKey, elementId?, checked?, quantity?, comment?, depositorName? }`. */
+export async function saveGuestVentilationCheck(change) {
+  const response = await api.put('/guest-pin/ventilation/checks', change, { headers: guestDeviceHeaders() })
+  return response.data
+}

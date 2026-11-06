@@ -7,13 +7,14 @@ import { SpaceAccessService } from '../../core/auth/space-access.service';
 import { StockMovementService } from '../logistics/services/stock-movement.service';
 import { VentilationDepositsService, normalizeItemName, uniqueIds } from '../logistics/ventilation-deposits.service';
 import { VentilationEventsService } from '../logistics/ventilation-events.service';
+import { VentilationChecksService } from '../logistics/ventilation-checks.service';
 import { generateSlug } from '../../shared/utils';
 import { isEventOver } from '../../shared/utils/event-window.util';
 import { GuestLoginResult, GuestPinSessionService } from './services/guest-pin-session.service';
 import { GuestPinWindowService } from './services/guest-pin-window.service';
 import { GuestPinCredentialService } from './services/guest-pin-credential.service';
 import { VENTILATION_PHASE } from './inventory-window-period';
-import { GuestVentilationDepositDto, VentilationSelectionDto, VentilationWindowDto } from './dto/ventilation.dto';
+import { GuestVentilationCheckDto, GuestVentilationDepositDto, VentilationSelectionDto, VentilationWindowDto } from './dto/ventilation.dto';
 import type { GuestPinUser } from '../../core/auth/strategies/jwt-guest-pin.strategy';
 import type { CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 
@@ -75,6 +76,7 @@ export class VentilationAccessService {
     private readonly deposits: VentilationDepositsService,
     private readonly spaceAccess: SpaceAccessService,
     private readonly ventilationEvents: VentilationEventsService,
+    private readonly checks: VentilationChecksService,
   ) {}
 
   // ── Logistique (utilisateur connecté) ───────────────────────────────────────
@@ -290,6 +292,19 @@ export class VentilationAccessService {
     );
     // Réponse minimale : pas de niveau de stock ni d'identifiant d'auteur côté invité.
     return { ok: true, movementId: movement.id };
+  }
+
+  /** Validations de dépôt de la sélection de matchs de l'accès (partagées avec Logistique). */
+  async listChecks(user: GuestPinUser) {
+    this.assertVentilationSession(user);
+    const session = await this.sessionContext(user);
+    return this.checks.list(user.spaceId, user.tenantId, session.order);
+  }
+
+  async saveCheck(user: GuestPinUser, dto: GuestVentilationCheckDto) {
+    this.assertVentilationSession(user);
+    const session = await this.sessionContext(user);
+    return this.checks.upsert(user.spaceId, user.tenantId, session.order, dto, dto.depositorName?.trim() || `guest-pin:${user.id}`);
   }
 
   /** Un logisticien n'annule que les dépôts saisis depuis son appareil (décision #76). */

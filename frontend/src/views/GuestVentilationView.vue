@@ -88,6 +88,9 @@ import LogisticDepositConfirmDrawer from '@/components/space-workspace/logistic/
 import { useGuestVentilation, readDepositorName, writeDepositorName } from '@/composables/useGuestVentilation'
 import { guestPinLandingRoute } from '@/utils/guestPinLanding'
 import { depositPrefill, packSizeLookup } from '@/utils/restockDepositSheet'
+import { useVentilationChecks, provideVentilationChecks, depositUnits } from '@/composables/useVentilationChecks'
+import { getGuestVentilationChecks, saveGuestVentilationCheck } from '@/api/endpoints/guestPin.api'
+import { clearVentilationPin } from '@/utils/ventilationPinMemory'
 
 /** Relecture automatique (dépôts des autres logisticiens, feuille mise à jour). */
 const AUTO_REFRESH_MS = 30 * 1000
@@ -105,7 +108,13 @@ export default {
     const store = useStore()
     const ventilation = useGuestVentilation()
     const session = computed(() => store.getters['guestPin/session'])
-    return { t, store, session, ...ventilation }
+    // Validations de dépôt partagées en base avec l'écran Logistique (mêmes matchs).
+    const ventilationChecks = useVentilationChecks({
+      fetchChecks: () => getGuestVentilationChecks(),
+      saveCheck: (change) => saveGuestVentilationCheck({ ...change, depositorName: readDepositorName() || undefined }),
+    })
+    provideVentilationChecks(ventilationChecks)
+    return { t, store, session, ventilationChecks, ...ventilation }
   },
   data() {
     return {
@@ -122,8 +131,12 @@ export default {
   },
   mounted() {
     this.load()
+    this.ventilationChecks.load()
     this.timer = setInterval(() => {
-      if (!document.hidden && !this.depositDialog) this.load({ silent: true })
+      if (!document.hidden && !this.depositDialog) {
+        this.load({ silent: true })
+        this.ventilationChecks.load()
+      }
     }, AUTO_REFRESH_MS)
   },
   beforeUnmount() {
@@ -154,6 +167,8 @@ export default {
         shopName: row.shopName,
         unit: group.unit,
         packagingType: group.packagingType,
+        itemKey: group.itemKey,
+        elementId: row.shopId,
         unitsPerPack: prefill.unitsPerPack,
         quantity: row.quantity,
         packs: prefill.packs,
@@ -161,7 +176,7 @@ export default {
       this.depositError = null
       this.depositDialog = true
     },
-    async onDeposit({ packed, loose }) {
+    async onDeposit({ packed, loose, comment }) {
       if (!this.depositTarget) return
       this.depositSaving = true
       this.depositError = null
@@ -170,6 +185,12 @@ export default {
         await this.deposit({ parts, unitsPerPack, storageId, itemName, packed, loose, depositorName: this.depositorName })
         this.depositDialog = false
         this.notify(this.t('logiDepositSaved'))
+        await this.ventilationChecks
+          .confirmRow(this.depositTarget.itemKey, this.depositTarget.elementId, {
+            quantity: depositUnits({ packed, loose }, unitsPerPack),
+            comment,
+          })
+          .catch(() => this.notify(this.t('logiMovementError'), 'error'))
       } catch (e) {
         const message = e?.response?.data?.message || e?.message || this.t('logiMovementError')
         if (e?.partialDeposit) {
@@ -199,6 +220,7 @@ export default {
       this.snack = { show: true, text, color }
     },
     logout() {
+      clearVentilationPin(this.session?.slug)
       this.store.dispatch('guestPin/clear')
       this.$router.replace(guestPinLandingRoute())
     },

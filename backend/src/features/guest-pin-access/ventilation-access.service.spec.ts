@@ -62,6 +62,7 @@ describe('VentilationAccessService', () => {
       deposits,
       { assertCanAccessSpace: jest.fn() } as any,
       ventilationEvents,
+      { list: jest.fn().mockResolvedValue([]), save: jest.fn().mockResolvedValue({}) } as any,
     );
   });
 
