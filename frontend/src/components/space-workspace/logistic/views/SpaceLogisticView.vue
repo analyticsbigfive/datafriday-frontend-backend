@@ -352,6 +352,7 @@
                 @confirm="openDepositConfirm"
                 @print="printDialog = true"
               />
+              <LogisticVentilationTransfers class="mt-3" :controller="ventilationTransfers" />
               <LogisticVentilationDeposits
                 class="mt-3"
                 :movements="ventilation.movements"
@@ -586,7 +587,7 @@
 </template>
 
 <script>
-import { ref, reactive } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { useStore } from 'vuex'
 import { useRoute, useRouter } from 'vue-router'
 import { safePush } from '@/utils/chunkReload'
@@ -610,6 +611,8 @@ import SidebarPanel from '@/components/SidebarPanel.vue'
 import LogisticConfigSelect from '@/components/space-workspace/logistic/LogisticConfigSelect.vue'
 import LogisticByItemView from '@/components/space-workspace/logistic/LogisticByItemView.vue'
 import LogisticVentilationView from '@/components/space-workspace/logistic/LogisticVentilationView.vue'
+import LogisticVentilationTransfers from '@/components/space-workspace/logistic/ventilation/LogisticVentilationTransfers.vue'
+import { useVentilationTransfers } from '@/composables/useVentilationTransfers'
 import LogisticVentilationDeposits from '@/components/space-workspace/logistic/LogisticVentilationDeposits.vue'
 import LogisticVentilationAccessDialog from '@/components/space-workspace/logistic/dialogs/LogisticVentilationAccessDialog.vue'
 import LogisticPrintDialog from '@/components/space-workspace/logistic/dialogs/LogisticPrintDialog.vue'
@@ -737,13 +740,24 @@ export default {
       saveCheck: (change) => saveVentilationCheck(route.params.spaceId, ventilation.eventIds, change),
     })
     provideVentilationChecks(ventilationChecks)
+    // Transferts stockage source vers PDV (tâches logistiques) ; le rafraîchissement
+    // du panneau Tâches est branché dans `created`.
+    const tasksRefresh = ref(null)
+    const ventilationTransfers = useVentilationTransfers({
+      store,
+      groups: () => ventilation.visibleGroups,
+      storages: () => ventilation.storages,
+      spaceId: () => route.params.spaceId,
+      onGenerated: () => tasksRefresh.value?.(),
+    })
+    watch(() => route.params.spaceId, () => ventilationTransfers.load(), { immediate: true })
     // Sélecteur d'events du bandeau (un ou plusieurs matchs, `?events=`).
     const eventSelection = reactive(useLogisticEventSelection({ route, router, t }))
     // PIN des logisticiens pour cette sélection (bandeau en Ventilation + fenêtre QR).
     const ventilationAccess = reactive(useVentilationAccess())
     // Lignes « stocké » des réserves (builder state) pour filtrer les articles des Storages.
     const storageInv = useStorageInventory()
-    return { store, router, route, t, liveRefresh, revalidate, storageInv, ventilation, ventilationChecks, ventilationLabels, eventSelection, ventilationAccess }
+    return { store, router, route, t, liveRefresh, revalidate, tasksRefresh, ventilationTransfers, storageInv, ventilation, ventilationChecks, ventilationLabels, eventSelection, ventilationAccess }
   },
   data() {
     return {
@@ -994,6 +1008,7 @@ export default {
   created() {
     this.liveRefresh = () => this.refreshLive()
     this.revalidate = () => this.revalidateOnReturn()
+    this.tasksRefresh = () => this.$refs.tasksPanelRef?.fetchTasks()
   },
   activated() {
     // Retour sur la vue keep-alive : le watcher a été court-circuité pendant

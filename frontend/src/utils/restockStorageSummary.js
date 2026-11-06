@@ -166,11 +166,18 @@ export function buildStorageSummary({
     // Quantité fusionnée ou ajoutée : le libellé reflète la quantité TOTALE.
     let label = buyLabel(row)
     if (entry.added > 0) label = quantityLabel ? quantityLabel(row, qty) : entry.direct > 0 ? buyLabel(row) : ''
+    // Détail « dont X pour les PDV et Y pour le réassort des stockages » : seulement
+    // quand les deux parts existent et que le libellé de colis par quantité est fourni.
+    const split =
+      entry.added > 0 && entry.direct > 0 && quantityLabel
+        ? { direct: quantityLabel(row, entry.direct), added: quantityLabel(row, entry.added) }
+        : null
     lines.push({
       itemKey,
       name: row.itemName,
       amount,
       quantityLabel: label,
+      split,
       image,
       pdv: pdvCounts(row, (shopRowsByItem || {})[itemKey]),
       stock: stockCounts(mp, row, storageRows),

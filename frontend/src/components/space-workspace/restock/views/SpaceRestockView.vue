@@ -3022,6 +3022,7 @@ export default {
           rows.reduce((sum, row) => sum + (Number(row.gap) || 0), 0),
           item?.unit || rows[0]?.unit,
         ),
+        totalDeposit: this.formatTotalDeposit(rows),
         toOrder: item ? this.buyInfo(item).main : '',
         rows: rows.map((row) => {
           const overrideRaw = this.stockShopPercents[shopPercentKey(row.shopId, itemKey)]
@@ -6295,6 +6296,33 @@ export default {
       // (bouteille, boîte) s'accorde — pluralizePackLabel arbitre.
       const unit = pluralizePackLabel(packaging.packagingUnit || row.unit || '', quantity)
       return `${number} ${unit}`.trim()
+    },
+    /**
+     * Total « À déposer » d'un article sur ses PDV, toujours exact : colis entiers
+     * regroupés par type de colis, quantités en vrac regroupées par unité, jointes
+     * par « + » si les PDV n'ont pas le même conditionnement (ex. « 3 Fûts + 2 Cartons »).
+     */
+    formatTotalDeposit(rows) {
+      const list = (rows || []).filter((row) => Number(row.restockQuantity) > 0)
+      if (!list.length) return this.formatCeilQuantity(0, rows?.[0]?.unit)
+      const packs = new Map()
+      const loose = new Map()
+      for (const row of list) {
+        const count = this.depositPackCount(row)
+        if (count != null) {
+          const singular = this.depositPackLabelSingular(row)
+          packs.set(singular, (packs.get(singular) || 0) + count)
+        } else {
+          const unit = row.unit || ''
+          loose.set(unit, (loose.get(unit) || 0) + (Number(this.effectiveRestockQuantity(row)) || 0))
+        }
+      }
+      const parts = []
+      for (const [singular, total] of packs) {
+        parts.push(`${total.toLocaleString('fr-FR')} ${pluralizePackLabel(singular, total)}`)
+      }
+      for (const [unit, total] of loose) parts.push(this.formatCeilQuantity(total, unit))
+      return parts.join(' + ')
     },
     formatRestockQuantity(row) {
       // Lot 4 — au supérieur : c'est une quantité qu'on dépose physiquement.
