@@ -21,6 +21,10 @@
           <strong class="risd-num">{{ data.totalRequired }}</strong>
         </span>
         <span class="risd-summary-item">
+          <span class="risd-label">{{ t('srColToDeposit') }}</span>
+          <strong class="risd-num" data-test="total-deposit">{{ data.totalDeposit }}</strong>
+        </span>
+        <span class="risd-summary-item">
           <span class="risd-label">{{ t('srBreakdownToOrder') }}</span>
           <strong class="risd-num">{{ data.toOrder }}</strong>
         </span>
@@ -110,7 +114,7 @@ export default {
   props: {
     modelValue: { type: Boolean, default: false },
     /**
-     * { itemName, itemPercent, totalRequired, toOrder, rows: [{ shopId,
+     * { itemName, itemPercent, totalRequired, totalDeposit, toOrder, rows: [{ shopId,
      *   shopName, predicted, remaining, required, requiredOk, deposit,
      *   percent, overridden }] }, ou null quand aucun article n'est ouvert.
      */
