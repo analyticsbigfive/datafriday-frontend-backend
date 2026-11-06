@@ -2269,15 +2269,13 @@ export default {
         })
         .filter((entry) => entry.configuration)
     },
-    /** Ids des éléments Storage (réserve centrale) sur les configs objectif. */
+    /**
+     * Ids des éléments Storage (réserve centrale) sur les configs objectif : même
+     * découverte que l'onglet Espaces de stockage (blob de config + builder state),
+     * sinon un stockage de type v2 (ex. Container HK) n'est pas déduit de « À commander ».
+     */
     storageElementIds() {
-      const ids = new Set()
-      this.resolvedObjectiveConfigs.forEach(({ configuration }) => {
-        collectStorageElements(configuration).forEach((el) => {
-          if (el?.id != null) ids.add(String(el.id))
-        })
-      })
-      return Array.from(ids)
+      return this.storageDisplayElements.map((el) => el.id)
     },
     /** Ids des shops F&B sur les configs objectif (net stock ingrédients). */
     fbShopElementIds() {
