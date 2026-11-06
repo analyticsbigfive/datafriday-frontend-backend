@@ -174,6 +174,7 @@ export function useLogisticVentilation({ store, t }) {
   function openConfirm({ group, row }, { item = null, logisticUnitsPerPack = null } = {}) {
     const prefill = depositPrefill(row, logisticUnitsPerPack, group.unitsPerPack)
     target.value = {
+      itemKey: group.itemKey,
       itemName: group.itemName,
       shopName: row.shopName,
       unit: item?.unit || group.unit,

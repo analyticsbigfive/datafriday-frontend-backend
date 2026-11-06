@@ -15,6 +15,7 @@ import { loginWithPin, getGuestSession, getGuestContext } from '@/api/endpoints/
 import { setAccessToken, clearAccessToken, setGuestSessionActive } from '@/api/client'
 import { rememberGuestSlug } from '@/utils/guestPinLanding'
 import { getOrCreateDeviceId } from '@/utils/guestDeviceId'
+import { writeVentilationPin } from '@/utils/ventilationPinMemory'
 
 const SESSION_STORAGE_KEY = 'datafriday:guestpin:session'
 
@@ -108,6 +109,8 @@ const actions = {
         const { token, state: _discriminant, ...session } = result
         session.slug = slug
         rememberGuestSlug(slug)
+        // Ventilation : PIN gardé sur l'appareil pour ne pas le redemander au rechargement.
+        if (session.phase === 'ventilation') writeVentilationPin(slug, pin)
         setAccessToken(token)
         setGuestSessionActive(true)
         commit('SET_SESSION', { token, session })

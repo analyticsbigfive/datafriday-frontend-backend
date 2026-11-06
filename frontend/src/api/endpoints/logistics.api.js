@@ -82,6 +82,21 @@ export async function getVentilationEvents(spaceId) {
   return api.get(`/logistics/${spaceId}/ventilation-events`)
 }
 
+/**
+ * Validations de dépôt de la Ventilation (coches, quantité modifiée, commentaire).
+ * GET /logistics/:spaceId/ventilation-checks?eventIds=a,b
+ * @returns {Promise<Array<{itemKey:string, elementId:string, checked:boolean, quantity:number|null, comment:string|null}>>}
+ *   `elementId` vide = coche de l'article entier
+ */
+export async function getVentilationChecks(spaceId, eventIds) {
+  return api.get(`/logistics/${spaceId}/ventilation-checks`, { params: { eventIds: [].concat(eventIds || []).join(',') } })
+}
+
+/** PUT /logistics/:spaceId/ventilation-checks : `{ itemKey, elementId?, checked?, quantity?, comment? }`. */
+export async function saveVentilationCheck(spaceId, eventIds, change) {
+  return api.put(`/logistics/${spaceId}/ventilation-checks`, { eventIds: [].concat(eventIds || []), ...change })
+}
+
 /** Annule un dépôt « Ventilation » (mouvement inverse, registre conservé). */
 export async function cancelVentilationDeposit(movementId) {
   return api.post(`/logistics/movements/${movementId}/cancel-ventilation`)

@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Max, MaxLength, Min, ValidateIf } from 'class-validator';
+import { ArrayMaxSize, ArrayNotEmpty, IsArray, IsBoolean, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Max, MaxLength, Min, ValidateIf } from 'class-validator';
 
 /** Un accès « Ventilation » (une combinaison de matchs) : arrêter, reprendre, nouveau PIN. */
 export class VentilationWindowDto {
@@ -78,6 +78,50 @@ export class GuestVentilationDepositDto {
   loose: number;
 
   @ApiPropertyOptional({ description: 'Prénom du logisticien (décision #78)' })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  depositorName?: string;
+}
+
+/**
+ * Validation d'un dépôt de la Ventilation, partagée entre appareils. Champs absents =
+ * inchangés ; `quantity` / `comment` à null = effacés. Sans `elementId`, la coche vise
+ * l'article entier.
+ */
+export class GuestVentilationCheckDto {
+  @ApiProperty({ description: "Nom de l'article tel qu'utilisé côté Ventilation" })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  itemKey: string;
+
+  @ApiPropertyOptional({ description: "Élément (PDV ou stockage) de la ligne ; absent = coche de l'article entier" })
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  elementId?: string;
+
+  @ApiPropertyOptional({ description: 'Ligne ou article validé' })
+  @IsOptional()
+  @IsBoolean()
+  checked?: boolean;
+
+  @ApiPropertyOptional({ description: 'Quantité modifiée (null = effacée)', nullable: true })
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1000000)
+  @Type(() => Number)
+  quantity?: number | null;
+
+  @ApiPropertyOptional({ description: 'Commentaire (null = effacé)', nullable: true })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  comment?: string | null;
+
+  @ApiPropertyOptional({ description: 'Prénom du logisticien' })
   @IsOptional()
   @IsString()
   @MaxLength(60)
