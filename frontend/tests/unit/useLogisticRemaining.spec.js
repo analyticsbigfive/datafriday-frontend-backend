@@ -56,6 +56,40 @@ describe('loadLogisticRemainingIndex', () => {
     expect(lookupLogisticRemaining(index, 'shop-1', 'Coca-Cola')).toBe(1 * 24 + 19)
   })
 
+  it('niveau sans unitsPerPack : reprend la taille de colis du référentiel (15 fûts de 30 L = 450 L)', async () => {
+    getLogisticsStock.mockResolvedValue({
+      elements: [{ id: 'r1', items: [{ name: 'Affligem', unit: 'L', unitsPerPack: 30 }] }],
+      levels: [{ elementId: 'r1', itemKey: 'Affligem', packedUnits: 15, looseUnits: 0, unitsPerPack: null }],
+      consumption: [],
+    })
+    const { index } = await loadLogisticRemainingIndex({ spaceId: 'sp-1', configIds: ['c1'] })
+    expect(lookupLogisticRemaining(index, 'r1', 'Affligem')).toBe(450)
+  })
+
+  it('niveau sans unitsPerPack et référentiel muet : reprend celui d un autre niveau du même article', async () => {
+    getLogisticsStock.mockResolvedValue({
+      elements: [{ id: 'r1', items: [{ name: 'Affligem', unit: 'L' }] }],
+      levels: [
+        { elementId: 'r1', itemKey: 'Affligem', packedUnits: 6, looseUnits: 0, unitsPerPack: null },
+        { elementId: 'hk', itemKey: 'Affligem', packedUnits: 8, looseUnits: 0, unitsPerPack: 30 },
+      ],
+      consumption: [],
+    })
+    const { index } = await loadLogisticRemainingIndex({ spaceId: 'sp-1', configIds: ['c1'] })
+    expect(lookupLogisticRemaining(index, 'r1', 'Affligem')).toBe(180)
+    expect(lookupLogisticRemaining(index, 'hk', 'Affligem')).toBe(240)
+  })
+
+  it('aucune taille de colis connue nulle part : comportement inchangé (1 unité par colis)', async () => {
+    getLogisticsStock.mockResolvedValue({
+      elements: [{ id: 'r1', items: [{ name: 'Truc', unit: 'Pc' }] }],
+      levels: [{ elementId: 'r1', itemKey: 'Truc', packedUnits: 4, looseUnits: 0, unitsPerPack: null }],
+      consumption: [],
+    })
+    const { index } = await loadLogisticRemainingIndex({ spaceId: 'sp-1', configIds: ['c1'] })
+    expect(lookupLogisticRemaining(index, 'r1', 'Truc')).toBe(4)
+  })
+
   it('un config qui échoue ne bloque pas les autres (fan-out tolérant)', async () => {
     getLogisticsStock.mockImplementation((spaceId, configId) =>
       configId === 'bad' ? Promise.reject(new Error('403')) : Promise.resolve(stockPayload()),

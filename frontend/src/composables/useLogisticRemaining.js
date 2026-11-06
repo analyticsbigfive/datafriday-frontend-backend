@@ -51,11 +51,20 @@ export async function loadLogisticRemainingIndex({ spaceId, configIds } = {}) {
       loaded = true
 
       const unitByName = {}
+      // Taille de colis par nom d'article : référentiel d'abord (celui que l'écran
+      // Logistique affiche, ex. « 30 L/Fût »), puis un autre niveau du même article.
+      // Un StockLevel sans unitsPerPack serait sinon lu en unités (15 fûts = 15 L).
+      const packByName = {}
       for (const el of data?.elements || []) {
         for (const it of el?.items || []) {
           const nk = normalizeStr(it?.name)
           if (nk && !unitByName[nk]) unitByName[nk] = it.unit || ''
+          if (nk && !(packByName[nk] > 0) && Number(it?.unitsPerPack) > 0) packByName[nk] = Number(it.unitsPerPack)
         }
+      }
+      for (const level of data?.levels || []) {
+        const nk = normalizeStr(level?.itemKey)
+        if (nk && !(packByName[nk] > 0) && Number(level?.unitsPerPack) > 0) packByName[nk] = Number(level.unitsPerPack)
       }
 
       const consumptionByKey = {}
@@ -66,16 +75,17 @@ export async function loadLogisticRemainingIndex({ spaceId, configIds } = {}) {
       for (const level of data?.levels || []) {
         const k = keyOf(level.elementId, level.itemKey)
         const consumed = consumptionByKey[k] || 0
+        const unitsPerPack = Number(level.unitsPerPack) > 0 ? level.unitsPerPack : packByName[normalizeStr(level.itemKey)] ?? null
         const { packed, loose } = normalizeExpected(
           level.packedUnits,
           (level.looseUnits ?? 0) - consumed,
-          level.unitsPerPack,
+          unitsPerPack,
         )
         index[k] = {
           name: level.itemKey || '',
           packed,
           loose,
-          unitsPerPack: level.unitsPerPack ?? null,
+          unitsPerPack,
           marketPriceId: level.marketPriceId ?? null,
           unit: unitByName[normalizeStr(level.itemKey)] || '',
         }
