@@ -43,6 +43,9 @@
         <span class="rss-copy">
           <strong class="rss-name" :title="line.name">{{ line.name }}</strong>
           <small v-if="detail(line)" class="rss-detail">{{ detail(line) }}</small>
+          <small v-if="line.split" class="rss-detail" data-test="summary-split">
+            {{ t('srStorageSummarySplit').replace('{direct}', line.split.direct).replace('{added}', line.split.added) }}
+          </small>
         </span>
         <span class="rss-qty">
           <strong class="rss-qty-main">{{ line.quantityLabel }}</strong>

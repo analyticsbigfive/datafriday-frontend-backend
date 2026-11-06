@@ -167,6 +167,15 @@ describe('buildStorageSummary : composants, fusion et stock', () => {
     expect(on.total).toBe(14)
   })
 
+  it('split PDV / stockages : seulement quand les deux parts existent et que quantityLabel est fourni', () => {
+    const storageLines = [{ itemKey: 'storage:e1:ail', itemName: 'Ail', unit: 'kg', marketPriceId: 'mpail', restockQuantity: 2 }]
+    const quantityLabel = (row, qty) => `q${qty}`
+    const on = buildStorageSummary(common({ storageLines, includeStorage: true, quantityLabel }))
+    expect(on.lines[0].split).toEqual({ direct: 'q2', added: 'q2' })
+    const off = buildStorageSummary(common({ storageLines, quantityLabel }))
+    expect(off.lines[0].split).toBeNull()
+  })
+
   it('stockage rattaché par nom et unité quand le Market Price manque', () => {
     const storageLines = [{ itemKey: 'storage:e1:ail', itemName: 'AIL', unit: 'kg', restockQuantity: 1 }]
     const on = buildStorageSummary(common({ storageLines, includeStorage: true }))
