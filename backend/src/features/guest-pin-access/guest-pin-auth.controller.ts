@@ -8,6 +8,7 @@ import {
   Ip,
   Param,
   Post,
+  Put,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
@@ -17,7 +18,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import type { GuestPinUser } from '../../core/auth/strategies/jwt-guest-pin.strategy';
 import { LoginPinDto } from './dto/login-pin.dto';
 import { SaveGuestCountDto } from './dto/save-guest-count.dto';
-import { GuestVentilationDepositDto } from './dto/ventilation.dto';
+import { GuestVentilationCheckDto, GuestVentilationDepositDto } from './dto/ventilation.dto';
 import { VentilationAccessService } from './ventilation-access.service';
 import { PosAccessService } from './pos-access.service';
 import { GuestPinCountingService } from './services/guest-pin-counting.service';
@@ -80,6 +81,22 @@ export class GuestPinAuthController {
   @ApiOperation({ summary: 'Feuille de ventilation du match (logisticien) : lignes de réarmement, corrections, dépôts déjà faits' })
   async ventilationSheet(@CurrentUser() user: GuestPinUser, @Headers('x-guest-device-id') deviceId: string | undefined) {
     return this.ventilation.getSheet(user, deviceId);
+  }
+
+  @Get('ventilation/checks')
+  @UseGuards(JwtGuestPinGuard)
+  @ApiBearerAuth('guest-pin-jwt')
+  @ApiOperation({ summary: 'Validations de dépôt de la feuille (coches, quantités modifiées, commentaires), partagées avec Logistique' })
+  async ventilationChecks(@CurrentUser() user: GuestPinUser) {
+    return this.ventilation.listChecks(user);
+  }
+
+  @Put('ventilation/checks')
+  @UseGuards(JwtGuestPinGuard)
+  @ApiBearerAuth('guest-pin-jwt')
+  @ApiOperation({ summary: "Enregistre la validation d'une ligne ou d'un article de la feuille" })
+  async ventilationPutCheck(@CurrentUser() user: GuestPinUser, @Body() dto: GuestVentilationCheckDto) {
+    return this.ventilation.saveCheck(user, dto);
   }
 
   @Post('ventilation/deposits')

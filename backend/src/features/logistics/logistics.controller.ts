@@ -8,6 +8,7 @@ import {
   Logger,
   Param,
   Post,
+  Put,
   Query,
   Res,
   UseGuards,
@@ -20,6 +21,8 @@ import { RequirePermissions } from '../../core/auth/decorators/permissions.decor
 import { CurrentUser, CurrentUserData } from '../../core/auth/decorators/current-user.decorator';
 import { VentilationDepositsService } from './ventilation-deposits.service';
 import { VentilationEventsService } from './ventilation-events.service';
+import { VentilationChecksService } from './ventilation-checks.service';
+import { VentilationCheckDto } from './dto/ventilation-check.dto';
 import { ConfirmTransferDto, CreateMovementDto, InventoryResetDto, SimulateSaleDto } from './dto/logistics.dto';
 import { PurgeSimulatedSalesDto, StartSimulationRunDto } from './dto/simulation-run.dto';
 import { LogisticsGetStockQueryDto, LogisticsGetMarketPricesQueryDto, LogisticsGetHistoryQueryDto, LogisticsGetLossesQueryDto, LogisticsListSimulatedSalesQueryDto } from './dto/logistics.query.dto';
@@ -45,7 +48,8 @@ export class LogisticsController {
     private readonly stockReconciliationService: StockReconciliationService,
     private readonly stockReferentialService: StockReferentialService,
     private readonly ventilation: VentilationDepositsService,
-    private readonly ventilationEvents: VentilationEventsService) {}
+    private readonly ventilationEvents: VentilationEventsService,
+    private readonly ventilationChecks: VentilationChecksService) {}
 
   @Get(':spaceId/stock')
   // Lecture seule ouverte au Réarmement (retour client 2026-09-02) : son moteur de
@@ -132,6 +136,29 @@ export class LogisticsController {
     @CurrentUser() user: CurrentUserData,
   ) {
     return this.ventilation.listByEvents(spaceId, splitIds(eventIds, eventId), user.tenantId!);
+  }
+
+  @Get(':spaceId/ventilation-checks')
+  @ApiOperation({ summary: 'Validations de dépôt de la Ventilation (coches, quantités modifiées, commentaires) des matchs choisis' })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiQuery({ name: 'eventIds', required: true, description: 'Matchs choisis, séparés par des virgules' })
+  async getVentilationChecks(
+    @Param('spaceId') spaceId: string,
+    @Query('eventIds') eventIds: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.ventilationChecks.list(spaceId, user.tenantId!, splitIds(eventIds, undefined));
+  }
+
+  @Put(':spaceId/ventilation-checks')
+  @ApiOperation({ summary: "Enregistre la validation d'une ligne ou d'un article de la Ventilation (partagée entre appareils)" })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  async putVentilationCheck(
+    @Param('spaceId') spaceId: string,
+    @Body() dto: VentilationCheckDto,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.ventilationChecks.upsert(spaceId, user.tenantId!, dto.eventIds, dto, user.id);
   }
 
   @Post('movements/:id/cancel-ventilation')

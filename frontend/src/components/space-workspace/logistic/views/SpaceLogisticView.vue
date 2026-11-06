@@ -600,6 +600,7 @@ import LogisticElementRow from '@/components/space-workspace/logistic/LogisticEl
 import LogisticItemCard from '@/components/space-workspace/logistic/LogisticItemCard.vue'
 import LogisticMovementDialog from '@/components/space-workspace/shared/LogisticMovementDialog.vue'
 import LogisticTransferConfirmDrawer from '@/components/space-workspace/logistic/drawers/LogisticTransferConfirmDrawer.vue'
+import { useVentilationChecks, provideVentilationChecks, depositUnits } from '@/composables/useVentilationChecks'
 import LogisticDepositConfirmDrawer from '@/components/space-workspace/logistic/drawers/LogisticDepositConfirmDrawer.vue'
 import LogisticLossesDrawer from '@/components/space-workspace/logistic/drawers/LogisticLossesDrawer.vue'
 import LogisticHistoryDrawer from '@/components/space-workspace/logistic/drawers/LogisticHistoryDrawer.vue'
@@ -614,7 +615,7 @@ import LogisticVentilationAccessDialog from '@/components/space-workspace/logist
 import LogisticPrintDialog from '@/components/space-workspace/logistic/dialogs/LogisticPrintDialog.vue'
 import LogisticEventSelect from '@/components/space-workspace/logistic/LogisticEventSelect.vue'
 import { getLatestInventory } from '@/api/endpoints/inventory.api'
-import { downloadReconciliationCsv, downloadLossesCsv } from '@/api/endpoints/logistics.api'
+import { downloadReconciliationCsv, downloadLossesCsv, getVentilationChecks, saveVentilationCheck } from '@/api/endpoints/logistics.api'
 import { getMarketPrices } from '@/api/endpoints/market.price.api'
 import { ClipboardList, GitCompare, Download, TrendingDown } from 'lucide-vue-next'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
@@ -730,13 +731,19 @@ export default {
     // du composable pour le template et `this.ventilation.*`.
     const ventilation = reactive(useLogisticVentilation({ store, t }))
     const ventilationLabels = useVentilationLabels()
+    // Validations de dépôt (coches, quantité modifiée, commentaire), partagées en base.
+    const ventilationChecks = useVentilationChecks({
+      fetchChecks: () => getVentilationChecks(route.params.spaceId, ventilation.eventIds),
+      saveCheck: (change) => saveVentilationCheck(route.params.spaceId, ventilation.eventIds, change),
+    })
+    provideVentilationChecks(ventilationChecks)
     // Sélecteur d'events du bandeau (un ou plusieurs matchs, `?events=`).
     const eventSelection = reactive(useLogisticEventSelection({ route, router, t }))
     // PIN des logisticiens pour cette sélection (bandeau en Ventilation + fenêtre QR).
     const ventilationAccess = reactive(useVentilationAccess())
     // Lignes « stocké » des réserves (builder state) pour filtrer les articles des Storages.
     const storageInv = useStorageInventory()
-    return { store, router, route, t, liveRefresh, revalidate, storageInv, ventilation, ventilationLabels, eventSelection, ventilationAccess }
+    return { store, router, route, t, liveRefresh, revalidate, storageInv, ventilation, ventilationChecks, ventilationLabels, eventSelection, ventilationAccess }
   },
   data() {
     return {
@@ -1200,6 +1207,7 @@ export default {
         this.loadLatestInventory(spaceId),
         // Mode Ventilation affiché : dépôts des logisticiens (QR) relus au même rythme.
         this.activeTab === 'ventilation' ? this.ventilation.refresh(spaceId) : null,
+        this.activeTab === 'ventilation' ? this.ventilationChecks.load() : null,
       ])
     },
     /** Retour sur la page : tout ce que le montage initial charge est relu sans squelette. */
@@ -1271,6 +1279,7 @@ export default {
         // Une feuille entièrement déposée ne retombe PAS sur la prévision brute.
         if (await this.ventilation.loadForEvents(this.currentSpaceId, eventIds, { silent })) {
           this.needSource = 'restock'
+          this.ventilationChecks.load()
           return
         }
       } catch (e) {
@@ -1303,8 +1312,22 @@ export default {
       this.ventilation.openConfirm(payload, { item, logisticUnitsPerPack })
     },
     async submitDeposit(quantities) {
+      const target = this.ventilation.target
       if (await this.ventilation.submit(quantities, this.currentSpaceId)) {
         this.toast(this.t('logiDepositSaved'), 'success')
+        await this.saveDepositCheck(target, quantities)
+      }
+    },
+    /** Ligne validée avec la quantité saisie et le commentaire (le dépôt est déjà créé). */
+    async saveDepositCheck(target, { packed, loose, comment }) {
+      if (!target?.itemKey) return
+      try {
+        await this.ventilationChecks.confirmRow(target.itemKey, target.elementId, {
+          quantity: depositUnits({ packed, loose }, target.unitsPerPack),
+          comment,
+        })
+      } catch (e) {
+        this.toast(e?.response?.data?.message || e?.userMessage || this.t('logiMovementError'), 'error')
       }
     },
     async cancelDeposit(movement) {

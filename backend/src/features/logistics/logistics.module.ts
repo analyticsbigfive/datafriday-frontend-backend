@@ -12,6 +12,7 @@ import { StockReconciliationService } from './services/stock-reconciliation.serv
 import { SalesSimulationService } from './services/sales-simulation.service';
 import { VentilationDepositsService } from './ventilation-deposits.service';
 import { VentilationEventsService } from './ventilation-events.service';
+import { VentilationChecksService } from './ventilation-checks.service';
 import { PrismaModule } from '../../core/database/prisma.module';
 import { QUEUES } from '../../core/queue/queue.constants';
 import { PricingModule } from '../../shared/pricing/pricing.module';
@@ -41,6 +42,7 @@ import { PricingModule } from '../../shared/pricing/pricing.module';
     SalesSimulationService,
     VentilationDepositsService,
     VentilationEventsService,
+    VentilationChecksService,
   ],
   // Utilisés par l'inventaire, les tâches logistiques, les espaces (inventaire live) et le worker
   // (simulation). Aucun cycle : ni ce module ni ses dépendances n'importent SpacesModule.
@@ -56,6 +58,7 @@ import { PricingModule } from '../../shared/pricing/pricing.module';
     SalesSimulationService,
     VentilationDepositsService,
     VentilationEventsService,
+    VentilationChecksService,
   ],
 })
 export class LogisticsModule {}

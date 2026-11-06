@@ -50,6 +50,20 @@
                 />
               </div>
             </div>
+            <div class="lgdc-field lgdc-field--comment">
+              <div class="lgdc-label">{{ t('logiVentilationComment') }}</div>
+              <v-textarea
+                v-model="form.comment"
+                :placeholder="t('logiVentilationCommentPlaceholder')"
+                maxlength="500"
+                rows="3"
+                auto-grow
+                variant="outlined"
+                density="compact"
+                rounded="lg"
+                hide-details
+              />
+            </div>
             <div class="lgdc-hint">{{ t('logiDepositConfirmHint') }}</div>
           </div>
 
@@ -105,7 +119,7 @@ export default {
   },
   data() {
     return {
-      form: { packed: 0, loose: 0 },
+      form: { packed: 0, loose: 0, comment: '' },
     }
   },
   computed: {
@@ -154,8 +168,8 @@ export default {
     resetForm() {
       const d = this.deposit
       this.form = d?.packs != null
-        ? { packed: d.packs, loose: 0 }
-        : { packed: 0, loose: Number(d?.quantity) || 0 }
+        ? { packed: d.packs, loose: 0, comment: '' }
+        : { packed: 0, loose: Number(d?.quantity) || 0, comment: '' }
     },
     close() {
       this.$emit('update:modelValue', false)
@@ -165,6 +179,7 @@ export default {
       this.$emit('submit', {
         packed: Number(this.form.packed) || 0,
         loose: Number(this.form.loose) || 0,
+        comment: String(this.form.comment || '').trim(),
       })
     },
   },
@@ -187,6 +202,7 @@ export default {
 .lgdc-field-row { display: flex; gap: 12px; }
 .lgdc-field { flex: 1; }
 .lgdc-label { font-size: var(--fs-xs); font-weight: var(--fw-bold); text-transform: uppercase; opacity: 0.6; margin-bottom: 4px; }
+.lgdc-field--comment { margin-top: 14px; }
 .lgdc-hint { margin-top: 14px; font-size: var(--fs-sm); opacity: 0.6; }
 
 .lgdc-alert { margin: 0 16px 12px; }

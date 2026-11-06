@@ -76,6 +76,7 @@ import PinLockedState from '@/components/guest-pin/PinLockedState.vue';
 import PinInactiveState from '@/components/guest-pin/PinInactiveState.vue';
 import PinRedirectingState from '@/components/guest-pin/PinRedirectingState.vue';
 import { rememberGuestSlug } from '@/utils/guestPinLanding';
+import { readVentilationPin, clearVentilationPin } from '@/utils/ventilationPinMemory';
 import { guestRouteForPhase } from '@/router/guards';
 import { POS_ERROR_CODES, POS_VENDOR_NAME_MAX, POS_PHASE } from '@/api/endpoints/pos.contracts';
 import { requestPosFullscreen } from '@/utils/posFullscreen';
@@ -165,6 +166,23 @@ export default {
       rememberGuestSlug(this.slug);
       this.uiState = 'form';
       await this.checkContext();
+      await this.tryRememberedPin();
+    },
+
+    /** Ventilation : PIN déjà saisi sur cet appareil pour ce lien, connexion sans ressaisie. */
+    async tryRememberedPin() {
+      const pin = readVentilationPin(this.slug);
+      if (!pin || this.posActive || this.uiState !== 'form' || this.submitting) return;
+      this.submitting = true;
+      try {
+        const result = await this.$store.dispatch('guestPin/login', { pin, slug: this.slug });
+        if (result.state === 'ok') this.applyResult(result);
+        else clearVentilationPin(this.slug);
+      } catch {
+        // Réseau indisponible : on garde le PIN mémorisé, la saisie manuelle reste possible.
+      } finally {
+        this.submitting = false;
+      }
     },
 
     /** Relit l'état du PDV : inventaire repris → retour à la saisie du PIN. */
