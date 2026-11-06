@@ -41,7 +41,11 @@
       <li v-for="tr in ctl.rows.value" :key="key(tr)" class="lgvt-row">
         <div class="lgvt-copy">
           <span class="lgvt-item">{{ tr.itemName }} · {{ tr.shopName }}</span>
-          <span v-if="tr.taken" class="lgvt-meta">
+          <span v-if="tr.taken && isShop(tr)" class="lgvt-meta" data-test="transfer-from-shop">
+            <span class="lgvt-badge">{{ t('lgvtBadgeShop') }}</span>
+            {{ t('lgvtFromShop').replace('{shop}', tr.fromShopName).replace('{n}', packLabel({ ...tr, packs: tr.taken })) }}
+          </span>
+          <span v-else-if="tr.taken" class="lgvt-meta">
             {{ t('lgvtTaken').replace('{source}', sourceName).replace('{n}', packLabel({ ...tr, packs: tr.taken })) }}
           </span>
           <span v-if="tr.short" class="lgvt-short" data-test="transfer-short">
@@ -59,6 +63,14 @@
         </select>
       </li>
     </ul>
+
+    <div v-if="result.unverified.length" class="lgvt-block" data-test="transfer-unverified">
+      <strong>{{ t('lgvtUnverified') }}</strong>
+      <span class="lgvt-line">{{ t('lgvtUnverifiedHint') }}</span>
+      <span v-for="u in result.unverified" :key="key(u)" class="lgvt-line">
+        {{ t('lgvtUnverifiedLine').replace('{item}', u.itemName).replace('{from}', u.fromShopName).replace('{to}', u.shopName).replace('{n}', packLabel(u)) }}
+      </span>
+    </div>
 
     <div v-if="result.unknown.length" class="lgvt-block" data-test="transfer-unknown">
       <strong>{{ t('lgvtUnknown') }}</strong>
@@ -88,7 +100,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
-import { transferKey } from '@/utils/ventilationTransfers'
+import { transferKey, isShopTransfer } from '@/utils/ventilationTransfers'
 import { pluralizePackLabel } from '@/utils/stockPlanning'
 
 const props = defineProps({
@@ -99,9 +111,10 @@ const { t } = useI18n()
 const ctl = props.controller
 const result = computed(() => ctl.result.value)
 const hasContent = computed(
-  () => result.value.transfers.length || result.value.shortages.length || result.value.unknown.length,
+  () => result.value.transfers.length || result.value.shortages.length || result.value.unknown.length || result.value.unverified.length,
 )
 const key = transferKey
+const isShop = isShopTransfer
 const sourceName = computed(() => (ctl.sourceOptions.value.find((o) => o.id === ctl.sourceId.value) || {}).name || '')
 const count = (s, n) => `${n} ${pluralizePackLabel(s.packagingType || t('lgvtPackFallback'), n)}`
 const packLabel = (tr) => `${tr.packs} ${pluralizePackLabel(tr.packagingType || t('lgvtPackFallback'), tr.packs)}`
@@ -123,6 +136,7 @@ const packLabel = (tr) => `${tr.packs} ${pluralizePackLabel(tr.packagingType || 
 .lgvt-meta { font-size: var(--fs-sm); color: var(--fb-muted, #6b7280); }
 .lgvt-check { display: flex; align-items: center; gap: 8px; min-height: 44px; font-size: var(--fs-sm); color: var(--fb-muted, #6b7280); cursor: pointer; }
 .lgvt-sum { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; padding: 8px 10px; border-radius: 10px; background: var(--fb-subtle, #fafafa); }
+.lgvt-badge { display: inline-block; margin-right: 6px; padding: 1px 8px; border-radius: 999px; background: var(--fb-primary-soft, #eff6ff); color: var(--fb-primary, #1d4ed8); font-size: var(--fs-xs); font-weight: var(--fw-bold); }
 .lgvt-short { font-size: var(--fs-sm); color: var(--fb-danger, #dc2626); }
 .lgvt-block { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 10px; background: var(--fb-subtle, #fafafa); font-size: var(--fs-sm); color: var(--fb-muted, #6b7280); }
 .lgvt-block--warn { background: var(--fb-danger-soft, #fef2f2); color: var(--fb-danger, #dc2626); }

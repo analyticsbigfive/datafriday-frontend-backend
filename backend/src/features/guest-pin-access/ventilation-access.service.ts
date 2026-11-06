@@ -35,6 +35,11 @@ const SHEET_LINE_FIELDS = [
   'remainingQuantity',
   'restockQuantity',
   'packaging',
+  'received',
+  'ceded',
+  'fromStorage',
+  'receivedFrom',
+  'remainingFromLogistic',
 ] as const;
 
 export interface VentilationPublicContext {

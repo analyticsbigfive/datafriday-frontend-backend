@@ -98,6 +98,29 @@ export function buildDepositLines(plan, deposits = []) {
 }
 
 /**
+ * Fusionne deux listes `receivedFrom` (même destination sur plusieurs feuilles) : un
+ * élément par PDV cédant, colis et quantités additionnés. `null` si rien à garder.
+ */
+function mergeReceivedFrom(current, incoming) {
+  const list = [...(current || []), ...(Array.isArray(incoming) ? incoming : [])]
+  if (!list.length) return null
+  const byShop = new Map()
+  for (const entry of list) {
+    if (!entry || entry.shopId == null) continue
+    const id = String(entry.shopId)
+    const cur = byShop.get(id)
+    if (!cur) {
+      byShop.set(id, { ...entry, shopId: id })
+      continue
+    }
+    cur.packs = (Number(cur.packs) || 0) + (Number(entry.packs) || 0)
+    cur.quantity = (Number(cur.quantity) || 0) + (Number(entry.quantity) || 0)
+    cur.remainingFromLogistic = cur.remainingFromLogistic === true && entry.remainingFromLogistic === true
+  }
+  return byShop.size ? [...byShop.values()] : null
+}
+
+/**
  * Regroupe les lignes par article (vue « par item » de la Ventilation), une
  * ligne par destination. Articles et destinations triés par nom.
  * @param {Array<object>} lines sortie de `buildDepositLines`
@@ -142,8 +165,11 @@ export function groupDepositLinesByItem(lines) {
       existing.quantity += quantity
       existing.packs = existing.packs != null && packs != null ? existing.packs + packs : null
       existing.parts.push(part)
+      const merged = mergeReceivedFrom(existing.receivedFrom, line.receivedFrom)
+      if (merged) existing.receivedFrom = merged
       continue
     }
+    const receivedFrom = mergeReceivedFrom(null, line.receivedFrom)
     group.rows.push({
       rowKey: line.rowKey,
       elementType: line.elementType || null,
@@ -152,6 +178,8 @@ export function groupDepositLinesByItem(lines) {
       quantity,
       packs,
       parts: [part],
+      // Circuit : d'où vient ce que le PDV reçoit (absent sur les anciens plans).
+      ...(receivedFrom ? { receivedFrom } : {}),
     })
   }
   return [...map.values()]

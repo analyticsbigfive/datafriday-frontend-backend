@@ -165,6 +165,16 @@ function freezeStockLine(row, inputs, outcome, orderQuantity) {
   }
 }
 
+function freezeReceivedFrom(entry) {
+  return {
+    shopId: entry.shopId,
+    shopName: entry.shopName ?? '',
+    packs: toNumber(entry.packs),
+    quantity: toNumber(entry.quantity),
+    remainingFromLogistic: !!entry.remainingFromLogistic,
+  }
+}
+
 /**
  * Ligne d'étape 2 figée (grain shop × article). `eventIds` est CONSERVÉ
  * (restockEventOptions / filteredRestockRows en dépendent sur un plan chargé) ;
@@ -191,6 +201,18 @@ function freezeRestockLine(row) {
     // Ligne de réassort d'un espace de stockage (utils/storageRestockLines.js) ;
     // absent sur les lignes PDV pour garder leur photo inchangée.
     ...(row.elementType ? { elementType: row.elementType } : {}),
+    // Circuit de couverture du besoin (reçu d'autres PDV, cédé, prélevé en
+    // réserve) : figé seulement s'il existe, les anciens plans n'en ont pas.
+    ...(row.received != null ? { received: toNumber(row.received) } : {}),
+    ...(row.ceded != null ? { ceded: toNumber(row.ceded) } : {}),
+    ...(row.fromStorage != null ? { fromStorage: toNumber(row.fromStorage) } : {}),
+    // D'où vient ce que le PDV reçoit (un élément par PDV cédant) et origine du
+    // restant (Logistic ou comptage inventaire) : lus par la Ventilation de Logistic
+    // pour créer les tâches PDV vers PDV. Figés seulement s'ils existent.
+    ...(Array.isArray(row.receivedFrom) && row.receivedFrom.length
+      ? { receivedFrom: row.receivedFrom.map(freezeReceivedFrom) }
+      : {}),
+    ...(row.remainingFromLogistic != null ? { remainingFromLogistic: !!row.remainingFromLogistic } : {}),
     sourceBreakdown: (row.sourceBreakdown || []).map((s) => ({
       key: s.key,
       name: s.name,
@@ -213,6 +235,9 @@ function freezeShoppingItem(item) {
     predicted: toNumber(item.predicted),
     shopOnHand: toNumber(item.shopOnHand),
     storageOnHand: toNumber(item.storageOnHand),
+    // Part du besoin couverte sans achat (transferts entre PDV + prélèvements de
+    // réserve). Anciens plans : storageOnHand (réserve seule) fait foi.
+    coveredWithoutPurchase: toNumber(item.coveredWithoutPurchase, toNumber(item.storageOnHand)),
     // Réassort des stockages ajouté après netting (fiche 314-01) : figé à part
     // pour que le rejeu des corrections ne le perde pas. `fromStorageOnly` =
     // article acheté uniquement pour un stockage (aucun besoin PDV).
@@ -421,7 +446,10 @@ export function recomputeShoppingFromOverrides(snapshot, overrides = {}) {
           const storageRefill = Math.max(0, toNumber(item.storageRefill) + refillDelta)
           const pdvNeed = item.fromStorageOnly ? 0 : toNumber(item.restockNeed)
           const nextPdvNeed = Math.max(0, pdvNeed + delta)
-          const buyQuantity = Math.max(0, nextPdvNeed - toNumber(item.storageOnHand)) + storageRefill
+          // La part couverte sans achat est un budget figé, jamais défait : l'achat
+          // est le dernier maillon du circuit, il recule donc en premier (plancher 0).
+          const covered = toNumber(item.coveredWithoutPurchase ?? item.storageOnHand)
+          const buyQuantity = Math.max(0, nextPdvNeed - covered) + storageRefill
           const restockNeed = item.fromStorageOnly ? storageRefill : nextPdvNeed
           return {
             ...item,

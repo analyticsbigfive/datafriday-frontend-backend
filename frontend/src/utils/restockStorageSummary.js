@@ -13,6 +13,8 @@
 // Même convention que packedCount = ceil(q / packagingUnitNumber x conversion)
 // dans stockPlanning.computePackagingForQuantity.
 
+import { transferPacksOf } from '@/utils/restockCircuitDisplay'
+
 const positive = (v) => {
   const n = Number(v)
   return Number.isFinite(n) && n > 0 ? n : null
@@ -102,6 +104,8 @@ const keyUnit = (u) => (u == null || u === '' ? 'unit' : String(u))
  * @param {Array} [p.storageLines] lignes de l'onglet STOCK (elementType 'storage')
  * @param {Object<string, Array>} [p.shopRowsByItem] lignes PDV par itemKey
  * @param {Array} [p.storageRows] lignes des espaces de stockage
+ * @param {Object<string, Array>} [p.transfersByItem] transferts PDV vers PDV du circuit,
+ *   par itemKey (optionnel : sans lui, aucune mention de transfert)
  * @returns {{total:number, selectedCount:number, totalCount:number, lines:Array}}
  */
 export function buildStorageSummary({
@@ -118,6 +122,7 @@ export function buildStorageSummary({
   storageLines = [],
   shopRowsByItem = {},
   storageRows = [],
+  transfersByItem = {},
 } = {}) {
   const all = Array.isArray(rows) ? rows : []
   const list = all.filter((row) => row && !excludeRow(row))
@@ -129,6 +134,16 @@ export function buildStorageSummary({
   for (const row of selected) {
     const order = Number((orderByItem || {})[row.itemKey])
     if (order > 0) entries.set(row.itemKey, { row, direct: order, added: 0 })
+  }
+  // Article intégralement couvert par des transferts entre PDV : rien à commander,
+  // mais la ligne reste visible pour montrer le transfert (quantité et montant à 0).
+  const transferOnly = new Set()
+  for (const row of selected) {
+    if (entries.has(row.itemKey)) continue
+    if (transferPacksOf((transfersByItem || {})[row.itemKey]) > 0) {
+      entries.set(row.itemKey, { row, direct: 0, added: 0 })
+      transferOnly.add(row.itemKey)
+    }
   }
   const add = (key, fallbackRow, qty) => {
     if (!(qty > 0)) return
@@ -164,7 +179,7 @@ export function buildStorageSummary({
     total += amount
     const image = mp && typeof mp.image === 'string' && mp.image ? mp.image : ''
     // Quantité fusionnée ou ajoutée : le libellé reflète la quantité TOTALE.
-    let label = buyLabel(row)
+    let label = transferOnly.has(itemKey) && !(qty > 0) ? '' : buyLabel(row)
     if (entry.added > 0) label = quantityLabel ? quantityLabel(row, qty) : entry.direct > 0 ? buyLabel(row) : ''
     // Détail « dont X pour les PDV et Y pour le réassort des stockages » : seulement
     // quand les deux parts existent et que le libellé de colis par quantité est fourni.
@@ -181,6 +196,8 @@ export function buildStorageSummary({
       image,
       pdv: pdvCounts(row, (shopRowsByItem || {})[itemKey]),
       stock: stockCounts(mp, row, storageRows),
+      // Colis transférés entre PDV (circuit) ; 0 = pas de mention.
+      transferPacks: transferPacksOf((transfersByItem || {})[itemKey]),
     })
   }
   lines.sort((a, b) => b.amount - a.amount || String(a.name).localeCompare(String(b.name)))
@@ -204,7 +221,7 @@ function syntheticRow(itemKey, src) {
  * itemKey de l'étape 1 qui reçoit une ligne de stockage : Market Price + unité,
  * puis id article + unité, puis nom + unité ; sinon une clé propre (ligne seule).
  */
-function storageTargetKey(line, rowByKey, entries) {
+export function storageTargetKey(line, rowByKey, entries) {
   const unit = keyUnit(line.unit)
   const candidates = [line.marketPriceId, line.itemId]
     .filter((v) => v != null && v !== '')

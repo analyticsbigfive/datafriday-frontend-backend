@@ -62,11 +62,16 @@ export function useVentilationTransfers({ store, groups, storages, spaceId, onGe
     reserveOwnNeed.value && sourceId.value ? ownNeedPacks(groups(), sourceId.value) : () => 0,
   )
 
-  const result = computed(() =>
-    sourceId.value
-      ? buildTransfers({ groups: destinationGroups.value, sourcePacks, reservedPacks: reservedPacks.value })
-      : { transfers: [], shortages: [], unknown: [] },
-  )
+  // Sans stockage source, seuls les transferts PDV vers PDV restent calculables
+  // (leur source est le PDV cédant) : on ne signale pas « stock illisible » pour autant.
+  const result = computed(() => {
+    const res = buildTransfers({
+      groups: destinationGroups.value,
+      sourcePacks: (itemKey) => (sourceId.value ? sourcePacks(itemKey) : null),
+      reservedPacks: reservedPacks.value,
+    })
+    return sourceId.value ? res : { ...res, unknown: res.unknown.filter((u) => u.reason !== 'no-stock') }
+  })
 
   const sourceSummary = computed(() =>
     sourceId.value
