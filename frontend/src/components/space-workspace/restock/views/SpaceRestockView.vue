@@ -3261,10 +3261,16 @@ export default {
           this.components,
           this.menuItems,
         )
+        // Fiche sans fournisseur : celui du Market Price, comme le réassort stockage
+        // et le mode ingrédients (sinon le même article se scinde en deux groupes).
+        const referenceMpId = reference?.marketPriceId || reference?.marketPrice?.id || null
+        const referenceMp = referenceMpId ? this.marketPrices.find((m) => m.id === referenceMpId) : null
         const supplierId =
           reference?.supplierId ||
           reference?.supplier?.id ||
           reference?.supplier ||
+          referenceMp?.supplierId ||
+          referenceMp?.supplier?.id ||
           '__unknown_supplier__'
         const supplier = this.suppliers.find((s) => s.id === supplierId)
         // Mode produits finis : un plat fini sans fournisseur n'est pas un

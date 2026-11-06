@@ -205,11 +205,17 @@ function storageTargetKey(line, rowByKey, entries) {
   for (const key of candidates) {
     if (rowByKey.has(key) || entries.has(key)) return key
   }
+  // Un article libre du Builder n'a souvent aucune unité : on ne l'oppose alors
+  // pas à l'unité de la ligne PDV (sinon « …|||unit » ≠ « …|||L » et l'article
+  // apparaît en double au lieu d'être additionné).
+  const unitOk = (u) => !line.unit || keyUnit(u) === unit
+  const mpId = line.marketPriceId != null && line.marketPriceId !== '' ? String(line.marketPriceId) : null
+  const sameMp = (r) => !!mpId && !!r && r.marketPriceId != null && String(r.marketPriceId) === mpId && unitOk(r.unit)
   const name = norm(line.itemName)
-  if (name) {
-    const sameName = (r) => r && norm(r.itemName) === name && keyUnit(r.unit) === unit
-    for (const row of rowByKey.values()) if (sameName(row)) return row.itemKey
-    for (const [key, e] of entries) if (sameName(e.row)) return key
+  const sameName = (r) => !!name && !!r && norm(r.itemName) === name && unitOk(r.unit)
+  for (const match of [sameMp, sameName]) {
+    for (const row of rowByKey.values()) if (match(row)) return row.itemKey
+    for (const [key, e] of entries) if (match(e.row)) return key
   }
   return candidates[0] || `name:${name}|||${unit}`
 }
