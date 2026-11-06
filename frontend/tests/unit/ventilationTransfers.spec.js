@@ -1,4 +1,4 @@
-import { buildTransfers, ownNeedPacks, summarizeSource, toTaskLines, transferKey } from '@/utils/ventilationTransfers'
+import { buildTransfers, ownNeedPacks, summarizeSource, toTaskLines, transferKey, isShopTransfer } from '@/utils/ventilationTransfers'
 
 const group = (itemKey, rows) => ({
   itemKey, itemName: itemKey, packagingType: 'Fût', unitsPerPack: 30,
@@ -52,5 +52,109 @@ describe('ownNeedPacks et summarizeSource', () => {
   it('ignore un stock inconnu', () => {
     const groups = [group('a', [['L', 3]])]
     expect(summarizeSource({ groups, result: { transfers: [], shortages: [] }, sourcePacks: () => null })).toEqual([])
+  })
+})
+
+describe('buildTransfers : colis reçus d\'autres PDV', () => {
+  const donor = (shopId, packs, remainingFromLogistic = true) => ({ shopId, shopName: `PDV ${shopId}`, packs, quantity: packs * 30, remainingFromLogistic })
+  const withReceived = (shopId, packs, receivedFrom) => ({ shopId, shopName: shopId, packs, quantity: packs * 30, receivedFrom })
+  const grp = (rows) => ({ itemKey: 'a', itemName: 'a', packagingType: 'Fût', unitsPerPack: 30, rows })
+
+  it('sans receivedFrom : comportement identique, aucun champ de cédant', () => {
+    const r = buildTransfers({ groups: [grp([withReceived('L', 2, undefined)])], sourcePacks: () => 5 })
+    expect(r.transfers).toHaveLength(1)
+    expect(isShopTransfer(r.transfers[0])).toBe(false)
+    expect(r.unverified).toEqual([])
+  })
+
+  it('receveur avec 2 cédants Logistic : 2 transferts PDV vers PDV, le reste par le stockage', () => {
+    const r = buildTransfers({
+      groups: [grp([withReceived('L', 5, [donor('A', 1), donor('B', 2)])])],
+      sourcePacks: () => 10,
+    })
+    expect(r.transfers.map((t) => [t.fromShopId || 'SRC', t.shopId, t.packs])).toEqual([
+      ['A', 'L', 1],
+      ['B', 'L', 2],
+      ['SRC', 'L', 2],
+    ])
+    expect(r.shortages).toEqual([])
+    expect(r.unverified).toEqual([])
+  })
+
+  it('cédant non Logistic : listé en unverified, le besoin retombe sur le stockage source', () => {
+    const r = buildTransfers({
+      groups: [grp([withReceived('L', 3, [donor('A', 2, false)])])],
+      sourcePacks: () => 10,
+    })
+    expect(r.unverified.map((u) => [u.fromShopId, u.fromShopName, u.shopId, u.packs])).toEqual([['A', 'PDV A', 'L', 2]])
+    expect(r.transfers.map((t) => [t.fromShopId || 'SRC', t.packs])).toEqual([['SRC', 3]])
+  })
+
+  it('mélange cédant vérifié et non vérifié', () => {
+    const r = buildTransfers({
+      groups: [grp([withReceived('L', 3, [donor('A', 1), donor('B', 1, false)])])],
+      sourcePacks: () => 10,
+    })
+    expect(r.transfers.map((t) => [t.fromShopId || 'SRC', t.packs])).toEqual([['A', 1], ['SRC', 2]])
+    expect(r.unverified).toHaveLength(1)
+  })
+
+  it('ne dépasse jamais le besoin de la ligne (colis entiers, plafonnés)', () => {
+    const r = buildTransfers({
+      groups: [grp([withReceived('L', 2, [donor('A', 5)])])],
+      sourcePacks: () => 10,
+    })
+    expect(r.transfers.map((t) => [t.fromShopId || 'SRC', t.packs])).toEqual([['A', 2]])
+  })
+
+  it('stock source insuffisant pour le reste : manque listé, transferts PDV conservés', () => {
+    const r = buildTransfers({
+      groups: [grp([withReceived('L', 4, [donor('A', 1)])])],
+      sourcePacks: () => 1,
+    })
+    expect(r.transfers.map((t) => [t.fromShopId || 'SRC', t.packs])).toEqual([['A', 1], ['SRC', 1]])
+    expect(r.shortages.map((t) => [t.shopId, t.packs])).toEqual([['L', 2]])
+  })
+
+  it('stock source inconnu : les transferts PDV passent quand même, seul le reste est inconnu', () => {
+    const r = buildTransfers({
+      groups: [grp([withReceived('L', 3, [donor('A', 1)])])],
+      sourcePacks: () => null,
+    })
+    expect(r.transfers.map((t) => t.fromShopId)).toEqual(['A'])
+    expect(r.unknown[0].reason).toBe('no-stock')
+  })
+
+  it('besoin entièrement couvert par les PDV : pas de lecture du stock source', () => {
+    const r = buildTransfers({
+      groups: [grp([withReceived('L', 2, [donor('A', 2)])])],
+      sourcePacks: () => null,
+    })
+    expect(r.transfers).toHaveLength(1)
+    expect(r.unknown).toEqual([])
+  })
+
+  it('le stock source n\'est pas consommé par les colis PDV vers PDV', () => {
+    const r = buildTransfers({
+      groups: [grp([withReceived('L', 3, [donor('A', 2)]), withReceived('M', 2, undefined)])],
+      sourcePacks: () => 3,
+    })
+    const fromSource = r.transfers.filter((t) => !isShopTransfer(t)).map((t) => [t.shopId, t.packs])
+    expect(fromSource).toEqual([['L', 1], ['M', 2]])
+    expect(r.shortages).toEqual([])
+  })
+
+  it('toTaskLines : source = PDV cédant, clé de transfert distincte', () => {
+    const r = buildTransfers({ groups: [grp([withReceived('L', 3, [donor('A', 1)])])], sourcePacks: () => 5 })
+    const lines = toTaskLines(r.transfers, { sourceElementId: 'HK', assigneeFor: () => 'u1' })
+    expect(lines.map((l) => [l.sourceElementId, l.destinationElementId, l.packed])).toEqual([['A', 'L', 1], ['HK', 'L', 2]])
+    expect(new Set(r.transfers.map(transferKey)).size).toBe(2)
+  })
+
+  it('summarizeSource ne compte pas les transferts PDV vers PDV comme déposés', () => {
+    const groups = [grp([withReceived('L', 3, [donor('A', 1)])])]
+    const result = buildTransfers({ groups, sourcePacks: () => 5 })
+    const [sum] = summarizeSource({ groups, result, sourcePacks: () => 5 })
+    expect(sum.deposited).toBe(2)
   })
 })

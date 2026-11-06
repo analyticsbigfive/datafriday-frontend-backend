@@ -19,7 +19,7 @@
           />
           <span>{{ t('srStorageSummaryIncludeStock') }}</span>
         </label>
-        <strong class="rss-cost">{{ t('srStorageSummaryCost') }} {{ formatCurrencyDetailed(summary.total) }}</strong>
+        <strong v-value-pulse="summary.total" class="rss-cost">{{ t('srStorageSummaryCost') }} {{ formatCurrencyDetailed(summary.total) }}</strong>
       </div>
       <div
         class="rss-progress"
@@ -43,13 +43,16 @@
         <span class="rss-copy">
           <strong class="rss-name" :title="line.name">{{ line.name }}</strong>
           <small v-if="detail(line)" class="rss-detail">{{ detail(line) }}</small>
+          <small v-if="line.transferPacks > 0" class="rss-detail" data-test="summary-transfers">
+            {{ transferLabel(line.transferPacks) }}
+          </small>
           <small v-if="line.split" class="rss-detail" data-test="summary-split">
             {{ t('srStorageSummarySplit').replace('{direct}', line.split.direct).replace('{added}', line.split.added) }}
           </small>
         </span>
         <span class="rss-qty">
-          <strong class="rss-qty-main">{{ line.quantityLabel }}</strong>
-          <small class="rss-qty-amount">{{ formatCurrencyDetailed(line.amount) }}</small>
+          <strong v-value-pulse="line.quantityLabel" class="rss-qty-main">{{ line.quantityLabel }}</strong>
+          <small v-value-pulse="line.amount" class="rss-qty-amount">{{ formatCurrencyDetailed(line.amount) }}</small>
         </span>
       </li>
     </ul>
@@ -65,11 +68,14 @@
 import { useI18n } from '@/i18n/useI18n'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import { marginPercent } from '@/utils/restockStorageSummary'
+import { circuitPackNounKey } from '@/utils/restockCircuitDisplay'
+import { vValuePulse } from '@/composables/useValuePulse'
 
 const VISIBLE_COUNT = 5
 
 export default {
   name: 'RestockStorageSummary',
+  directives: { valuePulse: vValuePulse },
   props: {
     /** Sortie de buildStorageSummary : { total, selectedCount, totalCount, lines }. */
     summary: { type: Object, required: true },
@@ -120,6 +126,12 @@ export default {
     },
   },
   methods: {
+    /** « N colis transférés entre PDV » (circuit de réarmement). */
+    transferLabel(packs) {
+      return this.t(packs === 1 ? 'srCircuitTransferredOne' : 'srCircuitTransferred')
+        .replace('{n}', packs)
+        .replace('{unit}', this.t(circuitPackNounKey(packs)))
+    },
     /** « a/b PDV » puis « et c/d Stock » : uniquement ce que les données donnent. */
     detail(line) {
       const parts = []
