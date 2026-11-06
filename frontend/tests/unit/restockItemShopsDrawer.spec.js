@@ -118,4 +118,23 @@ describe('RestockItemShopsDrawer', () => {
     wrapper.findComponent(EventDrawerShellStub).vm.$emit('update:modelValue', false)
     expect(wrapper.emitted('update:modelValue')).toEqual([[false]])
   })
+
+  it('circuit : en-tête surplus, pastilles cède / reçoit, réserve seulement si > 0', () => {
+    const d = data()
+    d.circuit = {
+      coveredBySurplus: 120, coveredBySurplusLabel: '120 L', coveredBySurplusPacks: 4,
+      coveredByStorage: 0, coveredByStorageLabel: '0 L', coveredByStoragePacks: 0, toBuy: 0,
+    }
+    d.rows[0].circuit = { role: 'donor', packs: 4, storagePacks: 0, counterparts: [{ shopName: 'Buvette Nord', packs: 4 }] }
+    d.rows[1].circuit = { role: 'receiver', packs: 3, storagePacks: 2, counterparts: [{ shopName: 'Bloc 22bis', packs: 3 }] }
+    d.rows[2].circuit = { role: 'both-none', packs: 0, storagePacks: 0, counterparts: [] }
+    const wrapper = mountDrawer({ data: d })
+    expect(wrapper.find('[data-test="circuit-surplus"]').text()).toContain('120 L')
+    expect(wrapper.find('[data-test="circuit-storage"]').exists()).toBe(false)
+    const rows = wrapper.findAll('[data-test="shop-row"]')
+    expect(rows[0].find('[data-test="circuit-badges"]').text()).toContain('4')
+    expect(rows[1].findAll('.risd-badge')).toHaveLength(2)
+    expect(rows[1].text()).toContain('Bloc 22bis')
+    expect(rows[2].find('[data-test="circuit-badges"]').exists()).toBe(false)
+  })
 })

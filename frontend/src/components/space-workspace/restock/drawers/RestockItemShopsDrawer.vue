@@ -29,6 +29,18 @@
           <strong class="risd-num">{{ data.toOrder }}</strong>
         </span>
       </div>
+      <div v-if="data.circuit" class="risd-circuit" data-test="circuit-header">
+        <span class="risd-circuit-line" data-test="circuit-surplus">
+          <span class="risd-label">{{ t('srCircuitCoveredBySurplus') }}{{ t('srLabelColon') }}</span>
+          <strong v-value-pulse="data.circuit.coveredBySurplusLabel" class="risd-num">{{ data.circuit.coveredBySurplusLabel }}</strong>
+          <span class="risd-label">({{ packsText(data.circuit.coveredBySurplusPacks) }})</span>
+        </span>
+        <span v-if="data.circuit.coveredByStorage > 0" class="risd-circuit-line" data-test="circuit-storage">
+          <span class="risd-label">{{ t('srCircuitDrawnFromStorage') }}{{ t('srLabelColon') }}</span>
+          <strong v-value-pulse="data.circuit.coveredByStorageLabel" class="risd-num">{{ data.circuit.coveredByStorageLabel }}</strong>
+          <span class="risd-label">({{ packsText(data.circuit.coveredByStoragePacks) }})</span>
+        </span>
+      </div>
       <p class="risd-hint">{{ t('srShopsDrawerHint') }}</p>
 
       <div v-if="!data.rows.length" class="risd-empty">{{ t('srShopsDrawerEmpty') }}</div>
@@ -42,22 +54,30 @@
         <div class="risd-row-head">
           <strong class="risd-shop">{{ row.shopName }}</strong>
         </div>
+        <div v-if="badges(row).length" class="risd-badges" data-test="circuit-badges">
+          <span
+            v-for="badge in badges(row)"
+            :key="badge.key"
+            class="risd-badge"
+            :class="`risd-badge--${badge.kind}`"
+          >{{ badge.text }}</span>
+        </div>
         <div class="risd-values">
           <span class="risd-value">
             <span class="risd-label">{{ t('srBreakdownPredict') }}</span>
-            <strong class="risd-num">{{ row.predicted }}</strong>
+            <strong v-value-pulse="row.predicted" class="risd-num">{{ row.predicted }}</strong>
           </span>
           <span class="risd-value">
             <span class="risd-label">{{ t('srBreakdownRemaining') }}</span>
-            <strong class="risd-num">{{ row.remaining }}</strong>
+            <strong v-value-pulse="row.remaining" class="risd-num">{{ row.remaining }}</strong>
           </span>
           <span class="risd-value">
             <span class="risd-label">{{ t('srBreakdownRequired') }}</span>
-            <strong class="risd-num" :class="{ 'risd-ok': row.requiredOk }">{{ row.required }}</strong>
+            <strong v-value-pulse="row.required" class="risd-num" :class="{ 'risd-ok': row.requiredOk }">{{ row.required }}</strong>
           </span>
           <span class="risd-value">
             <span class="risd-label">{{ t('srColToDeposit') }}</span>
-            <strong class="risd-num">{{ row.deposit }}</strong>
+            <strong v-value-pulse="row.deposit" class="risd-num">{{ row.deposit }}</strong>
           </span>
         </div>
         <div class="risd-slider-row">
@@ -107,16 +127,20 @@
 import { useI18n } from '@/i18n/useI18n'
 import EventDrawerShell from '@/components/events/drawers/EventDrawerShell.vue'
 import NumberField from '@/components/common/NumberField.vue'
+import { vValuePulse } from '@/composables/useValuePulse'
+import { circuitPackNounKey } from '@/utils/restockCircuitDisplay'
 
 export default {
   name: 'RestockItemShopsDrawer',
   components: { EventDrawerShell, NumberField },
+  directives: { valuePulse: vValuePulse },
   props: {
     modelValue: { type: Boolean, default: false },
     /**
      * { itemName, itemPercent, totalRequired, totalDeposit, toOrder, rows: [{ shopId,
      *   shopName, predicted, remaining, required, requiredOk, deposit,
-     *   percent, overridden }] }, ou null quand aucun article n'est ouvert.
+     *   percent, overridden, circuit? }], circuit? } (circuit : sortie de
+     *   buildItemCircuitDisplay, voir utils/restockCircuitDisplay), ou null quand aucun article n'est ouvert.
      */
     data: { type: Object, default: null },
   },
@@ -124,6 +148,38 @@ export default {
   setup() {
     const { t } = useI18n()
     return { t }
+  },
+  methods: {
+    /** « N colis » (nom au singulier ou au pluriel selon N). */
+    packsText(count) {
+      return `${count} ${this.t(circuitPackNounKey(count))}`
+    },
+    /** Pastilles du circuit d'une carte PDV : cède, reçoit de, prélevé en réserve. */
+    badges(row) {
+      const c = row.circuit
+      if (!c) return []
+      const out = []
+      if (c.role === 'donor' && c.packs > 0) {
+        out.push({ key: 'ceded', kind: 'donor', text: this.t('srCircuitCedes').replace('{packs}', this.packsText(c.packs)) })
+      }
+      if (c.role === 'receiver') {
+        c.counterparts.forEach((cp, i) => {
+          out.push({
+            key: `from-${i}`,
+            kind: 'receiver',
+            text: this.t('srCircuitReceives').replace('{packs}', this.packsText(cp.packs)).replace('{shop}', cp.shopName),
+          })
+        })
+      }
+      if (c.storagePacks > 0) {
+        out.push({
+          key: 'storage',
+          kind: 'storage',
+          text: this.t('srCircuitFromStorage').replace('{packs}', this.packsText(c.storagePacks)),
+        })
+      }
+      return out
+    },
   },
   computed: {
     subtitle() {
@@ -167,6 +223,58 @@ export default {
 
 .risd-ok {
   color: #16a34a;
+}
+
+.risd-circuit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+}
+
+.risd-circuit-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+}
+
+.risd-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+}
+
+.risd-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  line-height: 1.3;
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.risd-badge--donor {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.risd-badge--receiver {
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.risd-badge--storage {
+  background: #f0fdf4;
+  color: #15803d;
 }
 
 .risd-hint {

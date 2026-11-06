@@ -474,7 +474,7 @@
                 <div v-if="stockOutcomeByItem[item.itemKey] && !previousInventoryLoading" class="s1-order">
                   <span class="sr-value sr-value-buy">
                     <span class="sr-value-label">{{ t('srBreakdownToOrder') }}{{ t('srLabelColon') }}</span>
-                    <strong class="sr-value-num" :class="{ 'sr-value-ok': (buyInfoByItem[item.itemKey] || {}).covered, 'sr-value-dash': (buyInfoByItem[item.itemKey] || {}).unknown }">{{ (buyInfoByItem[item.itemKey] || {}).main }}</strong>
+                    <strong v-value-pulse="(buyInfoByItem[item.itemKey] || {}).main" class="sr-value-num" :class="{ 'sr-value-ok': (buyInfoByItem[item.itemKey] || {}).covered, 'sr-value-dash': (buyInfoByItem[item.itemKey] || {}).unknown }">{{ (buyInfoByItem[item.itemKey] || {}).main }}</strong>
                   </span>
                   <v-tooltip location="bottom" max-width="320">
                     <template #activator="{ props: helpProps }">
@@ -627,7 +627,7 @@
               </div>
             </div>
             <div
-              v-for="group in storageRestockGroups"
+              v-for="group in circuitStorageGroups"
               :key="group.elementId"
               class="sr-storage-group"
             >
@@ -749,8 +749,13 @@
                     <strong class="sr-value-num">{{ formatLooseQuantity(row.remaining, row.unit) }}</strong>
                   </span>
                   <span class="sr-value">
-                    <span class="sr-value-label">{{ t('srBreakdownRequired') }}</span>
+                    <span class="sr-value-label">{{ row.drawn > 0 ? t('srCircuitRequiredAfterDraw') : t('srBreakdownRequired') }}</span>
                     <strong class="sr-value-num" :class="{ 'sr-value-ok': !(row.required > 0) }">{{ formatLooseQuantity(row.required, row.unit) }}</strong>
+                  </span>
+                  <!-- Circuit : ce que les PDV prélèvent dans cette réserve (rien quand 0). -->
+                  <span v-if="row.drawn > 0" class="sr-value" data-test="storage-drawn">
+                    <span class="sr-value-label">{{ t('srCircuitDrawnForShops') }}{{ t('srLabelColon') }}</span>
+                    <strong v-value-pulse="row.drawn" class="sr-value-num">{{ formatLooseQuantity(row.drawn, row.unit) }}</strong>
                   </span>
                 </div>
               </div>
@@ -1393,7 +1398,7 @@
                       <span v-else class="sr-shop-diag">
                         {{ t('srDiagPredicted') }} {{ formatDiagQty(item.predicted, item.unit) }}
                         · {{ t('srDiagShop') }} {{ formatDiagQty(item.shopOnHand, item.unit) }}
-                        · {{ t('srDiagStorage') }} {{ formatDiagQty(item.storageOnHand, item.unit) }}
+                        · {{ t('srDiagCovered') }} {{ formatDiagQty(item.coveredWithoutPurchase ?? item.storageOnHand, item.unit) }}
                         · {{ t('srDiagRestock') }} {{ formatDiagQty(item.restockNeed, item.unit) }}
                         · {{ t('srDiagBuy') }} <strong>{{ formatDiagQty(item.buyQuantity, item.unit) }}</strong>
                       </span>
@@ -1729,7 +1734,9 @@ import { findBestMatch } from '@/utils/menuItemMatching'
 // Formule de restant compté partagée avec useShoppingList (Règle 3) — source unique.
 import { countedRemaining } from '@/utils/shoppingList'
 // Netting stock ↔ feuille de course (cascade de matching + pool consommable).
-import { consumeFromPool, preparePool, orderQuantitiesByItemKey } from '@/utils/stockNetting'
+import { consumeFromPool, preparePool } from '@/utils/stockNetting'
+import { computeRestockScenario } from '@/utils/restockScenario'
+import { attachCircuitFlow } from '@/utils/restockRowCircuitFlow'
 // Restant Logistic (ledger temps réel) : source primaire du netting depuis le
 // retour client 2026-09-02 (Règle 3 / Inventory devient le repli).
 import {
@@ -1798,6 +1805,8 @@ import RestockPlansPanel from '@/components/space-workspace/restock/RestockPlans
 import RestockStorageSummary from '@/components/space-workspace/restock/components/RestockStorageSummary.vue'
 import RestockComponentOrdersPanel from '@/components/space-workspace/restock/components/RestockComponentOrdersPanel.vue'
 import { buildStorageSummary, selectedPredictedRevenue } from '@/utils/restockStorageSummary'
+import { buildItemCircuitDisplay } from '@/utils/restockCircuitDisplay'
+import { vValuePulse } from '@/composables/useValuePulse'
 import { componentIngredientDemands, buildComponentOrdersPanel } from '@/utils/restockComponentOrders'
 import { resolveComponentDef } from '@/utils/inventoryUtils'
 import NumberField from '@/components/common/NumberField.vue'
@@ -1857,6 +1866,7 @@ function extractInventoryCounts(payload) {
 
 export default {
   name: 'SpaceRestockView',
+  directives: { valuePulse: vValuePulse },
   components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
   setup() {
     const store = useStore()
@@ -2495,7 +2505,8 @@ export default {
     /** Rang « À commander » mémoïsé par ligne storage (pattern buyInfoByItem). */
     storageBuyInfoByKey() {
       const out = {}
-      this.storageRestockGroups.forEach((group) =>
+      // `required` APRÈS prélèvement du circuit : même chiffre que le Résumé et l'étape 2.
+      this.circuitStorageGroups.forEach((group) =>
         group.rows.forEach((row) => {
           out[row.key] = this.storageBuyInfo(row)
         }),
@@ -2537,7 +2548,8 @@ export default {
      * lignes PDV, lues par la Ventilation de Logistic.
      */
     liveStorageRestockRows() {
-      return buildStorageRestockLines(this.storageRestockGroups, {
+      // `required` APRÈS prélèvement (circuit), pas le besoin brut de l'onglet STOCK.
+      return buildStorageRestockLines(this.refillStorageGroups, {
         eventIds: this.selectedEvents.map((event) => event.id),
         eventNames: this.selectedEvents.map((event) => this.eventLabel(event)),
         packagingFor: (row, quantity) =>
@@ -2985,6 +2997,9 @@ export default {
           remainingQuantity,
           restockQuantity,
           packaging,
+          // Origine du restant (Logistic ou comptage inventaire), lue par la Ventilation.
+          remainingFromLogistic:
+            lookupLogisticRemaining(this.logisticRemainingIndex, row.shopId, row.itemName) != null,
           // BUG-296-01 : gap / surplusLoose (reste en vrac) / finalStock
           // (stock final prévu) portés par chaque ligne, formule unique.
           ...computeRestockOutcome({ targetQuantity, remainingQuantity, restockQuantity }),
@@ -2995,10 +3010,66 @@ export default {
         }
       })
     },
+    /**
+     * Scénario de réarmement complet (utils/restockScenario) : UN seul appel pur qui
+     * regroupe circuit article, réserves après prélèvement, circuit ingrédient et
+     * netting de la feuille de course. Les computed ci-dessous ne font que le lire.
+     * Uniquement des computed : tout suit instantanément le curseur.
+     */
+    restockScenario() {
+      return computeRestockScenario({
+        liveRestockRowsAll: this.liveRestockRowsAll,
+        stockExcluded: this.stockExcluded,
+        liveStockSettingsRows: this.liveStockSettingsRows,
+        storageRestockGroups: this.storageRestockGroups,
+        shoppingMode: this.shoppingMode,
+        shoppingGenerated: this.shoppingGenerated,
+        hasLoadedPlan: !!this.loadedPlan,
+        shopPackSizeFor: (row, quantity) => packSizeForPackaging(this.packagingForItem(row, quantity)),
+        storagePackSizeFor: (row, quantity) =>
+          packSizeForPackaging(
+            computePackagingForQuantity(
+              { itemId: row.menuItemId || undefined, itemName: row.name, unit: row.unit },
+              quantity,
+              this.ingredients,
+              this.components,
+              this.menuItems,
+              this.marketPrices,
+            ),
+          ),
+        ingredientPackSizeFor: (item, quantity) => packSizeForPackaging(this.packagingForItem(item, quantity)),
+        // Demande NON filtrée par la recherche ; agrégée seulement en mode ingrédients.
+        ingredientInputs: () => ({
+          items: this.ingredientRequirementGroups.flatMap((g) => g.items),
+          shopEntries: this.aggregateCountsForElements(this.fbShopElementIds),
+          storageEntries: this.aggregateCountsForElements(this.storageElementIds),
+        }),
+      })
+    },
+    /** Circuit article (étape 1) : flux PDV, transferts, achat, flux des réserves. */
+    restockCircuit() {
+      return this.restockScenario.circuit
+    },
+    /** Groupes de réserve dont `required` est celui du circuit (après prélèvement). */
+    circuitStorageGroups() {
+      return this.restockScenario.storageGroups
+    },
+    /**
+     * Groupes de réserve dont `required` sert au réassort (étape 2, feuille de course).
+     * En mode ingrédients il vient du circuit ingrédient : une même réserve peut donc
+     * avoir un nécessaire différent de celui du circuit article (étapes 1 et 2 PDV).
+     */
+    refillStorageGroups() {
+      return this.restockScenario.refillStorageGroups
+    },
     /** Étape 2 affichable : lignes à déposer, hors articles exclus. */
     liveRestockRows() {
-      return this.liveRestockRowsAll
-        .filter((row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey])
+      const shopRows = this.liveRestockRowsAll.filter((row) => row.restockQuantity > 0 && !this.stockExcluded[row.itemKey])
+      return attachCircuitFlow(shopRows, {
+        allRows: this.liveRestockRowsAll,
+        flowByShopRow: this.restockCircuit.flowByShopRow,
+        transfersByItem: this.restockCircuit.transfersByItem,
+      })
         // Réassort des stockages (partie 4 Ventilation), après les PDV.
         .concat(this.liveStorageRestockRows)
     },
@@ -3013,6 +3084,16 @@ export default {
       const item = this.liveStockSettingsRows.find((row) => row.itemKey === itemKey)
       const rows = this.stockShopRowsByItem[itemKey] || []
       const itemPercent = this.stockAdjustment(itemKey)
+      const unit = item?.unit || rows[0]?.unit
+      const circuit = buildItemCircuitDisplay({
+        rows,
+        itemKey,
+        flowByShopRow: this.restockCircuit.flowByShopRow,
+        transfers: this.restockCircuit.transfersByItem[itemKey],
+        packSize: rows.length ? this.circuitPackSizeOf(rows[0]) : null,
+        toBuy: this.restockCircuit.orderByItem[itemKey],
+        format: (quantity) => this.formatLooseQuantity(quantity, unit),
+      })
       return {
         itemName: item?.itemName || rows[0]?.itemName || '',
         itemPercent,
@@ -3022,9 +3103,11 @@ export default {
         ),
         totalDeposit: this.formatTotalDeposit(rows),
         toOrder: item ? this.buyInfo(item).main : '',
+        circuit: circuit.header,
         rows: rows.map((row) => {
           const overrideRaw = this.stockShopPercents[shopPercentKey(row.shopId, itemKey)]
           return {
+            circuit: circuit.byShop[String(row.shopId)],
             shopId: row.shopId,
             shopName: row.shopName,
             predicted: this.formatLooseQuantity(row.totalQuantity, row.unit),
@@ -3062,39 +3145,17 @@ export default {
       return aggregateRestockOutcomesByItem(this.liveRestockRowsAll)
     },
     /**
-     * Lot 2 — « À commander » par article (étape 1) : max(0, besoin net des
-     * shops − Storage), netting par IDs (BUG-299-01) sur un pool DÉDIÉ
-     * (`preparePool` clone les entrées — aucune interférence avec
-     * `nettedShopping`). Toujours au grain article, quel que soit
-     * `shoppingMode` : en produits finis (recherche étape 3 vide), identique au
-     * `buyQuantity` de la feuille de course ; en ingrédients, lecture
-     * « article » du même besoin (l'étape 3, elle, nette au grain ingrédient).
-     * `need` = coveredQuantity de l'agrégat (Σ restockQuantity, arrondie en
-     * colis par PDV) — même grandeur que `item.quantity` à l'étape 3.
-     * Tri par itemName = ordre de consommation de l'étape 3 : si deux articles
-     * matchent la même entrée Storage (consumeFromPool consomme tout), le cas
-     * limite tombe du même côté. Article décoché → absent de la map → « — ».
-     * Coût O(articles × entrées Storage), mémoïsé — le template ne fait que
-     * des lookups O(1), jamais de netting dans la boucle v-for.
+     * « À commander » par article (étape 1) = achat pour les PDV du circuit
+     * (restockCircuit : surplus des PDV, puis stock des réserves, puis achat),
+     * en unité de ligne. Article décoché, absent de la map, affiché avec un tiret. Mémoïsé ;
+     * le template ne fait que des lookups O(1).
      * TOUJOURS l'état vivant (agrégat live, jamais la photo du plan) : c'est
      * cette map que `buildPlanPayload` fige en `buyQuantity` — la sourcer sur
      * `stockOutcomeByItem` (qui bascule sur la photo) figerait des nulls.
      */
     liveStockOrderByItem() {
-      const outcomes = aggregateRestockOutcomesByItem(this.liveRestockRowsAll)
-      const items = this.liveStockSettingsRows
-        .filter((row) => !this.stockExcluded[row.itemKey])
-        .map((row) => ({
-          itemKey: row.itemKey,
-          itemId: row.itemId,
-          sourceId: row.sourceId,
-          itemName: row.itemName,
-          unit: row.unit,
-          need: outcomes[row.itemKey]?.coveredQuantity ?? 0,
-        }))
-        .sort((a, b) => String(a.itemName).localeCompare(String(b.itemName)))
-      const storagePool = preparePool(this.aggregateCountsForElements(this.storageElementIds))
-      return orderQuantitiesByItemKey(items, storagePool)
+      // Étape ② (stock des réserves) comprise dans le circuit : pas de second netting ici.
+      return this.restockCircuit.orderByItem
     },
     /**
      * Lot 3 — rang ACHAT prêt à afficher, pour la PAGE COURANTE seulement.
@@ -3448,7 +3509,7 @@ export default {
       const shopRowsByItem = this.loadedPlan
         ? groupRowsByItemKey(this.restockRows.filter((row) => row.elementType !== 'storage'))
         : this.stockShopRowsByItem
-      const storageRows = this.storageRestockGroups.flatMap((g) => g.rows)
+      const storageRows = this.circuitStorageGroups.flatMap((g) => g.rows)
       return buildStorageSummary({
         rows: this.stockSettingsRows,
         orderByItem: this.stockOrderByItem,
@@ -3468,11 +3529,13 @@ export default {
         quantityLabel: (row, qty) => this.buyInfoForQuantity(row, qty).main,
         shopRowsByItem,
         storageRows,
+        // Transferts entre PDV : état vivant du circuit, absent quand un plan figé est chargé.
+        transfersByItem: this.loadedPlan ? {} : this.restockCircuit.transfersByItem,
       })
     },
     /** Feuille de course en mode INGRÉDIENTS : explosion BOM groupée par fournisseur. */
-    shoppingIngredientGroups() {
-      const groups = buildIngredientRequirements({
+    ingredientRequirementGroups() {
+      return buildIngredientRequirements({
         demand: this.menuItemDemandRows,
         recipeByMenuItemId: this.recipeByMenuItemId,
         // BUG-292-01 : sans ce catalogue hydraté, l'éclatement composant →
@@ -3480,6 +3543,10 @@ export default {
         components: this.componentCatalog,
         resolveSupplier: (line) => this.resolveIngredientSupplier(line),
       })
+    },
+    /** Demande ingrédients filtrée par la recherche (affichage). */
+    shoppingIngredientGroups() {
+      const groups = this.ingredientRequirementGroups
       const q = (this.shoppingSearch || '').trim().toLowerCase()
       if (!q) return groups
       return groups
@@ -3516,42 +3583,29 @@ export default {
      * Retour : { groups (item.quantity = quantité à acheter), unmatchedStorage }.
      */
     nettedShopping() {
-      const isIngredients = this.shoppingMode === 'ingredients'
       const rawGroups = this.shoppingGroupsRaw
       const storagePool = preparePool(this.aggregateCountsForElements(this.storageElementIds))
-      const shopPool = isIngredients
-        ? preparePool(this.aggregateCountsForElements(this.fbShopElementIds))
-        : []
 
       const groups = rawGroups
         .map((group) => ({
           ...group,
           items: group.items
             .map((item) => {
-              const gross = Number(item.quantity) || 0
-              let restockNeed
-              let shopOnHand
-              let predicted
-              if (isIngredients) {
-                // Besoin ingrédient théorique : on déduit le stock ingrédient
-                // agrégé sur tous les shops, puis le Storage.
-                shopOnHand = consumeFromPool(item, shopPool)
-                restockNeed = Math.max(0, gross - shopOnHand)
-                predicted = gross
-              } else {
-                // Produits finis : gross = Σ restockQuantity, DÉJÀ net du stock
-                // shop → ne pas re-soustraire. predicted/shopOnHand = diagnostic.
-                restockNeed = gross
-                shopOnHand = Number(item.shopOnHand) || 0
-                predicted = item.predicted != null ? item.predicted : gross
-              }
-              const storageOnHand = consumeFromPool(item, storagePool)
-              const buyQuantity = Math.max(0, restockNeed - storageOnHand)
+              // Netting du scénario : produits finis (achat du circuit article) ou
+              // ingrédients (achat du circuit ingrédient, stock PDV additionné).
+              const { restockNeed, shopOnHand, predicted, storageOnHand, buyQuantity } =
+                this.restockScenario.netShoppingItem(item)
+              // Le pool des réserves ne sert plus qu'à marquer le stock rattaché
+              // (unmatchedStorage) ; l'achat vient toujours du circuit.
+              consumeFromPool(item, storagePool)
               return {
                 ...item,
                 predicted,
                 shopOnHand,
                 storageOnHand,
+                // Part du besoin couverte sans achat (réserves, transferts) ; la
+                // vue la lit en priorité, storageOnHand reste pour le rejeu des plans.
+                coveredWithoutPurchase: storageOnHand,
                 restockNeed,
                 buyQuantity,
                 // La quantité affichée / exportée = ce qu'il reste à acheter.
@@ -3572,10 +3626,9 @@ export default {
       // fiche 314-01 — réapprovisionnement des ESPACES DE STOCKAGE : demande
       // ADDITIVE, injectée APRÈS consumeFromPool (jamais avant : le pool
       // netterait sa propre demande de refill → double comptage). Le nécessaire
-      // se calcule sur le restant BRUT (spec PDF) : le stock storage « prêté »
-      // aux PDV par le netting ci-dessus n'est PAS racheté automatiquement —
-      // l'alternative (refill sur le restant post-consommation du pool) est la
-      // question no 54 de QUESTIONS_A_BERTRAND.
+      // vient du circuit (tampon − (restant − prélevé)) : ce que l'achat a retiré
+      // au titre d'une réserve est racheté ici (grain ingrédient en mode
+      // ingrédients, grain article en produits finis).
       const refills = this.storageRefillLines
       // itemKey de ligne stockage → itemKey de l'article qui porte son réassort
       // (figé en coefficients `refill`, cf. storageRefillCoeffs).
@@ -6107,6 +6160,11 @@ export default {
      *
      * @returns {{main: string, sub: string, covered: boolean, unknown: boolean}}
      */
+    /** Taille de colis d'une ligne PDV (même règle que le circuit), pour l'affichage. */
+    circuitPackSizeOf(row) {
+      const ref = Number(row.targetQuantity) > 0 ? row.targetQuantity : 1
+      return packSizeForPackaging(this.packagingForItem(row, ref))
+    },
     buyInfo(item) {
       const order = this.stockOrderByItem ? this.stockOrderByItem[item.itemKey] : undefined
       // Article décoché, ou plan chargé sans buyQuantity figé (plan

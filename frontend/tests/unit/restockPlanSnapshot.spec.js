@@ -678,3 +678,122 @@ describe('aggregateExpectedUnitsByElement', () => {
     expect(aggregateExpectedUnitsByElement([])).toEqual({})
   })
 })
+
+// ---------------------------------------------------------------------------
+// 7. Circuit de couverture : coveredWithoutPurchase (budget figé, l'achat recule
+//    en premier) et champs received/ceded/fromStorage des lignes PDV.
+// ---------------------------------------------------------------------------
+
+describe('recomputeShoppingFromOverrides, circuit (coveredWithoutPurchase)', () => {
+  // beer : restockNeed 140, réserve 20 + transferts 30 = 50 couverts, buy 90.
+  function makeCircuitSnapshot() {
+    const restockRows = makeRestockRows()
+    const groups = makeShoppingGroups()
+    Object.assign(groups[0].items[0], { storageOnHand: 50, coveredWithoutPurchase: 50, quantity: 90, buyQuantity: 90 })
+    return buildPlanSnapshot({
+      stockRows: [],
+      restockRows,
+      shoppingGroups: groups,
+      recipeCoeffs: buildRecipeCoeffs({ restockRows, shoppingMode: 'finished' }),
+      unmatchedStorage: [],
+      inputs: { shoppingMode: 'finished' },
+      events: [],
+    })
+  }
+
+  it('fige coveredWithoutPurchase et garde storageOnHand', () => {
+    const beer = makeCircuitSnapshot().shoppingGroups[0].items[0]
+    expect(beer.coveredWithoutPurchase).toBe(50)
+    expect(beer.storageOnHand).toBe(50)
+  })
+
+  it('sans correction : identique à la photo', () => {
+    const snapshot = makeCircuitSnapshot()
+    expect(recomputeShoppingFromOverrides(snapshot, {})).toEqual(snapshot.shoppingGroups)
+  })
+
+  it('delta positif : buy augmente de delta', () => {
+    const out = recomputeShoppingFromOverrides(makeCircuitSnapshot(), { 'shop-1|||beer': 120 })
+    expect(out[0].items[0].buyQuantity).toBe(120)
+    expect(out[0].items[0].coveredWithoutPurchase).toBe(50)
+  })
+
+  it('delta négatif partiel : buy baisse, la part couverte est inchangée', () => {
+    const out = recomputeShoppingFromOverrides(makeCircuitSnapshot(), { 'shop-1|||beer': 70 })
+    expect(out[0].items[0].buyQuantity).toBe(70)
+    expect(out[0].items[0].coveredWithoutPurchase).toBe(50)
+    expect(out[0].items[0].storageOnHand).toBe(50)
+  })
+
+  it('delta négatif dépassant l achat : buy plancher 0 et l item sort', () => {
+    const out = recomputeShoppingFromOverrides(makeCircuitSnapshot(), { 'shop-1|||beer': 0, 'shop-2|||beer': 0 })
+    expect(out).toHaveLength(1)
+    expect(out[0].items[0].itemKey).toBe('hotdog')
+  })
+
+  it('ancien plan sans coveredWithoutPurchase : même résultat qu avant', () => {
+    const snapshot = makeSnapshot()
+    for (const g of snapshot.shoppingGroups) for (const it of g.items) delete it.coveredWithoutPurchase
+    const beer = recomputeShoppingFromOverrides(snapshot, { 'shop-1|||beer': 120 })[0].items[0]
+    expect(beer.restockNeed).toBe(170)
+    expect(beer.buyQuantity).toBe(150)
+  })
+})
+
+describe('buildPlanSnapshot, champs circuit des lignes PDV', () => {
+  function snapshotWith(rows) {
+    return buildPlanSnapshot({
+      stockRows: [],
+      restockRows: rows,
+      shoppingGroups: [],
+      recipeCoeffs: {},
+      unmatchedStorage: [],
+      inputs: {},
+      events: [],
+    })
+  }
+
+  it('conserve received/ceded/fromStorage s ils existent', () => {
+    const [row] = makeRestockRows()
+    const line = snapshotWith([{ ...row, received: 6, ceded: 2, fromStorage: 0 }]).restockLines[0]
+    expect(line.received).toBe(6)
+    expect(line.ceded).toBe(2)
+    expect(line.fromStorage).toBe(0)
+  })
+
+  it('ne les ajoute pas sinon', () => {
+    const [row] = makeRestockRows()
+    const line = snapshotWith([row]).restockLines[0]
+    expect('received' in line).toBe(false)
+    expect('ceded' in line).toBe(false)
+    expect('fromStorage' in line).toBe(false)
+    expect('receivedFrom' in line).toBe(false)
+    expect('remainingFromLogistic' in line).toBe(false)
+  })
+
+  it('fige receivedFrom (copie propre, sans champ parasite) et remainingFromLogistic', () => {
+    const [row] = makeRestockRows()
+    const donor = { shopId: 's9', shopName: 'Buvette', packs: 2, quantity: 48, remainingFromLogistic: true, extra: 'x' }
+    const line = snapshotWith([{ ...row, received: 48, receivedFrom: [donor], remainingFromLogistic: false }]).restockLines[0]
+    expect(line.receivedFrom).toEqual([{ shopId: 's9', shopName: 'Buvette', packs: 2, quantity: 48, remainingFromLogistic: true }])
+    expect(line.receivedFrom[0]).not.toBe(donor)
+    expect(line.remainingFromLogistic).toBe(false)
+  })
+
+  it('ignore un receivedFrom vide', () => {
+    const [row] = makeRestockRows()
+    expect('receivedFrom' in snapshotWith([{ ...row, receivedFrom: [] }]).restockLines[0]).toBe(false)
+  })
+
+  it('applyPlanEdits conserve les champs circuit, corrigée ou non', () => {
+    const [row] = makeRestockRows()
+    const frozen = snapshotWith([{ ...row, received: 48, receivedFrom: [{ shopId: 's9', shopName: 'B', packs: 2, quantity: 48, remainingFromLogistic: true }], remainingFromLogistic: true }]).restockLines
+    const [kept] = applyPlanEdits(frozen, {})
+    const [edited] = applyPlanEdits(frozen, { [frozen[0].rowKey]: 10 })
+    for (const l of [kept, edited]) {
+      expect(l.received).toBe(48)
+      expect(l.receivedFrom).toHaveLength(1)
+      expect(l.remainingFromLogistic).toBe(true)
+    }
+  })
+})
