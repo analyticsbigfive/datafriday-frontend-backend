@@ -174,6 +174,18 @@ describe('buildStorageSummary : composants, fusion et stock', () => {
     expect(on.lines[0].amount).toBe(6)
   })
 
+  it('stockage sans unité : additionné à la ligne PDV de même Market Price ou même nom (une seule ligne)', () => {
+    const storageLines = [
+      { itemKey: 'storage:e1:ail', itemName: 'Ail', unit: '', marketPriceId: 'mpail', restockQuantity: 2 },
+    ]
+    const on = buildStorageSummary(common({ storageLines, includeStorage: true }))
+    expect(on.lines.filter((l) => l.name === 'Ail')).toHaveLength(1)
+    expect(on.lines.find((l) => l.name === 'Ail').amount).toBe((2 + 2) * 2)
+    const byName = [{ itemKey: 'storage:e1:ail', itemName: 'ail', unit: null, restockQuantity: 1 }]
+    const named = buildStorageSummary(common({ storageLines: byName, includeStorage: true }))
+    expect(named.lines.filter((l) => String(l.name).toLowerCase() === 'ail')).toHaveLength(1)
+  })
+
   it('marge recalculée avec le coût incluant le stock', () => {
     const storageLines = [{ itemKey: 'x', itemName: 'Ail', unit: 'kg', marketPriceId: 'mpail', restockQuantity: 3 }]
     const off = buildStorageSummary(common({ storageLines }))
