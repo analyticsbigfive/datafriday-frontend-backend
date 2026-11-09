@@ -76,7 +76,7 @@
 
             <div v-if="availableCap" class="lgmv-cap" :class="{ 'lgmv-cap-over': exceedsCap }">
               <v-icon size="14" class="mr-1">{{ exceedsCap ? 'mdi-alert-circle-outline' : 'mdi-information-outline' }}</v-icon>
-              {{ t('logiAvailable') }} : {{ availableCap.packed }} {{ packedShortLabel }}
+              {{ t('logiAvailable') }} : {{ packedQtyText(availableCap.packed) }}
               <template v-if="capTotal(availableCap) !== null"> ({{ capTotal(availableCap) }})</template>
               <template v-else> · {{ formatUnits(availableCap.loose) }} {{ looseShortLabel }}</template>
             </div>
@@ -184,7 +184,7 @@
 <script>
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
-import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
+import { conditionnementText, packFieldLabel } from '@/utils/packQuantityText'
 import { sortElementsByFloorAndQuantity } from '@/utils/logisticElementOptions'
 
 /**
@@ -240,14 +240,9 @@ export default {
     isAdd() {
       return this.mode === 'add'
     },
-    /** Libellé du champ « Packed » : type de conditionnement + capacité (ex. « Nombre de Caisses de 30l »)
-     *  quand connu (MarketPrice.inventoryPackaging), sinon le mot générique « Packed ». */
+    /** Libellé du champ du nombre de colis (ex. « Nombre de Caisses de 30l »), jamais de mot vague. */
     packLabel() {
-      const type = translatePackagingType(this.item?.packagingType, this.locale)
-      if (type && this.unitsPerPack) {
-        return `${this.t('logiNumberOf')} ${pluralize(type)} ${this.t('logiPackagingOf')} ${this.unitsPerPack} ${this.item?.unit || ''}`.trim()
-      }
-      return this.t('logiPacked')
+      return packFieldLabel({ packagingType: this.item?.packagingType, unitsPerPack: this.unitsPerPack, unit: this.item?.unit }, this.t, this.locale)
     },
     /** Libellé du champ « Loose » : même méthode que packLabel — porte l'unité réelle
      *  de la denrée (ex. « Number of loose Pc ») plutôt que le mot générique « units »
@@ -255,13 +250,6 @@ export default {
     looseLabel() {
       const unit = this.item?.unit
       return unit ? `${this.t('logiNumberOf')} ${this.t('logiLooseShort')} ${unit}` : this.t('logiLoose')
-    },
-    /** Version courte du type de conditionnement (ex. « Crates »), utilisée dans le
-     *  bandeau « Available » et les options de transfert — repli sur le mot générique
-     *  « packed » si le type n'est pas connu. */
-    packedShortLabel() {
-      const type = translatePackagingType(this.item?.packagingType, this.locale)
-      return type ? pluralize(type) : this.t('logiPackedShort')
     },
     /** Unité réelle de la denrée (ex. « l », « Pc »), repli sur le mot générique
      *  « loose » si l'unité n'est pas connue — même esprit que looseLabel. */
@@ -392,6 +380,14 @@ export default {
     document.body.style.overflow = ''
   },
   methods: {
+    /** Colis en conditionnement (« 3 caisses de 30 L »), sans type : en unité réelle. */
+    packedQtyText(count) {
+      return conditionnementText(
+        { count, packagingType: this.item?.packagingType, unitsPerPack: this.unitsPerPack, unit: this.item?.unit },
+        this.t,
+        this.locale,
+      )
+    },
     close() {
       this.$emit('update:modelValue', false)
     },
@@ -409,7 +405,7 @@ export default {
     optionLabel(el) {
       const total = this.capTotal(el)
       const detail = total !== null ? `(${total})` : `· ${formatUnits(el.loose ?? 0)} ${this.looseShortLabel}`
-      return `${el.name} — ${el.packed ?? 0} ${this.packedShortLabel} ${detail}`
+      return `${el.name} : ${this.packedQtyText(el.packed ?? 0)} ${detail}`
     },
     resetForm() {
       this.form = {

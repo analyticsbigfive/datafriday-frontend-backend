@@ -356,6 +356,7 @@
               <LogisticVentilationDeposits
                 class="mt-3"
                 :movements="ventilation.movements"
+                :items="ventilation.groups"
                 :cancelling-id="ventilation.cancellingId"
                 @cancel="cancelDeposit"
               />
@@ -565,7 +566,7 @@
         />
 
         <!-- Historique d'un PDV/storage -->
-        <LogisticHistoryDrawer v-model="historyDrawer" :element="historyElement" />
+        <LogisticHistoryDrawer v-model="historyDrawer" :element="historyElement" :items="historyItems" />
 
         <!-- Mobile uniquement : drawer de nav entre outils F&B (déclenché par
              .lg-mobile-tools-trigger, remplace le WorkspaceToolSelect de l'aside
@@ -716,7 +717,7 @@ export default {
     const store = useStore()
     const router = useRouter()
     const route = useRoute()
-    const { t } = useI18n()
+    const { t, locale } = useI18n()
     // Temps réel (retour Bertrand 2026-10-07) : stock et derniers comptages relus toutes
     // les 10 s, onglet visible. Les comptages partent vers Logistic quelques secondes
     // après « Marquer compté » ; sans relecture, il fallait recharger la page.
@@ -757,7 +758,7 @@ export default {
     const ventilationAccess = reactive(useVentilationAccess())
     // Lignes « stocké » des réserves (builder state) pour filtrer les articles des Storages.
     const storageInv = useStorageInventory()
-    return { store, router, route, t, liveRefresh, revalidate, tasksRefresh, ventilationTransfers, storageInv, ventilation, ventilationChecks, ventilationLabels, eventSelection, ventilationAccess }
+    return { store, router, route, t, locale, liveRefresh, revalidate, tasksRefresh, ventilationTransfers, storageInv, ventilation, ventilationChecks, ventilationLabels, eventSelection, ventilationAccess }
   },
   data() {
     return {
@@ -946,6 +947,9 @@ export default {
               status,
               packed: expected.packed,
               loose: expected.loose,
+              packagingType: item.packagingType,
+              unit: item.unit,
+              unitsPerPack: this.unitsPerPackFor(entry.element.id, item),
             })
           }
         }
@@ -955,6 +959,18 @@ export default {
         return severity(b) - severity(a) || a.itemName.localeCompare(b.itemName, 'fr')
       })
       return { bad, warn, uncounted, rows }
+    },
+    /** Conditionnement (type, contenance, unité) des articles de l'élément dont l'historique est ouvert. */
+    historyItems() {
+      const id = this.historyElement?.id
+      if (!id) return []
+      const entry = [...this.shopEntries, ...this.storageEntries].find((e) => e.element.id === id)
+      return this.itemsOf(entry || { items: [] }).map((it) => ({
+        name: it.name,
+        packagingType: it.packagingType,
+        unit: it.unit,
+        unitsPerPack: this.unitsPerPackFor(id, it),
+      }))
     },
     routeContextKey() {
       const cfg = this.route?.query?.configuration || this.route?.query?.config || ''
@@ -1107,7 +1123,9 @@ export default {
         expectedFor: this.expectedDisplay,
         statusFor: this.itemStatus,
         needFor: this.needIndex ? this.predictedNeedFor : null,
+        unitsPerPackFor: this.unitsPerPackFor,
         t: this.t,
+        locale: this.locale,
         title,
         subtitle,
       })

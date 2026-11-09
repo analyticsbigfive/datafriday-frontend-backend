@@ -13,6 +13,7 @@ import { StartSimulationRunDto } from '../dto/simulation-run.dto';
 import { LogisticsElementScopeService } from './logistics-element-scope.service';
 import { RecipeExplosionService } from './recipe-explosion.service';
 import { SimulationTickJobData, SalesRawRow, SHOP_TYPES } from '../logistics.types';
+import { marketPricePackSize } from '../../../shared/utils/market-price-pack-size';
 
 /**
  * Simulation de ventes (outil QA, 11_LIVE.md) : vente simulée, purge, runs d'auto-simulation.
@@ -344,7 +345,7 @@ export class SalesSimulationService {
       this.prisma.stockLevel.findMany({ where: { tenantId, elementId, itemKey: { in: itemKeys } } }),
       this.prisma.marketPrice.findMany({
         where: { tenantId, deletedAt: null, itemName: { in: itemKeys, mode: 'insensitive' } },
-        select: { itemName: true, packedUnits: true },
+        select: { itemName: true, packedUnits: true, unitsPerPurchase: true, inventoryPackaging: true, purchasePackaging: true },
         // Tri déterministe (BUG-133-02) : plusieurs Market Price peuvent partager
         // un itemName, "dernier gagne" ci-dessous doit pointer vers la même ligne
         // à chaque appel plutôt qu'un ordre Postgres arbitraire.
@@ -352,7 +353,7 @@ export class SalesSimulationService {
       }),
     ]);
     const levelByKey = new Map(levels.map((l) => [l.itemKey, l]));
-    const uppByName = new Map(marketPrices.map((m) => [m.itemName.trim().toLowerCase(), m.packedUnits]));
+    const uppByName = new Map(marketPrices.map((m) => [m.itemName.trim().toLowerCase(), marketPricePackSize(m)]));
 
     const problems: string[] = [];
     for (const c of consumption) {

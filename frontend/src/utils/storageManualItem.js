@@ -1,15 +1,9 @@
+import { marketPricePackSize } from '@/utils/marketPricePackSize'
 import { normalizeItemName } from '@/utils/storageStoredFilter'
 
-/**
- * Quantité par paquet d'un Market Price : même règle que buildConsolidatedInventory
- * (le drawer Market Price persiste la valeur dans `packedUnits`).
- */
+/** Quantité par paquet d'un Market Price : règle unique de marketPricePackSize. */
 function resolveQtyPackaged(mp) {
-  return Number(mp?.inventoryQuantityPackaged) > 0
-    ? mp.inventoryQuantityPackaged
-    : Number(mp?.packedUnits) > 0
-      ? mp.packedUnits
-      : (mp?.inventoryQuantityPackaged ?? null)
+  return marketPricePackSize(mp)
 }
 
 /**

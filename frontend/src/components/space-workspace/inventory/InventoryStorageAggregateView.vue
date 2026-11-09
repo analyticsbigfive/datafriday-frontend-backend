@@ -86,13 +86,13 @@
 
         <div v-show="isAggExpanded(`${item.itemName}-${index}`)" class="agg-item-detail">
           <div class="agg-facts">
-            <span><small>{{ aggPackagingLabel(item, t('invColPacked')) }}</small><strong>{{ formatNumber(item.totalPackedUnits) }}</strong></span>
+            <span><small>{{ packagingHeader(item) }}</small><strong>{{ formatNumber(item.totalPackedUnits) }}</strong></span>
             <span><small>{{ aggUnitLabel(item, t('invColLoose')) }}</small><strong>{{ formatUnits(item.totalLooseUnits) }}</strong></span>
           </div>
           <div v-if="item.storages.length" class="agg-shop-list" :aria-label="t('invAggDetailByStorage')">
             <div class="agg-shop-row agg-shop-head">
               <span>{{ t('invFilterStorages') }}</span>
-              <span>{{ aggPackagingLabel(item, t('invColPacked')) }}</span>
+              <span>{{ packagingHeader(item) }}</span>
               <span>{{ aggUnitLabel(item, t('invColLoose')) }}</span>
             </div>
             <div v-for="(st, idx) in item.storages" :key="idx" class="agg-shop-row">
@@ -111,7 +111,7 @@
 import { Package, Check, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
-import { aggPackagingLabel, aggUnitLabel } from '@/utils/inventoryAggLabels'
+import { aggPackagingLabel as aggPackagingLabelOf, aggUnitLabel } from '@/utils/inventoryAggLabels'
 import { currentIntlLocale } from '@/composables/useNumberFormat'
 import InventorySummaryHeader from '@/components/space-workspace/inventory/InventorySummaryHeader.vue'
 import InventorySummaryItemTotal from '@/components/space-workspace/inventory/InventorySummaryItemTotal.vue'
@@ -140,7 +140,8 @@ export default {
   },
   emits: ['start-count-storage'],
   setup() {
-    return { t: useI18n().t }
+    const { t, locale } = useI18n()
+    return { t, locale }
   },
   data() {
     return {
@@ -159,7 +160,10 @@ export default {
       return Number(value || 0).toLocaleString(currentIntlLocale(), { maximumFractionDigits: 2 })
     },
     formatUnits,
-    aggPackagingLabel,
+    /** En-tête de la colonne des colis : conditionnement de l'article (« fûts de 30 L »). */
+    packagingHeader(item) {
+      return aggPackagingLabelOf(item, this.t, this.locale)
+    },
     aggUnitLabel,
     /** Exporte la section affichée (inventaire des stockages en cours). */
     exportCsv() {
@@ -227,6 +231,7 @@ export default {
             aggregateMap.set(itemName, {
               itemName,
               packagingLabel: item.inventoryPackaging,
+            packSize: item.inventoryQuantityPackaged,
               unit: item.unit,
               totalPackedUnits: 0,
               totalLooseUnits: 0,

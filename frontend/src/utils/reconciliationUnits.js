@@ -17,6 +17,8 @@ const positive = (v) => {
   return Number.isFinite(n) && n > 0 ? n : null
 }
 
+import { marketPricePackSize } from '@/utils/marketPricePackSize'
+
 /**
  * @param {object} params
  * @param {Array<{id:string, unit?:string, inventoryQuantityPackaged?:number, inventoryPackaging?:string, marketPriceId?:string}>} params.countedItems
@@ -29,7 +31,7 @@ export function buildUnitInfoByItemId({ countedItems = [], marketPrices = [] } =
     if (mp?.id == null) continue
     mpById.set(String(mp.id), {
       unit: mp.unit ? String(mp.unit).trim() : null,
-      unitsPerPack: positive(mp.packedUnits),
+      unitsPerPack: positive(marketPricePackSize(mp)),
       packaging: mp.inventoryPackaging ? String(mp.inventoryPackaging).trim() : null,
     })
   }

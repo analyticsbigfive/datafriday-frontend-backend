@@ -114,7 +114,7 @@ export class StockReferentialService {
         inventoryByElement.set(r.elementId, list);
       }
       if (invRows.length) {
-        const mpSelect = { id: true, itemName: true, unit: true, recipeUnit: true, packedUnits: true, inventoryPackaging: true };
+        const mpSelect = { id: true, itemName: true, unit: true, recipeUnit: true, packedUnits: true, unitsPerPurchase: true, inventoryPackaging: true, purchasePackaging: true };
         const mps = await this.prisma.marketPrice.findMany({
           where: { tenantId, deletedAt: null },
           select: mpSelect,

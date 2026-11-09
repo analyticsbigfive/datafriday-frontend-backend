@@ -58,7 +58,7 @@
             <div v-else-if="!loading && !visible.length" class="ssd-msg">
               {{ tab === 'shops' ? t('storageNoShops') : t('storageNoStorages') }}
             </div>
-            <template v-else-if="visible.length">
+            <template v-else-if="!loading && visible.length">
               <p class="ssd-section">{{ tab === 'shops' ? t('storageSectionShops') : t('storageSectionStorages') }}</p>
               <div
                 v-for="spot in visible"
@@ -77,23 +77,45 @@
                   <span class="ssd-row__name">{{ spot.name }}</span>
                   <span class="ssd-row__type">{{ spot.type || (tab === 'shops' ? t('storageTabShops') : t('storageTabStorages')) }}</span>
                 </span>
-                <span v-if="spot.stored || spot.partial" class="ssd-buffer" @click.stop>
-                  <label class="ssd-buffer__label" :for="`ssd-buf-${spot.id}`">{{ t('storageBuffer') }}</label>
-                  <span class="ssd-buffer__group" :class="{ 'ssd-buffer__group--off': readOnly }">
-                  <input
-                    :id="`ssd-buf-${spot.id}`"
-                    class="ssd-buffer__input"
-                    :class="{ 'ssd-buffer__input--mixed': spot.quantity === null }"
-                    type="number"
-                    min="0"
-                    step="any"
-                    :value="spot.quantity === null ? '' : spot.quantity"
-                    :placeholder="spot.quantity === null ? t('storageMixedValues') : ''"
-                    :disabled="readOnly"
-                    @input="onBufferInput(spot, $event)"
-                    @keydown.stop
-                  />
+                <span v-if="spot.stored || spot.partial" class="ssd-buffer" :class="{ 'ssd-buffer--lines': !bufferLabel }" @click.stop>
+                  <span v-if="missingPackSize.length" class="ssd-buffer__warn" role="note">
+                    <v-icon size="14">mdi-alert-outline</v-icon>
+                    {{ t('packSizeMissing') }}<template v-if="names.length > 1"> : {{ missingPackSize.join(', ') }}</template>
+                  </span>
+                  <label v-if="bufferLabel" class="ssd-buffer__label" :for="`ssd-buf-${spot.id}`">{{ t('storageBuffer') }}</label>
+                  <span v-else class="ssd-buffer__label">{{ t('storageBuffer') }}</span>
+                  <span v-if="bufferLabel" class="ssd-buffer__group" :class="{ 'ssd-buffer__group--off': readOnly }">
+                    <input
+                      :id="`ssd-buf-${spot.id}`"
+                      class="ssd-buffer__input"
+                      :class="{ 'ssd-buffer__input--mixed': spot.quantity === null }"
+                      type="number"
+                      min="0"
+                      step="any"
+                      :value="spot.quantity === null ? '' : spot.quantity"
+                      :placeholder="spot.quantity === null ? t('storageMixedValues') : ''"
+                      :disabled="readOnly"
+                      @input="onBufferInput(spot, $event)"
+                      @keydown.stop
+                    />
                     <span class="ssd-buffer__pack">{{ bufferLabel }}</span>
+                  </span>
+                  <span v-for="line in spot.lines" v-else :key="line.name" class="ssd-buffer__line">
+                    <span class="ssd-buffer__prod">{{ line.name }}</span>
+                    <span v-if="packLabels[line.name]" class="ssd-buffer__group" :class="{ 'ssd-buffer__group--off': readOnly }">
+                      <input
+                        class="ssd-buffer__input"
+                        type="number"
+                        min="0"
+                        step="any"
+                        :value="line.quantity"
+                        :disabled="readOnly"
+                        @input="onBufferInput(spot, $event, line.name)"
+                        @keydown.stop
+                      />
+                      <span class="ssd-buffer__pack">{{ packLabels[line.name] }}</span>
+                    </span>
+                    <span v-else class="ssd-buffer__unknown">{{ t('storageBufferUnknownPack') }}</span>
                   </span>
                 </span>
                 <span class="ssd-row__check" :class="{ 'ssd-row__check--on': spot.stored || spot.partial }" aria-hidden="true">
@@ -149,7 +171,7 @@ const emit = defineEmits(['update:modelValue'])
 const { t } = useI18n()
 const names = computed(() => (props.productNames.length ? props.productNames : [props.productName]))
 const {
-  bufferLabel, loading, loadError, tab, search, visible, counts, allSelected,
+  bufferLabel, packLabels, missingPackSize, loading, loadError, tab, search, visible, counts, allSelected,
   someSelected, saveStatus, saveError, toggle, toggleAll, setBuffer, finish,
 } = useStorageSpots({
   isOpen: toRef(props, 'modelValue'),
@@ -162,8 +184,8 @@ const {
 
 const spotIcon = computed(() => (tab.value === 'storages' ? Warehouse : Store))
 
-function onBufferInput(spot, event) {
-  setBuffer(spot, event.target.value)
+function onBufferInput(spot, event, name = null) {
+  setBuffer(spot, event.target.value, name)
 }
 
 async function close() {
@@ -245,6 +267,11 @@ async function close() {
 /* Valeurs mixtes : le placeholder texte a besoin de plus de place qu'un nombre */
 .ssd-buffer__input--mixed { width: 120px; }
 .ssd-buffer__input:disabled { cursor: not-allowed; }
+.ssd-buffer--lines { flex-direction: column; align-items: flex-end; gap: 6px; }
+.ssd-buffer__line { display: flex; align-items: center; gap: 8px; justify-content: flex-end; max-width: 100%; }
+.ssd-buffer__prod { font-size: var(--fs-sm); color: #6b7280; overflow-wrap: anywhere; text-align: right; }
+.ssd-buffer__warn { flex-basis: 100%; display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-sm); color: #b45309; }
+.ssd-buffer__unknown { font-size: var(--fs-sm); color: #b91c1c; }
 .ssd-buffer__pack { display: inline-flex; align-items: center; padding: 0 10px; border-left: 1px solid #e5e7eb; background: #f3f4f6; font-size: var(--fs-base); color: #6b7280; line-height: 1.2; min-width: 0; overflow-wrap: normal; word-break: normal; }
 .ssd--dark .ssd-buffer__pack { background: rgba(255, 255, 255, 0.08); border-left-color: rgba(255, 255, 255, 0.12); color: #9ca3af; }
 

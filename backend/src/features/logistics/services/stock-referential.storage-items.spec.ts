@@ -108,6 +108,14 @@ describe('StockReferentialService.getSpaceElementsWithItems : articles de stocka
     expect(items.map((i: any) => i.id)).toEqual(['mp-paille']);
   });
 
+  it('contenance du MP : Carton/Carton, packedUnits 1 et unitsPerPurchase 24 donne unitsPerPack 24', async () => {
+    const coca = { id: 'mp-coca', itemName: 'Coca SS', unit: 'Pc', recipeUnit: null, packedUnits: 1, unitsPerPurchase: 24, inventoryPackaging: 'Carton', purchasePackaging: 'Carton' };
+    const { service, prisma } = build({ inventory: [row({ name: 'Coca SS', marketPriceId: 'mp-coca' })] });
+    prisma.marketPrice.findMany.mockResolvedValueOnce([coca]);
+    const items = storageItems(await service.getSpaceElementsWithItems('sp', 't', 'cfg-a'));
+    expect(items[0]).toMatchObject({ id: 'mp-coca', unitsPerPack: 24, packagingType: 'Carton' });
+  });
+
   it('MP supprimé (absent de la liste active) : item gardé avec son id grâce au chargement par id', async () => {
     const deleted = { id: 'mp-old', itemName: 'Supprimé', unit: 'kg', recipeUnit: null, packedUnits: null, inventoryPackaging: null };
     const { service, prisma } = build({ inventory: [row({ name: 'Supprimé', marketPriceId: 'mp-old' })] });

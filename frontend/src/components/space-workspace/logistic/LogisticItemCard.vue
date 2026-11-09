@@ -15,7 +15,7 @@
       <div class="lg-item-name-wrap">
         <div class="lg-item-name">{{ item?.name }}</div>
         <div v-if="unitsPerPack" class="lg-item-unit">
-          {{ unitsPerPack }} {{ item?.unit || t('logiUnits') }}/{{ localizedPackagingType || t('logiPacksShort') }}
+          {{ packSizeLabel }}
         </div>
         <!-- Seules les denrées 'ingredient' ont vocation à porter un pack (résolu depuis
              le Market Price lié) — un pack manquant/à 0 y est donc un vrai trou de
@@ -60,7 +60,7 @@
       <div v-if="predictedNeed != null" class="lg-field-row lg-field-row-predicted">
         <div class="lg-field-label">{{ t(needSource === 'restock' ? 'logiColToDeposit' : 'logiColPredictedNeed') }}</div>
         <div class="lg-field-value">
-          <template v-if="predictedNeedPacksDisplay != null">{{ predictedNeedPacksDisplay }}<span class="lg-field-unit">{{ localizedPackagingType ? pluralize(localizedPackagingType) : t('logiPacksShort') }}</span></template>
+          <template v-if="predictedNeedParts">{{ formatUnits(predictedNeedParts.value) }}<span class="lg-field-unit">{{ predictedNeedParts.label }}</span></template>
           <template v-else>{{ formatUnits(predictedNeed) }}<span v-if="item?.unit" class="lg-field-unit">{{ item.unit }}</span></template>
         </div>
       </div>
@@ -118,7 +118,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
-import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
+import { conditionnementParts, packSizeText, packFieldLabel } from '@/utils/packQuantityText'
 import { compactQtyLabel } from '@/composables/useLogisticUnitLabels'
 
 const { t, locale } = useI18n()
@@ -184,16 +184,24 @@ const packNotConfiguredHref = computed(() => {
   return `/menu-fb/market-prices?search=${encodeURIComponent(props.item?.name || '')}`
 })
 
-const localizedPackagingType = computed(() => translatePackagingType(props.item?.packagingType, locale.value))
+/** Libellé de la ligne du nombre de colis (ex. « Number of Bags of 1kg »), jamais de mot vague. */
+const packLabel = computed(() =>
+  packFieldLabel({ packagingType: props.item?.packagingType, unitsPerPack: props.unitsPerPack, unit: props.item?.unit }, t, locale.value),
+)
 
-/** Libellé de la ligne « Packed » : type de conditionnement + capacité (ex. « Number of Bags of 1kg »)
- *  quand connu (MarketPrice.inventoryPackaging), sinon le mot générique « Packed ». */
-const packLabel = computed(() => {
-  const type = localizedPackagingType.value
-  if (type && props.unitsPerPack) {
-    return `${t('logiNumberOf')} ${pluralize(type)} ${t('logiPackagingOf')} ${props.unitsPerPack} ${props.item?.unit || ''}`.trim()
-  }
-  return t('logiPacked')
+/** Contenance sous le nom de l'article (« 30 L/fût »). */
+const packSizeLabel = computed(() =>
+  packSizeText({ packagingType: props.item?.packagingType, unitsPerPack: props.unitsPerPack, unit: props.item?.unit || t('logiUnits') }, locale.value),
+)
+
+/** Besoin prédit en conditionnement : nombre + « fûts de 30 L » (sans type : unité réelle). */
+const predictedNeedParts = computed(() => {
+  if (predictedNeedPacksDisplay.value == null) return null
+  return conditionnementParts(
+    { count: predictedNeedPacksDisplay.value, packagingType: props.item?.packagingType, unitsPerPack: props.unitsPerPack, unit: props.item?.unit },
+    t,
+    locale.value,
+  )
 })
 
 /** Libellé de la ligne « Loose » : même méthode que packLabel — porte l'unité réelle

@@ -78,7 +78,7 @@
 
               <div v-if="availableCap" class="rsk-cap" :class="{ 'rsk-cap-over': exceedsCap }">
                 <v-icon size="14" class="mr-1">{{ exceedsCap ? 'mdi-alert-circle-outline' : 'mdi-information-outline' }}</v-icon>
-                {{ t('logiAvailable') }} : {{ availableCap.packed }} {{ packedShortLabel }}
+                {{ t('logiAvailable') }} : {{ packedQtyText(availableCap.packed) }}
                 <template v-if="availableCapTotal !== null"> ({{ availableCapTotal }})</template>
                 <template v-else> · {{ formatUnits(availableCap.loose) }} {{ looseShortLabel }}</template>
               </div>
@@ -237,7 +237,7 @@ import { formatUnits } from '@/composables/useFormatters'
 import { packedLabel, looseUnitLabel, compactQtyLabel } from '@/composables/useLogisticUnitLabels'
 import { useAssignableStaff } from '@/composables/useAssignableStaff'
 import { sortElementsByFloorAndQuantity } from '@/utils/logisticElementOptions'
-import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
+import { conditionnementText } from '@/utils/packQuantityText'
 import { groupTasksByStaff, groupTasksByRoute } from '@/utils/restockerTaskGrouping'
 import { getLogisticTasks } from '@/api/endpoints/logistic-tasks.api'
 import RestockPrefillHint from './RestockPrefillHint.vue'
@@ -333,10 +333,6 @@ export default {
     },
     looseFieldLabel() {
       return looseUnitLabel(this.currentItem, this.t)
-    },
-    packedShortLabel() {
-      const type = translatePackagingType(this.currentItem?.packagingType, this.locale)
-      return type ? pluralize(type) : this.t('logiPackedShort')
     },
     looseShortLabel() {
       return this.currentItem?.unit || this.t('logiLooseShort')
@@ -492,6 +488,14 @@ export default {
     },
   },
   methods: {
+    /** Colis en conditionnement (« 3 caisses de 30 L »), sans type : en unité réelle. */
+    packedQtyText(count) {
+      return conditionnementText(
+        { count, packagingType: this.currentItem?.packagingType, unitsPerPack: this.unitsPerPack, unit: this.currentItem?.unit },
+        this.t,
+        this.locale,
+      )
+    },
     /** Saisie manuelle : le pré-remplissage ne doit plus écraser le champ. */
     onFieldInput(name, value) {
       this.prefillTouched = true
@@ -544,7 +548,7 @@ export default {
       const upp = Number(this.unitsPerPack)
       const total = upp ? `(${formatUnits(el.packed * upp + el.loose)} ${this.currentItem?.unit || ''})`.trim() : null
       const detail = total || `· ${formatUnits(el.loose ?? 0)} ${this.looseShortLabel}`
-      return `${el.name} — ${el.packed ?? 0} ${this.packedShortLabel} ${detail}`
+      return `${el.name} : ${this.packedQtyText(el.packed ?? 0)} ${detail}`
     },
     taskQtyLabel(task) {
       return compactQtyLabel(task.packed, task.loose, { unit: task.unit, packagingType: task.packagingType }, task.unitsPerPack, this.t, this.locale, formatUnits)

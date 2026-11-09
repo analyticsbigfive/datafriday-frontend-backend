@@ -41,12 +41,15 @@
 import { ref, computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
+import { conditionnementText } from '@/utils/packQuantityText'
 
 const { t, locale } = useI18n()
 
 const props = defineProps({
   /** [{ id, elementName, itemKey, packed, loose, depositorName, createdAt, cancelled, cancellable }] */
   movements: { type: Array, default: () => [] },
+  /** Groupes de la Ventilation (packagingType, unitsPerPack, unit par itemKey). */
+  items: { type: Array, default: () => [] },
   /** Id du dépôt en cours d'annulation (spinner). */
   cancellingId: { type: String, default: null },
 })
@@ -59,10 +62,23 @@ const confirmingId = ref(null)
 
 const activeCount = computed(() => props.movements.filter((m) => !m.cancelled).length)
 
+// Conditionnement de chaque article (type, contenance, unité), lu sur les groupes de la
+// Ventilation : le mouvement ne porte que l'itemKey et les quantités.
+const itemByKey = computed(() => new Map((props.items || []).map((g) => [g.itemKey, g])))
+
 function qtyLabel(m) {
+  const item = itemByKey.value.get(m.itemKey) || {}
   const parts = []
-  if (m.packed) parts.push(`${formatUnits(m.packed)} ${t('logiPacksShort')}`)
-  if (m.loose) parts.push(`${formatUnits(m.loose)} ${t('logiLooseShort')}`)
+  if (m.packed) {
+    parts.push(
+      conditionnementText(
+        { count: m.packed, packagingType: item.packagingType, unitsPerPack: item.unitsPerPack, unit: item.unit },
+        t,
+        locale.value,
+      ),
+    )
+  }
+  if (m.loose) parts.push(`${formatUnits(m.loose)}${item.unit ? ` ${item.unit}` : ''} ${t('logiLooseShort')}`)
   return parts.join(' + ') || '0'
 }
 

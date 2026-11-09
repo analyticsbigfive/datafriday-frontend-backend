@@ -1,3 +1,4 @@
+import { marketPricePackSize } from '@/utils/marketPricePackSize'
 // Utility functions for calculating inventory from menu items
 
 // NOTE: les types TS sont supprimés, les imports de type ne sont plus nécessaires
@@ -507,7 +508,10 @@ export function buildConsolidatedInventory(
   // Repli `unitsPerPurchase` (qté par achat de CETTE variante) : une variante de Market Price
   // à `packedUnits` 0/vide (ex. « Barquette Hot dog / 0000000 », 100 par pack) ne doit pas
   // retomber sur un autre fournisseur du même nom.
-  const resolveQtyPackaged = (src) =>
+  // Market Price : règle unique de marketPricePackSize (achat / stockage). Composant : lecture
+  // historique inchangée (le composant n'a pas de phrase d'achat).
+  const resolveQtyPackaged = (src) => marketPricePackSize(src) ?? src?.inventoryQuantityPackaged;
+  const resolveComponentQty = (src) =>
     Number(src?.inventoryQuantityPackaged) > 0
       ? src.inventoryQuantityPackaged
       : Number(src?.packedUnits) > 0
@@ -652,7 +656,7 @@ export function buildConsolidatedInventory(
 
       if (componentDef) {
         inventoryPackagingId = componentDef.inventoryPackagingId;
-        inventoryQuantityPackaged = resolveQtyPackaged(componentDef);
+        inventoryQuantityPackaged = resolveComponentQty(componentDef);
         inventoryPackaging = componentDef.inventoryPackaging;
         unit = componentDef.unit;
         isComponent = true;
