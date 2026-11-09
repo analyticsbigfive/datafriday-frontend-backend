@@ -9,6 +9,9 @@
         :total-items="stats.totalItems"
         :percent="completionPercent"
         :total-cost="totalCost"
+        :sale-total-ht="saleSummary.totalHt"
+        :sale-margin="saleSummary.margin"
+        :unpriced-count="saleSummary.unpricedCount"
         @export="exportCsv"
       />
       <h3 v-else class="agg-title-row">{{ t('invPrintShopTitle') }}</h3>
@@ -40,25 +43,20 @@
 
       <!-- Stats (mode compté) : Total items / Comptés / Total unités -->
       <div v-if="viewMode === 'counted'" class="agg-stats">
-        <div>
-          <span>{{ t('invAggTotalItems') }}</span>
-          <strong>{{ stats.totalItems }}</strong>
-        </div>
-        <div>
-          <span>{{ t('invMetricCounted') }}</span>
-          <strong>{{ stats.countedItems }}</strong>
-        </div>
-        <!-- « Total unités » a laissé la place à ce qui RESTE à faire : pendant un
-             comptage, le volume déjà saisi n'oriente aucune action. -->
-        <div>
-          <span>{{ t('invAggItemsToCount') }}</span>
-          <strong>{{ stats.itemsToCount }}</strong>
-        </div>
-        <!-- Document figé : le nombre de PdV restants n'est pas archivé, tuile masquée. -->
-        <div v-if="stats.shopsToCount != null">
-          <span>{{ t('invAggShopsToCount') }}</span>
-          <strong>{{ stats.shopsToCount }}</strong>
-        </div>
+        <button
+          v-for="tile in statTiles"
+          :key="tile.widget"
+          type="button"
+          class="agg-stat"
+          :class="{ 'is-active': filterWidget === tile.widget }"
+          :aria-pressed="filterWidget === tile.widget"
+          :disabled="!widgetsEnabled"
+          :title="t('invAggWidgetHint')"
+          @click="$emit('toggle-widget', tile.widget)"
+        >
+          <span>{{ tile.label }}</span>
+          <strong>{{ tile.value }}</strong>
+        </button>
       </div>
 
       <div v-if="viewMode === 'counted'" class="agg-progress" role="progressbar" :aria-valuenow="completionPercent" aria-valuemin="0" aria-valuemax="100">
@@ -86,8 +84,8 @@
     <div v-if="viewMode === 'counted'">
       <div v-if="aggregatedInventory.length === 0" class="text-center py-8 text-gray-500 dark:text-gray-400" style="padding: 24px 22px;">
         <Package class="w-12 h-12 mx-auto mb-3 opacity-50" />
-        <p class="text-sm">{{ t('invAggNoCount') }}</p>
-        <p class="text-xs mt-1">{{ t('invAggNoCountHint') }}</p>
+        <p class="text-sm">{{ filtersActive ? t('invNoItemsInFilter') : t('invAggNoCount') }}</p>
+        <p v-if="!filtersActive" class="text-xs mt-1">{{ t('invAggNoCountHint') }}</p>
       </div>
 
       <section v-else class="agg-list">
@@ -95,32 +93,47 @@
           v-for="(item, index) in aggregatedInventory"
           :key="`${item.itemName}-${index}`"
           class="agg-item"
-          :class="{ 'is-complete': item.isCounted }"
+          :class="{ 'is-complete': item.isCounted, 'is-selected': isItemSelected(item.itemName) }"
         >
-          <button
-            type="button"
-            class="agg-item-trigger"
-            :aria-expanded="isAggExpanded(`${item.itemName}-${index}`)"
-            @click="toggleAgg(`${item.itemName}-${index}`)"
-          >
-            <span class="agg-item-icon">
-              <img v-if="item.itemPicture" :src="item.itemPicture" :alt="item.itemName" />
-              <Package v-else class="agg-item-placeholder" />
-            </span>
-            <span class="agg-item-copy">
-              <strong>{{ item.itemName }}</strong>
-              <small v-if="item.totalShopCount != null">{{ item.countedShopCount }}/{{ item.totalShopCount }} {{ t('invColShops') }}</small>
-            </span>
-            <InventorySummaryItemTotal
-              class="agg-item-total"
-              :units="item.totalUnits"
-              :label="aggUnitLabel(item, t('invAggTotalUnits'))"
-              :cost="item.costValue"
-            />
-            <Check v-if="item.isCounted" class="agg-item-check" />
-            <ChevronUp v-if="isAggExpanded(`${item.itemName}-${index}`)" class="agg-item-chevron" />
-            <ChevronDown v-else class="agg-item-chevron" />
-          </button>
+          <div class="agg-item-head">
+            <!-- Nom + image : sélection de l'article (le total ne compte que les
+                 articles sélectionnés). Le reste de la ligne déplie le détail. -->
+            <button
+              type="button"
+              class="agg-item-select"
+              :aria-pressed="isItemSelected(item.itemName)"
+              :title="t('invAggItemSelectHint')"
+              @click="$emit('toggle-item', item.itemName)"
+            >
+              <span class="agg-item-icon">
+                <img v-if="item.itemPicture" :src="item.itemPicture" :alt="item.itemName" />
+                <Package v-else class="agg-item-placeholder" />
+              </span>
+              <span class="agg-item-copy">
+                <strong>{{ item.itemName }}</strong>
+                <small v-if="item.totalShopCount != null">{{ item.countedShopCount }}/{{ item.totalShopCount }} {{ t('invColShops') }}</small>
+              </span>
+            </button>
+            <button
+              type="button"
+              class="agg-item-trigger"
+              :aria-expanded="isAggExpanded(`${item.itemName}-${index}`)"
+              @click="toggleAgg(`${item.itemName}-${index}`)"
+            >
+              <InventorySummaryItemTotal
+                class="agg-item-total"
+                :units="item.totalUnits"
+                :label="aggUnitLabel(item, t('invAggTotalUnits'))"
+                :cost="item.costValue"
+                :show-sale="salePricesLoaded"
+                :sale-ht="rowSale(item).ht"
+                :sale-margin="rowSale(item).margin"
+              />
+              <Check v-if="item.isCounted" class="agg-item-check" />
+              <ChevronUp v-if="isAggExpanded(`${item.itemName}-${index}`)" class="agg-item-chevron" />
+              <ChevronDown v-else class="agg-item-chevron" />
+            </button>
+          </div>
 
           <div v-show="isAggExpanded(`${item.itemName}-${index}`)" class="agg-item-detail">
             <div v-if="!item.snapshot" class="agg-facts">
@@ -217,7 +230,7 @@
 </template>
 
 <script>
-import { ref, watch } from 'vue'
+import { ref, watch, toRef, computed } from 'vue'
 import { Package, Check, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { useShoppingList } from '@/composables/useShoppingList'
 import { useI18n } from '@/i18n/useI18n'
@@ -226,7 +239,13 @@ import { aggPackagingLabel as aggPackagingLabelOf, aggUnitLabel } from '@/utils/
 import { currentIntlLocale } from '@/composables/useNumberFormat'
 import InventorySummaryHeader from '@/components/space-workspace/inventory/InventorySummaryHeader.vue'
 import InventorySummaryItemTotal from '@/components/space-workspace/inventory/InventorySummaryItemTotal.vue'
-import { buildReconciliationSummary, sumRowCosts, lineCost } from '@/utils/reconciliationAggregate'
+import { buildReconciliationSummary, lineCost } from '@/utils/reconciliationAggregate'
+import {
+  WIDGET_TOTAL, WIDGET_COUNTED, WIDGET_TO_COUNT, WIDGET_SHOPS_TO_COUNT,
+  filterInventoryRows, widgetCounts, selectionTotalCost,
+} from '@/utils/inventoryFilters'
+import { useInventorySalePrices } from '@/composables/useInventorySalePrices'
+import { rowSaleValue, summarizeSaleValue } from '@/utils/inventorySaleValue'
 import { buildSummaryCsv, downloadCsv, summaryCsvFilename } from '@/utils/summaryCsv'
 
 export default {
@@ -251,9 +270,17 @@ export default {
     unitCostByItemId: { type: Object, default: () => ({}) },
     // Réconciliation ouverte (pre ou post) : le résumé décrit CE document figé.
     reconciliation: { type: Object, default: null },
+    // Filtres cumulés (utils/inventoryFilters) : widget actif, PdV cliqué dans la liste
+    // de gauche, articles sélectionnés (noms). Valeurs par défaut = aucun filtre.
+    filterWidget: { type: String, default: WIDGET_TOTAL },
+    filterShopId: { type: [String, Number], default: null },
+    selectedItems: { type: Array, default: () => [] },
+    // Event du Résumé : sert à charger les prix de vente HT (Total HT et marge).
+    spaceId: { type: [String, Number], default: null },
+    eventId: { type: [String, Number], default: null },
   },
 
-  emits: ['start-count-shop'],
+  emits: ['start-count-shop', 'toggle-widget', 'toggle-item'],
 
   setup(props) {
     const { t, locale } = useI18n()
@@ -272,6 +299,13 @@ export default {
 
     watch(referenceEventId, runShoppingList)
 
+    // Prix de vente HT : jamais pour un document figé ; route absente = valeurs masquées.
+    const { prices: salePrices, hasPrices: salePricesLoaded } = useInventorySalePrices(
+      toRef(props, 'spaceId'),
+      toRef(props, 'eventId'),
+      computed(() => !props.reconciliation),
+    )
+
     return {
       t,
       locale,
@@ -281,6 +315,8 @@ export default {
       shoppingError: error,
       referenceEventId,
       runShoppingList,
+      salePrices,
+      salePricesLoaded,
     }
   },
 
@@ -308,6 +344,13 @@ export default {
       return Number(value || 0).toLocaleString(currentIntlLocale(), { maximumFractionDigits: 2 })
     },
     formatUnits,
+    /** Valeur HT et marge d'une ligne (null/null sans prix). */
+    rowSale(item) {
+      return rowSaleValue(item, this.salePrices)
+    },
+    isItemSelected(name) {
+      return this.selectedItems.includes(name)
+    },
     /** En-tête de la colonne des colis : conditionnement de l'article (« fûts de 30 L »). */
     packagingHeader(item) {
       return aggPackagingLabelOf(item, this.t, this.locale)
@@ -384,10 +427,58 @@ export default {
         unitCostByItemId: this.unitCostByItemId,
       })
     },
-    totalCost() {
-      return sumRowCosts(this.aggregatedInventory)
+    /** Les widgets filtrent l'agrégat des comptages, pas un document figé ni le mode focus. */
+    widgetsEnabled() {
+      return !this.recoSummary && !this.focusShop
     },
+    /** PdV cliqué, ignoré s'il n'est plus dans l'inventaire (changement d'event, d'espace). */
+    effectiveShopId() {
+      if (this.filterShopId == null || !this.widgetsEnabled) return null
+      const exists = (this.shopsWithInventory || []).some(
+        (s) => String(s?.element?.id) === String(this.filterShopId),
+      )
+      return exists ? this.filterShopId : null
+    },
+    /** Lignes limitées au PdV cliqué (`scoped`) puis au widget (`visible`). */
+    filteredRows() {
+      if (!this.widgetsEnabled) return { scoped: this.baseInventory, visible: this.baseInventory }
+      return filterInventoryRows(this.baseInventory, {
+        widget: this.filterWidget,
+        shopId: this.effectiveShopId,
+      })
+    },
+    /** Un filtre widget ou PdV réduit-il la liste ? */
+    filtersActive() {
+      return this.widgetsEnabled && (this.filterWidget !== WIDGET_TOTAL || this.effectiveShopId != null)
+    },
+    /** Liste affichée dans le résumé. */
     aggregatedInventory() {
+      return this.filteredRows.visible
+    },
+    /** Coût total : articles sélectionnés seulement, sinon toute la liste affichée. */
+    totalCost() {
+      return selectionTotalCost(this.aggregatedInventory, this.selectedItems)
+    },
+    /** Total HT, marge et articles sans prix sur le même périmètre que le coût total. */
+    saleSummary() {
+      if (!this.salePricesLoaded) return { totalHt: null, margin: null, unpricedCount: 0 }
+      return summarizeSaleValue(this.aggregatedInventory, this.salePrices, this.selectedItems)
+    },
+    statTiles() {
+      const st = this.stats
+      const tiles = [
+        { widget: WIDGET_TOTAL, label: this.t('invAggTotalItems'), value: st.totalItems },
+        { widget: WIDGET_COUNTED, label: this.t('invMetricCounted'), value: st.countedItems },
+        { widget: WIDGET_TO_COUNT, label: this.t('invAggItemsToCount'), value: st.itemsToCount },
+      ]
+      // Document figé : le nombre de PdV restants n'est pas archivé, tuile masquée.
+      if (this.stats.shopsToCount != null) {
+        tiles.push({ widget: WIDGET_SHOPS_TO_COUNT, label: this.t('invAggShopsToCount'), value: st.shopsToCount })
+      }
+      return tiles
+    },
+    /** Agrégat complet, avant tout filtre widget / PdV. */
+    baseInventory() {
       if (this.recoSummary) return this.recoSummary.rows
       const inventoryCounts = this.inventoryCounts || {}
       const shopsWithInventory = this.shopsWithInventory || []
@@ -419,10 +510,13 @@ export default {
             totalShopCount: 1,
             isCounted: !!count.isCounted,
             shops: [{
+              shopId,
+              itemId: item.id,
               shopName: this.focusShop.element?.name || '',
               packedUnits,
               looseUnits,
               totalUnits,
+              cost: lineCost(totalUnits, this.unitCostByItemId?.[String(item.id)]),
               isCounted: !!count.isCounted,
             }],
           }
@@ -489,10 +583,13 @@ export default {
           if (shopCost != null) aggregated.costValue = (aggregated.costValue || 0) + shopCost
           if (isCounted) aggregated.countedShopCount += 1
           aggregated.shops.push({
+            shopId,
+            itemId: item.id,
             shopName: shop?.element?.name || 'PdV sans nom',
             packedUnits,
             looseUnits,
             totalUnits,
+            cost: shopCost,
             isCounted,
           })
         })
@@ -515,8 +612,11 @@ export default {
     },
 
     stats() {
-      const totalItems = this.aggregatedInventory.length
-      const countedItems = this.aggregatedInventory.filter((item) => item.isCounted).length
+      // Chiffres du périmètre PdV (avant widget) : les tuiles annoncent ce que chaque
+      // widget montrera, et la progression suit le PdV cliqué.
+      const scoped = this.filteredRows.scoped
+      const totalItems = scoped.length
+      const countedItems = scoped.filter((item) => item.isCounted).length
       const totalUnits = this.aggregatedInventory.reduce((sum, item) => sum + Number(item.totalUnits || 0), 0)
       // `shopsToCount` suit le MÊME périmètre que `totalItems` : en mode focus,
       // `aggregatedInventory` est réduit au PdV compté, donc la tuile PdV doit
@@ -526,7 +626,7 @@ export default {
       // un PdV sans rien à compter n'est pas « à compter ».
       const shopsToCount = this.focusShop
         ? (countedItems < totalItems ? 1 : 0)
-        : this.uncountedShops.length
+        : widgetCounts(scoped).shopsToCount
       if (this.recoSummary) {
         const { totalItems: rt, countedItems: rc } = this.recoSummary.stats
         return {
@@ -610,11 +710,31 @@ export default {
   background: var(--fb-border, #e5e7eb);
 }
 
-.agg-stats > div {
+.agg-stat {
+  appearance: none;
   min-width: 0;
   padding: 8px 7px;
+  border: 0;
   background: var(--fb-subtle, #fafafa);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
 }
+.agg-stat:hover:not(:disabled) { background: rgba(255, 49, 49, 0.05); }
+.agg-stat:disabled { cursor: default; }
+.agg-stat:focus-visible {
+  outline: 2px solid rgba(255, 49, 49, 0.45);
+  outline-offset: -2px;
+}
+/* Widget actif : teinte rouge de l'application + filet bas. */
+.agg-stat.is-active {
+  background: rgba(255, 49, 49, 0.08);
+  box-shadow: inset 0 -2px 0 #ff3131;
+}
+.agg-stat.is-active span,
+.agg-stat.is-active strong { color: #ff3131; }
 
 @media (max-width: 380px) {
   .agg-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -678,25 +798,44 @@ export default {
 
 .agg-item.is-complete { border-color: #bbf7d0; }
 
+.agg-item.is-selected {
+  border-color: #ff3131;
+  background: rgba(255, 49, 49, 0.06);
+}
+
+/* Ligne d'article : [image + nom = sélection] [total + chevron = déplier]. */
+.agg-item-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+}
+
+.agg-item-select,
 .agg-item-trigger {
   appearance: none;
-  width: 100%;
-  display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) auto 14px;
+  display: flex;
   align-items: center;
   gap: 9px;
   padding: 9px;
   border: 0;
   background: transparent;
   color: inherit;
+  font: inherit;
   text-align: left;
   cursor: pointer;
 }
 
+.agg-item-select { min-width: 0; }
+.agg-item-select:hover { background: rgba(255, 49, 49, 0.05); }
+.agg-item.is-selected .agg-item-copy strong { color: #ff3131; }
+
+.agg-item-select:focus-visible,
 .agg-item-trigger:focus-visible {
   outline: 2px solid rgba(255, 49, 49, 0.45);
   outline-offset: -2px;
 }
+
+.agg-item-icon { flex: 0 0 34px; }
 
 .agg-item-icon {
   display: grid;

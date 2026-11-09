@@ -1,9 +1,16 @@
 <template>
-  <div class="si-row" :class="{ 'si-row-disabled': totalItems === 0, 'si-row-complete': isCounted }">
+  <div class="si-row" :class="{ 'si-row-disabled': totalItems === 0, 'si-row-complete': isCounted, 'si-row-selected': filterActive }">
     <!-- Nom + meta -->
     <div class="si-row-main">
       <span class="si-row-name">
-        {{ entry?.element?.name }}
+        <!-- Filtre du Résumé Inventaire : un clic ne garde que les articles de ce PdV. -->
+        <button
+          type="button"
+          class="si-row-name-btn"
+          :aria-pressed="filterActive"
+          :title="t('invShopFilterHint')"
+          @click="$emit('toggle-filter', entry.element.id)"
+        >{{ entry?.element?.name }}</button>
         <span v-if="entry?.element?.isOpen === false" class="si-row-closed-chip">
           {{ t('invShopClosed') }}
         </span>
@@ -109,9 +116,11 @@ const props = defineProps({
   // { spaceId, eventId, phase } quand l'utilisateur gère l'accès PIN
   // (front.fb.guestPinManage) ; null sinon, aucun bouton ▶ / ■.
   pinAccess: { type: Object, default: null },
+  // Ce PdV est le filtre actif du Résumé Inventaire (mise en évidence).
+  filterActive: { type: Boolean, default: false },
 })
 
-defineEmits(['start-count', 'recounted', 'error'])
+defineEmits(['start-count', 'recounted', 'error', 'toggle-filter'])
 
 const shopTypeText = computed(() => {
   const v = props.entry?.element?.shopType
@@ -171,6 +180,27 @@ const actionIcon = computed(() =>
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.si-row-name-btn {
+  appearance: none;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  vertical-align: bottom;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.si-row-name-btn:hover { color: #ff3131; }
+.si-row-name-btn:focus-visible {
+  outline: 2px solid rgba(255, 49, 49, 0.45);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 .si-row-meta {
   font-size: 0.75rem;
@@ -246,6 +276,13 @@ const actionIcon = computed(() =>
 .si-row-complete {
   background: var(--fb-success-soft, #F0FDF4);
 }
+/* PdV sélectionné comme filtre du Résumé Inventaire : teinte rouge. */
+.si-row-selected,
+.si-row-selected:hover {
+  border-color: #ff3131;
+  background: rgba(255, 49, 49, 0.06);
+}
+.si-row-selected .si-row-name-btn { color: #ff3131; }
 .si-row-name {
   color: var(--fb-text, #212121);
 }
