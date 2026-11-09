@@ -53,9 +53,19 @@ export type ElementItem = {
   usedIn: Array<{ id: string; name: string }>;
 };
 
+/** Market Price tel que résolu par nom : champs nécessaires à marketPricePackSize. */
+export type MarketPriceByName = {
+  id: string;
+  itemName: string;
+  packedUnits: number | null;
+  unitsPerPurchase: number | null;
+  inventoryPackaging: string | null;
+  purchasePackaging: string | null;
+};
+
 export type RecipeCtx = {
   comboByName: Map<string, any>;
-  mpByName: Map<string, { id: string; itemName: string; packedUnits: number | null; inventoryPackaging: string | null }>;
+  mpByName: Map<string, MarketPriceByName>;
   /** Component (MenuComponent) par id, recette complète — pour le dépliage récursif readyForSale=No. */
   componentById: Map<string, any>;
   /** Enfants de combo (MenuItemCombo) par id de menu item, recette complète. Absent = aucun. */

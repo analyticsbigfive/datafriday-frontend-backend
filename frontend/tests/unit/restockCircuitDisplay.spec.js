@@ -1,6 +1,5 @@
 import {
   buildItemCircuitDisplay,
-  circuitPackNounKey,
   transferPacksOf,
 } from '@/utils/restockCircuitDisplay'
 
@@ -68,9 +67,7 @@ describe('buildItemCircuitDisplay', () => {
 })
 
 describe('helpers', () => {
-  it('clé du nom de colis et total des transferts', () => {
-    expect(circuitPackNounKey(1)).toBe('srCircuitPackSingular')
-    expect(circuitPackNounKey(4)).toBe('srCircuitPackPlural')
+  it('total des transferts', () => {
     expect(transferPacksOf(transfers)).toBe(4)
     expect(transferPacksOf(undefined)).toBe(0)
   })

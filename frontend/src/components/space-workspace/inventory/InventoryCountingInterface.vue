@@ -292,10 +292,11 @@
 <script setup>
 import { ref, computed, reactive, watch } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
+import { conditionnementText, packFieldLabel } from '@/utils/packQuantityText'
 import { formatUnits } from '@/composables/useFormatters'
 import { clampNumber, parseLocaleNumber, roundTo, stepBy } from '@/utils/number'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const props = defineProps({
   shop: { type: Object, required: true },
@@ -381,25 +382,16 @@ function itemUsedInNames(item) {
   return [...new Set(names)]
 }
 
-// Label du champ « emballé » : « Nombre de fûts de 30L » quand le packaging
-// (nom + qté/paquet, portés par l'enrichissement inventoryUtils depuis le
-// Market Price « Inventory Information ») est connu ; sinon libellé générique.
-function pluralize(name) {
-  const n = String(name).trim()
-  return /s$/i.test(n) ? n : `${n}s`
-}
+// Les libellés de colis (« Nombre de fûts de 30 L ») viennent du conditionnement porté par
+// l'enrichissement inventoryUtils depuis le Market Price « Inventory Information ».
 // Libellé d'un attendu, DANS L'UNITÉ DU CHAMP qu'il légende (retour JLH
 // 2026-08-21) : « Quantité attendue : 2 cartons de 40 » sous le champ emballé,
-// « Quantité attendue : 3 Pc en vrac » sous le vrac. Repli sur la formulation
-// générique quand le conditionnement est inconnu.
+// « Quantité attendue : 3 Pc en vrac » sous le vrac. Sans conditionnement,
+// l'unité réelle de l'article.
 function expectedPackedLabel(item, n) {
-  const name = item?.inventoryPackaging
   const qty = Number(item?.inventoryQuantityPackaged) > 0 ? item.inventoryQuantityPackaged : null
-  if (!name || !qty) return `${t('invExpectedHint')} : ${formatUnits(n)}`
-  return t('invExpectedHintPacked')
-    .replace('{n}', formatUnits(n))
-    .replace('{packaging}', Number(n) > 1 ? pluralize(name) : String(name).trim())
-    .replace('{qty}', qty)
+  const text = conditionnementText({ count: n, packagingType: item?.inventoryPackaging, unitsPerPack: qty, unit: item?.unit }, t, locale.value)
+  return `${t('invExpectedHint')} : ${text}`
 }
 function expectedLooseLabel(item, n) {
   const unit = item?.unit
@@ -408,10 +400,8 @@ function expectedLooseLabel(item, n) {
 }
 
 function packedUnitsLabel(item) {
-  const name = item?.inventoryPackaging
   const qty = Number(item?.inventoryQuantityPackaged) > 0 ? item.inventoryQuantityPackaged : null
-  if (!name || !qty) return t('invCountPackedUnits')
-  return `${t('invCountNumberOf')} ${pluralize(name)} ${t('invCountOf')} ${qty}${item?.unit || ''}`
+  return packFieldLabel({ packagingType: item?.inventoryPackaging, unitsPerPack: qty, unit: item?.unit }, t, locale.value)
 }
 
 // Accordéon mobile. État par défaut dérivé du statut : un article non compté est

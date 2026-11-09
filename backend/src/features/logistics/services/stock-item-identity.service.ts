@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../core/database/prisma.service';
-import { ElementRef } from '../logistics.types';
+import { ElementRef, MarketPriceByName } from '../logistics.types';
 import { canAdoptStockLevelByName } from '../stock-level-identity';
 import { escapeLikePattern } from '../../../shared/utils/like-pattern';
+import { marketPricePackSize } from '../../../shared/utils/market-price-pack-size';
 
 /**
  * Identité d'un article de stock (ADR-0006), conditionnement et application d'un delta à un niveau.
@@ -157,7 +158,7 @@ export class StockItemIdentityService {
     const [marketPrices, components, menuItems] = await Promise.all([
       this.prisma.marketPrice.findMany({
         where: { tenantId, deletedAt: null, OR: insensitive('itemName') },
-        select: { itemName: true, packedUnits: true },
+        select: { itemName: true, packedUnits: true, unitsPerPurchase: true, inventoryPackaging: true, purchasePackaging: true },
         orderBy: { createdAt: 'asc' },
       }),
       this.prisma.menuComponent.findMany({
@@ -180,7 +181,8 @@ export class StockItemIdentityService {
     for (const name of names) {
       const matches = matcher(name);
       const mp = marketPrices.find((r) => matches(r.itemName));
-      if (mp?.packedUnits) { result.set(name, mp.packedUnits); continue; }
+      const mpPack = marketPricePackSize(mp);
+      if (mpPack) { result.set(name, mpPack); continue; }
       const comp = components.find((r) => matches(r.name));
       if (comp?.packedUnits) { result.set(name, comp.packedUnits); continue; }
       result.set(name, menuItems.find((r) => matches(r.name))?.inventoryNumberOfUnits ?? null);
@@ -205,16 +207,16 @@ export class StockItemIdentityService {
     names: string[],
     tenantId: string,
   ): Promise<
-    Map<string, { id: string; itemName: string; packedUnits: number | null; inventoryPackaging: string | null }>
+    Map<string, MarketPriceByName>
   > {
     const map = new Map<
       string,
-      { id: string; itemName: string; packedUnits: number | null; inventoryPackaging: string | null }
+      MarketPriceByName
     >();
     if (!names.length) return map;
     const rows = await this.prisma.marketPrice.findMany({
       where: { tenantId, deletedAt: null, itemName: { in: names } },
-      select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true },
+      select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true, unitsPerPurchase: true, purchasePackaging: true },
       orderBy: { createdAt: 'asc' },
     });
     for (const mp of rows) {

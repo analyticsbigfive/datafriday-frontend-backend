@@ -101,13 +101,13 @@
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { transferKey, isShopTransfer } from '@/utils/ventilationTransfers'
-import { pluralizePackLabel } from '@/utils/stockPlanning'
+import { conditionnementText } from '@/utils/packQuantityText'
 
 const props = defineProps({
   /** Retour de useVentilationTransfers. */
   controller: { type: Object, required: true },
 })
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const ctl = props.controller
 const result = computed(() => ctl.result.value)
 const hasContent = computed(
@@ -116,8 +116,10 @@ const hasContent = computed(
 const key = transferKey
 const isShop = isShopTransfer
 const sourceName = computed(() => (ctl.sourceOptions.value.find((o) => o.id === ctl.sourceId.value) || {}).name || '')
-const count = (s, n) => `${n} ${pluralizePackLabel(s.packagingType || t('lgvtPackFallback'), n)}`
-const packLabel = (tr) => `${tr.packs} ${pluralizePackLabel(tr.packagingType || t('lgvtPackFallback'), tr.packs)}`
+// Colis en conditionnement (« 10 fûts de 30 L »), sans type : en unité réelle (« 300 L »).
+const count = (s, n) =>
+  conditionnementText({ count: n, packagingType: s.packagingType, unitsPerPack: s.unitsPerPack, unit: s.unit }, t, locale.value)
+const packLabel = (tr) => count(tr, tr.packs)
 </script>
 
 <style scoped>

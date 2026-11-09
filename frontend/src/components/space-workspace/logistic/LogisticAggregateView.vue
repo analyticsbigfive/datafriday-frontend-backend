@@ -81,8 +81,7 @@
               <strong>{{ row.elementName }}</strong>
             </span>
             <span class="lg-agg-item-total">
-              <strong>{{ row.packed }} · {{ formatUnits(row.loose) }}</strong>
-              <small>{{ t('logiPackedShort') }} · {{ t('logiLooseShort') }}</small>
+              <strong>{{ rowQuantity(row) }}</strong>
             </span>
             <v-icon size="16" class="lg-agg-item-chevron">mdi-chevron-right</v-icon>
           </button>
@@ -95,6 +94,7 @@
 <script>
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
+import { compactQtyLabel } from '@/composables/useLogisticUnitLabels'
 
 /**
  * 3e colonne Logistic : agrégat transversal des ruptures/stock bas sur TOUT
@@ -106,7 +106,7 @@ import { formatUnits } from '@/composables/useFormatters'
 export default {
   name: 'LogisticAggregateView',
   props: {
-    /** { bad, warn, uncounted, rows: [{elementId, elementName, itemName, status, packed, loose, picture}] } */
+    /** { bad, warn, uncounted, rows: [{elementId, elementName, itemName, status, packed, loose, picture, packagingType, unit, unitsPerPack}] } */
     stats: {
       type: Object,
       default: () => ({ bad: 0, warn: 0, uncounted: 0, rows: [] }),
@@ -115,8 +115,8 @@ export default {
   },
   emits: ['go'],
   setup() {
-    const { t } = useI18n()
-    return { t, formatUnits }
+    const { t, locale } = useI18n()
+    return { t, locale, formatUnits }
   },
   data() {
     // Accordéon replié par défaut (évite le scroll interminable) + repli d'image
@@ -124,6 +124,10 @@ export default {
     return { expandedGroups: {}, failedPictures: new Set() }
   },
   methods: {
+    /** Stock attendu en conditionnement (« 3 fûts de 30 L + 2 L vrac »), unité réelle sans type. */
+    rowQuantity(row) {
+      return compactQtyLabel(row.packed, row.loose, row, row.unitsPerPack, this.t, this.locale, formatUnits)
+    },
     isExpanded(key) {
       return !!this.expandedGroups[key]
     },

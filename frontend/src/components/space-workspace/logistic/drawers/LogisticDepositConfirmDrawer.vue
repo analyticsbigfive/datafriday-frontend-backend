@@ -95,7 +95,7 @@
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
 import { packedLabel, looseUnitLabel } from '@/composables/useLogisticUnitLabels'
-import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
+import { conditionnementText } from '@/utils/packQuantityText'
 
 /**
  * Confirmation d'un dépôt de la feuille de ventilation (demande Bertrand
@@ -143,9 +143,11 @@ export default {
       const d = this.deposit
       if (!d) return ''
       if (d.packs != null) {
-        const type = translatePackagingType(d.packagingType, this.locale)
-        const word = type ? (d.packs > 1 ? pluralize(type) : type) : this.t('logiPacksShort')
-        return `${formatUnits(d.packs)} ${word}`
+        return conditionnementText(
+          { count: d.packs, packagingType: d.packagingType, unitsPerPack: d.unitsPerPack, unit: d.unit },
+          this.t,
+          this.locale,
+        )
       }
       return `${formatUnits(d.quantity)}${d.unit ? ` ${d.unit}` : ''}`
     },

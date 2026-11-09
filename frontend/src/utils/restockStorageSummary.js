@@ -14,6 +14,7 @@
 // dans stockPlanning.computePackagingForQuantity.
 
 import { transferPacksOf } from '@/utils/restockCircuitDisplay'
+import { packSizeForPackaging } from '@/utils/stockPlanning'
 
 const positive = (v) => {
   const n = Number(v)
@@ -175,7 +176,8 @@ export function buildStorageSummary({
     const row = entry.row
     const qty = entry.direct + entry.added
     const mp = marketPriceFor(row) || null
-    const amount = orderAmount(qty, mp, packagingFor(row, qty))
+    const packaging = packagingFor(row, qty)
+    const amount = orderAmount(qty, mp, packaging)
     total += amount
     const image = mp && typeof mp.image === 'string' && mp.image ? mp.image : ''
     // Quantité fusionnée ou ajoutée : le libellé reflète la quantité TOTALE.
@@ -198,6 +200,12 @@ export function buildStorageSummary({
       stock: stockCounts(mp, row, storageRows),
       // Colis transférés entre PDV (circuit) ; 0 = pas de mention.
       transferPacks: transferPacksOf((transfersByItem || {})[itemKey]),
+      // Conditionnement de l'article, pour dire les colis transférés (« 2 fûts de 30 L »).
+      transferPack: {
+        packagingType: packaging && packaging.packagingType,
+        unitsPerPack: packSizeForPackaging(packaging),
+        unit: row.unit || (mp && mp.unit) || '',
+      },
     })
   }
   lines.sort((a, b) => b.amount - a.amount || String(a.name).localeCompare(String(b.name)))

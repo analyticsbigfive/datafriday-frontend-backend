@@ -744,12 +744,12 @@
           <h2>{{ shop.element.name }}</h2>
           <table class="si-print-table">
             <thead>
-              <tr><th>{{ t('invColItem') }}</th><th>{{ t('invColPacked') }}</th><th>{{ t('invColLoose') }}</th><th>{{ t('invCountTotal') }}</th></tr>
+              <tr><th>{{ t('invColItem') }}</th><th>{{ t('invColPackaging') }}</th><th>{{ t('invColLoose') }}</th><th>{{ t('invCountTotal') }}</th></tr>
             </thead>
             <tbody>
               <tr v-for="it in shop.consolidatedInventory" :key="it.id">
                 <td>{{ it.name }}</td>
-                <td>{{ getCount(shop.element.id, it.id).packedUnits || 0 }}</td>
+                <td>{{ printPackedText(it, getCount(shop.element.id, it.id).packedUnits) }}</td>
                 <td>{{ formatUnits(getCount(shop.element.id, it.id).looseUnits || 0) }}</td>
                 <td>{{ formatUnits(totalForItem(shop.element.id, it)) }} {{ it.unit || '' }}</td>
               </tr>
@@ -867,6 +867,7 @@ import { parseEventDate } from '@/utils/dateFr'
 import { isPostEventStarted, pickInventoryAnchorEvent } from '@/utils/eventLifecycle'
 import { newlyCompletedElements, usePostEventDraftScheduler } from '@/composables/usePostEventDraftScheduler'
 import { useNumberFormat } from '@/composables/useNumberFormat'
+import { conditionnementText } from '@/utils/packQuantityText'
 
 const TOP_TABS = [
   { value: 'shops',   labelKey: 'invTabShops',   labelKeyShort: 'invTabShopsShort',   icon: 'mdi-store' },
@@ -915,7 +916,7 @@ export default {
     const store = useStore()
     const router = useRouter()
     const route = useRoute()
-    const { t } = useI18n()
+    const { t, locale } = useI18n()
     // Locale de l'app pour la date du bandeau (jamais 'fr-FR' en dur, BUG-240).
     const { intlLocale } = useNumberFormat()
     // Inventaire = config de l'event ouvert dans Event Predict (?event=). Le
@@ -984,6 +985,7 @@ export default {
     )
     return {
       t,
+      locale,
       intlLocale,
       store,
       router,
@@ -1852,6 +1854,15 @@ export default {
     },
   },
   methods: {
+    /** Colis comptés d'un article pour l'impression, en conditionnement (« 3 fûts de 30 L »). */
+    printPackedText(item, count) {
+      const size = Number(item?.inventoryQuantityPackaged) > 0 ? item.inventoryQuantityPackaged : null
+      return conditionnementText(
+        { count: Number(count) || 0, packagingType: item?.inventoryPackaging, unitsPerPack: size, unit: item?.unit },
+        this.t,
+        this.locale,
+      )
+    },
     formatUnits,
     toggleDemo() {
       if (this.demo) disableDemoMode()

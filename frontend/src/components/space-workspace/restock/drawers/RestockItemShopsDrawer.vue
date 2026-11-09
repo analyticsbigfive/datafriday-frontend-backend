@@ -128,7 +128,7 @@ import { useI18n } from '@/i18n/useI18n'
 import EventDrawerShell from '@/components/events/drawers/EventDrawerShell.vue'
 import NumberField from '@/components/common/NumberField.vue'
 import { vValuePulse } from '@/composables/useValuePulse'
-import { circuitPackNounKey } from '@/utils/restockCircuitDisplay'
+import { conditionnementText } from '@/utils/packQuantityText'
 
 export default {
   name: 'RestockItemShopsDrawer',
@@ -146,13 +146,13 @@ export default {
   },
   emits: ['update:modelValue', 'update-percent', 'reset-percent'],
   setup() {
-    const { t } = useI18n()
-    return { t }
+    const { t, locale } = useI18n()
+    return { t, locale }
   },
   methods: {
-    /** « N colis » (nom au singulier ou au pluriel selon N). */
+    /** « 2 fûts de 30 L » : colis dans le conditionnement de l'article (data.packaging). */
     packsText(count) {
-      return `${count} ${this.t(circuitPackNounKey(count))}`
+      return conditionnementText({ count, ...(this.data && this.data.packaging) }, this.t, this.locale)
     },
     /** Pastilles du circuit d'une carte PDV : cède, reçoit de, prélevé en réserve. */
     badges(row) {
