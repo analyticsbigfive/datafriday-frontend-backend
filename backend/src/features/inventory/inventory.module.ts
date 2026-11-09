@@ -6,6 +6,7 @@ import { LogisticsModule } from '../logistics/logistics.module';
 import { InventoryBaselineService } from './services/inventory-baseline.service';
 import { InventoryCountService } from './services/inventory-count.service';
 import { InventoryLogisticPushService } from './services/inventory-logistic-push.service';
+import { InventorySalePricesService } from './services/inventory-sale-prices.service';
 import { InventoryReconciliationService } from './services/inventory-reconciliation.service';
 import { InventoryUnitResolverService } from './services/inventory-unit-resolver.service';
 
@@ -19,6 +20,7 @@ import { InventoryUnitResolverService } from './services/inventory-unit-resolver
     InventoryBaselineService,
     InventoryLogisticPushService,
     InventoryReconciliationService,
+    InventorySalePricesService,
     PostEventDraftService,
   ],
   exports: [PreEventInventoryFlowService, InventoryCountService, InventoryLogisticPushService, PostEventDraftService],

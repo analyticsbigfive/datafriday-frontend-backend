@@ -26,15 +26,16 @@ describe('inventoryCountingStatus', () => {
     it('filtre vide : tout passe', () => {
       expect(matchesCountingStatuses('counted', [])).toBe(true)
     })
-    it('défaut : à compter et en cours, pas les comptés', () => {
+    it('défaut : les trois statuts, comptés inclus', () => {
       expect(matchesCountingStatuses('to-count', DEFAULT_COUNTING_STATUSES)).toBe(true)
       expect(matchesCountingStatuses('in-progress', DEFAULT_COUNTING_STATUSES)).toBe(true)
-      expect(matchesCountingStatuses('counted', DEFAULT_COUNTING_STATUSES)).toBe(false)
+      expect(matchesCountingStatuses('counted', DEFAULT_COUNTING_STATUSES)).toBe(true)
     })
   })
 
   it('isDefaultCountingStatuses ignore l\'ordre', () => {
-    expect(isDefaultCountingStatuses(['in-progress', 'to-count'])).toBe(true)
+    expect(isDefaultCountingStatuses(['counted', 'in-progress', 'to-count'])).toBe(true)
+    expect(isDefaultCountingStatuses(['in-progress', 'to-count'])).toBe(false)
     expect(isDefaultCountingStatuses(['counted'])).toBe(false)
   })
 
