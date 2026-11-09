@@ -285,7 +285,7 @@
           <!-- Maquette 27/28 : titre, onglets PDV / STOCK (icône + texte, sans
                pastille) et bouton de génération sur une seule ligne. -->
           <header class="sr-panel-head s1-head">
-            <h2 class="s1-title">{{ t('srItemsToStock') }}</h2>
+            <h2 class="s1-sr-only">{{ t('srItemsToStock') }}</h2>
             <div class="sr-stock-tabs s1-tabs" role="tablist">
               <button
                 type="button"
@@ -328,25 +328,20 @@
             </v-btn>
           </header>
         <!-- Échec définitif d'un chargement catalogue (après essais) : bandeau discret. -->
-        <v-alert
-          v-if="hasCatalogFailure"
-          type="warning"
-          density="compact"
-          variant="tonal"
-          class="sr-catalog-warn"
-        >
-          <div class="sr-catalog-warn__row">
-            <span class="sr-catalog-warn__text">{{ t('srCatalogLoadWarn') }}</span>
-            <v-btn
-              size="small"
-              variant="text"
-              :loading="catalogRetrying"
-              @click="retryCatalogLoad"
-            >
-              {{ t('srCatalogRetry') }}
-            </v-btn>
-          </div>
-        </v-alert>
+        <div v-if="hasCatalogFailure" class="s1-warn" role="status">
+          <v-icon size="18" class="s1-warn__icon">mdi-alert-outline</v-icon>
+          <span class="s1-warn__text">{{ t('srCatalogLoadWarn') }}</span>
+          <v-btn
+            size="small"
+            variant="text"
+            color="primary"
+            class="s1-warn__btn"
+            :loading="catalogRetrying"
+            @click="retryCatalogLoad"
+          >
+            {{ t('srCatalogRetry') }}
+          </v-btn>
+        </div>
 
           <AppSearchBar
             v-if="stockTab === 'shops'"
@@ -2665,8 +2660,13 @@ export default {
       for (const item of this.stockSettingsRows) {
         const ref = findStockReference(item, this.ingredients, this.components, this.menuItems)
         const isComponent = this.isComponentRow(item)
-        if (!ref && !isComponent) continue
-        let marketPriceId = ref?.marketPriceId || ref?.marketPrice?.id || null
+        // Sans fiche recette (article libre, catalogue partiel) : le Market Price
+        // trouvé par id ou par nom (comme le Résumé commande) porte le fournisseur.
+        const fallbackMp = !ref && !isComponent
+          ? resolveMarketPrice({ name: item.itemName, marketPriceId: item.marketPriceId }, this.marketPrices)
+          : null
+        if (!ref && !isComponent && !fallbackMp) continue
+        let marketPriceId = ref?.marketPriceId || ref?.marketPrice?.id || fallbackMp?.id || null
         let supplierId = ref?.supplierId || ref?.supplier?.id || null
         const mp = marketPriceId
           ? this.marketPrices.find((m) => m.id === marketPriceId) || null
@@ -7960,23 +7960,6 @@ export default {
 }
 .sr-storage-warn {
   margin-bottom: 12px;
-}
-
-.sr-catalog-warn {
-  margin-bottom: 12px;
-}
-
-.sr-catalog-warn__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.sr-catalog-warn__text {
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .sr-group-head,

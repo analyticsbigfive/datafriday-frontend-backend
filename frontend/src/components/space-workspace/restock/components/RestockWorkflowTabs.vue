@@ -1,20 +1,19 @@
 <template>
   <nav class="rwt" role="tablist" :aria-label="t('srWorkflowTabsLabel')">
-    <button
-      v-for="tab in tabs"
-      :key="tab.step"
-      type="button"
-      class="rwt-tab"
-      :class="{ 'rwt-tab--active': currentStep === tab.step }"
-      role="tab"
-      :aria-selected="currentStep === tab.step ? 'true' : 'false'"
-      :disabled="tab.disabled"
-      :title="tab.disabled ? t('srWorkflowTabLockedHint') : undefined"
-      @click="$emit('select', tab.step)"
-    >
-      <v-icon size="18">{{ tab.icon }}</v-icon>
-      <span class="rwt-label">{{ tab.label }}</span>
-    </button>
+    <template v-for="tab in tabs" :key="tab.step">
+      <button
+        type="button"
+        class="rwt-tab"
+        :class="{ 'rwt-tab--active': currentStep === tab.step }"
+        role="tab"
+        :aria-selected="currentStep === tab.step ? 'true' : 'false'"
+        :disabled="tab.disabled"
+        :title="tab.disabled ? t('srWorkflowTabLockedHint') : undefined"
+        @click="$emit('select', tab.step)"
+      >
+        <span class="rwt-label">{{ tab.label }}</span>
+      </button>
+    </template>
   </nav>
 </template>
 
@@ -43,9 +42,9 @@ export default {
   computed: {
     tabs() {
       return [
-        { step: 1, label: this.t('srStep1'), icon: 'mdi-package-variant-closed', disabled: false },
-        { step: 3, label: this.t('srStep3'), icon: 'mdi-cart-outline', disabled: !this.unlocked },
-        { step: 2, label: this.t('srStep2'), icon: 'mdi-table-split-cell', disabled: !this.unlocked },
+        { step: 1, label: this.t('srStep1'), disabled: false },
+        { step: 3, label: this.t('srStep3'), disabled: !this.unlocked },
+        { step: 2, label: this.t('srStep2'), disabled: !this.unlocked },
       ]
     },
   },
@@ -53,34 +52,31 @@ export default {
 </script>
 
 <style scoped>
+/* Onglets sobres : filet pleine largeur, onglet actif souligné en rouge. */
 .rwt {
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 24px;
+  align-items: flex-end;
+  gap: 28px;
   padding: 0 4px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--sr-border, #e5e7eb);
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--sr-border, #dde1e7);
 }
 .rwt-tab {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
   padding: 10px 2px;
   margin-bottom: -1px;
   border: 0;
   border-bottom: 2px solid transparent;
   background: transparent;
   color: var(--sr-muted, #6b7280);
-  font-size: var(--fs-md);
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   white-space: nowrap;
   cursor: pointer;
 }
 .rwt-tab:hover:not(:disabled) {
-  color: var(--sr-text, #0f172a);
+  color: var(--sr-text, #212121);
 }
 .rwt-tab--active,
 .rwt-tab--active:hover:not(:disabled) {
@@ -98,11 +94,6 @@ export default {
   border-radius: 4px;
 }
 @media (max-width: 720px) {
-  .rwt {
-    gap: 14px;
-  }
-  .rwt-tab {
-    font-size: var(--fs-sm);
-  }
+  .rwt { gap: 16px; }
 }
 </style>
