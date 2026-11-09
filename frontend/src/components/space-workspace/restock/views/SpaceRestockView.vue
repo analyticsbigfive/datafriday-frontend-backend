@@ -1451,7 +1451,7 @@
         />
         <RestockComponentOrdersPanel v-if="currentStep === 1" :panel="componentOrdersPanel" />
         <RestockSuppliersPanel
-          :groups="displayedShoppingGroups"
+          :groups="suppliersPanelGroups"
           :generated="shoppingGenerated"
           @select="scrollToSupplier"
           @email="openEmailDialog"
@@ -1744,6 +1744,7 @@ import {
 } from '@/utils/restockShopPercent'
 import { collectComponentOrders, groupComponentOrdersByKitchen, buildKitchenShoppingGroups } from '@/utils/componentKitchenOrders'
 import RestockWorkflowTabs from '@/components/space-workspace/restock/components/RestockWorkflowTabs.vue'
+import { withSupplierAmounts } from '@/utils/restockSupplierAmounts'
 import RestockSuppliersPanel from '@/components/space-workspace/restock/components/RestockSuppliersPanel.vue'
 import RestockItemShopsDrawer from '@/components/space-workspace/restock/drawers/RestockItemShopsDrawer.vue'
 import RestockGlobalAdjustMenu from '@/components/space-workspace/restock/components/RestockGlobalAdjustMenu.vue'
@@ -3293,6 +3294,17 @@ export default {
         return buildKitchenShoppingGroups(this.componentKitchenGroups, this.store.getters['kitchens/kitchens'] || [])
       }
       return this.shoppingGroups
+    },
+    /** Groupes affichés + montant à payer par fournisseur (même prix que le Résumé commande). */
+    suppliersPanelGroups() {
+      return withSupplierAmounts(this.displayedShoppingGroups, {
+        marketPriceFor: (item) => {
+          const ref = findStockReference(item, this.ingredients, this.components, this.menuItems)
+          const mpId = item.marketPriceId || ref?.marketPriceId || ref?.marketPrice?.id || null
+          return resolveMarketPrice({ name: item.itemName, marketPriceId: mpId }, this.marketPrices)
+        },
+        packagingFor: (item, qty) => this.packagingForItem(item, qty),
+      })
     },
     shoppingSupplierGroups() {
       const supplierMap = new Map()
