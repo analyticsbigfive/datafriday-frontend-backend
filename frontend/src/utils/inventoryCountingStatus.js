@@ -16,11 +16,13 @@ export const COUNTING_STATUS_VALUES = Object.freeze([
   COUNTING_STATUS_COUNTED,
 ])
 
-/** Filtre par défaut : tout ce qui n'est pas terminé, comme l'ancien onglet
- *  « À compter » qui gardait aussi les PDV partiellement comptés. */
+/** Filtre par défaut : les trois statuts, donc TOUS les PDV / stockages, y compris
+ *  ceux déjà comptés (demande Bertrand : le résumé filtre, la liste reste complète).
+ *  Le menu de statut affiche « Statut » (inactif) tant que c'est la sélection. */
 export const DEFAULT_COUNTING_STATUSES = Object.freeze([
   COUNTING_STATUS_TO_COUNT,
   COUNTING_STATUS_IN_PROGRESS,
+  COUNTING_STATUS_COUNTED,
 ])
 
 /** Clés i18n des libellés de statut. */

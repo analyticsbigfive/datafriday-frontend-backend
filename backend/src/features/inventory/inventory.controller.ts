@@ -30,6 +30,7 @@ import { PreEventInventoryFlowService } from './pre-event-inventory-flow.service
 import { InventoryBaselineService } from './services/inventory-baseline.service';
 import { InventoryCountService } from './services/inventory-count.service';
 import { InventoryLogisticPushService } from './services/inventory-logistic-push.service';
+import { InventorySalePricesService } from './services/inventory-sale-prices.service';
 import { InventoryReconciliationService } from './services/inventory-reconciliation.service';
 
 @ApiTags('Inventory')
@@ -47,6 +48,7 @@ export class InventoryController {
     private readonly inventoryReconciliationService: InventoryReconciliationService,
     private readonly preEventFlow: PreEventInventoryFlowService,
     private readonly postEventDraft: PostEventDraftService,
+    private readonly inventorySalePrices: InventorySalePricesService,
   ) {}
 
   /** BUG-233 — l'appelant a-t-il le droit de VOIR les quantités attendues ?
@@ -290,6 +292,28 @@ export class InventoryController {
   ) {
     this.logger.log(`GET /inventory/${spaceId}/event-consumption/${eventId}`);
     return this.inventoryBaselineService.getEventSalesConsumption(spaceId, eventId, user.tenantId);
+  }
+
+  @Get(':spaceId/event-sale-prices/:eventId')
+  @ApiOperation({
+    summary:
+      "Prix de vente HT unitaire des articles comptes d'un event (Total HT et marge de l'inventaire). Plat : CA HT / quantite vendue, sinon prix catalogue. Ingredient : uniquement via les plats a recette mono-ingredient, dans la meme base d'unite que MarketPrice.pricePerUnit. Composant ou prix inconnu : null (jamais 0).",
+  })
+  @ApiParam({ name: 'spaceId', description: "ID de l'espace" })
+  @ApiParam({ name: 'eventId', description: "ID de l'evenement (jours calendaires de l'event dans l'agregat journalier)" })
+  @ApiResponse({
+    status: 200,
+    description:
+      "{ eventId, window:{from,to}, prices:[{ itemId, unitPriceHt:number|null, source:'sales'|'catalog'|null, soldQuantity? }] }",
+  })
+  @ApiResponse({ status: 404, description: 'Espace ou evenement inconnu pour ce tenant' })
+  async getEventSalePrices(
+    @Param('spaceId') spaceId: string,
+    @Param('eventId') eventId: string,
+    @CurrentUser() user: any,
+  ) {
+    this.logger.log(`GET /inventory/${spaceId}/event-sale-prices/${eventId}`);
+    return this.inventorySalePrices.getEventSalePrices(spaceId, eventId, user.tenantId);
   }
 
   @Get(':spaceId/pre-event/:eventId')

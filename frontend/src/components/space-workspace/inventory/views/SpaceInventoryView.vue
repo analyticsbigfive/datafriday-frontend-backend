@@ -557,6 +557,8 @@
                   :phase="guestPinPhase"
                   :logistic-update="pdvLogisticUpdate"
                   :pin-access="pinAccess"
+                  :filter-active="invFilters.shopId != null && String(invFilters.shopId) === String(entry.element.id)"
+                  @toggle-filter="invFilters.toggleShop"
                   @start-count="startCount"
                   @recounted="onElementRecounted"
                   @error="showError"
@@ -605,6 +607,13 @@
           :focus-shop-id="countingShop ? countingShop.element.id : null"
           :unit-cost-by-item-id="summaryUnitCostByItemId"
           :reconciliation="activeReconciliation"
+          :filter-widget="invFilters.widget"
+          :filter-shop-id="invFilters.shopId"
+          :selected-items="invFilters.selectedItems"
+          :space-id="currentSpaceId"
+          :event-id="selectedEventId"
+          @toggle-widget="invFilters.toggleWidget"
+          @toggle-item="invFilters.toggleItem"
           @start-count-shop="countingShop = $event"
         />
         <InventoryStorageAggregateView
@@ -655,6 +664,13 @@
           :focus-shop-id="countingShop ? countingShop.element.id : null"
           :unit-cost-by-item-id="summaryUnitCostByItemId"
           :reconciliation="activeReconciliation"
+          :filter-widget="invFilters.widget"
+          :filter-shop-id="invFilters.shopId"
+          :selected-items="invFilters.selectedItems"
+          :space-id="currentSpaceId"
+          :event-id="selectedEventId"
+          @toggle-widget="invFilters.toggleWidget"
+          @toggle-item="invFilters.toggleItem"
           @start-count-shop="mobileSummaryOpen = false; countingShop = $event"
         />
         <InventoryStorageAggregateView
@@ -798,6 +814,8 @@ import { useInventoryData } from '@/composables/useInventoryData'
 import { resolveCatalogDims } from '@/utils/analyseReconciliation'
 import { guestPinLandingRoute } from '@/utils/guestPinLanding'
 import { useInventoryScope } from '@/composables/useInventoryScope'
+import { useInventorySummaryFilters } from '@/composables/useInventorySummaryFilters'
+import { WIDGET_TOTAL, shopPassesWidget } from '@/utils/inventoryFilters'
 import { useGuestInventorySession } from '@/composables/useGuestInventorySession'
 import { usePreEventEditWindow } from '@/composables/usePreEventEditWindow'
 import { useInventoryLivePolling } from '@/composables/useInventoryLivePolling'
@@ -938,6 +956,9 @@ export default {
     // reactive() (pas l'objet brut) : auto-unwrap des refs imbriquées, en template
     // COMME en JS (`guestSession.isGuestMode` partout, jamais `.value` à la main).
     const guestSession = reactive(useGuestInventorySession())
+    // Filtres du Résumé Inventaire (widget, PdV cliqué, articles sélectionnés) :
+    // partagés entre la liste de gauche et le résumé de droite.
+    const invFilters = reactive(useInventorySummaryFilters())
     // Verrou des 30 min après l'ouverture des portes (staff, pre-event) : état
     // chargé depuis le serveur pour l'event ancré. L'event ancré est une computed
     // Options API (`contextEvent`) : on reflète sa clé dans cette ref via un
@@ -990,6 +1011,7 @@ export default {
       store,
       router,
       route,
+      invFilters,
       selectedConfigId,
       loadContext,
       resetContext,
@@ -1661,6 +1683,7 @@ export default {
     hasActiveFilters() {
       return !!(
         this.search ||
+        (this.activeTab === 'shops' && this.invFilters.widget !== WIDGET_TOTAL) ||
         !isDefaultCountingStatuses(this.countingStatuses) ||
         this.selectedShops.length ||
         this.selectedShopTypes.length ||
@@ -1749,7 +1772,12 @@ export default {
     /** Liste affichée : cartes filtrées puis filtre de statut (menu burger). */
     filteredCards() {
       const statusOf = this.activeTab === 'shops' ? this.statusFor : this.storageStatusFor
-      return this.facetFilteredCards.filter((c) => this.matchesStatusFilter(statusOf(c)))
+      // Widget « PdV à compter » du résumé : masque les PdV dont le comptage est terminé
+      // (les autres widgets les laissent tous visibles).
+      const widget = this.activeTab === 'shops' ? this.invFilters.widget : WIDGET_TOTAL
+      return this.facetFilteredCards.filter(
+        (c) => this.matchesStatusFilter(statusOf(c)) && shopPassesWidget(statusOf(c), widget),
+      )
     },
     /** Nombre d'éléments par statut, croisé avec la pill Ouvert / Fermé : le menu
      *  burger annonce ce que la liste montrera. */
@@ -2247,6 +2275,7 @@ export default {
       // une liste non vide depuis l'état « Aucun élément » (sinon reset inefficace).
       this.shopStatusFilter = 'all'
       this.countingStatuses = [...DEFAULT_COUNTING_STATUSES]
+      this.invFilters.resetFilters()
     },
     /** Vide les facettes seules (le switch d'onglet garde recherche + statut). */
     clearFacetSelections() {

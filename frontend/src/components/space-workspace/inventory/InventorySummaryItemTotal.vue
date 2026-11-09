@@ -6,18 +6,31 @@
       <small class="ist-label">{{ label }}</small>
     </span>
     <small class="ist-cost">{{ cost > 0 ? formatCurrencyDetailed(cost) : '—' }}</small>
+    <!-- Valeur de vente HT et marge, sous le coût ; tiret simple si pas de prix (jamais 0 inventé). -->
+    <small v-if="showSale" class="ist-sale">
+      <template v-if="saleHt > 0">
+        {{ t('invSaleItemHt').replace('{value}', formatCurrencyDetailed(saleHt)) }}<template v-if="saleMargin != null"> · {{ t('invSaleItemMargin').replace('{value}', formatPercent(saleMargin, 0)) }}</template>
+      </template>
+      <template v-else>-</template>
+    </small>
   </span>
 </template>
 
 <script setup>
-import { formatUnits, formatCurrencyDetailed } from '@/composables/useFormatters'
+import { formatUnits, formatCurrencyDetailed, formatPercent } from '@/composables/useFormatters'
+import { useI18n } from '@/i18n/useI18n'
 
 defineProps({
   units: { type: Number, default: 0 },
   label: { type: String, default: '' },
   // Coût de la carte ; null ou 0 = « — » (jamais un 0 € inventé).
   cost: { type: Number, default: null },
+  // Ligne HT / marge : affichée seulement si showSale (prix de vente chargés).
+  showSale: { type: Boolean, default: false },
+  saleHt: { type: Number, default: null },
+  saleMargin: { type: Number, default: null },
 })
+const { t } = useI18n()
 </script>
 
 <style scoped>
@@ -36,7 +49,8 @@ defineProps({
   font-weight: var(--fw-bold);
 }
 .ist-label,
-.ist-cost {
+.ist-cost,
+.ist-sale {
   color: var(--fb-muted, #6b7280);
   font-size: var(--fs-xs);
   white-space: nowrap;
