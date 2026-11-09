@@ -54,38 +54,69 @@
   text-transform: none;
 }
 
-/* ── Onglets PDV / STOCK : icône + texte, sans fond ─────────────────────── */
+/* ── Sélecteur PDV / STOCK : contrôle segmenté (filtre de vue, sous les onglets de page) ── */
 .sr-step1 .s1-tabs {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 12px;
-  padding: 0;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--s1-border);
+  border-radius: var(--s1-control-radius);
+  background: var(--sr-surface-muted, #f6f7f9);
 }
 .sr-step1 .s1-tab {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 2px;
+  height: calc(var(--s1-control-h) - 6px);
+  padding: 0 12px;
   border: 0;
+  border-radius: calc(var(--s1-control-radius) - 2px);
   background: transparent;
-  color: var(--sr-faint, #9ca3af);
-  font-size: var(--fs-md);
-  font-weight: var(--fw-bold);
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  color: var(--sr-muted, #6b7280);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
   cursor: pointer;
 }
 .sr-step1 .s1-tab:hover {
-  color: var(--sr-muted, #6b7280);
+  color: var(--sr-text, #212121);
 }
 .sr-step1 .s1-tab.s1-tab-active,
 .sr-step1 .s1-tab.s1-tab-active:hover {
+  background: rgba(255, 49, 49, 0.1);
   color: var(--sr-primary);
 }
 .sr-step1 .s1-tab:focus-visible {
   outline: 2px solid var(--sr-primary);
   outline-offset: 2px;
-  border-radius: 4px;
+}
+
+/* ── Bandeau « données non chargées » : ligne de statut sobre ───────────── */
+.sr-step1 .s1-warn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 16px 12px;
+  padding: 8px 8px 8px 12px;
+  border-left: 3px solid #f5a623;
+  border-radius: 6px;
+  background: #fff8ec;
+}
+.sr-step1 .s1-warn__icon {
+  color: #d98a00;
+}
+.sr-step1 .s1-warn__text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+  color: var(--sr-text, #212121);
+  overflow-wrap: anywhere;
+}
+.sr-step1 .s1-warn__btn {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: var(--fw-semibold);
 }
 .sr-step1 .s1-sr-only {
   position: absolute;
@@ -192,8 +223,15 @@
 }
 
 /* Nom et fournisseur */
+/* Fournisseur à droite du nom (même ligne), il passe dessous seulement si la place manque. */
 .sr-step1 .sr-setting-info {
-  gap: 4px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 12px;
+}
+.sr-step1 .sr-setting-info > :not(strong):not(.sr-setting-meta) {
+  flex: 1 0 100%;
 }
 .sr-step1 .sr-setting-info strong {
   font-size: var(--fs-md);

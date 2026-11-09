@@ -48,7 +48,6 @@
           :error="plansError"
           @load="loadPlan"
           @rename="renamePlan"
-          @duplicate="duplicatePlanAction"
           @delete="deletePlanAction"
           @retry="refreshPlans"
         />
@@ -74,7 +73,7 @@
           >
             <v-icon size="14">mdi-information-outline</v-icon>
             <span>{{ selectedEventIds.length }} {{ t('srMultiEventHint') }}</span>
-            <button v-if="currentStep !== 1" type="button" class="sr-multi-event-btn" @click="goToStep(1)">
+            <button v-if="currentStep !== 1" type="button" class="sr-multi-event-btn" @click="onWorkflowTab(1)">
               {{ t('srItemsToStock') }}
             </button>
           </div>
@@ -274,36 +273,19 @@
             {{ t('srPlanEditCancel') }}
           </v-btn>
         </div>
-        <!-- Assistant pas-à-pas : indicateur d'étapes (cercles + connecteurs). -->
-        <nav class="sr-wizard" :aria-label="t('srStepOf') + ' ' + currentStep + '/3'">
-          <template v-for="(label, idx) in [t('srStep1'), t('srStep2'), t('srStep3')]" :key="idx">
-            <span
-              v-if="idx > 0"
-              class="sr-wizard-line"
-              :class="{ 'sr-wizard-line-done': currentStep > idx }"
-            />
-            <button
-              type="button"
-              class="sr-wizard-step"
-              :class="{
-                'sr-wizard-step-active': currentStep === idx + 1,
-                'sr-wizard-step-done': currentStep > idx + 1,
-              }"
-              :disabled="currentStep < idx + 1"
-              :aria-current="currentStep === idx + 1 ? 'step' : undefined"
-              @click="currentStep > idx + 1 && goToStep(idx + 1)"
-            >
-              <span class="sr-wizard-circle">{{ idx + 1 }}</span>
-              <span class="sr-wizard-label">{{ label }}</span>
-            </button>
-          </template>
-        </nav>
+        <!-- Onglets : Éléments à stocker, Feuille de course, Ventilation. Les deux
+             derniers restent inactifs tant qu'aucune commande n'est générée/ouverte. -->
+        <RestockWorkflowTabs
+          :current-step="currentStep"
+          :unlocked="ordersUnlocked"
+          @select="onWorkflowTab"
+        />
 
         <v-card v-show="currentStep === 1" variant="outlined" class="sr-panel sr-step1">
           <!-- Maquette 27/28 : titre, onglets PDV / STOCK (icône + texte, sans
                pastille) et bouton de génération sur une seule ligne. -->
           <header class="sr-panel-head s1-head">
-            <h2 class="s1-title">{{ t('srItemsToStock') }}</h2>
+            <h2 class="s1-sr-only">{{ t('srItemsToStock') }}</h2>
             <div class="sr-stock-tabs s1-tabs" role="tablist">
               <button
                 type="button"
@@ -342,29 +324,24 @@
               @click="generateOrder"
             >
               <v-icon size="16" class="mr-1">mdi-table-plus</v-icon>
-              {{ t('srGenerateRestock') }}
+              {{ editingPlanId ? t('srUpdateOrder') : t('srGenerateRestock') }}
             </v-btn>
           </header>
         <!-- Échec définitif d'un chargement catalogue (après essais) : bandeau discret. -->
-        <v-alert
-          v-if="hasCatalogFailure"
-          type="warning"
-          density="compact"
-          variant="tonal"
-          class="sr-catalog-warn"
-        >
-          <div class="sr-catalog-warn__row">
-            <span class="sr-catalog-warn__text">{{ t('srCatalogLoadWarn') }}</span>
-            <v-btn
-              size="small"
-              variant="text"
-              :loading="catalogRetrying"
-              @click="retryCatalogLoad"
-            >
-              {{ t('srCatalogRetry') }}
-            </v-btn>
-          </div>
-        </v-alert>
+        <div v-if="hasCatalogFailure" class="s1-warn" role="status">
+          <v-icon size="18" class="s1-warn__icon">mdi-alert-outline</v-icon>
+          <span class="s1-warn__text">{{ t('srCatalogLoadWarn') }}</span>
+          <v-btn
+            size="small"
+            variant="text"
+            color="primary"
+            class="s1-warn__btn"
+            :loading="catalogRetrying"
+            @click="retryCatalogLoad"
+          >
+            {{ t('srCatalogRetry') }}
+          </v-btn>
+        </div>
 
           <AppSearchBar
             v-if="stockTab === 'shops'"
@@ -1225,7 +1202,7 @@
           <!-- Assistant — pied d'étape 2 : sticky, précédent | pagination des
                groupes | générer la feuille. -->
           <footer class="sr-wizard-nav sr-wizard-nav-grid">
-            <v-btn variant="text" @click="goToStep(1)">
+            <v-btn variant="text" @click="onWorkflowTab(1)">
               <v-icon size="16" class="mr-1">mdi-chevron-left</v-icon>
               {{ t('srPrevious') }}
             </v-btn>
@@ -1246,7 +1223,7 @@
                 color="primary"
                 variant="flat"
                 :disabled="!canGenerate"
-                @click="generateShoppingList"
+                @click="generateShoppingList()"
               >
                 <v-icon size="16" class="mr-1">mdi-cart-outline</v-icon>
                 {{ t('srShoppingList') }}
@@ -1469,7 +1446,7 @@
         />
         <RestockComponentOrdersPanel v-if="currentStep === 1" :panel="componentOrdersPanel" />
         <RestockSuppliersPanel
-          :groups="displayedShoppingGroups"
+          :groups="suppliersPanelGroups"
           :generated="shoppingGenerated"
           @select="scrollToSupplier"
           @email="openEmailDialog"
@@ -1761,6 +1738,8 @@ import {
   groupRowsByItemKey,
 } from '@/utils/restockShopPercent'
 import { collectComponentOrders, groupComponentOrdersByKitchen, buildKitchenShoppingGroups } from '@/utils/componentKitchenOrders'
+import RestockWorkflowTabs from '@/components/space-workspace/restock/components/RestockWorkflowTabs.vue'
+import { withSupplierAmounts } from '@/utils/restockSupplierAmounts'
 import RestockSuppliersPanel from '@/components/space-workspace/restock/components/RestockSuppliersPanel.vue'
 import RestockItemShopsDrawer from '@/components/space-workspace/restock/drawers/RestockItemShopsDrawer.vue'
 import RestockGlobalAdjustMenu from '@/components/space-workspace/restock/components/RestockGlobalAdjustMenu.vue'
@@ -1867,7 +1846,7 @@ function extractInventoryCounts(payload) {
 export default {
   name: 'SpaceRestockView',
   directives: { valuePulse: vValuePulse },
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, RestockWorkflowTabs, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -2681,8 +2660,13 @@ export default {
       for (const item of this.stockSettingsRows) {
         const ref = findStockReference(item, this.ingredients, this.components, this.menuItems)
         const isComponent = this.isComponentRow(item)
-        if (!ref && !isComponent) continue
-        let marketPriceId = ref?.marketPriceId || ref?.marketPrice?.id || null
+        // Sans fiche recette (article libre, catalogue partiel) : le Market Price
+        // trouvé par id ou par nom (comme le Résumé commande) porte le fournisseur.
+        const fallbackMp = !ref && !isComponent
+          ? resolveMarketPrice({ name: item.itemName, marketPriceId: item.marketPriceId }, this.marketPrices)
+          : null
+        if (!ref && !isComponent && !fallbackMp) continue
+        let marketPriceId = ref?.marketPriceId || ref?.marketPrice?.id || fallbackMp?.id || null
         let supplierId = ref?.supplierId || ref?.supplier?.id || null
         const mp = marketPriceId
           ? this.marketPrices.find((m) => m.id === marketPriceId) || null
@@ -3311,6 +3295,17 @@ export default {
       }
       return this.shoppingGroups
     },
+    /** Groupes affichés + montant à payer par fournisseur (même prix que le Résumé commande). */
+    suppliersPanelGroups() {
+      return withSupplierAmounts(this.displayedShoppingGroups, {
+        marketPriceFor: (item) => {
+          const ref = findStockReference(item, this.ingredients, this.components, this.menuItems)
+          const mpId = item.marketPriceId || ref?.marketPriceId || ref?.marketPrice?.id || null
+          return resolveMarketPrice({ name: item.itemName, marketPriceId: mpId }, this.marketPrices)
+        },
+        packagingFor: (item, qty) => this.packagingForItem(item, qty),
+      })
+    },
     shoppingSupplierGroups() {
       const supplierMap = new Map()
 
@@ -3738,6 +3733,10 @@ export default {
       if (this.loadedPlan) return this.loadedPlan.meta?.unmatchedStorage || []
       return this.nettedShopping.unmatchedStorage
     },
+    /** Onglets Feuille de course et Ventilation actifs : commande générée ou ouverte. */
+    ordersUnlocked() {
+      return !!this.restockGenerated && !!this.shoppingGenerated
+    },
     /** Droit d'écriture sur les plans (BUG-19 : restockBoard seul = lecture). */
     canWritePlans() {
       const can = this.store.getters['auth/can']
@@ -3898,7 +3897,7 @@ export default {
     // OBLIGATOIRE — une instance keepAlive observe toutes les routes.
     'route.query'(q) {
       if (this.route.name !== 'space-restock') return
-      const step = SLUG_STEPS[q?.step]
+      const step = this.reachableStep(SLUG_STEPS[q?.step])
       if (step && step !== this.currentStep) this.goToStep(step)
       if (q?.tab === 'storage') this.stockTab = 'storage'
     },
@@ -3967,7 +3966,7 @@ export default {
     await this.loadAll()
     // Assistant : le panneau de l'étape active doit s'afficher déplié. L'URL
     // (?step=) prime sur l'étape restaurée (deep-link / refresh / partage).
-    const urlStep = SLUG_STEPS[this.route.query?.step]
+    const urlStep = this.reachableStep(SLUG_STEPS[this.route.query?.step])
     this.goToStep(urlStep || this.currentStep)
     // Deep-link cloche (?tab=storage) : atterrir sur l'onglet Espaces de
     // stockage de l'étape 1.
@@ -4449,10 +4448,34 @@ export default {
         this.planAutosaving = false
       }
     },
-    /** Étape 1 : génère la commande puis sauvegarde le plan automatiquement. */
+    /**
+     * Étape 1 : génère la commande (ventilation ET feuille de course) puis
+     * sauvegarde le plan automatiquement. La feuille est générée sans naviguer :
+     * la sauvegarde recharge le plan et atterrit sur la ventilation.
+     */
+    /** Un lien ?step= vers Ventilation ou Feuille de course sans commande retombe sur l'étape 1. */
+    reachableStep(step) {
+      if (!step) return step
+      return step !== 1 && !this.ordersUnlocked ? 1 : step
+    },
     async generateOrder() {
       const generated = await this.generateRestockTable()
-      if (generated) await this.autosavePlan()
+      if (!generated) return
+      await this.generateShoppingList({ navigate: false })
+      await this.autosavePlan()
+    },
+    /**
+     * Clic sur un onglet. Revenir à « Éléments à stocker » alors qu'une commande
+     * est ouverte la détache pour la rendre modifiable (editLoadedPlan).
+     */
+    async onWorkflowTab(step) {
+      if (step === this.currentStep) return
+      if (step === 1 && this.loadedPlanId) {
+        await this.editLoadedPlan()
+        if (this.currentStep !== 1) this.goToStep(1)
+        return
+      }
+      this.goToStep(step)
     },
     /** Bouton « Modifier » : détache le plan (entrées conservées) et revient à l'étape 1. */
     async editLoadedPlan() {
@@ -5876,7 +5899,7 @@ export default {
       this.goToStep(2)
       return true
     },
-    async generateShoppingList() {
+    async generateShoppingList({ navigate = true } = {}) {
       if (!this.canGenerate) return
       if (!(await this.guardPlanEdit())) return
       if (!this.restockGenerated) await this.generateRestockTable()
@@ -5886,9 +5909,10 @@ export default {
       // Mode ingrédients : hydrate les recettes (détail /menu-items/:id) avant
       // d'afficher l'explosion BOM.
       if (this.shoppingMode === 'ingredients') await this.ensureRecipesLoaded()
-      this.showSnackbar(this.t('srSnackShoppingGenerated'), 'success')
+      // Génération groupée (navigate: false) : le message de la commande suffit.
+      if (navigate) this.showSnackbar(this.t('srSnackShoppingGenerated'), 'success')
       // Avance l'assistant vers l'étape Feuille de course (panneau déplié).
-      this.goToStep(3)
+      if (navigate) this.goToStep(3)
     },
     /** Bascule produits finis / ingrédients ; hydrate les recettes au besoin. */
     async setShoppingMode(mode) {
@@ -7003,81 +7027,7 @@ export default {
   margin-bottom: 0;
 }
 
-/* Assistant pas-à-pas (wizard) : indicateur d'étapes + pieds de navigation. */
-.sr-wizard {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 4px 18px;
-  margin-bottom: 4px;
-}
-
-.sr-wizard-step {
-  appearance: none;
-  border: none;
-  background: transparent;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
-  cursor: default;
-  color: var(--sr-faint, #9e9e9e);
-  flex-shrink: 0;
-}
-
-.sr-wizard-step-done {
-  cursor: pointer;
-  color: var(--sr-text, #212121);
-}
-
-.sr-wizard-circle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  border: 2px solid var(--sr-border, #e0e0e0);
-  font-weight: 700;
-  font-size: 0.85rem;
-  background: var(--sr-surface, #fff);
-  transition: all 0.2s;
-}
-
-.sr-wizard-step-active .sr-wizard-circle,
-.sr-wizard-step-done .sr-wizard-circle {
-  background: var(--sr-primary, #ff3131);
-  border-color: var(--sr-primary, #ff3131);
-  color: #fff;
-}
-
-.sr-wizard-step-active .sr-wizard-circle {
-  box-shadow: 0 2px 8px rgba(255, 49, 49, 0.35);
-}
-
-.sr-wizard-label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.sr-wizard-step-active .sr-wizard-label {
-  color: var(--sr-primary, #ff3131);
-}
-
-.sr-wizard-line {
-  flex: 1;
-  min-width: 24px;
-  height: 3px;
-  border-radius: 2px;
-  background: var(--sr-border, #e8e8e8);
-  transition: background 0.2s;
-}
-
-.sr-wizard-line-done {
-  background: var(--sr-primary, #ff3131);
-}
-
+/* Assistant : pieds de navigation (le stepper a été remplacé par RestockWorkflowTabs). */
 .sr-wizard-nav {
   display: flex;
   align-items: center;
@@ -7140,9 +7090,6 @@ export default {
 }
 
 @media (max-width: 720px) {
-  .sr-wizard-label {
-    display: none;
-  }
   .sr-wizard-nav {
     flex-wrap: wrap;
   }
@@ -8015,23 +7962,6 @@ export default {
   margin-bottom: 12px;
 }
 
-.sr-catalog-warn {
-  margin-bottom: 12px;
-}
-
-.sr-catalog-warn__row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.sr-catalog-warn__text {
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
 .sr-group-head,
 .sr-supplier-head {
   display: flex;
@@ -8608,27 +8538,6 @@ export default {
   color: var(--sr-muted);
   padding: 28px 16px;
   font-size: 13px;
-}
-
-.sr-wizard {
-  padding: 6px 4px 12px;
-  margin-bottom: 2px;
-}
-
-.sr-wizard-circle {
-  width: 26px;
-  height: 26px;
-  border-width: 1px;
-  font-size: 0.75rem;
-}
-
-.sr-wizard-line {
-  height: 2px;
-}
-
-.sr-wizard-label {
-  font-size: 0.78rem;
-  font-weight: 650;
 }
 
 .sr-step-toolbar {
@@ -9300,14 +9209,8 @@ export default {
 .sr-row-confirmed td {
   background: var(--fb-success-soft, #F0FDF4);
 }
-.sr-progress-fill,
-.sr-wizard-line-done {
+.sr-progress-fill {
   background: var(--fb-success, #16A34A);
-}
-.sr-wizard-step-active .sr-wizard-circle {
-  border-color: var(--sr-primary);
-  background: var(--sr-primary);
-  color: #FFFFFF;
 }
 
 .v-theme--dataFridayDark .space-restock-view .sr-header,
