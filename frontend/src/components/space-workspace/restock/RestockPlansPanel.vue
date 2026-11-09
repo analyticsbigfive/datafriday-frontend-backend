@@ -101,13 +101,6 @@
               <v-list-item
                 :disabled="!canWrite"
                 :title="canWrite ? undefined : t('srPlanReadOnlyHint')"
-                @click="$emit('duplicate', plan.id)"
-              >
-                <v-list-item-title>{{ t('srPlanDuplicate') }}</v-list-item-title>
-              </v-list-item>
-              <v-list-item
-                :disabled="!canWrite"
-                :title="canWrite ? undefined : t('srPlanReadOnlyHint')"
                 class="rpp-delete"
                 @click="deletingPlan = plan"
               >
@@ -161,7 +154,7 @@ export default {
     /** Échec du chargement de la liste (hors 404) — rendu avec un retry. */
     error: { type: [Object, Error], default: null },
   },
-  emits: ['load', 'rename', 'duplicate', 'delete', 'retry'],
+  emits: ['load', 'rename', 'delete', 'retry'],
   setup() {
     const { t } = useI18n()
     // Locale de l'UI (BUG-240 : jamais 'fr-FR' en dur pour les dates).

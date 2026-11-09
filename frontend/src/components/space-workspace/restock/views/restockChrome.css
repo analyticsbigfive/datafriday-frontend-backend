@@ -1,54 +1,7 @@
 /*
- * Colonne de gauche de Commandes + stepper : fidèle aux maquettes 27 a 29.
+ * Colonne de gauche de Commandes : fidèle aux maquettes 27 a 29.
  * Chargé après le bloc de style principal de SpaceRestockView.
  */
-
-/* Stepper : pastille numérotée, libellé, traits gris / vert. */
-.sr-wizard {
-  gap: 8px;
-  padding: 6px 4px 14px;
-}
-.sr-wizard-step {
-  gap: 8px;
-  padding: 2px 0;
-  color: var(--sr-muted, #6b7280);
-}
-.sr-wizard-step-done {
-  color: var(--sr-text, #212121);
-}
-.sr-wizard-circle {
-  width: 24px;
-  height: 24px;
-  border-width: 1px;
-  border-color: var(--sr-border, #dde1e7);
-  color: var(--sr-muted, #6b7280);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-bold);
-}
-.sr-wizard-step-active .sr-wizard-circle,
-.sr-wizard-step-done .sr-wizard-circle {
-  background: var(--sr-primary, #ff3131);
-  border-color: var(--sr-primary, #ff3131);
-  color: #fff;
-}
-.sr-wizard-step-active .sr-wizard-circle {
-  box-shadow: none;
-}
-.sr-wizard-label {
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
-}
-.sr-wizard-step-active .sr-wizard-label {
-  color: var(--sr-primary, #ff3131);
-}
-.sr-wizard-line {
-  height: 2px;
-  min-width: 24px;
-  background: var(--sr-border, #dde1e7);
-}
-.sr-wizard-line-done {
-  background: var(--fb-success, #16a34a);
-}
 
 /* Bloc Événements : sous-ligne « N prédits » a gauche, « N sélectionné » a droite. */
 .sr-events-head {

@@ -29,6 +29,10 @@
           <strong>{{ unitsTotal(g) }}</strong>
           <small>{{ t('srSuppliersUnits') }}</small>
         </span>
+        <span class="rsp-item-due">
+          <small>{{ t('srSuppliersAmountDue') }}</small>
+          <strong>{{ amountLabel(g) }}</strong>
+        </span>
         <div class="rsp-item-bar">
           <span :style="{ width: share(g) + '%' }" />
         </div>
@@ -43,6 +47,7 @@
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import { formatCurrencyDetailed } from '@/composables/useFormatters'
 
 /**
  * Carte « Fournisseurs » de la colonne de droite (aperçu des groupes de la
@@ -58,9 +63,25 @@ export default {
   emits: ['select', 'email'],
   setup() {
     const { t } = useI18n()
-    return { t }
+    return { t, formatCurrencyDetailed }
   },
   methods: {
+    /**
+     * Montant à payer au fournisseur : lu tel que calculé en amont
+     * (group.totalAmount, sinon somme des montants de lignes). Aucun calcul de
+     * prix ici ; sans montant fourni, on affiche un tiret.
+     */
+    amountDue(group) {
+      const direct = Number(group.totalAmount ?? group.amountDue)
+      if (Number.isFinite(direct) && (group.totalAmount ?? group.amountDue) != null) return direct
+      const lines = (group.items || []).map((it) => it.amount ?? it.lineTotal ?? it.totalAmount)
+      if (!lines.length || lines.some((v) => v == null || !Number.isFinite(Number(v)))) return null
+      return lines.reduce((s, v) => s + Number(v), 0)
+    },
+    amountLabel(group) {
+      const v = this.amountDue(group)
+      return v == null ? '-' : formatCurrencyDetailed(v)
+    },
     unitsTotal(group) {
       const raw = (group.items || []).reduce((s, it) => s + (Number(it.quantity) || 0), 0)
       return Math.round(raw)
@@ -119,7 +140,7 @@ export default {
 .rsp-item {
   display: grid;
   grid-template-columns: 1fr auto;
-  grid-template-areas: 'copy total' 'bar bar' 'email email';
+  grid-template-areas: 'copy total' 'due due' 'bar bar' 'email email';
   gap: 6px 10px;
   align-items: center;
   padding: 10px 12px;
@@ -149,6 +170,20 @@ export default {
   font-variant-numeric: tabular-nums;
 }
 .rsp-item-total small { font-size: var(--fs-xs); color: var(--sr-faint, #9ca3af); }
+.rsp-item-due {
+  grid-area: due;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rsp-item-due small { font-size: var(--fs-sm); color: var(--sr-muted, #6b7280); }
+.rsp-item-due strong {
+  font-size: var(--fs-md);
+  font-weight: var(--fw-bold);
+  color: var(--sr-text, #0f172a);
+  font-variant-numeric: tabular-nums;
+}
 .rsp-item-bar { grid-area: bar; height: 4px; border-radius: 100px; background: #eef0f3; overflow: hidden; }
 .rsp-item-bar span { display: block; height: 100%; background: #ff3131; border-radius: 100px; }
 .rsp-item-email {
