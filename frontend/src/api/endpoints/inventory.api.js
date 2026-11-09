@@ -47,6 +47,17 @@ export async function saveInventoryCount(inventoryCountData) {
   return api.post('/inventory-counts', inventoryCountData)
 }
 
+/**
+ * Prix de vente HT unitaires des articles d'un event (valorisation du Résumé Inventaire).
+ * unitPriceHt est dans la même base d'unité que le coût unitaire ; null = pas de prix.
+ * GET /inventory/:spaceId/event-sale-prices/:eventId
+ * @returns {Promise<{ eventId: string, window: object, prices: Array<{ itemId: string, unitPriceHt: number|null, source: string|null }> }>}
+ */
+export async function getEventSalePrices(spaceId, eventId) {
+  // Route facultative tant que le backend n'est pas déployé : pas de toast d'erreur global.
+  return api.get(`/inventory/${spaceId}/event-sale-prices/${eventId}`, { suppressGlobalError: true })
+}
+
 // ── Réconciliation post-événement (Post-event Inventory) ─────────────────────
 // Documents d'écarts « compté vs ce qui devrait rester après les ventes »,
 // StockReconciliation kind='post-event' côté backend. Voir

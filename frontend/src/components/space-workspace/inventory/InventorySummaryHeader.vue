@@ -18,13 +18,25 @@
       <p class="ish-progress">{{ countedItems }} / {{ totalItems }} {{ t('invMetricCounted') }} · {{ percent }} %</p>
       <strong v-if="totalCost != null" class="ish-cost">{{ formatCurrencyDetailed(totalCost) }}</strong>
     </div>
+    <!-- Valeur de vente : Total HT à gauche, marge par rapport au coût à droite (sous l'export). -->
+    <div v-if="saleTotalHt != null" class="ish-sale-row">
+      <p class="ish-sale">{{ t('invSaleTotalHt').replace('{value}', formatCurrencyDetailed(saleTotalHt)) }}</p>
+      <p v-if="saleMargin != null" class="ish-sale ish-sale-margin">
+        {{ t('invSaleMargin').replace('{value}', formatPercent(saleMargin, 0)) }}
+      </p>
+    </div>
+    <p
+      v-if="saleTotalHt != null && unpricedCount > 0"
+      class="ish-unpriced"
+      :title="t('invSaleUnpricedHint')"
+    >{{ t('invSaleUnpriced').replace('{n}', unpricedCount) }}</p>
   </div>
 </template>
 
 <script setup>
 import { Download } from 'lucide-vue-next'
 import { useI18n } from '@/i18n/useI18n'
-import { formatCurrencyDetailed } from '@/composables/useFormatters'
+import { formatCurrencyDetailed, formatPercent } from '@/composables/useFormatters'
 
 defineProps({
   title: { type: String, required: true },
@@ -34,6 +46,11 @@ defineProps({
   // Somme des coûts des cartes ; null = aucun coût connu (rien d'affiché).
   totalCost: { type: Number, default: null },
   exportable: { type: Boolean, default: true },
+  // Valeur de vente HT du périmètre filtré et marge (%) ; null = rien d'affiché.
+  saleTotalHt: { type: Number, default: null },
+  saleMargin: { type: Number, default: null },
+  // Articles comptés sans prix de vente HT (0 = mention masquée).
+  unpricedCount: { type: Number, default: 0 },
 })
 defineEmits(['export'])
 
@@ -42,7 +59,8 @@ const { t } = useI18n()
 
 <style scoped>
 .ish-title-row,
-.ish-meta-row {
+.ish-meta-row,
+.ish-sale-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -78,6 +96,20 @@ const { t } = useI18n()
 }
 .ish-export-icon { width: 14px; height: 14px; }
 .ish-meta-row { margin-top: 4px; }
+.ish-sale-row { margin-top: 2px; flex-wrap: wrap; }
+.ish-sale {
+  margin: 0;
+  color: var(--fb-muted, #6b7280);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.ish-sale-margin { margin-left: auto; text-align: right; }
+.ish-unpriced {
+  margin: 2px 0 0;
+  color: var(--fb-muted, #6b7280);
+  font-size: var(--fs-xs);
+  font-style: italic;
+}
 .ish-progress {
   margin: 0;
   min-width: 0;
