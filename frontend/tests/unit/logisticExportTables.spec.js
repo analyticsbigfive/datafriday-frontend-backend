@@ -2,8 +2,8 @@ import { ventilationExportTable, stockExportTable } from '@/utils/logisticExport
 import { tableToMatrix, exportFileName, tableToPrintHtml } from '@/utils/tableExport'
 
 const t = (k) => k
-const quantityLabel = (item, q, packs) => (packs != null ? `${packs} colis` : `${q} ${item.unit}`)
-const packSizeLabel = (item) => `${item.unitsPerPack} ${item.unit}/colis`
+const quantityLabel = (item, q, packs) => (packs != null ? `${packs} cartons` : `${q} ${item.unit}`)
+const packSizeLabel = (item) => `${item.unitsPerPack} ${item.unit}/carton`
 const suppliersOf = (name) => (name === 'Bonbons' ? [{ name: 'Confiserie C' }] : [])
 
 const groups = [
@@ -22,8 +22,8 @@ describe('ventilationExportTable', () => {
     const table = ventilationExportTable({ groups, storages, mode: 'item', t, quantityLabel, packSizeLabel, suppliersOf, title: 'V' })
     expect(table.columns.map((c) => c.key).slice(0, 3)).toEqual(['item', 'destination', 'type'])
     expect(table.rows.map((r) => [r.item, r.destination, r.type, r.toDeposit, r.supplier])).toEqual([
-      ['Bonbons', 'Océane 11', 'logiExportShop', '2 colis', 'Confiserie C'],
-      ['Bonbons', 'Dépôt 1', 'logiTabStorage', '1 colis', 'Confiserie C'],
+      ['Bonbons', 'Océane 11', 'logiExportShop', '2 cartons', 'Confiserie C'],
+      ['Bonbons', 'Dépôt 1', 'logiTabStorage', '1 cartons', 'Confiserie C'],
     ])
   })
 

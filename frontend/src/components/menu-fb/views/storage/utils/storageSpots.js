@@ -41,6 +41,7 @@ export function filterSpots(list, query) {
  * produit (ou null). stored = tous les produits y sont stockés, partial = une partie seulement,
  * quantity = valeur commune des tampons, ou null si elles diffèrent. `override` = valeurs locales
  * { isStored?, quantity? } appliquées à tous les produits.
+ * Renvoie aussi `lines` : [{ name, quantity }] par produit (override.quantities = { nom: colis }).
  * `packOf(produit)` (optionnel) renvoie le Market Price du produit : la quantité (stockée en unités
  * de base) est alors comparée et renvoyée en COLIS ; `override.quantity` est déjà en colis. Sans
  * `packOf`, contenance 1 (unités = colis).
@@ -50,9 +51,18 @@ export function aggregateSpot(rowFor, names, override = {}, packOf = () => null)
   const storedCount = override.isStored !== undefined ? (override.isStored ? rows.length : 0) : rows.filter((r) => isRowStored(r)).length
   const quantities = rows.map((r, i) => unitsToPacks(r ? Number(r.quantity) || 0 : 0, packOf(names[i])))
   const common = quantities.length && quantities.every((q) => q === quantities[0]) ? quantities[0] : null
+  // Une ligne par produit, chacune en colis de SON conditionnement : valeur saisie pour ce produit
+  // (override.quantities), sinon valeur saisie pour tous (override.quantity), sinon valeur stockée.
+  const lines = (names || []).map((n, i) => {
+    const name = typeof n === 'object' && n !== null ? n.name : n
+    const own = override.quantities ? override.quantities[name] : undefined
+    const shared = override.quantity
+    return { name, quantity: own !== undefined ? own : shared !== undefined ? shared : quantities[i] }
+  })
   return {
     stored: rows.length > 0 && storedCount === rows.length,
     partial: storedCount > 0 && storedCount < rows.length,
     quantity: override.quantity !== undefined ? override.quantity : common,
+    lines,
   }
 }

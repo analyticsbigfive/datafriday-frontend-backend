@@ -1,4 +1,5 @@
 import { ElementItem } from '../logistics.types';
+import { marketPricePackSize } from '../../../shared/utils/market-price-pack-size';
 
 /** Ligne ElementInventory minimale utile à la règle « stockée ». */
 export type StorageInventoryRow = {
@@ -54,7 +55,9 @@ type MarketPriceLite = {
   unit?: string | null;
   recipeUnit?: string | null;
   packedUnits: number | null;
+  unitsPerPurchase?: number | null;
   inventoryPackaging: string | null;
+  purchasePackaging?: string | null;
 };
 
 /**
@@ -93,7 +96,7 @@ export function buildStoredOnlyItems(
         refKind: 'marketPrice',
         unit: mp.recipeUnit ?? mp.unit ?? null,
         marketPriceId: mp.id,
-        unitsPerPack: mp.packedUnits ?? null,
+        unitsPerPack: marketPricePackSize(mp),
         packagingType: mp.inventoryPackaging ?? null,
         picture: null,
         usedIn: [],

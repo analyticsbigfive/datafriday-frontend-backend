@@ -544,7 +544,7 @@
                 </span>
                 <span v-if="hasPdvBuffer(item.itemKey)" class="sr-value sr-value-buffer">
                   <span class="sr-value-label">{{ t('storageBuffer') }}</span>
-                  <strong class="sr-value-num">{{ formatLooseQuantity(stockBufferByItem[item.itemKey], item.unit) }}</strong>
+                  <strong class="sr-value-num">{{ bufferText(stockBufferByItem[item.itemKey], { name: item.itemName, marketPriceId: item.marketPriceId }, item.unit) }}</strong>
                 </span>
                 <span class="sr-value">
                   <span class="sr-value-label">{{ t('srBreakdownRemaining') }}</span>
@@ -742,7 +742,7 @@
                 <div class="sr-values">
                   <span class="sr-value sr-value-buffer">
                     <span class="sr-value-label">{{ t('storageBuffer') }}</span>
-                    <strong class="sr-value-num">{{ formatLooseQuantity(row.buffer, row.unit) }}</strong>
+                    <strong class="sr-value-num">{{ storageBufferText(row) }}</strong>
                   </span>
                   <span class="sr-value">
                     <span class="sr-value-label">{{ t('srBreakdownRemaining') }}</span>
@@ -1793,7 +1793,7 @@ import { useRestockPlans } from '@/composables/useRestockPlans'
 import { planAutosaveAction, defaultPlanName, PLAN_CORRECTIONS_DEBOUNCE_MS } from '@/utils/restockPlanAutosave'
 import { buildStorageRestockLines, storageRefillCoeffs, isStorageRestockLine } from '@/utils/storageRestockLines'
 import { useStorageInventory } from '@/composables/useStorageInventory'
-import { bufferPacksText } from '@/utils/bufferPackaging'
+import { bufferDisplayText } from '@/utils/bufferPackaging'
 import { resolveMarketPrice } from '@/utils/storageManualItem'
 import { collectPdvBuffers, applyPdvBuffers, targetWithBuffer } from '@/utils/pdvBufferRequirements'
 // Taxonomie builder2 (module de constantes pur) : 'Storage'/'storage_x'/code
@@ -3104,6 +3104,8 @@ export default {
         totalDeposit: this.formatTotalDeposit(rows),
         toOrder: item ? this.buyInfo(item).main : '',
         circuit: circuit.header,
+        // Conditionnement de l'article : dit les colis du circuit (« 2 fûts de 30 L »).
+        packaging: this.circuitPackaging(rows[0], unit),
         rows: rows.map((row) => {
           const overrideRaw = this.stockShopPercents[shopPercentKey(row.shopId, itemKey)]
           return {
@@ -5527,10 +5529,12 @@ export default {
      * Sans conditionnement connu sur le Market Price : unités brutes, comme avant.
      */
     storageBufferText(row) {
-      const mp = resolveMarketPrice({ name: row.name, marketPriceId: row.marketPriceId }, this.marketPrices)
-      const hasPack = !!(mp && (mp.inventoryPackaging || Number(mp.inventoryQuantityPackaged) > 0 || Number(mp.packedUnits) > 0))
-      if (!hasPack) return this.formatLooseQuantity(row.buffer, row.unit)
-      return `${bufferPacksText(row.buffer, mp, this.t, this.locale)} (${this.formatLooseQuantity(row.buffer, row.unit)})`
+      return this.bufferText(row.buffer, { name: row.name, marketPriceId: row.marketPriceId }, row.unit)
+    },
+    /** Tampon (unités de base) d'une carte, en conditionnement du Market Price, sinon en unité réelle. */
+    bufferText(units, ref, unit) {
+      const mp = resolveMarketPrice(ref, this.marketPrices)
+      return bufferDisplayText(units, mp, this.t, this.locale, this.formatLooseQuantity(units, unit))
     },
     storagePackFormat(row) {
       const packaging = this.storagePackagingByKey[row.key]
@@ -6161,6 +6165,13 @@ export default {
      * @returns {{main: string, sub: string, covered: boolean, unknown: boolean}}
      */
     /** Taille de colis d'une ligne PDV (même règle que le circuit), pour l'affichage. */
+    /** Type, contenance et unité du colis de la ligne, pour dire les colis du circuit. */
+    circuitPackaging(row, unit) {
+      if (!row) return null
+      const ref = Number(row.targetQuantity) > 0 ? row.targetQuantity : 1
+      const packaging = this.packagingForItem(row, ref)
+      return { packagingType: packaging && packaging.packagingType, unitsPerPack: packSizeForPackaging(packaging), unit: unit || row.unit }
+    },
     circuitPackSizeOf(row) {
       const ref = Number(row.targetQuantity) > 0 ? row.targetQuantity : 1
       return packSizeForPackaging(this.packagingForItem(row, ref))

@@ -22,6 +22,13 @@ describe('StockItemIdentityService.resolveUnitsPerPackForItemKeys', () => {
     expect(prisma.marketPrice.findMany).toHaveBeenCalledTimes(1);
   });
 
+  it('colis stocke = colis achete : Carton/Carton, packedUnits 1 et unitsPerPurchase 24 donne 24', async () => {
+    const { service } = make({
+      mp: [{ itemName: 'Coca SS', packedUnits: 1, unitsPerPurchase: 24, inventoryPackaging: 'Carton', purchasePackaging: 'Carton' }],
+    });
+    expect(await service.resolveUnitsPerPackForItemKey('Coca SS', 't1')).toBe(24);
+  });
+
   it('garde la ligne la plus ancienne, même si son colis est vide (pas de repli sur un homonyme)', async () => {
     const { service } = make({ mp: [{ itemName: 'Badiane', packedUnits: null }, { itemName: 'Badiane', packedUnits: 12 }] });
     expect(await service.resolveUnitsPerPackForItemKey('Badiane', 't1')).toBeNull();

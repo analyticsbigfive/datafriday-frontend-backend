@@ -2,6 +2,7 @@
 // ne sont plus importés ici : la décomposition a quitté ce fichier pour
 // `utils/menuItemExpansion` (règle commune), et l'éclatement composant→ingrédients
 // pour `utils/bomPlanning` (feuille de course). `MAX_DEPTH` est porté par le module.
+import { marketPricePackSize } from '@/utils/marketPricePackSize'
 import { expandMenuItem, buildComponentLookup } from './menuItemExpansion'
 
 const FB_ELEMENT_TYPES = new Set(['shop', 'hospitality', 'kitchen'])
@@ -568,9 +569,11 @@ function packagingFieldsFrom(src, item) {
     src.packagingUnitNumber ??
       src.inventoryQuantityPackaged ??
       src.inventoryNumberOfUnits ??
-      src.packedUnits ??
-      mp?.inventoryQuantityPackaged ??
-      mp?.packedUnits,
+      // Porteur à plat qui est lui-même un Market Price (phrase d'achat présente) : règle unique.
+      (src.purchasePackaging != null || src.unitsPerPurchase != null
+        ? marketPricePackSize(src)
+        : src.packedUnits) ??
+      marketPricePackSize(mp),
   )
   const packagingUnit = src.packagingUnit || src.unit || mp?.unit || item?.unit
   const purchaseUnitConversion =

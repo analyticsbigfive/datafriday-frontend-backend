@@ -15,11 +15,6 @@ export function circuitFlowKey(shopId, itemKey) {
   return `${shopId}|||${itemKey}`
 }
 
-/** Clé i18n du nom de colis selon le nombre (singulier à 1, pluriel sinon). */
-export function circuitPackNounKey(count) {
-  return num(count) === 1 ? 'srCircuitPackSingular' : 'srCircuitPackPlural'
-}
-
 function packsOf(quantity, packSize) {
   const size = num(packSize)
   return size > 0 ? Math.round(num(quantity) / size) : 0

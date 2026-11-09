@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { SpaceAccessService } from '../../../core/auth/space-access.service';
 import { SpaceMenuScopeService } from './space-menu-scope.service';
+import { marketPricePackSize } from '../../../shared/utils/market-price-pack-size';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
 type SpaceScopedUser = { id: string; isSuperAdmin: boolean; isOwner: boolean; allSpacesAccess: boolean };
@@ -371,14 +372,14 @@ export class ShopStockInventoryService {
       const marketPriceIds = [...new Set(marketPriceIdByKey.values())];
       const marketPrices = await this.prisma.marketPrice.findMany({
         where: { tenantId, id: { in: marketPriceIds }, deletedAt: null },
-        select: { id: true, packedUnits: true, inventoryPackaging: true },
+        select: { id: true, packedUnits: true, unitsPerPurchase: true, inventoryPackaging: true, purchasePackaging: true },
       });
       const marketPriceById = new Map(marketPrices.map((mp) => [mp.id, mp]));
       for (const [key, marketPriceId] of marketPriceIdByKey) {
         const line = lines.get(key);
         const mp = marketPriceById.get(marketPriceId);
         if (line && mp) {
-          line.unitsPerPack = mp.packedUnits ?? null;
+          line.unitsPerPack = marketPricePackSize(mp);
           line.packagingType = mp.inventoryPackaging ?? null;
         }
       }
