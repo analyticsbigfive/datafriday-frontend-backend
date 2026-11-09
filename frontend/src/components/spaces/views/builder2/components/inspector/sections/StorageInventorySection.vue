@@ -70,10 +70,10 @@
                 :quantity="bufferDisplay(line.name)"
                 :min="displayValue(line.name, boundsFor(line.name).min ?? '')"
                 :max="displayValue(line.name, boundsFor(line.name).max ?? '')"
-                :step="packInfoFor(line.name) ? '0.01' : '1'"
-                :quantity-step="bufferMpFor(line.name) ? '0.01' : null"
+                :step="stepFor(line.name)"
+                :quantity-step="stepFor(line.name)"
                 :unit-label="bufferUnitLabel(line.name)"
-                :hint="packInfoFor(line.name) ? packHintLabel(line.name) : ''"
+                :hint="packHintLabel(line.name)"
                 :gauge="gaugeFor(line.name)"
                 :gauge-title="gaugeTitle(line.name)"
                 @quantity="(v) => setQuantity(line.name, bufferToRaw(line.name, v))"
@@ -151,10 +151,10 @@
                 :quantity="bufferDisplay(row.name)"
                 :min="displayValue(row.name, boundsFor(row.name).min ?? '')"
                 :max="displayValue(row.name, boundsFor(row.name).max ?? '')"
-                :step="packInfoFor(row.name) ? '0.01' : '1'"
-                :quantity-step="bufferMpFor(row.name) ? '0.01' : null"
+                :step="stepFor(row.name)"
+                :quantity-step="stepFor(row.name)"
                 :unit-label="bufferUnitLabel(row.name)"
-                :hint="packInfoFor(row.name) ? packHintLabel(row.name) : ''"
+                :hint="packHintLabel(row.name)"
                 :gauge="gaugeFor(row.name)"
                 :gauge-title="gaugeTitle(row.name)"
                 @quantity="(v) => setQuantity(row.name, bufferToRaw(row.name, v))"
@@ -194,6 +194,7 @@ import { getStorageInventory } from '@/api/endpoints/menu.api'
 import { normalizeType } from '../../../constants/elementTaxonomy'
 import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
 import { useBufferPacks } from '@/composables/useBufferPacks'
+import { marketPricePackSize, packSizeMissing } from '@/utils/marketPricePackSize'
 
 const FB_STORAGE_TYPES = ['dry', 'cold', 'belowzero']
 const STOCKABLE_TYPES = new Set(['shop', 'merchshop'])
@@ -317,9 +318,14 @@ function packInfoFor(name) {
   const key = String(name ?? '').trim().toLowerCase()
   return packInfoByName.value.get(key) || null
 }
-/** Valeur affichée dans le champ : packs si connu, sinon la valeur brute inchangée. */
+/**
+ * Valeur affichée dans un champ (tampon, min, max) : en colis du Market Price de la ligne, la même
+ * conversion pour les trois champs. Sans Market Price, repli sur le pack résolu côté backend, sinon
+ * la valeur brute dans l'unité de la ligne.
+ */
 function displayValue(name, raw) {
   if (raw === '' || raw == null) return raw
+  if (bufferMpFor(name)) return bufferPacks.toPacks(bufferRefFor(name), raw)
   const info = packInfoFor(name)
   if (!info?.unitsPerPack) return raw
   return Math.round((Number(raw) / info.unitsPerPack) * 100) / 100
@@ -328,6 +334,7 @@ function displayValue(name, raw) {
 function toRaw(name, displayVal) {
   const trimmed = String(displayVal).trim()
   if (trimmed === '') return ''
+  if (bufferMpFor(name)) return bufferPacks.toUnits(bufferRefFor(name), trimmed)
   const info = packInfoFor(name)
   if (!info?.unitsPerPack) return trimmed
   return Math.round(Number(trimmed) * info.unitsPerPack * 100) / 100
@@ -335,7 +342,7 @@ function toRaw(name, displayVal) {
 // Stock tampon (quantité) : saisi et affiché en COLIS d'après le Market Price de la ligne
 // (id de la ligne sauvegardée ou de la ligne du menu, nom en repli), stocké en unités de base.
 // Sans Market Price trouvé, repli sur le comportement par pack du backend ci-dessus.
-// Min et max ne sont pas concernés.
+// Min, max et jauge utilisent la même conversion (displayValue / toRaw).
 const bufferPacks = useBufferPacks()
 function bufferRefFor(name) {
   const line = derived.value.find((l) => l.name === name)
@@ -345,14 +352,14 @@ function bufferMpFor(name) {
   return bufferPacks.mpFor(bufferRefFor(name))
 }
 function bufferDisplay(name) {
-  return bufferMpFor(name)
-    ? bufferPacks.toPacks(bufferRefFor(name), quantityFor(name))
-    : displayValue(name, quantityFor(name))
+  return displayValue(name, quantityFor(name))
 }
 function bufferToRaw(name, displayVal) {
-  if (!bufferMpFor(name)) return toRaw(name, displayVal)
-  const trimmed = String(displayVal).trim()
-  return trimmed === '' ? '' : bufferPacks.toUnits(bufferRefFor(name), trimmed)
+  return toRaw(name, displayVal)
+}
+/** Pas des champs : décimal dès qu'un conditionnement convertit la valeur. */
+function stepFor(name) {
+  return bufferMpFor(name) || packInfoFor(name) ? '0.01' : '1'
 }
 function bufferUnitLabel(name) {
   return bufferMpFor(name) ? bufferPacks.labelFor(bufferRefFor(name)) : qtyUnitLabel(name)
@@ -368,8 +375,16 @@ function qtyUnitLabel(name) {
   const type = translatePackagingType(info.packagingType, locale.value)
   return type ? pluralize(type) : t('b2InventoryPacksWord')
 }
+function packHasType(name) {
+  const mp = bufferMpFor(name)
+  return !!(mp && (mp.inventoryPackaging || marketPricePackSize(mp) != null))
+}
 /** Ligne d'aide sous Min/Max (ex. "Cartons de 24 Pc"). */
 function packHintLabel(name) {
+  if (bufferMpFor(name)) {
+    if (packSizeMissing(bufferMpFor(name))) return t('packSizeMissing')
+    return packHasType(name) ? bufferPacks.labelFor(bufferRefFor(name), false) : ''
+  }
   const info = packInfoFor(name)
   if (!info) return ''
   const line = typeMatched.value.find((l) => l.name === name) || manualRows.value.find((r) => r.name === name)
@@ -390,7 +405,9 @@ function gaugeFor(name) {
 }
 function gaugeTitle(name) {
   const { min, max } = boundsFor(name)
-  return `${quantityFor(name)} / ${max}${min != null ? ` (${t('b2AlertBelow')} ${min})` : ''}`
+  const unit = bufferUnitLabel(name)
+  const fmt = (v) => `${displayValue(name, v)}${unit ? ` ${unit}` : ''}`
+  return `${fmt(quantityFor(name))} / ${fmt(max)}${min != null ? ` (${t('b2AlertBelow')} ${fmt(min)})` : ''}`
 }
 
 // Clé stable des shops sources : ne refetcher que si la LISTE change réellement

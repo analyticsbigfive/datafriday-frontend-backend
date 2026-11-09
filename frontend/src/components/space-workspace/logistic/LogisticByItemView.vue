@@ -39,9 +39,9 @@
               <span class="lgbi-kind">{{ t(kindLabelKey(group.kind)) }}</span>
             </span>
             <span class="lgbi-meta">
-              <template v-if="group.unitsPerPack">{{ group.unitsPerPack }} {{ group.unit || t('logiUnits') }}/{{ packagingTypeLabel(group) }}</template>
+              <template v-if="group.unitsPerPack">{{ packSizeLabel(group) }}</template>
               <template v-else>{{ group.rows.length }} {{ t('logiByItemShopsSuffix') }}</template>
-              <template v-if="group.totalPredictedPacks != null"> · <span class="lgbi-predicted-inline">{{ group.totalPredictedPacks }} {{ predictedPacksLabel(group) }}</span></template>
+              <template v-if="group.totalPredictedPacks != null"> · <span class="lgbi-predicted-inline">{{ predictedPacksText(group, group.totalPredictedPacks) }}</span></template>
             </span>
           </span>
           <span class="lgbi-summary">
@@ -70,7 +70,7 @@
             </button>
             <span class="lgbi-shop-stats">
               {{ compactQtyLabel(row.packed, row.loose, row.item, group.unitsPerPack, t, locale, formatUnits) }}
-              <template v-if="row.predictedNeedPacks != null"> · <span class="lgbi-predicted-inline">{{ row.predictedNeedPacks }} <small>{{ predictedPacksLabel(group) }}</small></span></template>
+              <template v-if="row.predictedNeedPacks != null"> · <span class="lgbi-predicted-inline">{{ predictedPacksText(group, row.predictedNeedPacks) }}</span></template>
               <template v-else-if="row.predictedNeed != null"> · <span class="lgbi-predicted-inline">{{ formatUnits(row.predictedNeed) }}{{ group.unit ? ` ${group.unit}` : '' }} <small>{{ needWord }}</small></span></template>
             </span>
             <span class="lgbi-shop-actions">
@@ -102,27 +102,25 @@
 import { computed, reactive } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
-import { translatePackagingType, pluralize } from '@/utils/packagingTypeTranslations'
+import { conditionnementText, packSizeText } from '@/utils/packQuantityText'
 import { compactQtyLabel } from '@/composables/useLogisticUnitLabels'
 
 const { t, locale } = useI18n()
 
-/** Type de conditionnement réel (ex. "Carton", "Fût") quand connu (item.packagingType,
- *  résolu côté backend, cf. LogisticItemCard.vue packLabel) — repli sur le mot générique
- *  "pack" seulement si aucun type n'est configuré (BUG-348-02 : ce libellé affichait "pack"
- *  pour tout le monde, y compris quand le vrai type était déjà disponible sur `item`). */
-function packagingTypeLabel(group) {
-  return translatePackagingType(group.packagingType, locale.value) || t('logiPacksShort')
+/** Contenance par colis du groupe (« 30 L/fût », « 30 L » sans type) : jamais de mot vague. */
+function packSizeLabel(group) {
+  return packSizeText(group, locale.value)
 }
 
-/** Libellé "N {Type} predicted" (ex. "27 Pipettes predicted") — même repli que
- *  packagingTypeLabel, réutilisé pour l'en-tête ET les lignes dépliées (BUG-348-02 : le
- *  besoin prédit affichait encore "packs" générique alors que le type était déjà résolu,
- *  juste à côté, pour le ratio unitsPerPack). */
-function predictedPacksLabel(group) {
-  const type = translatePackagingType(group.packagingType, locale.value)
-  const word = type ? pluralize(type) : t('logiPacksShort')
-  return `${word} ${needWord.value}`
+/** « 27 fûts de 30 L prédit » : besoin en conditionnement (sans type : l'unité réelle), réutilisé
+ *  pour l'en-tête ET les lignes dépliées. */
+function predictedPacksText(group, count) {
+  const text = conditionnementText(
+    { count, packagingType: group.packagingType, unitsPerPack: group.unitsPerPack, unit: group.unit },
+    t,
+    locale.value,
+  )
+  return `${text} ${needWord.value}`
 }
 
 /** « à déposer » quand le chiffre vient de la feuille de réarmement, sinon « prédit ». */

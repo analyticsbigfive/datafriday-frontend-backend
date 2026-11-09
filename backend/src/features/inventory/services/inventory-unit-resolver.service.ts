@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { StockItemKind } from '../../logistics/dto/logistics.dto';
+import { marketPricePackSize } from '../../../shared/utils/market-price-pack-size';
 
 /**
  * Identité des articles comptés (clé d'article, nom normalisé, catalogue) et conditionnement utilisé pour convertir les comptages en unités.
@@ -139,7 +140,7 @@ export class InventoryUnitResolverService {
       }),
       this.prisma.marketPrice.findMany({
         where: { tenantId, id: { in: ids } },
-        select: { id: true, itemName: true, packedUnits: true, unitsPerPurchase: true },
+        select: { id: true, itemName: true, packedUnits: true, unitsPerPurchase: true, inventoryPackaging: true, purchasePackaging: true },
       }),
       this.prisma.menuComponent.findMany({
         where: { tenantId, id: { in: ids } },
@@ -167,7 +168,7 @@ export class InventoryUnitResolverService {
           }),
           this.prisma.marketPrice.findMany({
             where: { tenantId, deletedAt: null, itemName: { in: names } },
-            select: { itemName: true, packedUnits: true },
+            select: { itemName: true, packedUnits: true, unitsPerPurchase: true, inventoryPackaging: true, purchasePackaging: true },
           }),
           this.prisma.menuComponent.findMany({
             where: { tenantId, deletedAt: null, name: { in: names } },
@@ -192,7 +193,7 @@ export class InventoryUnitResolverService {
     }
     const mpPackByName = new Map<string, number>();
     for (const r of mpByNameRows) {
-      const n = positive(r.packedUnits);
+      const n = marketPricePackSize(r);
       const nk = this.normalizeName(r.itemName);
       if (n && !mpPackByName.has(nk)) mpPackByName.set(nk, n);
     }
@@ -208,8 +209,7 @@ export class InventoryUnitResolverService {
       const v =
         intent(mi.get(id)?.inventoryNumberOfUnits) ??
         miIntentByName.get(nk) ??
-        positive(mp.get(id)?.packedUnits) ??
-        positive(mp.get(id)?.unitsPerPurchase) ??
+        marketPricePackSize(mp.get(id)) ??
         (mp.has(id) ? null : mpPackByName.get(nk)) ??
         positive(comp.get(id)?.packedUnits) ??
         compPackByName.get(nk) ??

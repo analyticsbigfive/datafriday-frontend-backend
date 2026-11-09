@@ -54,7 +54,7 @@ describe('aggregateSpot', () => {
   const rowFor = (n) => rows[n] || null
 
   it('tous stockes, tampon commun', () => {
-    expect(aggregateSpot(rowFor, ['Cola', 'Eau'])).toEqual({ stored: true, partial: false, quantity: 5 })
+    expect(aggregateSpot(rowFor, ['Cola', 'Eau'])).toMatchObject({ stored: true, partial: false, quantity: 5 })
   })
   it('partiel, tampons differents : quantity null', () => {
     const r = aggregateSpot(rowFor, ['Cola', 'Jus'])
@@ -67,7 +67,7 @@ describe('aggregateSpot', () => {
     expect(aggregateSpot(rowFor, ['Jus', 'Inconnu']).stored).toBe(false)
   })
   it('valeurs locales appliquees a tous', () => {
-    expect(aggregateSpot(rowFor, ['Cola', 'Jus'], { isStored: true, quantity: 3 })).toEqual({ stored: true, partial: false, quantity: 3 })
+    expect(aggregateSpot(rowFor, ['Cola', 'Jus'], { isStored: true, quantity: 3 })).toMatchObject({ stored: true, partial: false, quantity: 3 })
   })
 })
 
@@ -94,6 +94,21 @@ describe('aggregateSpot : tampon en colis', () => {
   })
   it('valeur locale déjà en colis', () => {
     expect(aggregateSpot(rowFor, ['Biere'], { quantity: 3 }, packOf).quantity).toBe(3)
+  })
+})
+
+describe('aggregateSpot lignes par produit', () => {
+  const rows = { Biere: { quantity: 300, isStored: true }, Frites: { quantity: 240, isStored: true } }
+  const rowFor = (n) => rows[n.name]
+  const names = [{ name: 'Biere' }, { name: 'Frites' }]
+  const packOf = (n) => (n.name === 'Biere' ? { packedUnits: 30 } : { packedUnits: 24 })
+  it('chaque produit est converti avec SA contenance', () => {
+    const agg = aggregateSpot(rowFor, names, {}, packOf)
+    expect(agg.lines).toEqual([{ name: 'Biere', quantity: 10 }, { name: 'Frites', quantity: 10 }])
+  })
+  it('saisie par produit prioritaire sur la saisie commune', () => {
+    const agg = aggregateSpot(rowFor, names, { quantity: 3, quantities: { Frites: 7 } }, packOf)
+    expect(agg.lines).toEqual([{ name: 'Biere', quantity: 3 }, { name: 'Frites', quantity: 7 }])
   })
 })
 

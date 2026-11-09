@@ -83,8 +83,8 @@
             <tbody>
               <tr v-for="line in result.lines" :key="line.itemKey">
                 <td>{{ line.itemKey }}</td>
-                <td>{{ line.before.packed }} {{ t('logiPackedShort') }} · {{ formatUnits(line.before.loose) }} {{ t('logiLooseShort') }}</td>
-                <td>{{ line.after.packed }} {{ t('logiPackedShort') }} · {{ formatUnits(line.after.loose) }} {{ t('logiLooseShort') }}</td>
+                <td>{{ stockText(line, line.before) }}</td>
+                <td>{{ stockText(line, line.after) }}</td>
               </tr>
             </tbody>
           </table>
@@ -132,6 +132,7 @@ import { computed } from 'vue'
 import { useTheme } from 'vuetify'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
+import { compactQtyLabel } from '@/composables/useLogisticUnitLabels'
 
 /**
  * QA — simule une vente Weezevent (transaction+items synthétiques marqués
@@ -157,10 +158,10 @@ export default {
   },
   emits: ['update:modelValue', 'submit', 'purge', 'reset-result'],
   setup() {
-    const { t } = useI18n()
+    const { t, locale } = useI18n()
     const theme = useTheme()
     const isDark = computed(() => !!theme.global.current.value.dark)
-    return { t, formatUnits, isDark }
+    return { t, locale, formatUnits, isDark }
   },
   data() {
     return {
@@ -209,6 +210,12 @@ export default {
     },
   },
   methods: {
+    /** Stock d'une ligne du récapitulatif en conditionnement de l'article (« 3 fûts de 30 L + 2 L vrac »). */
+    stockText(line, qty) {
+      const shop = this.shops.find((s) => s.element.id === this.result?.elementId)
+      const item = (shop?.items || []).find((it) => it.name === line.itemKey)
+      return compactQtyLabel(qty.packed, qty.loose, item, item?.unitsPerPack, this.t, this.locale, formatUnits)
+    },
     close() {
       this.$emit('update:modelValue', false)
     },

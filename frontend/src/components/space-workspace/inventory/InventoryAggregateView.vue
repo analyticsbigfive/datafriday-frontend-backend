@@ -124,7 +124,7 @@
 
           <div v-show="isAggExpanded(`${item.itemName}-${index}`)" class="agg-item-detail">
             <div v-if="!item.snapshot" class="agg-facts">
-              <span><small>{{ aggPackagingLabel(item, t('invColPacked')) }}</small><strong>{{ formatNumber(item.totalPackedUnits) }}</strong></span>
+              <span><small>{{ packagingHeader(item) }}</small><strong>{{ formatNumber(item.totalPackedUnits) }}</strong></span>
               <span><small>{{ aggUnitLabel(item, t('invColLoose')) }}</small><strong>{{ formatUnits(item.totalLooseUnits) }}</strong></span>
             </div>
             <div v-if="item.snapshot && item.shops.length" class="agg-shop-list">
@@ -136,7 +136,7 @@
             <div v-else-if="item.shops.length" class="agg-shop-list">
               <div class="agg-shop-row agg-shop-head">
                 <span>{{ t('invColShops') }}</span>
-                <span>{{ aggPackagingLabel(item, t('invColPacked')) }}</span>
+                <span>{{ packagingHeader(item) }}</span>
                 <span>{{ aggUnitLabel(item, t('invColLoose')) }}</span>
               </div>
               <div v-for="(shop, idx) in item.shops" :key="idx" class="agg-shop-row">
@@ -222,7 +222,7 @@ import { Package, Check, ChevronDown, ChevronUp } from 'lucide-vue-next'
 import { useShoppingList } from '@/composables/useShoppingList'
 import { useI18n } from '@/i18n/useI18n'
 import { formatUnits } from '@/composables/useFormatters'
-import { aggPackagingLabel, aggUnitLabel } from '@/utils/inventoryAggLabels'
+import { aggPackagingLabel as aggPackagingLabelOf, aggUnitLabel } from '@/utils/inventoryAggLabels'
 import { currentIntlLocale } from '@/composables/useNumberFormat'
 import InventorySummaryHeader from '@/components/space-workspace/inventory/InventorySummaryHeader.vue'
 import InventorySummaryItemTotal from '@/components/space-workspace/inventory/InventorySummaryItemTotal.vue'
@@ -256,7 +256,7 @@ export default {
   emits: ['start-count-shop'],
 
   setup(props) {
-    const { t } = useI18n()
+    const { t, locale } = useI18n()
     const { aggregated, loading, degraded, error, compute } = useShoppingList()
     const referenceEventId = ref(null)
 
@@ -274,6 +274,7 @@ export default {
 
     return {
       t,
+      locale,
       shoppingAggregated: aggregated,
       shoppingLoading: loading,
       shoppingDegraded: degraded,
@@ -307,7 +308,10 @@ export default {
       return Number(value || 0).toLocaleString(currentIntlLocale(), { maximumFractionDigits: 2 })
     },
     formatUnits,
-    aggPackagingLabel,
+    /** En-tête de la colonne des colis : conditionnement de l'article (« fûts de 30 L »). */
+    packagingHeader(item) {
+      return aggPackagingLabelOf(item, this.t, this.locale)
+    },
     aggUnitLabel,
     /** Exporte la section affichée (réconciliation ouverte ou inventaire en cours). */
     exportCsv() {
@@ -405,6 +409,7 @@ export default {
             itemName: item.name,
             itemPicture: item.picture,
             packagingLabel: item.inventoryPackaging,
+            packSize: item.inventoryQuantityPackaged,
             unit: item.unit,
             totalPackedUnits: packedUnits,
             totalLooseUnits: looseUnits,
@@ -462,6 +467,7 @@ export default {
               itemName,
               itemPicture: item.picture,
               packagingLabel: item.inventoryPackaging,
+            packSize: item.inventoryQuantityPackaged,
               unit: item.unit,
               totalPackedUnits: 0,
               totalLooseUnits: 0,

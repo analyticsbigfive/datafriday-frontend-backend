@@ -2,7 +2,8 @@ import { computed, ref, watch } from 'vue'
 import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
 import { useStorageRowWriter } from '@/composables/useStorageRowWriter'
-import { marketPriceOf, packsToUnits, sharedPackLabel } from '@/utils/bufferPackaging'
+import { marketPriceOf, packsToUnits, packLabelOf, sharedPackLabel } from '@/utils/bufferPackaging'
+import { packSizeMissing } from '@/utils/marketPricePackSize'
 import { splitSpots, findProductRow, filterSpots, aggregateSpot } from '@/components/menu-fb/views/storage/utils/storageSpots'
 
 /**
@@ -36,8 +37,18 @@ export function useStorageSpots({ isOpen, spaceId, productNames, products = ref(
   // Market Price de chaque produit (liste déjà chargée par la page Stockage) : contenance et nom du colis.
   const marketPrices = computed(() => store.getters['marketPrices/rows'] || [])
   const packOf = (ref_) => marketPriceOf(ref_, marketPrices.value)
-  // Libellé du colis à côté du champ tampon : commun à tous les produits, sinon « colis » générique.
+  // Libellé du conditionnement à côté du champ tampon, commun à tous les produits. Null si les
+  // conditionnements diffèrent ou si un Market Price est inconnu : le drawer affiche alors un champ
+  // par produit, avec son propre conditionnement (jamais un mot vague).
   const bufferLabel = computed(() => sharedPackLabel(refs.value.map(packOf), t, locale.value))
+  // Conditionnement propre à chaque produit : { nom: libellé pluriel, '' si Market Price inconnu }.
+  const packLabels = computed(() => Object.fromEntries(refs.value.map((r) => {
+    const mp = packOf(r)
+    return [r.name, mp ? packLabelOf(mp, t, locale.value, { plural: true }) : '']
+  })))
+
+  // Produits qui ont un type de conditionnement mais aucune contenance : alerte « à renseigner ».
+  const missingPackSize = computed(() => refs.value.filter((r) => packSizeMissing(packOf(r))).map((r) => r.name))
 
   const elements = computed(() => store.getters['storageInventory/forSpace'](spaceId.value))
 
@@ -61,7 +72,12 @@ export function useStorageSpots({ isOpen, spaceId, productNames, products = ref(
     loading.value = true
     loadError.value = false
     try {
-      await store.dispatch('storageInventory/fetchForSpace', { spaceId: spaceId.value, force: true })
+      // Le catalogue Market Price donne la contenance et le conditionnement : sans lui, 300 L
+      // s'afficheraient « 300 colis » (contenance 1). La page Stockage le charge déjà, Commandes non.
+      await Promise.all([
+        store.dispatch('storageInventory/fetchForSpace', { spaceId: spaceId.value, force: true }),
+        store.dispatch('marketPrices/fetchRows', { forceRefresh: false }),
+      ])
     } catch {
       loadError.value = true
     } finally {
@@ -87,13 +103,22 @@ export function useStorageSpots({ isOpen, spaceId, productNames, products = ref(
     visible.value.forEach((s) => setStored(s, next))
   }
 
-  /** Tampon d'un Storage, saisi en colis (décimaux permis) et écrit en unités de base. Valeur invalide ou négative ignorée. */
-  function setBuffer(spot, raw) {
+  /**
+   * Tampon d'un Storage, saisi en colis (décimaux permis) et écrit en unités de base. Valeur invalide
+   * ou négative ignorée. `name` = un seul produit (champ par produit), sinon tous. Un produit dont le
+   * Market Price est inconnu n'est jamais écrit : sa contenance n'est pas connue.
+   */
+  function setBuffer(spot, raw, name = null) {
     if (readOnly.value) return
+    // Catalogue absent : la conversion colis vers unités serait fausse (10 écrit comme 10 L). On n'écrit rien.
+    if (!marketPrices.value.length) return
     const n = Number(raw)
     if (raw === '' || !Number.isFinite(n) || n < 0) return
-    setLocal(spot.id, { quantity: n })
-    refs.value.forEach((r) => writer.queue(spot.id, r.name, { quantity: packsToUnits(n, packOf(r)), ...idPatch(r) }))
+    const targets = refs.value.filter((r) => (name === null || r.name === name) && packOf(r))
+    if (!targets.length) return
+    if (name === null) setLocal(spot.id, { quantity: n, quantities: {} })
+    else setLocal(spot.id, { quantity: undefined, quantities: { ...((local.value[spot.id] || {}).quantities || {}), [name]: n } })
+    targets.forEach((r) => writer.queue(spot.id, r.name, { quantity: packsToUnits(n, packOf(r)), ...idPatch(r) }))
   }
 
   /** Fermeture : envoie les écritures en attente puis invalide le cache pour que l'inventaire se relise. */
@@ -121,7 +146,7 @@ export function useStorageSpots({ isOpen, spaceId, productNames, products = ref(
   })
 
   return {
-    bufferLabel, loading, loadError, tab, search, visible, counts, allSelected, someSelected,
+    bufferLabel, packLabels, missingPackSize, loading, loadError, tab, search, visible, counts, allSelected, someSelected,
     saveStatus: writer.status, saveError: writer.error,
     toggle, toggleAll, setBuffer, finish, load,
   }

@@ -4,7 +4,8 @@ import { PrismaService } from '../../../core/database/prisma.service';
 import { StockItemKind } from '../dto/logistics.dto';
 import { salesByElementSince } from '../logistics.queries';
 import { StockItemIdentityService } from './stock-item-identity.service';
-import { SalesRawRow, ItemRef, ElementItem, RecipeCtx } from '../logistics.types';
+import { SalesRawRow, ItemRef, ElementItem, RecipeCtx, MarketPriceByName } from '../logistics.types';
+import { marketPricePackSize } from '../../../shared/utils/market-price-pack-size';
 
 /**
  * Explosion des articles vendus en articles de stock (recettes, composants, conditionnements).
@@ -53,7 +54,7 @@ export class RecipeExplosionService {
               id: true,
               name: true,
               recipeUnit: true,
-              marketPrice: { select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true } },
+              marketPrice: { select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true, unitsPerPurchase: true, purchasePackaging: true } },
             },
           },
         },
@@ -99,7 +100,7 @@ export class RecipeExplosionService {
               id: true,
               name: true,
               recipeUnit: true,
-              marketPrice: { select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true } },
+              marketPrice: { select: { id: true, itemName: true, packedUnits: true, inventoryPackaging: true, unitsPerPurchase: true, purchasePackaging: true } },
             },
           },
         },
@@ -257,7 +258,7 @@ export class RecipeExplosionService {
     // minuscules ici pour la recherche insensible à la casse propre à ce référentiel (ligne
     // ~1114), le tie-break "plus ancien gagne" lui-même reste partagé avec la résolution
     // d'identité stock pour ne pas rediverger comme sur le cas "Badiane".
-    const mpByName = new Map<string, { id: string; itemName: string; packedUnits: number | null; inventoryPackaging: string | null }>();
+    const mpByName = new Map<string, MarketPriceByName>();
     if (unresolvedNames.size) {
       const resolved = await this.stockItemIdentityService.resolveMarketPricesByName([...unresolvedNames], tenantId);
       for (const mp of resolved.values()) mpByName.set(mp.itemName.trim().toLowerCase(), mp);
@@ -322,7 +323,7 @@ export class RecipeExplosionService {
       const mp = ing.marketPrice ?? ctx.mpByName.get(name.toLowerCase());
       refs.push({
         key: name, id: mp?.id ?? ing.id, kind: 'ingredient', refKind: mp ? 'marketPrice' : 'ingredient', unit: ing.recipeUnit ?? null,
-        marketPriceId: mp?.id ?? null, unitsPerPack: mp?.packedUnits ?? null, packagingType: mp?.inventoryPackaging ?? null, picture: null,
+        marketPriceId: mp?.id ?? null, unitsPerPack: marketPricePackSize(mp), packagingType: mp?.inventoryPackaging ?? null, picture: null,
       });
       leafCount++;
     }

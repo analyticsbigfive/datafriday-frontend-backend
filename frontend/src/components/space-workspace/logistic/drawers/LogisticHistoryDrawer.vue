@@ -84,6 +84,8 @@
 <script>
 import { useStore } from 'vuex'
 import { useI18n } from '@/i18n/useI18n'
+import { formatUnits } from '@/composables/useFormatters'
+import { deltaQtyLabel } from '@/composables/useLogisticUnitLabels'
 
 const REASON_META = {
   DELIVERY: { icon: 'mdi-truck-delivery-outline', color: 'success', key: 'logiReasonDelivery' },
@@ -107,12 +109,14 @@ export default {
     modelValue: { type: Boolean, default: false },
     /** { id, name } */
     element: { type: Object, default: null },
+    /** Conditionnement des articles de l'élément : [{ name, packagingType, unitsPerPack, unit }] */
+    items: { type: Array, default: () => [] },
   },
   emits: ['update:modelValue'],
   setup() {
     const store = useStore()
-    const { t } = useI18n()
-    return { store, t }
+    const { t, locale } = useI18n()
+    return { store, t, locale }
   },
   data() {
     return {
@@ -152,7 +156,7 @@ export default {
           title: `${m.itemKey} · ${this.t(meta.key)}`,
           subtitle,
           negative,
-          qtyLabel: this.qtyLabel(m.packedDelta, m.looseDelta),
+          qtyLabel: this.qtyLabel(m),
         })
       }
       // Les opérations de transactions (ventes) sont agrégées par event : 1 ligne.
@@ -202,11 +206,10 @@ export default {
     round(n) {
       return Math.round((Number(n) || 0) * 100) / 100
     },
-    qtyLabel(packedDelta, looseDelta) {
-      const parts = []
-      if (packedDelta) parts.push(`${packedDelta > 0 ? '+' : ''}${packedDelta} ${this.t('logiPackedShort')}`)
-      if (looseDelta) parts.push(`${looseDelta > 0 ? '+' : ''}${this.round(looseDelta)} ${this.t('logiLooseShort')}`)
-      return parts.join(' · ') || '—'
+    /** Variation du mouvement en conditionnement de l'article (type, contenance, unité). */
+    qtyLabel(m) {
+      const item = this.items.find((it) => it.name === m.itemKey)
+      return deltaQtyLabel(m.packedDelta, this.round(m.looseDelta), item, item?.unitsPerPack, this.t, this.locale, formatUnits)
     },
     formatDate(d) {
       const date = new Date(d)

@@ -1,9 +1,10 @@
 import {
   packSizeOf, packLabelOf, unitsToPacks, packsToUnits, formatPacks, bufferPacksText,
   sharedPackLabel,
+  bufferDisplayText,
 } from '@/utils/bufferPackaging'
 
-const dict = { logiPackagingOf: 'de', bufferPacksGeneric: 'colis' }
+const dict = { logiPackagingOf: 'de' }
 const t = (k) => dict[k] || k
 
 const keg = { id: 'k', itemName: 'Bière', inventoryPackaging: 'Keg', inventoryQuantityPackaged: 20, unit: 'L' }
@@ -26,9 +27,9 @@ describe('packLabelOf', () => {
     expect(packLabelOf(keg, t, 'fr', { plural: true })).toBe('fûts de 20 L')
     expect(packLabelOf(pack4, t, 'fr')).toBe('paquet de 4 unités')
   })
-  it('sans conditionnement : unité du Market Price, sinon mot générique', () => {
+  it('sans conditionnement : unité réelle du Market Price, jamais de mot vague', () => {
     expect(packLabelOf(bare, t, 'fr')).toBe('kg')
-    expect(packLabelOf(null, t, 'fr')).toBe('colis')
+    expect(packLabelOf(null, t, 'fr')).toBe('')
   })
   it('type sans contenance : le type seul', () => {
     expect(packLabelOf({ inventoryPackaging: 'Bag', unit: 'kg' }, t, 'en', { plural: true })).toBe('bags')
@@ -68,9 +69,19 @@ describe('textes', () => {
     expect(bufferPacksText(20, keg, t, 'fr')).toBe('1 fût de 20 L')
     expect(bufferPacksText(20, pack4, t, 'fr')).toBe('5 paquets de 4 unités')
   })
-  it('sharedPackLabel : commun ou générique', () => {
+  it('sharedPackLabel : commun, sinon null (un champ par produit)', () => {
     expect(sharedPackLabel([keg, keg], t, 'fr')).toBe('fûts de 20 L')
-    expect(sharedPackLabel([keg, pack4], t, 'fr')).toBe('colis')
-    expect(sharedPackLabel([keg, null], t, 'fr')).toBe('colis')
+    expect(sharedPackLabel([keg, pack4], t, 'fr')).toBeNull()
+    expect(sharedPackLabel([keg, null], t, 'fr')).toBeNull()
+  })
+})
+
+describe('bufferDisplayText', () => {
+  it('conditionnement connu : colis + quantité réelle entre parenthèses', () => {
+    expect(bufferDisplayText(240, keg, t, 'fr', '240 L')).toBe('12 fûts de 20 L (240 L)')
+  })
+  it('sans conditionnement ou Market Price inconnu : unité réelle seule, jamais de mot vague', () => {
+    expect(bufferDisplayText(300, bare, t, 'fr', '300 kg')).toBe('300 kg')
+    expect(bufferDisplayText(300, null, t, 'fr', '300 L')).toBe('300 L')
   })
 })

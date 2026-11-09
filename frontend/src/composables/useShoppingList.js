@@ -16,6 +16,7 @@ import { useStore } from 'vuex'
 import { fetchReferenceSales } from '@/composables/useReferenceSales'
 import { aggregateSalesToPredictedRecords } from '@/utils/salesAggregation'
 import { buildStockRequirements, isPackagingComponent } from '@/utils/stockPlanning'
+import { marketPricePackSize } from '@/utils/marketPricePackSize'
 import { buildShoppingList } from '@/utils/shoppingList'
 import { getShopElementMappings } from '@/utils/api'
 
@@ -33,7 +34,7 @@ export function buildQuantityPackagedIndex(marketPrices = [], components = []) {
     if (name) byName.set(String(name).toLowerCase(), q)
   }
   ;(marketPrices || []).forEach((mp) =>
-    put(mp.id, mp.itemName, mp.inventoryQuantityPackaged),
+    put(mp.id, mp.itemName, marketPricePackSize(mp)),
   )
   ;(components || []).forEach((c) =>
     put(c.id, c.name, c.inventoryQuantityPackaged),

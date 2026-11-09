@@ -44,7 +44,7 @@
           <strong class="rss-name" :title="line.name">{{ line.name }}</strong>
           <small v-if="detail(line)" class="rss-detail">{{ detail(line) }}</small>
           <small v-if="line.transferPacks > 0" class="rss-detail" data-test="summary-transfers">
-            {{ transferLabel(line.transferPacks) }}
+            {{ transferLabel(line) }}
           </small>
           <small v-if="line.split" class="rss-detail" data-test="summary-split">
             {{ t('srStorageSummarySplit').replace('{direct}', line.split.direct).replace('{added}', line.split.added) }}
@@ -68,7 +68,8 @@
 import { useI18n } from '@/i18n/useI18n'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import { marginPercent } from '@/utils/restockStorageSummary'
-import { circuitPackNounKey } from '@/utils/restockCircuitDisplay'
+import { conditionnementParts } from '@/utils/packQuantityText'
+import { formatPacks } from '@/utils/bufferPackaging'
 import { vValuePulse } from '@/composables/useValuePulse'
 
 const VISIBLE_COUNT = 5
@@ -86,8 +87,8 @@ export default {
   },
   emits: ['update:includeStorage'],
   setup() {
-    const { t } = useI18n()
-    return { t, formatCurrencyDetailed }
+    const { t, locale } = useI18n()
+    return { t, locale, formatCurrencyDetailed }
   },
   data() {
     return { expanded: false }
@@ -126,11 +127,13 @@ export default {
     },
   },
   methods: {
-    /** « N colis transférés entre PDV » (circuit de réarmement). */
-    transferLabel(packs) {
+    /** « 2 fûts de 30 L transférés entre PDV » (conditionnement de l'article, circuit de réarmement). */
+    transferLabel(line) {
+      const packs = line.transferPacks
+      const { value, label } = conditionnementParts({ count: packs, ...line.transferPack }, this.t, this.locale)
       return this.t(packs === 1 ? 'srCircuitTransferredOne' : 'srCircuitTransferred')
-        .replace('{n}', packs)
-        .replace('{unit}', this.t(circuitPackNounKey(packs)))
+        .replace('{n}', formatPacks(value, this.locale))
+        .replace('{unit}', label)
     },
     /** « a/b PDV » puis « et c/d Stock » : uniquement ce que les données donnent. */
     detail(line) {

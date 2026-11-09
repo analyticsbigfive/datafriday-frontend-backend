@@ -1192,7 +1192,7 @@ describe('InventoryService', () => {
 
     function wireCatalogs({
       menuItems = [] as Array<{ id: string; name: string; inventoryNumberOfUnits?: number }>,
-      marketPrices = [] as Array<{ id: string; itemName: string; packedUnits?: number | null; unitsPerPurchase?: number | null }>,
+      marketPrices = [] as Array<{ id: string; itemName: string; packedUnits?: number | null; unitsPerPurchase?: number | null; inventoryPackaging?: string | null; purchasePackaging?: string | null }>,
       components = [] as Array<{ id: string; name: string; packedUnits?: number | null }>,
     }) {
       mockPrisma.menuItem.findMany.mockImplementation(
@@ -1326,14 +1326,28 @@ describe('InventoryService', () => {
       wireCatalogs({
         menuItems: [],
         marketPrices: [
-          { id: 'mp-defacto', itemName: 'Barquette Hot dog', packedUnits: 1200, unitsPerPurchase: 1200 },
-          { id: 'mp-0000000', itemName: 'Barquette Hot dog', packedUnits: 0, unitsPerPurchase: 100 },
+          { id: 'mp-defacto', itemName: 'Barquette Hot dog', packedUnits: 1200, unitsPerPurchase: 1200, inventoryPackaging: 'Carton', purchasePackaging: 'Carton' },
+          { id: 'mp-0000000', itemName: 'Barquette Hot dog', packedUnits: 0, unitsPerPurchase: 100, inventoryPackaging: 'Carton', purchasePackaging: 'Carton' },
         ],
         components: [],
       });
       const upp = await (inventoryUnitResolverService as any).resolveInventoryUnitsPerPack(['mp-0000000', 'mp-defacto'], 'tenant-1');
       expect(upp.get('mp-0000000')).toBe(100);
       expect(upp.get('mp-defacto')).toBe(1200);
+    });
+
+    it('conditionnement : Coca Carton/Carton, packedUnits 1 et unitsPerPurchase 24 donne 24 ; types differents ne donnent pas la contenance d\'achat', async () => {
+      wireCatalogs({
+        menuItems: [],
+        marketPrices: [
+          { id: 'mp-coca', itemName: 'Coca SS', packedUnits: 1, unitsPerPurchase: 24, inventoryPackaging: 'Carton', purchasePackaging: 'Carton' },
+          { id: 'mp-mix', itemName: 'Sachet mixte', packedUnits: null, unitsPerPurchase: 12, inventoryPackaging: 'Sachet', purchasePackaging: 'Box' },
+        ],
+        components: [],
+      });
+      const upp = await (inventoryUnitResolverService as any).resolveInventoryUnitsPerPack(['mp-coca', 'mp-mix'], 'tenant-1');
+      expect(upp.get('mp-coca')).toBe(24);
+      expect(upp.get('mp-mix')).toBe(1);
     });
   });
 

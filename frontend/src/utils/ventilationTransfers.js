@@ -70,6 +70,7 @@ export function buildTransfers({ groups = [], sourcePacks = () => null, reserved
       itemName: group.itemName,
       packagingType: group.packagingType ?? null,
       unitsPerPack: group.unitsPerPack ?? null,
+      unit: group.unit ?? null,
       shopId: row.shopId,
       shopName: row.shopName,
     })
@@ -172,6 +173,8 @@ export function summarizeSource({ groups = [], result, sourcePacks, reservedPack
       itemKey: g.itemKey,
       itemName: g.itemName,
       packagingType: g.packagingType ?? null,
+      unitsPerPack: g.unitsPerPack ?? null,
+      unit: g.unit ?? null,
       stock,
       reserved,
       available,

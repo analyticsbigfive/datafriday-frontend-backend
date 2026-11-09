@@ -2,6 +2,7 @@
 // 2026-10-09) : la liste AFFICHÉE, filtres compris, mise à plat pour
 // utils/tableExport.js. Fonctions PURES : libellés et lectures de stock injectés.
 
+import { conditionnementText } from '@/utils/packQuantityText'
 import { splitGroupRows, groupDepositGroupsByShop, VENTILATION_VIEW_BY_SHOP } from '@/utils/ventilationViews'
 
 /**
@@ -65,11 +66,13 @@ export function ventilationExportTable({ groups, storages, mode, t, quantityLabe
  * @param {(elementId, item)=>{packed:number, loose:number}} p.expectedFor stock attendu
  * @param {(elementId, item)=>'ok'|'warn'|'bad'} p.statusFor
  * @param {(elementId, item)=>number|null} [p.needFor] « À déposer » du match
+ * @param {(elementId, item)=>number|null} [p.unitsPerPackFor] contenance d'un colis (conditionnement)
  * @param {(key:string)=>string} p.t
+ * @param {string} [p.locale]
  * @param {string} p.title
  * @param {string} [p.subtitle]
  */
-export function stockExportTable({ entries, byItem = false, itemsFor, expectedFor, statusFor, needFor, t, title, subtitle }) {
+export function stockExportTable({ entries, byItem = false, itemsFor, expectedFor, statusFor, needFor, unitsPerPackFor, t, locale = 'fr', title, subtitle }) {
   const statusLabel = { ok: t('logiExportStatusOk'), warn: t('logiRowLowStock'), bad: t('logiRowRuptures') }
   const rows = []
   for (const entry of entries || []) {
@@ -80,6 +83,12 @@ export function stockExportTable({ entries, byItem = false, itemsFor, expectedFo
         element: entry.element.name,
         item: item.name,
         packed: expected.packed,
+        // Colis en conditionnement (« 3 fûts de 30 L »), unité réelle sans type.
+        packedText: conditionnementText(
+          { count: expected.packed, packagingType: item.packagingType, unitsPerPack: unitsPerPackFor ? unitsPerPackFor(entry.element.id, item) : item.unitsPerPack, unit: item.unit },
+          t,
+          locale,
+        ),
         loose: expected.loose,
         unit: item.unit || '',
         status: statusLabel[statusFor(entry.element.id, item)] || '',
@@ -92,7 +101,7 @@ export function stockExportTable({ entries, byItem = false, itemsFor, expectedFo
   const itemCol = { key: 'item', label: t('logiExportItem') }
   const columns = [
     ...(byItem ? [itemCol, elementCol] : [elementCol, itemCol]),
-    { key: 'packed', label: t('logiExportStockPacks') },
+    { key: 'packedText', label: t('logiExportStockPacks') },
     { key: 'loose', label: t('logiExportStockUnits') },
     { key: 'unit', label: t('logiExportUnit') },
     { key: 'status', label: t('logiExportStatus') },

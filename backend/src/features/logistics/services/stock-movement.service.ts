@@ -7,6 +7,7 @@ import { LogisticsElementScopeService } from './logistics-element-scope.service'
 import { RecipeExplosionService } from './recipe-explosion.service';
 import { StockItemIdentityService } from './stock-item-identity.service';
 import { SpaceScopedUser, ElementRef } from '../logistics.types';
+import { marketPricePackSize } from '../../../shared/utils/market-price-pack-size';
 
 /**
  * Mouvements de stock : entrées, sorties, transferts, annulation et historique.
@@ -75,7 +76,7 @@ export class StockMovementService {
     if (dto.marketPriceId) {
       const mp = await this.prisma.marketPrice.findFirst({
         where: { id: dto.marketPriceId, tenantId, deletedAt: null },
-        select: { packedUnits: true, itemName: true },
+        select: { packedUnits: true, unitsPerPurchase: true, inventoryPackaging: true, purchasePackaging: true, itemName: true },
       });
       if (!mp) throw new NotFoundException(`Market price ${dto.marketPriceId} not found`);
       // BUG-049 : le marketPriceId fourni doit correspondre à la denrée (itemKey) du
@@ -98,7 +99,7 @@ export class StockMovementService {
           );
         }
       }
-      unitsPerPack = mp.packedUnits ?? null;
+      unitsPerPack = marketPricePackSize(mp);
     } else {
       // Aucun marketPriceId (toujours le cas pour un produit fini/component, cf. BUG-032/049 :
       // itemRefsForMenuItem ne leur attache jamais de Market Price) → sans repli, unitsPerPack
@@ -306,9 +307,9 @@ export class StockMovementService {
     if (source.marketPriceId) {
       const mp = await this.prisma.marketPrice.findFirst({
         where: { id: source.marketPriceId, tenantId, deletedAt: null },
-        select: { packedUnits: true },
+        select: { packedUnits: true, unitsPerPurchase: true, inventoryPackaging: true, purchasePackaging: true },
       });
-      unitsPerPack = mp?.packedUnits ?? null;
+      unitsPerPack = marketPricePackSize(mp);
     } else {
       unitsPerPack = await this.stockItemIdentityService.resolveUnitsPerPackForItemKey(source.itemKey, tenantId);
     }
