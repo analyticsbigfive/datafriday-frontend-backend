@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { SpaceAccessService } from '../../../core/auth/space-access.service';
+import { roleSpaceRank } from '../role-space.util';
+export { roleSpaceRank };
 import { SinkingRuleInput, DEFAULT_OFFSET_OPEN_MINUTES, DEFAULT_OFFSET_CLOSE_MINUTES } from '../staffing-calculator.service';
 import {
   parseEventSessions,
@@ -256,13 +258,10 @@ export class StaffingContextService {
     if (role.contractType && role.contractType !== 'AGENCY') {
       return { ...none, supplierType: role.contractType };
     }
-    // "Espaces" de l'Agence (HrSupplier.spaceIds, 2026-08-04) : n'est éligible au repli
-    // automatique qu'une agence sans restriction déclarée (liste vide) ou couvrant CET
-    // espace — évite de proposer une agence configurée pour un autre espace. Liste vide =
-    // pas de restriction déclarée par le tenant, éligible partout (ce champ était jusque-là
-    // purement décoratif, aucune agence existante ne l'avait renseigné).
+    // "Espaces" de l'Agence (HrSupplier.spaceIds) : seule une agence couvrant CET espace est
+    // éligible au repli automatique ; sans espace associé, elle ne s'affiche nulle part.
     const eligibleSupplierId = (role.suppliers ?? []).find(
-      (rs: any) => !rs.supplier?.spaceIds?.length || rs.supplier.spaceIds.includes(spaceId),
+      (rs: any) => rs.supplier?.spaceIds?.includes(spaceId),
     )?.supplierId as string | undefined;
     const defaultSupplierId = hr.defaultSupplierByRole.get(role.id) ?? eligibleSupplierId;
     if (defaultSupplierId) {
@@ -277,16 +276,4 @@ export class StaffingContextService {
     }
     return { ...none, supplierType: 'AGENCY' };
   }
-}
-
-/**
- * Le rôle sert-il cet espace ? 0 = non (toutes ses agences desservent d'autres espaces),
- * 2 = une de ses agences dessert cet espace, 1 = rôle sans agence ou agence sans restriction.
- */
-export function roleSpaceRank(role: any, spaceId: string): number {
-  const links: any[] = role?.suppliers ?? [];
-  if (!links.length) return 1;
-  if (links.some((l) => l.supplier?.spaceIds?.includes(spaceId))) return 2;
-  if (links.some((l) => !l.supplier?.spaceIds?.length)) return 1;
-  return 0;
 }

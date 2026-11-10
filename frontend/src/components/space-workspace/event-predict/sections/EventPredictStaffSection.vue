@@ -547,12 +547,21 @@ onMounted(async () => {
     persons.value = await getHrPersons()
   } catch (_) {
     persons.value = []
-  }  try {
-    roles.value = await getHrRoles()
-  } catch (_) {
-    roles.value = []
   }
 })
+
+// Rôles proposés à l'ajout d'un staff : seulement ceux qui servent l'espace de l'event.
+watch(
+  () => settings.value?.spaceId,
+  async (spaceId) => {
+    try {
+      roles.value = await getHrRoles(spaceId)
+    } catch (_) {
+      roles.value = []
+    }
+  },
+  { immediate: true },
+)
 </script>
 
 <style scoped>
