@@ -3,7 +3,6 @@
     v-if="tool && subtypeOptions.length"
     :title="`${t('b2SubtypesPrefix')} ${tool.label}`"
     :icon="tool.icon"
-    default-open
   >
     <div class="st-list">
       <label

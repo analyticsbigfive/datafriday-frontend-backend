@@ -1,5 +1,5 @@
 <template>
-  <SectionCard :title="t('b2ShopsTitle')" icon="mdi-store" :default-open="true">
+  <SectionCard :title="t('b2ShopsTitle')" icon="mdi-store">
     <template #meta>
       <v-chip size="x-small" variant="tonal">{{ selectedIds.size }}/{{ shops.length }}</v-chip>
     </template>
