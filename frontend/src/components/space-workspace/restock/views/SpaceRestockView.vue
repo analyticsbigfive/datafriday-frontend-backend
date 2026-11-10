@@ -1080,11 +1080,6 @@
                   >{{ groupPackTotalLabel(group) }}</span>
                   <div class="sr-group-head-actions">
                     <span>{{ group.rows.length }} {{ group.rows.length > 1 ? t('srShopPlural') : t('srShopSingular') }}</span>
-                    <button
-                      type="button"
-                      class="sr-inline-btn"
-                      @click="setGroupRestocked(group, !isGroupRestocked(group))"
-                    >{{ isGroupRestocked(group) ? t('srUncheckAll') : t('srConfirmAll') }}</button>
                   </div>
                 </div>
               </header>
@@ -1194,15 +1189,6 @@
               <p v-if="!canGenerate" class="sr-wizard-nav-hint">
                 <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>{{ cannotGenerateReason }}
               </p>
-              <v-btn
-                color="primary"
-                variant="flat"
-                :disabled="!canGenerate"
-                @click="generateShoppingList()"
-              >
-                <v-icon size="16" class="mr-1">mdi-cart-outline</v-icon>
-                {{ t('srShoppingList') }}
-              </v-btn>
             </div>
           </footer>
         </v-card>
@@ -6250,19 +6236,6 @@ export default {
     markAllVisibleRestocked(checked) {
       const next = { ...this.restockedRows }
       this.filteredRestockRows.forEach((row) => {
-        next[row.rowKey] = !!checked
-      })
-      this.restockedRows = next
-      if (this.loadedPlanId) this.markPlanDirty()
-    },
-    /** Toutes les lignes (boutiques) de la carte article sont-elles confirmées ? */
-    isGroupRestocked(group) {
-      return (group?.rows || []).length > 0 && group.rows.every((row) => this.isRestocked(row.rowKey))
-    },
-    /** Confirme / décoche d'un coup toutes les boutiques d'une carte article. */
-    setGroupRestocked(group, checked) {
-      const next = { ...this.restockedRows }
-      ;(group?.rows || []).forEach((row) => {
         next[row.rowKey] = !!checked
       })
       this.restockedRows = next
