@@ -57,6 +57,26 @@ export function toggleName(selected, name) {
   return list.includes(name) ? list.filter((n) => n !== name) : [...list, name]
 }
 
+/** Noms des articles de la liste affichée (sans doublon ni nom vide). */
+export function allItemNames(rows) {
+  const list = Array.isArray(rows) ? rows : []
+  return [...new Set(list.map((r) => r && r.itemName).filter((n) => n != null && n !== ''))]
+}
+
+/** « none » | « some » | « all » : état de la case « Tout sélectionner ». */
+export function selectAllState(selected, rows) {
+  const names = allItemNames(rows)
+  const sel = Array.isArray(selected) ? selected : []
+  const count = names.filter((n) => sel.includes(n)).length
+  if (count === 0) return 'none'
+  return count === names.length ? 'all' : 'some'
+}
+
+/** Sélection après clic sur « Tout sélectionner » : tout coché → vide, sinon tout. */
+export function nextSelectAll(selected, rows) {
+  return selectAllState(selected, rows) === 'all' ? [] : allItemNames(rows)
+}
+
 const round2 = (n) => Math.round(n * 100) / 100
 
 /** Reconstruit une ligne agrégée depuis la liste de PdV qui lui reste. */
