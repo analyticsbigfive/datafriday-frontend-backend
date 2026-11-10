@@ -4,7 +4,9 @@
       <div class="rss-head-row">
         <span class="rss-title">{{ t('srStorageSummaryTitle') }}</span>
         <strong class="rss-total">{{ t('srStorageSummaryCa') }} {{ revenueLabel }}</strong>
+        <RestockCollapseToggle :expanded="!collapsed" @toggle="collapsed = !collapsed" />
       </div>
+      <div v-show="!collapsed" class="rss-head-more">
       <div class="rss-sub-row">
         <span class="rss-subtitle">{{ subtitle }}</span>
         <span class="rss-margin">{{ t('srStorageSummaryMargin') }} {{ marginLabel }}</span>
@@ -30,8 +32,10 @@
       >
         <span class="rss-progress-fill" :style="{ width: progressPercent + '%' }" />
       </div>
+      </div>
     </header>
 
+    <div v-show="!collapsed" class="rss-body">
     <p v-if="!summary.lines.length" class="rss-empty">{{ t('srStorageSummaryEmpty') }}</p>
 
     <ul v-else class="rss-list">
@@ -61,11 +65,13 @@
       <v-icon size="14" class="rss-toggle-icon">{{ expanded ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
       {{ expanded ? t('srStorageSummarySeeLess') : seeAllLabel }}
     </button>
+    </div>
   </div>
 </template>
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import RestockCollapseToggle from '@/components/space-workspace/restock/components/RestockCollapseToggle.vue'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import { marginPercent } from '@/utils/restockStorageSummary'
 import { conditionnementParts } from '@/utils/packQuantityText'
@@ -76,6 +82,7 @@ const VISIBLE_COUNT = 5
 
 export default {
   name: 'RestockStorageSummary',
+  components: { RestockCollapseToggle },
   directives: { valuePulse: vValuePulse },
   props: {
     /** Sortie de buildStorageSummary : { total, selectedCount, totalCount, lines }. */
@@ -91,7 +98,7 @@ export default {
     return { t, locale, formatCurrencyDetailed }
   },
   data() {
-    return { expanded: false }
+    return { expanded: false, collapsed: false }
   },
   computed: {
     subtitle() {
@@ -168,6 +175,8 @@ export default {
   margin-bottom: 16px;
 }
 .rss-head { display: flex; flex-direction: column; gap: 4px; }
+.rss-head-more { display: flex; flex-direction: column; gap: 4px; }
+.rss-body { display: contents; }
 .rss-head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .rss-title {
   min-width: 0;

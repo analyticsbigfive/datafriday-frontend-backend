@@ -6,7 +6,10 @@
         {{ t('srSuppliersPreviewTitle') }}
       </span>
       <span class="rsp-count">{{ groups.length }}</span>
+      <RestockCollapseToggle :expanded="!collapsed" @toggle="collapsed = !collapsed" />
     </header>
+
+    <div v-show="!collapsed" class="rsp-body">
 
     <p v-if="!generated" class="rsp-empty">{{ t('srSuppliersPreviewHint') }}</p>
     <p v-else-if="!groups.length" class="rsp-empty">{{ t('srSuppliersPreviewEmpty') }}</p>
@@ -42,11 +45,13 @@
         </button>
       </div>
     </div>
+    </div>
   </div>
 </template>
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import RestockCollapseToggle from '@/components/space-workspace/restock/components/RestockCollapseToggle.vue'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
 
 /**
@@ -56,6 +61,7 @@ import { formatCurrencyDetailed } from '@/composables/useFormatters'
  */
 export default {
   name: 'RestockSuppliersPanel',
+  components: { RestockCollapseToggle },
   props: {
     groups: { type: Array, default: () => [] },
     generated: { type: Boolean, default: false },
@@ -64,6 +70,9 @@ export default {
   setup() {
     const { t } = useI18n()
     return { t, formatCurrencyDetailed }
+  },
+  data() {
+    return { collapsed: false }
   },
   methods: {
     /**
@@ -105,7 +114,9 @@ export default {
   border-radius: 12px;
   box-shadow: var(--fb-shadow-card, 0 1px 3px rgba(15, 23, 42, 0.04));
 }
-.rsp-head { display: flex; align-items: center; justify-content: space-between; }
+.rsp-head { display: flex; align-items: center; gap: 8px; }
+.rsp-head .rsp-title { margin-right: auto; }
+.rsp-body { display: contents; }
 .rsp-title {
   display: flex;
   align-items: center;

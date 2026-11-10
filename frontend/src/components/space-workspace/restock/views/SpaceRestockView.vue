@@ -61,8 +61,10 @@
               <template v-if="objectiveSource === 'sales'">{{ t('srReferenceEventChip') }}</template>
               <template v-else>{{ selectedEventIds.length }} {{ selectedEventIds.length > 1 ? t('srSelectedPlural') : t('srSelectedSingular') }}</template>
             </v-chip>
+            <RestockCollapseToggle :expanded="!eventsCollapsed" @toggle="eventsCollapsed = !eventsCollapsed" />
           </header>
 
+          <div v-show="!eventsCollapsed" class="sr-events-body">
           <!-- Lot 5 (JLH) — plusieurs évènements cochés = leurs besoins s'ADDITIONNENT
                en un seul objectif. Rien ne le disait : on l'annonce, avec le raccourci
                vers l'étape 1 où la répartition se règle (article par article, curseur %). -->
@@ -135,6 +137,7 @@
           />
 
           <!-- Action principale au plus près de la prédiction sélectionnée. -->
+          </div>
         </v-card>
       </aside>
 
@@ -241,26 +244,6 @@
             <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>{{ cannotGenerateReason }}
           </p>
         </header>
-        <!-- Bandeau « plan chargé » : les 3 étapes affichent la PHOTO du plan,
-             pas le calcul vivant (ADR-0005). -->
-        <div v-if="loadedPlanId" class="sr-plan-banner" role="status">
-          <v-icon size="16" class="sr-plan-banner__icon">mdi-file-lock-outline</v-icon>
-          <span class="sr-plan-banner__text">
-            {{ t('srPlanLoadedBanner') }}
-            <strong>{{ loadedPlanMeta?.name || t('srPlanUnnamed') }}</strong>
-            <span v-if="planDirty" class="sr-plan-banner__dirty"> · {{ t('srPlanDirtyHint') }}</span>
-          </span>
-          <v-btn
-            size="x-small"
-            variant="text"
-            class="sr-plan-banner__btn"
-            :disabled="!canWritePlans"
-            :title="canWritePlans ? undefined : t('srPlanReadOnlyHint')"
-            @click="editLoadedPlan"
-          >
-            {{ t('srPlanEdit') }}
-          </v-btn>
-        </div>
         <!-- Modification d'un plan : l'enregistrement se fait au clic sur
              « Générer la Commande ». -->
         <div v-if="editingPlanId && !loadedPlanId" class="sr-plan-banner sr-plan-banner--editing" role="status">
@@ -279,7 +262,22 @@
           :current-step="currentStep"
           :unlocked="ordersUnlocked"
           @select="onWorkflowTab"
-        />
+        >
+          <template #actions>
+            <v-btn
+              class="sr-order-action"
+              color="primary"
+              variant="flat"
+              size="small"
+              :disabled="!loadedPlanId && !canGenerate"
+              :loading="previousInventoryLoading || planAutosaving"
+              @click="onOrderAction"
+            >
+              <v-icon size="16" class="mr-1">mdi-table-plus</v-icon>
+              {{ loadedPlanId || editingPlanId ? t('srUpdateOrder') : t('srGenerateRestock') }}
+            </v-btn>
+          </template>
+        </RestockWorkflowTabs>
 
         <v-card v-show="currentStep === 1" variant="outlined" class="sr-panel sr-step1">
           <!-- Maquette 27/28 : titre, onglets PDV / STOCK (icône + texte, sans
@@ -315,17 +313,6 @@
                 </v-chip>
               </button>
             </div>
-            <v-btn
-              class="s1-generate"
-              color="primary"
-              variant="flat"
-              :disabled="!canGenerate"
-              :loading="previousInventoryLoading || planAutosaving"
-              @click="generateOrder"
-            >
-              <v-icon size="16" class="mr-1">mdi-table-plus</v-icon>
-              {{ editingPlanId ? t('srUpdateOrder') : t('srGenerateRestock') }}
-            </v-btn>
           </header>
         <!-- Échec définitif d'un chargement catalogue (après essais) : bandeau discret. -->
         <div v-if="hasCatalogFailure" class="s1-warn" role="status">
@@ -1439,12 +1426,11 @@
            carte englobante + items façon « Résumé inventaire » de Space Inventory. -->
       <aside class="sr-suppliers" :class="{ 'sr-suppliers--step1': currentStep === 1 }">
         <RestockStorageSummary
-          v-if="currentStep === 1"
           v-model:include-storage="summaryIncludeStorage"
           :summary="storageSummary"
           :predicted-revenue="storagePredictedRevenue"
         />
-        <RestockComponentOrdersPanel v-if="currentStep === 1" :panel="componentOrdersPanel" />
+        <RestockComponentOrdersPanel :panel="componentOrdersPanel" />
         <RestockSuppliersPanel
           :groups="suppliersPanelGroups"
           :generated="shoppingGenerated"
@@ -1791,6 +1777,7 @@ import { collectPdvBuffers, applyPdvBuffers, targetWithBuffer } from '@/utils/pd
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 import MarketPriceEditSupplierDrawer from '@/components/menu-fb/views/market-prices/drawers/MarketPriceEditSupplierDrawer.vue'
 import RestockPlansPanel from '@/components/space-workspace/restock/RestockPlansPanel.vue'
+import RestockCollapseToggle from '@/components/space-workspace/restock/components/RestockCollapseToggle.vue'
 import RestockPlanDuplicateDialog from '@/components/space-workspace/restock/RestockPlanDuplicateDialog.vue'
 import { eventSetKey, findPlansForEvents, latestPlan, suggestPlanName } from '@/utils/restockPlanMatch'
 import RestockStorageSummary from '@/components/space-workspace/restock/components/RestockStorageSummary.vue'
@@ -1858,7 +1845,7 @@ function extractInventoryCounts(payload) {
 export default {
   name: 'SpaceRestockView',
   directives: { valuePulse: vValuePulse },
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockPlanDuplicateDialog, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, RestockWorkflowTabs, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockPlanDuplicateDialog, RestockCollapseToggle, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, RestockWorkflowTabs, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -1897,6 +1884,8 @@ export default {
       // Affichage du panneau latéral (filtres / objectif / events) — bascule via
       // l'icône du bandeau. Ouvert par défaut.
       showFilters: true,
+      // Section « Événements » de la colonne de gauche repliée (retour Bertrand 2026-11-10).
+      eventsCollapsed: false,
       loading: false,
       catalogRetrying: false,
       previousInventoryLoading: false,
@@ -4575,6 +4564,20 @@ export default {
      * Clic sur un onglet. Revenir à « Éléments à stocker » alors qu'une commande
      * est ouverte la détache pour la rendre modifiable (editLoadedPlan).
      */
+    /**
+     * Bouton « Mettre à jour la Commande » de la barre d'onglets (tous les onglets).
+     * Commande ouverte : passe en modification (même chemin que l'ancien « Modifier »)
+     * puis met à jour la commande en un seul clic. Sinon : génère la commande.
+     */
+    async onOrderAction() {
+      // Commande ouverte : elle passe en modification puis est régénérée et réenregistrée
+      // dans le même geste (un seul clic, retour Bertrand 2026-11-10).
+      if (this.loadedPlanId) {
+        await this.editLoadedPlan()
+        if (this.loadedPlanId || !this.editingPlanId) return
+      }
+      if (this.canGenerate) await this.generateOrder()
+    },
     async onWorkflowTab(step) {
       if (step === this.currentStep) return
       if (step === 1 && this.loadedPlanId) {
@@ -7217,6 +7220,8 @@ export default {
   margin-bottom: 16px;
 }
 
+.sr-events-head > div:first-child { margin-right: auto; }
+.sr-events-body { display: contents; }
 .sr-panel-head {
   display: flex;
   justify-content: space-between;

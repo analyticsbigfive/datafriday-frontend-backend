@@ -15,9 +15,10 @@
       <v-chip v-else size="x-small" class="rpp-count" variant="tonal">
         {{ plans.length }}
       </v-chip>
+      <RestockCollapseToggle :expanded="!collapsed" @toggle="collapsed = !collapsed" />
     </header>
 
-    <div class="rpp-body">
+    <div v-show="!collapsed" class="rpp-body">
     <!-- Lot 3 — l'échec de chargement était invisible : `available` restait à
          null sur erreur non-404, ce qui masquait le panneau ET le bouton
          « Sauvegarder le plan », sans message ni retry. -->
@@ -139,10 +140,12 @@
 // d'écriture viennent du parent ; toute action remonte en émission — le panneau
 // ne parle jamais à l'API lui-même. Extrait de SpaceRestockView (6 300 lignes).
 import { useI18n } from '@/i18n/useI18n'
+import RestockCollapseToggle from '@/components/space-workspace/restock/components/RestockCollapseToggle.vue'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 
 export default {
   name: 'RestockPlansPanel',
+  components: { RestockCollapseToggle },
   props: {
     /** Métadonnées des plans (useRestockPlans.plans) — jamais les photos. */
     plans: { type: Array, default: () => [] },
@@ -163,6 +166,7 @@ export default {
   },
   data() {
     return {
+      collapsed: false,
       renamingId: null,
       renameValue: '',
       deletingPlan: null,
@@ -226,6 +230,7 @@ export default {
   background: var(--sr-subtle, var(--fb-surface-subtle, #f8fafc));
   border-bottom: 1px solid var(--sr-border, var(--fb-border, #e5e7eb));
 }
+.rpp-head > div:first-child { margin-right: auto; }
 .rpp-head h2 {
   font-size: 14px;
   font-weight: 700;
