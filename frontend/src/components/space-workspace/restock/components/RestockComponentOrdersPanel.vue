@@ -4,9 +4,12 @@
       <div class="rco-head-row">
         <span class="rco-title">{{ t('srComponentOrdersTitle') }}</span>
         <strong v-if="panel.lines.length" class="rco-total">{{ formatCurrencyDetailed(panel.total) }}</strong>
+        <RestockCollapseToggle :expanded="!collapsed" @toggle="collapsed = !collapsed" />
       </div>
-      <p v-if="panel.hasUnknownCost" class="rco-note">{{ t('srComponentOrdersCostUnknown') }}</p>
+      <p v-if="panel.hasUnknownCost && !collapsed" class="rco-note">{{ t('srComponentOrdersCostUnknown') }}</p>
     </header>
+
+    <div v-show="!collapsed" class="rco-body">
 
     <p v-if="!panel.lines.length" class="rco-empty">{{ t('srComponentOrdersEmpty') }}</p>
 
@@ -27,17 +30,20 @@
       <v-icon size="14" class="rco-toggle-icon">{{ expanded ? 'mdi-chevron-up' : 'mdi-chevron-down' }}</v-icon>
       {{ expanded ? t('srStorageSummarySeeLess') : seeAllLabel }}
     </button>
+    </div>
   </div>
 </template>
 
 <script>
 import { useI18n } from '@/i18n/useI18n'
+import RestockCollapseToggle from '@/components/space-workspace/restock/components/RestockCollapseToggle.vue'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
 
 const VISIBLE_COUNT = 5
 
 export default {
   name: 'RestockComponentOrdersPanel',
+  components: { RestockCollapseToggle },
   props: {
     /** Sortie de buildComponentOrdersPanel : { lines, total, hasUnknownCost }. */
     panel: { type: Object, required: true },
@@ -47,7 +53,7 @@ export default {
     return { t, formatCurrencyDetailed }
   },
   data() {
-    return { expanded: false }
+    return { expanded: false, collapsed: false }
   },
   computed: {
     visibleLines() {
@@ -82,6 +88,7 @@ export default {
   margin-bottom: 16px;
 }
 .rco-head { display: flex; flex-direction: column; gap: 4px; }
+.rco-body { display: contents; }
 .rco-head-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .rco-title {
   min-width: 0;
