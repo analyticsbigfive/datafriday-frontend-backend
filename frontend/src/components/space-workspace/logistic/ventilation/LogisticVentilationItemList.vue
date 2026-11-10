@@ -31,7 +31,7 @@
         :title="t('logiVentilationCheckItem')"
         :aria-label="t('logiVentilationCheckItem')"
         :aria-pressed="isDone(group.itemKey)"
-        @click="toggleDone(group.itemKey)"
+        @click="toggleDone(group)"
       >
         <v-icon size="16">mdi-check</v-icon>
       </button>
@@ -95,7 +95,15 @@ function split(group) {
   return splitGroupRows(group, props.storages)
 }
 function isDone(itemKey) { return !!checks?.isItemChecked(itemKey) }
-function toggleDone(itemKey) { checks.toggleItem(itemKey).catch(() => {}) }
+/** Coche l'article et toutes ses lignes à déposer (tous les PDV et stockages). */
+function toggleDone(group) {
+  const next = !isDone(group.itemKey)
+  const { shops, storages } = split(group)
+  const pairs = [...shops, ...storages]
+    .filter((r) => Number(r.quantity) > 0 || Number(r.packs) > 0)
+    .map((r) => [group.itemKey, r.shopId])
+  Promise.all([checks.setRows(pairs, next), checks.toggleItem(group.itemKey)]).catch(() => {})
+}
 </script>
 
 <style scoped>
