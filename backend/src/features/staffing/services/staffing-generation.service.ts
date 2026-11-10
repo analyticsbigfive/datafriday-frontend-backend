@@ -2,7 +2,7 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { StaffingCalculatorService, StaffingWarning, AlgoKey, DEFAULT_TX_PAR_SECONDE } from '../staffing-calculator.service';
 import { detectFnbTags } from '../fnb-tags.util';
-import { StaffingContextService } from './staffing-context.service';
+import { StaffingContextService, roleSpaceRank } from './staffing-context.service';
 import { StaffingService } from '../staffing.service';
 
 /** Profil minimal nécessaire pour scoper une requête par espace accessible. */
@@ -153,9 +153,14 @@ export class StaffingGenerationService {
       });
 
       const existingForEl = existing.filter((l) => l.elementId === el.id);
-      const kept = existingForEl.filter((l) => l.source === 'MANUAL' || l.userModified);
+      // Une ligne ALGO dont le rôle ne sert pas cet espace (agences d'un autre espace) est purgée,
+      // même retouchée : elle vient d'une génération antérieure au filtre par espace.
+      const foreignRole = (l: any) =>
+        l.source === 'ALGO' && !!l.roleId && !!hr.rolesById.get(l.roleId) &&
+        roleSpaceRank(hr.rolesById.get(l.roleId), ctx.spaceId) === 0;
+      const kept = existingForEl.filter((l) => !foreignRole(l) && (l.source === 'MANUAL' || l.userModified));
       const deletableIds = existingForEl
-        .filter((l) => l.source === 'ALGO' && !l.userModified)
+        .filter((l) => foreignRole(l) || (l.source === 'ALGO' && !l.userModified))
         .map((l) => l.id);
 
       const creations: any[] = [];
@@ -206,6 +211,8 @@ export class StaffingGenerationService {
       for (const { roleId, qty } of sinkingOutcomes) {
         if (qty <= 0) continue;
         const role = hr.rolesById.get(roleId) ?? null;
+        // Un rôle dont toutes les agences desservent d'autres espaces ne s'applique pas à cet event.
+        if (role && roleSpaceRank(role, ctx.spaceId) === 0) continue;
         const defaultRate = role ? (this.calculator.hourlyRateFrom(role.rateType, role.rate) ?? 0) : 0;
         predictedCost += qty * defaultRate * suggestedHours;
         const keptCount = kept.filter(
@@ -254,6 +261,8 @@ export class StaffingGenerationService {
       for (const { roleId, qty } of ratioOutcomes) {
         if (qty <= 0) continue;
         const role = hr.rolesById.get(roleId) ?? null;
+        // Un rôle dont toutes les agences desservent d'autres espaces ne s'applique pas à cet event.
+        if (role && roleSpaceRank(role, ctx.spaceId) === 0) continue;
         const defaultRate = role ? (this.calculator.hourlyRateFrom(role.rateType, role.rate) ?? 0) : 0;
         predictedCost += qty * defaultRate * suggestedHours;
         const keptCount = kept.filter(

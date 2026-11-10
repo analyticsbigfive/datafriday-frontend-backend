@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, PartialType } from '@nestjs/swagger';
 import { IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, IsIn } from 'class-validator';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
@@ -68,8 +68,12 @@ export class HrRolesController {
 
   @Get()
   @ApiOperation({ summary: 'Lister les rôles RH du tenant' })
-  findAll(@CurrentTenant() tenantId: string, @CurrentUser() user: any) {
-    return this.hrRoleService.findAllRoles(tenantId, user);
+  findAll(
+    @CurrentTenant() tenantId: string,
+    @CurrentUser() user: any,
+    @Query('spaceId') spaceId?: string,
+  ) {
+    return this.hrRoleService.findAllRoles(tenantId, user, spaceId || undefined);
   }
 
   @Post()
