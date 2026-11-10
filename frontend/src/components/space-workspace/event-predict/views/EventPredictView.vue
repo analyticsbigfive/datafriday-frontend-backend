@@ -5280,6 +5280,9 @@ export default {
       const query = {};
       if (this.selectedEventId) query.event = this.selectedEventId;
       if (date) query.date = date;
+      // Marque l'arrivée depuis Event Predict : Commandes ne pose la question
+      // remplacer / créer que dans ce cas (pas depuis le menu Outils).
+      query.from = "predict";
       this.$router.push({ name: "space-restock", params: { spaceId }, query });
     },
     // Ouvre l'inventaire de l'event courant + SA config (scope PdV). La config

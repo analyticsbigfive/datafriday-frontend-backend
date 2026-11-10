@@ -77,11 +77,15 @@ export function useVentilationChecks({ fetchChecks, saveCheck }) {
     return apply(itemKey, elementId, { checked: next }, !next)
   }
   const toggleItem = (itemKey) => apply(itemKey, ITEM_SCOPE, { checked: !isItemChecked(itemKey) }, false)
+  /** Coche / décoche plusieurs lignes d'un coup (carte PDV, article pour tous les PDV). */
+  const setRows = (pairs, next, unchecksItem = false) =>
+    Promise.all(pairs.map(([itemKey, elementId]) => apply(itemKey, elementId, { checked: next }, unchecksItem && !next)))
+  const areRowsChecked = (pairs) => pairs.length > 0 && pairs.every(([i, e]) => isRowChecked(i, e))
   /** Quantité modifiée et commentaire d'une ligne, ligne validée (drawer, bouton Confirmer). */
   const confirmRow = (itemKey, elementId, { quantity, comment }) =>
     apply(itemKey, elementId, { checked: true, quantity: quantity ?? null, comment: comment || null }, false)
 
-  return { entries, load, entry, isRowChecked, isItemChecked, toggleRow, toggleItem, confirmRow }
+  return { entries, load, entry, isRowChecked, isItemChecked, toggleRow, toggleItem, setRows, areRowsChecked, confirmRow }
 }
 
 export function provideVentilationChecks(checks) {

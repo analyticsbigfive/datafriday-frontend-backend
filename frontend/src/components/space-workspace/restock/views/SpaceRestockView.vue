@@ -244,18 +244,6 @@
             <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>{{ cannotGenerateReason }}
           </p>
         </header>
-        <!-- Modification d'un plan : l'enregistrement se fait au clic sur
-             « Générer la Commande ». -->
-        <div v-if="editingPlanId && !loadedPlanId" class="sr-plan-banner sr-plan-banner--editing" role="status">
-          <v-icon size="16" class="sr-plan-banner__icon">mdi-pencil-outline</v-icon>
-          <span class="sr-plan-banner__text">
-            {{ t('srPlanEditingBanner') }}
-            <strong>{{ editingPlanName || t('srPlanUnnamed') }}</strong>{{ t('srPlanEditingHint') }}
-          </span>
-          <v-btn size="x-small" variant="text" class="sr-plan-banner__btn" @click="cancelPlanEdit">
-            {{ t('srPlanEditCancel') }}
-          </v-btn>
-        </div>
         <!-- Onglets : Éléments à stocker, Feuille de course, Ventilation. Les deux
              derniers restent inactifs tant qu'aucune commande n'est générée/ouverte. -->
         <RestockWorkflowTabs
@@ -4535,7 +4523,10 @@ export default {
       this.entryPlanHandled = true
       const q = this.route.query || {}
       // Arrivée depuis Event Predict : le scénario (jeu d'events) a-t-il déjà une commande ?
-      if (q.event) {
+      if (q.from === 'predict') {
+        // Le marqueur est consommé : un rechargement de page ne reposera pas la question.
+        const { from, ...rest } = q
+        this.router.replace({ query: rest }).catch(() => {})
         await this.checkDuplicateOnPredictArrival()
         return
       }
