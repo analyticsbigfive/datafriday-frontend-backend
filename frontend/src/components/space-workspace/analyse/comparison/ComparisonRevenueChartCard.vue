@@ -2,7 +2,21 @@
   <v-card flat rounded="lg" class="pa-4 crc">
     <!-- Courbe minute par minute : un seul event (ouverture automatique) ou moyenne de plusieurs
          (bouton « Moyenne »). Elle REMPLACE les barres dans la même carte. -->
-    <div v-if="timeline.active.value" class="crc__timeline">
+    <!-- Predict, un seul event : courbe prédite par minute (version ajustée sauvegardée). -->
+    <div v-if="predictTimeline" class="crc__timeline">
+      <EventTimelineChart
+        :key="`predict-timeline-${predictTimeline.event.id}`"
+        embedded
+        :event-id="String(predictTimeline.event.id)"
+        :event-name="predictTimeline.event.eventName || predictTimeline.event.name || ''"
+        :event-date="predictTimeline.event.eventDate || predictTimeline.event.date || ''"
+        :timeline-data="[]"
+        :predicted-timeline-data="predictTimeline.rows"
+        :menu-items="[]"
+        :filter-signature="filterSignature"
+      />
+    </div>
+    <div v-else-if="timeline.active.value" class="crc__timeline">
       <EventTimelineChart
         :key="`timeline-${timeline.selected.value?.eventId || 'none'}-${events.length}`"
         embedded
@@ -51,6 +65,7 @@ const props = defineProps({
 
 const events = computed(() => props.report.events.value)
 const timeline = computed(() => props.report.timeline)
+const predictTimeline = computed(() => props.report.predictTimeline?.value || null)
 // Les filtres du rapport pré-filtrent les lignes : le curseur repart pleine largeur quand ils changent.
 const filterSignature = computed(() => JSON.stringify(props.report.filters.value || {}))
 </script>

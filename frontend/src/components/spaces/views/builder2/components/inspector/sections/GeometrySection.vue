@@ -1,5 +1,5 @@
 <template>
-  <SectionCard :title="t('b2PositionTitle')" icon="mdi-ruler-square" default-open>
+  <SectionCard :title="t('b2PositionTitle')" icon="mdi-ruler-square">
     <!-- Position : X/Y, Largeur/Profondeur, Hauteur (pleine largeur) -->
     <div class="geo-grid">
       <div

@@ -49,7 +49,9 @@
     </div>
 
     <!-- Sections (matrice sections × type — elementTaxonomy.sectionsForType) -->
-    <div class="flex-grow-1 px-4" style="overflow-y: auto; min-height: 0;">
+    <!-- :key = id de l'élément : chaque sélection repart de l'état PAR DÉFAUT (sections et articles
+         repliés), au lieu de garder l'ouverture laissée sur l'élément précédent. -->
+    <div :key="element.id" class="flex-grow-1 px-4" style="overflow-y: auto; min-height: 0;">
       <!-- Ordre : Name → Configuration → Shop Type → [Area] →
            Performance → Menu → Inventory → Staffing inputs → Staff → Position.
            (Configuration remontée au-dessus du Subtype — demande Bertrand 2026-08-20.) -->

@@ -1,5 +1,5 @@
 <template>
-  <SectionCard :title="t('b2StaffTitle')" icon="mdi-account-hard-hat" default-open>
+  <SectionCard :title="t('b2StaffTitle')" icon="mdi-account-hard-hat">
     <template #meta>
       <v-chip size="x-small" variant="tonal">{{ totalCount }}</v-chip>
     </template>

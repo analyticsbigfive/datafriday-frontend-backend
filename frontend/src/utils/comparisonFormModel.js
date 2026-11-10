@@ -68,6 +68,8 @@ export function defaultComparisonModel(mainFilters, { seasons = [], shortcutAvai
   const s = first(mainFilters?.selectedSubcategories)
   return {
     kind: 'period',
+    // Base du mode Predict : 'adjusted' (version sauvegardée ajustée) ou 'algo' (prédiction brute).
+    predictBasis: 'adjusted',
     period: defaultPeriod(mainFilters, { seasons, shortcutAvailable }),
     from: '',
     to: '',

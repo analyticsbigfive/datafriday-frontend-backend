@@ -61,8 +61,10 @@
               <template v-if="objectiveSource === 'sales'">{{ t('srReferenceEventChip') }}</template>
               <template v-else>{{ selectedEventIds.length }} {{ selectedEventIds.length > 1 ? t('srSelectedPlural') : t('srSelectedSingular') }}</template>
             </v-chip>
+            <RestockCollapseToggle :expanded="!eventsCollapsed" @toggle="eventsCollapsed = !eventsCollapsed" />
           </header>
 
+          <div v-show="!eventsCollapsed" class="sr-events-body">
           <!-- Lot 5 (JLH) — plusieurs évènements cochés = leurs besoins s'ADDITIONNENT
                en un seul objectif. Rien ne le disait : on l'annonce, avec le raccourci
                vers l'étape 1 où la répartition se règle (article par article, curseur %). -->
@@ -135,6 +137,7 @@
           />
 
           <!-- Action principale au plus près de la prédiction sélectionnée. -->
+          </div>
         </v-card>
       </aside>
 
@@ -241,26 +244,6 @@
             <v-icon size="14" class="mr-1">mdi-information-outline</v-icon>{{ cannotGenerateReason }}
           </p>
         </header>
-        <!-- Bandeau « plan chargé » : les 3 étapes affichent la PHOTO du plan,
-             pas le calcul vivant (ADR-0005). -->
-        <div v-if="loadedPlanId" class="sr-plan-banner" role="status">
-          <v-icon size="16" class="sr-plan-banner__icon">mdi-file-lock-outline</v-icon>
-          <span class="sr-plan-banner__text">
-            {{ t('srPlanLoadedBanner') }}
-            <strong>{{ loadedPlanMeta?.name || t('srPlanUnnamed') }}</strong>
-            <span v-if="planDirty" class="sr-plan-banner__dirty"> · {{ t('srPlanDirtyHint') }}</span>
-          </span>
-          <v-btn
-            size="x-small"
-            variant="text"
-            class="sr-plan-banner__btn"
-            :disabled="!canWritePlans"
-            :title="canWritePlans ? undefined : t('srPlanReadOnlyHint')"
-            @click="editLoadedPlan"
-          >
-            {{ t('srPlanEdit') }}
-          </v-btn>
-        </div>
         <!-- Modification d'un plan : l'enregistrement se fait au clic sur
              « Générer la Commande ». -->
         <div v-if="editingPlanId && !loadedPlanId" class="sr-plan-banner sr-plan-banner--editing" role="status">
@@ -279,7 +262,22 @@
           :current-step="currentStep"
           :unlocked="ordersUnlocked"
           @select="onWorkflowTab"
-        />
+        >
+          <template #actions>
+            <v-btn
+              class="sr-order-action"
+              color="primary"
+              variant="flat"
+              size="small"
+              :disabled="!loadedPlanId && !canGenerate"
+              :loading="previousInventoryLoading || planAutosaving"
+              @click="onOrderAction"
+            >
+              <v-icon size="16" class="mr-1">mdi-table-plus</v-icon>
+              {{ loadedPlanId || editingPlanId ? t('srUpdateOrder') : t('srGenerateRestock') }}
+            </v-btn>
+          </template>
+        </RestockWorkflowTabs>
 
         <v-card v-show="currentStep === 1" variant="outlined" class="sr-panel sr-step1">
           <!-- Maquette 27/28 : titre, onglets PDV / STOCK (icône + texte, sans
@@ -315,17 +313,6 @@
                 </v-chip>
               </button>
             </div>
-            <v-btn
-              class="s1-generate"
-              color="primary"
-              variant="flat"
-              :disabled="!canGenerate"
-              :loading="previousInventoryLoading || planAutosaving"
-              @click="generateOrder"
-            >
-              <v-icon size="16" class="mr-1">mdi-table-plus</v-icon>
-              {{ editingPlanId ? t('srUpdateOrder') : t('srGenerateRestock') }}
-            </v-btn>
           </header>
         <!-- Échec définitif d'un chargement catalogue (après essais) : bandeau discret. -->
         <div v-if="hasCatalogFailure" class="s1-warn" role="status">
@@ -1439,12 +1426,11 @@
            carte englobante + items façon « Résumé inventaire » de Space Inventory. -->
       <aside class="sr-suppliers" :class="{ 'sr-suppliers--step1': currentStep === 1 }">
         <RestockStorageSummary
-          v-if="currentStep === 1"
           v-model:include-storage="summaryIncludeStorage"
           :summary="storageSummary"
           :predicted-revenue="storagePredictedRevenue"
         />
-        <RestockComponentOrdersPanel v-if="currentStep === 1" :panel="componentOrdersPanel" />
+        <RestockComponentOrdersPanel :panel="componentOrdersPanel" />
         <RestockSuppliersPanel
           :groups="suppliersPanelGroups"
           :generated="shoppingGenerated"
@@ -1617,6 +1603,16 @@
       </v-card>
     </v-dialog>
 
+    <RestockPlanDuplicateDialog
+      :model-value="planDupDialog.show"
+      :existing="planDupDialog.existing"
+      :suggested-name="planDupDialog.suggestedName"
+      :plans="plans"
+      @replace="resolvePlanDuplicate({ choice: 'replace', planId: $event })"
+      @create="resolvePlanDuplicate({ choice: 'create', name: $event })"
+      @cancel="resolvePlanDuplicate({ choice: 'cancel' })"
+    />
+
     <v-snackbar v-model="snackbar" :color="snackbarColor" timeout="3500">
       {{ snackbarText }}
     </v-snackbar>
@@ -1781,6 +1777,9 @@ import { collectPdvBuffers, applyPdvBuffers, targetWithBuffer } from '@/utils/pd
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
 import MarketPriceEditSupplierDrawer from '@/components/menu-fb/views/market-prices/drawers/MarketPriceEditSupplierDrawer.vue'
 import RestockPlansPanel from '@/components/space-workspace/restock/RestockPlansPanel.vue'
+import RestockCollapseToggle from '@/components/space-workspace/restock/components/RestockCollapseToggle.vue'
+import RestockPlanDuplicateDialog from '@/components/space-workspace/restock/RestockPlanDuplicateDialog.vue'
+import { eventSetKey, findPlansForEvents, latestPlan, suggestPlanName } from '@/utils/restockPlanMatch'
 import RestockStorageSummary from '@/components/space-workspace/restock/components/RestockStorageSummary.vue'
 import RestockComponentOrdersPanel from '@/components/space-workspace/restock/components/RestockComponentOrdersPanel.vue'
 import { buildStorageSummary, selectedPredictedRevenue } from '@/utils/restockStorageSummary'
@@ -1846,7 +1845,7 @@ function extractInventoryCounts(payload) {
 export default {
   name: 'SpaceRestockView',
   directives: { valuePulse: vValuePulse },
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, RestockWorkflowTabs, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockPlanDuplicateDialog, RestockCollapseToggle, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, RestockWorkflowTabs, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -1885,6 +1884,8 @@ export default {
       // Affichage du panneau latéral (filtres / objectif / events) — bascule via
       // l'icône du bandeau. Ouvert par défaut.
       showFilters: true,
+      // Section « Événements » de la colonne de gauche repliée (retour Bertrand 2026-11-10).
+      eventsCollapsed: false,
       loading: false,
       catalogRetrying: false,
       previousInventoryLoading: false,
@@ -2061,6 +2062,12 @@ export default {
       loadingPlan: false,
       // Dialogue de sauvegarde (nommage) et dialogue de conflit (3 issues).
       planGuardDialog: { show: false, resolver: null },
+      // Commande déjà existante pour le même jeu d'events (retour Bertrand 2026-11-10).
+      planDupDialog: { show: false, existing: null, suggestedName: '', resolver: null },
+      // Vrai dès que l'ouverture d'une commande à l'arrivée est réglée (plan restauré, deep-link).
+      entryPlanHandled: false,
+      // Décision « nouvelle commande + nom » prise à l'arrivée depuis Event Predict.
+      planDupDecision: null,
       snackbar: false,
       snackbarText: '',
       snackbarColor: 'success',
@@ -3849,7 +3856,14 @@ export default {
       this.editingPlanId = null
       this.detachPlan({ silent: true })
       this.plansApi.reset()
-      if (this.plansAvailable !== false) this.plansApi.refresh(spaceId)
+      this.entryPlanHandled = false
+      this.planDupDecision = null
+      if (this.plansAvailable !== false) {
+        // Hors Event Predict, l'espace s'ouvre sur sa dernière commande sauvegardée.
+        Promise.resolve(this.plansApi.refresh(spaceId))
+          .then(() => this.openLatestPlanOnEntry())
+          .catch(() => {})
+      }
       // Inventaire source : liste et choix sont scopés à l'espace.
       this.sourceInventoryEventId = null
       this.inventoryReconciliations = []
@@ -3958,12 +3972,14 @@ export default {
     // Historique des plans (best-effort, jamais bloquant) : un 404 = module
     // backend absent → panneau masqué (plansAvailable = false).
     const mountSpaceId = this.route.params?.spaceId
-    if (mountSpaceId) this.plansApi.refresh(mountSpaceId)
+    const plansReady = mountSpaceId ? this.plansApi.refresh(mountSpaceId) : Promise.resolve()
     // Sélecteur « Inventaire source » : liste des inventaires sauvegardés.
     if (mountSpaceId) this.loadInventoryReconciliations(mountSpaceId)
     // Cuisines (e-mail / téléphone de l'onglet Composants) : cache 15 min du module.
     this.store.dispatch('kitchens/fetchKitchens').catch(() => {})
     await this.loadAll()
+    await plansReady
+    await this.openLatestPlanOnEntry()
     // Assistant : le panneau de l'étape active doit s'afficher déplié. L'URL
     // (?step=) prime sur l'étape restaurée (deep-link / refresh / partage).
     const urlStep = this.reachableStep(SLUG_STEPS[this.route.query?.step])
@@ -4154,6 +4170,7 @@ export default {
       // Miroir localStorage (cas où l'état vient de l'API).
       localDb.setRestockState(spaceId, saved)
       this.restoringState = true
+      if (saved.loadedPlanId) this.entryPlanHandled = true
       // 1) Entrées (priment sur les défauts auto résolus ci-dessus), SAUF si
       //    une navigation explicite ?event= a déjà fixé objectif + sélection.
       if (!opts.keepNavSelection) {
@@ -4204,7 +4221,10 @@ export default {
           // F5 avec un plan chargé : on le recharge (404 → effacé + snackbar,
           // géré dans loadPlan). Après la levée du guard, sinon la restauration
           // du plan serait elle-même re-persistée en boucle.
-          if (saved.loadedPlanId) this.loadPlan(saved.loadedPlanId)
+          if (saved.loadedPlanId) {
+            this.entryPlanHandled = true
+            this.loadPlan(saved.loadedPlanId)
+          }
         })
       })
     },
@@ -4402,14 +4422,30 @@ export default {
      * changer son nom. Échec → la génération reste affichée en mode vivant.
      */
     async autosavePlan() {
-      const action = planAutosaveAction({
+      let action = planAutosaveAction({
         canWrite: this.canWritePlans,
         plansAvailable: this.plansAvailable,
         editingPlanId: this.editingPlanId,
       })
-      if (action === 'none' || this.planAutosaving) return
+      if (action === 'none' || this.planAutosaving || this.planDupDialog.show) return
       const spaceId = this.route.params?.spaceId
-      const editingId = this.editingPlanId
+      let editingId = this.editingPlanId
+      let chosenName = ''
+      // Une commande existe déjà pour ce jeu d'events : remplacer (confirmé) ou nommer une nouvelle.
+      const remembered = this.planDupDecision
+      this.planDupDecision = null
+      if (action === 'create' && remembered && remembered.key === eventSetKey(this.selectedEventIds)) {
+        chosenName = remembered.name
+      } else if (action === 'create') {
+        const decision = await this.askPlanDuplicate()
+        if (decision.choice === 'cancel') return
+        if (decision.choice === 'replace') {
+          action = 'update'
+          editingId = decision.planId
+        } else if (decision.choice === 'create') {
+          chosenName = decision.name
+        }
+      }
       this.planAutosaving = true
       try {
         // La photo fige la feuille de course : jamais avec des recettes absentes.
@@ -4418,7 +4454,7 @@ export default {
         const snapshot = this.buildPlanPayload()
         const payload = action === 'create'
           ? {
-              name: defaultPlanName(this.selectedEvents, (e) => this.eventLabel(e)) || this.t('srPlanUnnamed'),
+              name: chosenName || defaultPlanName(this.selectedEvents, (e) => this.eventLabel(e)) || this.t('srPlanUnnamed'),
               ...snapshot,
             }
           : snapshot
@@ -4449,6 +4485,66 @@ export default {
       }
     },
     /**
+     * Ouvre le dialogue « cette commande existe déjà » si une commande couvre exactement
+     * le jeu d'events sélectionné. Résout { choice: 'none' } sans doublon, sinon
+     * { choice: 'replace', planId } | { choice: 'create', name } | { choice: 'cancel' }.
+     */
+    askPlanDuplicate() {
+      const matches = findPlansForEvents(this.plans, this.selectedEventIds)
+      if (!matches.length) return Promise.resolve({ choice: 'none' })
+      const base = defaultPlanName(this.selectedEvents, (e) => this.eventLabel(e)) || this.t('srPlanUnnamed')
+      return new Promise((resolve) => {
+        this.planDupDialog = {
+          show: true,
+          existing: matches[0],
+          suggestedName: suggestPlanName(base, this.plans, this.t('srPlanUnnamed')),
+          resolver: resolve,
+        }
+      })
+    },
+    /**
+     * Arrivée depuis Event Predict (?event=) : si une commande couvre déjà ce jeu d'events,
+     * on demande tout de suite remplacer / créer. La décision est mémorisée et appliquée à
+     * la génération (pas de seconde question).
+     * Remplacer = la commande existante passe en modification (bandeau + mise à jour).
+     * Créer = le nom saisi sera celui de la nouvelle commande.
+     */
+    async checkDuplicateOnPredictArrival() {
+      if (this.loadedPlanId || this.editingPlanId || !this.canWritePlans) return
+      const decision = await this.askPlanDuplicate()
+      if (decision.choice === 'replace') {
+        this.editingPlanId = decision.planId
+        this.planDupDecision = null
+      } else if (decision.choice === 'create') {
+        this.planDupDecision = { key: eventSetKey(this.selectedEventIds), name: decision.name }
+      }
+    },
+    resolvePlanDuplicate(decision) {
+      const resolver = this.planDupDialog.resolver
+      this.planDupDialog = { show: false, existing: null, suggestedName: '', resolver: null }
+      if (resolver) resolver(decision)
+    },
+    /**
+     * Ouverture de Commandes hors Event Predict (menu, lien direct) : charge la dernière
+     * commande sauvegardée, elle est mise en évidence dans la liste. Aucune création ici.
+     * Depuis Event Predict (?event=) ou un deep-link, on ne touche à rien : le doublon est
+     * traité à la génération (askPlanDuplicate).
+     */
+    async openLatestPlanOnEntry() {
+      if (this.entryPlanHandled) return
+      this.entryPlanHandled = true
+      const q = this.route.query || {}
+      // Arrivée depuis Event Predict : le scénario (jeu d'events) a-t-il déjà une commande ?
+      if (q.event) {
+        await this.checkDuplicateOnPredictArrival()
+        return
+      }
+      if (q.date || q.step || q.action || q.tab) return
+      if (this.loadedPlanId || this.editingPlanId || this.loadingPlan) return
+      const latest = latestPlan(this.plans)
+      if (latest?.id) await this.loadPlan(latest.id)
+    },
+    /**
      * Étape 1 : génère la commande (ventilation ET feuille de course) puis
      * sauvegarde le plan automatiquement. La feuille est générée sans naviguer :
      * la sauvegarde recharge le plan et atterrit sur la ventilation.
@@ -4468,6 +4564,20 @@ export default {
      * Clic sur un onglet. Revenir à « Éléments à stocker » alors qu'une commande
      * est ouverte la détache pour la rendre modifiable (editLoadedPlan).
      */
+    /**
+     * Bouton « Mettre à jour la Commande » de la barre d'onglets (tous les onglets).
+     * Commande ouverte : passe en modification (même chemin que l'ancien « Modifier »)
+     * puis met à jour la commande en un seul clic. Sinon : génère la commande.
+     */
+    async onOrderAction() {
+      // Commande ouverte : elle passe en modification puis est régénérée et réenregistrée
+      // dans le même geste (un seul clic, retour Bertrand 2026-11-10).
+      if (this.loadedPlanId) {
+        await this.editLoadedPlan()
+        if (this.loadedPlanId || !this.editingPlanId) return
+      }
+      if (this.canGenerate) await this.generateOrder()
+    },
     async onWorkflowTab(step) {
       if (step === this.currentStep) return
       if (step === 1 && this.loadedPlanId) {
@@ -7110,6 +7220,8 @@ export default {
   margin-bottom: 16px;
 }
 
+.sr-events-head > div:first-child { margin-right: auto; }
+.sr-events-body { display: contents; }
 .sr-panel-head {
   display: flex;
   justify-content: space-between;

@@ -14,6 +14,7 @@
         <span class="rwt-label">{{ tab.label }}</span>
       </button>
     </template>
+    <div v-if="$slots.actions" class="rwt-actions"><slot name="actions" /></div>
   </nav>
 </template>
 
@@ -60,6 +61,11 @@ export default {
   padding: 0 4px;
   margin-bottom: 14px;
   border-bottom: 1px solid var(--sr-border, #dde1e7);
+}
+.rwt-actions {
+  margin-left: auto;
+  align-self: center;
+  padding-bottom: 6px;
 }
 .rwt-tab {
   display: inline-flex;

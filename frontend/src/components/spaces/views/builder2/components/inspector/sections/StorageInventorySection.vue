@@ -276,15 +276,20 @@ const rowByName = computed(() => {
   for (const r of saved.value) m.set(r.name, r)
   return m
 })
-// Repli par article (ouvert par défaut) : la flèche masque champs et « utilisé dans ».
-const collapsed = ref(new Set())
+// Repli par article (REPLIÉ par défaut, retour Bertrand 2026-11-10) : on retient les articles
+// dépliés ; la flèche affiche champs et « utilisé dans ».
+const expanded = ref(new Set())
 function isCollapsed(name) {
-  return collapsed.value.has(name)
+  return !expanded.value.has(name)
+}
+function expandRow(name) {
+  if (expanded.value.has(name)) return
+  expanded.value = new Set([...expanded.value, name])
 }
 function toggleCollapsed(name) {
-  const next = new Set(collapsed.value)
+  const next = new Set(expanded.value)
   if (!next.delete(name)) next.add(name)
-  collapsed.value = next
+  expanded.value = next
 }
 function isStoredFor(name) {
   return isRowStored(rowByName.value.get(name))
@@ -436,7 +441,7 @@ watch(
   },
   { immediate: true },
 )
-watch(() => element.value?.id, () => { search.value = ''; collapsed.value = new Set() })
+watch(() => element.value?.id, () => { search.value = ''; expanded.value = new Set() })
 
 // Le state builder renvoie les lignes AVEC leur id serveur ; le PUT (whitelist +
 // forbidNonWhitelisted) le refuse → ne renvoyer QUE les champs du contrat.
@@ -495,6 +500,8 @@ function upsertRow(name, patch) {
 
 function setStored(name, checked) {
   upsertRow(name, { isStored: !!checked })
+  // Article tout juste coché : on le déplie pour saisir stock tampon / min / max.
+  if (checked) expandRow(name)
 }
 
 function setQuantity(name, raw) {
@@ -512,6 +519,7 @@ function addRow() {
   if (!name) return
   if (!saved.value.some((r) => r.name === name) && !derivedNames.value.has(name)) {
     persist([...saved.value, { name, quantity: 0, isStored: true }])
+    expandRow(name)
   }
   newName.value = ''
 }

@@ -1,5 +1,5 @@
 <template>
-  <SectionCard :title="t('b2UsageTitle')" icon="mdi-link-variant" default-open>
+  <SectionCard :title="t('b2UsageTitle')" icon="mdi-link-variant">
     <div class="d-flex flex-column ga-2">
       <div class="d-flex align-center ga-2">
         <v-chip size="small" :color="usage.weezeventMapped ? 'success' : undefined" variant="tonal">
