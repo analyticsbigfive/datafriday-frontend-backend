@@ -1,3 +1,4 @@
+import { roleSpaceRank } from '../../staffing/role-space.util';
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { SpaceAccessService } from '../../../core/auth/space-access.service';
@@ -177,14 +178,16 @@ export class HrRoleService {
     return { department, name, contractType, rateType, rate, supplierIds, fnbCategories, algoKey };
   }
 
-  async findAllRoles(tenantId: string, user?: SpaceScopedUser) {
+  async findAllRoles(tenantId: string, user?: SpaceScopedUser, spaceId?: string) {
     const rows = await this.prisma.hrRole.findMany({
       where: { tenantId },
       orderBy: { name: 'asc' },
-      include: { suppliers: { select: { supplierId: true } } },
+      include: { suppliers: { select: { supplierId: true, supplier: { select: { spaceIds: true } } } } },
     });
     const accessibleSupplierIds = await this.accessibleSupplierIds(tenantId, user);
-    const mapped = rows.map((r) => this.mapRole(r, accessibleSupplierIds));
+    // Avec un espace : un rôle dont toutes les agences desservent d'autres espaces n'est pas proposé.
+    const forSpace = spaceId ? rows.filter((r) => roleSpaceRank(r, spaceId) > 0) : rows;
+    const mapped = forSpace.map((r) => this.mapRole(r, accessibleSupplierIds));
     // Un rôle interne (CDI/CDD/FREELANCE/OTHER, sans fournisseur requis) reste un
     // référentiel tenant-wide visible par tous. Un rôle AGENCE dont plus aucun fournisseur
     // n'est accessible est en revanche masqué pour un utilisateur restreint — sinon il

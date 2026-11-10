@@ -48,9 +48,9 @@ export async function deleteHrSupplier(id) {
 
 // ── Roles (« positions ») ─────────────────────────────────────────────────────
 
-export async function getHrRoles() {
+export async function getHrRoles(spaceId) {
   try {
-    const res = await api.get('/hr/roles')
+    const res = await api.get('/hr/roles', spaceId ? { params: { spaceId } } : undefined)
     return res.data?.data ?? []
   } catch (error) {
     console.error('[HR API] Error fetching roles:', error)
