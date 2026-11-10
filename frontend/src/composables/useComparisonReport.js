@@ -17,6 +17,7 @@ import { ITEM_LEVEL_EVENT_CAP } from '@/composables/useAnalyseItemRecords'
 import { useArticleDimensions } from '@/composables/useArticleDimensions'
 import { useComparisonEvents } from '@/composables/useComparisonEvents'
 import { useComparisonPredictScenarios } from '@/composables/useComparisonPredictScenarios'
+import { pickPredictTimeline } from '@/utils/comparisonPredictTimeline'
 import { useComparisonRecords } from '@/composables/useComparisonRecords'
 import { useComparisonKpis } from '@/composables/useComparisonKpis'
 import { useComparisonTimeline } from '@/composables/useComparisonTimeline'
@@ -71,6 +72,7 @@ export function useComparisonReport({
     isPredict,
     scenarioVersions: scenarios.versionByEventId,
     dimensionsIndex: dims.index,
+    predictBasis: computed(() => input.value?.predictBasis || 'adjusted'),
     store,
   })
 
@@ -83,6 +85,14 @@ export function useComparisonReport({
     predicate: records.predicate,
     store,
   })
+
+  // Predict, un seul event : courbe prédite par minute à la place des barres (null = barres).
+  const predictTimeline = computed(() => pickPredictTimeline({
+    isPredict: isPredict.value,
+    events: events.value,
+    versionByEventId: scenarios.versionByEventId.value,
+    basis: input.value?.predictBasis,
+  }))
 
   const kpis = useComparisonKpis({
     filters,
@@ -177,6 +187,7 @@ export function useComparisonReport({
     kpiSourceState: records.kpiSourceState,
     eventRevenueSeries,
     timeline,
+    predictTimeline,
     // métriques
     metrics: kpis.metrics,
     totals: kpis.totals,
