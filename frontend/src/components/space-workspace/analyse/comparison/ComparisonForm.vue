@@ -17,6 +17,18 @@
 
     <!-- Champs propres au type de comparaison. En mode Predict ils sont remplacés par
          l'encart d'information : les autres champs ne sont ni modifiables ni atteignables. -->
+    <ComparisonField
+      v-if="isPredict"
+      :label="t('anCmpPredictBasisLabel')"
+      :for-id="`${uid}-basis`"
+    >
+      <ComparisonSelect
+        :id="`${uid}-basis`"
+        :model-value="form.model.predictBasis || 'adjusted'"
+        :options="basisOptions"
+        @update:model-value="(v) => form.patch({ predictBasis: v })"
+      />
+    </ComparisonField>
     <ComparisonPredictNotice
       v-if="isPredict"
       :checking="form.predict.checking.value"
@@ -138,6 +150,10 @@ const kindOptions = computed(() => COMPARISON_KINDS.map((value) => {
   }
   return { value, label, disabled }
 }))
+const basisOptions = computed(() => [
+  { value: 'adjusted', label: t('anCmpPredictBasisAdjusted'), disabled: false },
+  { value: 'algo', label: t('anCmpPredictBasisAlgo'), disabled: false },
+])
 const predictTooltip = computed(() => (
   !props.form.predict.available.value && !props.form.predict.checking.value
     ? t('anCmpPredictNoScenario')

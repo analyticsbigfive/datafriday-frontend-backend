@@ -22,6 +22,7 @@ import { buildBasketFilterPredicate } from '@/utils/transactionBaskets'
 import { sumShopTransactionRates } from '@/utils/shopPerformanceCompute'
 import { resolveKpiSourceState } from '@/utils/analyseRevenueSource'
 import { scenarioRecordsToAnalyseRecords } from '@/utils/predictScenarioRecords'
+import { versionForBasis } from '@/utils/comparisonPredictBasis'
 
 /**
  * @param {Object} p
@@ -30,10 +31,11 @@ import { scenarioRecordsToAnalyseRecords } from '@/utils/predictScenarioRecords'
  * @param {import('vue').Ref<boolean>} p.isPredict
  * @param {import('vue').Ref<Map>} p.scenarioVersions  eventId -> version Event Predict retenue
  * @param {import('vue').Ref<Map|null>} p.dimensionsIndex  index des dimensions article
+ * @param {import('vue').Ref<string>} [p.predictBasis]  'adjusted' (défaut) | 'algo' : base des quantités du scénario
  * @param {object} [p.store]
  */
 export function useComparisonRecords({
-  filters, events, isPredict, scenarioVersions, dimensionsIndex, store = defaultStore,
+  filters, events, isPredict, scenarioVersions, dimensionsIndex, predictBasis = null, store = defaultStore,
 }) {
   // Contexte élargi aux configurations des events chargés (lecture seule, principal intact).
   const reconciliationCtx = useComparisonReconciliationContext({ events, store })
@@ -67,7 +69,7 @@ export function useComparisonRecords({
     }
     const raw = []
     for (const ev of events.value || []) {
-      const version = scenarioVersions.value.get(ev.id)
+      const version = versionForBasis(scenarioVersions.value.get(ev.id), predictBasis?.value)
       if (version) raw.push(...scenarioRecordsToAnalyseRecords(version, ev, { elementNameById: names }))
     }
     return raw.map((r) => reconcileRecord(r, reconciliationCtx.value)).filter(predicate.value)

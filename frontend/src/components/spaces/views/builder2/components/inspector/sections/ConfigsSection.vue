@@ -2,7 +2,7 @@
   <!-- Adhésions élément ↔ configurations : 1 clic = 1 requête (INSERT/DELETE d'une
        ligne ConfigurationElement). Cœur du modèle v2 — remplace la synchro
        cross-config par nom+type de la v1 (doc §2.2). -->
-  <SectionCard :title="t('b2ConfigsTitle')" icon="mdi-cog-outline" default-open>
+  <SectionCard :title="t('b2ConfigsTitle')" icon="mdi-cog-outline">
     <div class="cs-hint">{{ t('b2ConfigsVisibleIn') }}</div>
     <div class="cs-list">
       <label
