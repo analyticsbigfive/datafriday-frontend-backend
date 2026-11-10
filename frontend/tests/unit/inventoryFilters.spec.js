@@ -122,3 +122,20 @@ describe('inventoryFilters', () => {
     expect(shopPassesWidget('to-count', WIDGET_SHOPS_TO_COUNT)).toBe(true)
   })
 })
+
+describe('tout sélectionner', () => {
+  const { allItemNames, selectAllState, nextSelectAll } = require('@/utils/inventoryFilters')
+  const rows = [{ itemName: 'A' }, { itemName: 'B' }, { itemName: 'A' }, { itemName: '' }]
+  it('liste les noms sans doublon', () => {
+    expect(allItemNames(rows)).toEqual(['A', 'B'])
+  })
+  it('état none / some / all', () => {
+    expect(selectAllState([], rows)).toBe('none')
+    expect(selectAllState(['A'], rows)).toBe('some')
+    expect(selectAllState(['A', 'B', 'Z'], rows)).toBe('all')
+  })
+  it('bascule : tout puis vide', () => {
+    expect(nextSelectAll(['A'], rows)).toEqual(['A', 'B'])
+    expect(nextSelectAll(['A', 'B'], rows)).toEqual([])
+  })
+})

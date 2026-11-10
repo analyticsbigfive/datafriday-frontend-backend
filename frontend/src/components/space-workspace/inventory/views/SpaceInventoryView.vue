@@ -614,6 +614,7 @@
           :event-id="selectedEventId"
           @toggle-widget="invFilters.toggleWidget"
           @toggle-item="invFilters.toggleItem"
+          @toggle-all-items="invFilters.toggleAllItems"
           @start-count-shop="countingShop = $event"
         />
         <InventoryStorageAggregateView
@@ -671,6 +672,7 @@
           :event-id="selectedEventId"
           @toggle-widget="invFilters.toggleWidget"
           @toggle-item="invFilters.toggleItem"
+          @toggle-all-items="invFilters.toggleAllItems"
           @start-count-shop="mobileSummaryOpen = false; countingShop = $event"
         />
         <InventoryStorageAggregateView

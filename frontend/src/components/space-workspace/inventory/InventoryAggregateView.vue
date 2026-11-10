@@ -89,6 +89,16 @@
       </div>
 
       <section v-else class="agg-list">
+        <label class="agg-select-all">
+          <input
+            ref="selectAllBox"
+            type="checkbox"
+            :checked="selectAllStateValue === 'all'"
+            :indeterminate.prop="selectAllStateValue === 'some'"
+            @change="$emit('toggle-all-items', aggregatedInventory)"
+          />
+          <span>{{ t('invAggSelectAll') }}</span>
+        </label>
         <article
           v-for="(item, index) in aggregatedInventory"
           :key="`${item.itemName}-${index}`"
@@ -242,7 +252,7 @@ import InventorySummaryItemTotal from '@/components/space-workspace/inventory/In
 import { buildReconciliationSummary, lineCost } from '@/utils/reconciliationAggregate'
 import {
   WIDGET_TOTAL, WIDGET_COUNTED, WIDGET_TO_COUNT, WIDGET_SHOPS_TO_COUNT,
-  filterInventoryRows, widgetCounts, selectionTotalCost,
+  filterInventoryRows, widgetCounts, selectionTotalCost, selectAllState,
 } from '@/utils/inventoryFilters'
 import { useInventorySalePrices } from '@/composables/useInventorySalePrices'
 import { rowSaleValue, summarizeSaleValue } from '@/utils/inventorySaleValue'
@@ -280,7 +290,7 @@ export default {
     eventId: { type: [String, Number], default: null },
   },
 
-  emits: ['start-count-shop', 'toggle-widget', 'toggle-item'],
+  emits: ['start-count-shop', 'toggle-widget', 'toggle-item', 'toggle-all-items'],
 
   setup(props) {
     const { t, locale } = useI18n()
@@ -450,6 +460,10 @@ export default {
     /** Un filtre widget ou PdV réduit-il la liste ? */
     filtersActive() {
       return this.widgetsEnabled && (this.filterWidget !== WIDGET_TOTAL || this.effectiveShopId != null)
+    },
+    /** État de la case « Tout sélectionner » (none | some | all). */
+    selectAllStateValue() {
+      return selectAllState(this.selectedItems, this.aggregatedInventory)
     },
     /** Liste affichée dans le résumé. */
     aggregatedInventory() {
@@ -775,6 +789,36 @@ export default {
   border-radius: inherit;
   background: #ff3131;
   transition: width 200ms ease;
+}
+
+.agg-select-all {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--fb-border, #E5E7EB);
+  border-radius: var(--fb-radius-panel, 12px);
+  background: var(--fb-subtle, #FAFAFA);
+  cursor: pointer;
+  font-size: var(--fs-base);
+  font-weight: var(--fw-semibold);
+  color: var(--fb-text, #212121);
+  transition: border-color 160ms ease, background 160ms ease;
+}
+.agg-select-all:hover {
+  border-color: rgba(255, 49, 49, 0.26);
+  background: var(--fb-primary-soft, #FFF5F5);
+}
+.agg-select-all:focus-within {
+  outline: 2px solid rgba(255, 49, 49, 0.45);
+  outline-offset: -2px;
+}
+.agg-select-all input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--fb-primary, #D63031);
+  cursor: pointer;
 }
 
 .agg-list {

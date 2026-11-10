@@ -2,7 +2,7 @@
 // sélectionnés). Les règles vivent dans utils/inventoryFilters.js (pur) ; ce
 // composable ne fait que porter l'état partagé entre la liste de gauche et le résumé.
 import { ref } from 'vue'
-import { WIDGET_TOTAL, nextWidget, nextShopId, toggleName } from '@/utils/inventoryFilters'
+import { WIDGET_TOTAL, nextWidget, nextShopId, toggleName, nextSelectAll } from '@/utils/inventoryFilters'
 
 export function useInventorySummaryFilters() {
   const widget = ref(WIDGET_TOTAL)
@@ -21,11 +21,15 @@ export function useInventorySummaryFilters() {
   function toggleItem(name) {
     selectedItems.value = toggleName(selectedItems.value, name)
   }
+  /** « Tout sélectionner » : coche toute la liste affichée, ou vide si tout est coché. */
+  function toggleAllItems(rows) {
+    selectedItems.value = nextSelectAll(selectedItems.value, rows)
+  }
   function resetFilters() {
     widget.value = WIDGET_TOTAL
     shopId.value = null
     selectedItems.value = []
   }
 
-  return { widget, shopId, selectedItems, toggleWidget, toggleShop, toggleItem, resetFilters }
+  return { widget, shopId, selectedItems, toggleWidget, toggleShop, toggleItem, toggleAllItems, resetFilters }
 }
