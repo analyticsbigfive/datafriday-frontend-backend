@@ -42,6 +42,7 @@
           <div v-for="w in warnings" :key="w.code">{{ w.message || w.code }}</div>
         </template>
         <template v-else>{{ t('epsGenerateEmptyText') }}</template>
+        <div v-if="needsRole" class="mt-2"><StaffCreateRoleCta @saved="loadRoles" /></div>
       </v-alert>
     </div>
 
@@ -55,6 +56,7 @@
           <v-icon size="15" class="mr-1">mdi-refresh</v-icon>
           {{ t('epsRegenerate') }}
         </button>
+        <StaffCreateRoleCta v-if="needsRole" @saved="loadRoles" />
         <span v-if="warnings.length" class="eps-warning-chip" :title="warningTitle">
           <v-icon size="13">mdi-alert</v-icon> {{ warnings.length }}
         </span>
@@ -277,6 +279,7 @@ import { t } from '@/i18n'
 import { getHrPersons, getHrRoles } from '@/api/endpoints/hr.api'
 import NumberField from '@/components/common/NumberField.vue'
 import StaffRoleSelect from './StaffRoleSelect.vue'
+import StaffCreateRoleCta from './StaffCreateRoleCta.vue'
 import HrSpaceEditDrawer from '@/components/hr/HrSpaceEditDrawer.vue'
 import { useHrSpaceGoalRatio } from '@/composables/useHrSpaceGoalRatio'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
@@ -551,16 +554,20 @@ onMounted(async () => {
 })
 
 // Rôles proposés à l'ajout d'un staff : seulement ceux qui servent l'espace de l'event.
-watch(
-  () => settings.value?.spaceId,
-  async (spaceId) => {
-    try {
-      roles.value = await getHrRoles(spaceId)
-    } catch (_) {
-      roles.value = []
-    }
-  },
-  { immediate: true },
+const rolesLoaded = ref(false)
+async function loadRoles() {
+  try {
+    roles.value = await getHrRoles(settings.value?.spaceId)
+  } catch (_) {
+    roles.value = []
+  }
+  rolesLoaded.value = true
+}
+watch(() => settings.value?.spaceId, loadRoles, { immediate: true })
+
+// Aucun rôle ne sert l'espace (liste vide ou avertissement de la génération) : proposer d'en créer un.
+const needsRole = computed(
+  () => rolesLoaded.value && (!roles.value.length || warnings.value.some((w) => w.code === 'ROLE_A_CONFIGURER')),
 )
 </script>
 
