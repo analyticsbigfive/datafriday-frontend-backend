@@ -173,9 +173,19 @@ export class StaffingContextService {
     ]);
     const rolesByAlgo = new Map<string, any>();
     const rolesById = new Map<string, any>();
+    // Plusieurs rôles partagent une même clé d'algorithme (Caissier, Runner…) : on garde celui
+    // qui sert CET espace via ses agences (HrSupplier.spaceIds), jamais un rôle dont les agences
+    // desservent d'autres espaces seulement (ex. « Runner Aix Interim » pour La Beaujoire).
+    const rolesByAlgoRank = new Map<string, number>();
     for (const r of roles) {
       rolesById.set(r.id, r);
-      if (r.algoKey) rolesByAlgo.set(r.algoKey, r);
+      if (!r.algoKey) continue;
+      const rank = roleSpaceRank(r, spaceId);
+      if (rank === 0) continue;
+      if (rank >= (rolesByAlgoRank.get(r.algoKey) ?? 0)) {
+        rolesByAlgo.set(r.algoKey, r);
+        rolesByAlgoRank.set(r.algoKey, rank);
+      }
     }
     const personsByRole = new Map<string, { CDI: any[]; CDD: any[] }>();
     for (const p of persons) {
@@ -267,4 +277,16 @@ export class StaffingContextService {
     }
     return { ...none, supplierType: 'AGENCY' };
   }
+}
+
+/**
+ * Le rôle sert-il cet espace ? 0 = non (toutes ses agences desservent d'autres espaces),
+ * 2 = une de ses agences dessert cet espace, 1 = rôle sans agence ou agence sans restriction.
+ */
+export function roleSpaceRank(role: any, spaceId: string): number {
+  const links: any[] = role?.suppliers ?? [];
+  if (!links.length) return 1;
+  if (links.some((l) => l.supplier?.spaceIds?.includes(spaceId))) return 2;
+  if (links.some((l) => !l.supplier?.spaceIds?.length)) return 1;
+  return 0;
 }
