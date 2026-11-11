@@ -43,7 +43,8 @@ export function useGuestVentilation() {
   // Feuilles des matchs de l'accès (PIN du premier match d'une sélection), fusionnées
   // comme sur l'écran Logistique (utils/ventilationPlans.js).
   const plan = computed(() => mergeRestockPlans(sheet.value?.plans || [], sheet.value?.eventOrder || []))
-  const lines = computed(() => buildDepositLines(plan.value, sheet.value?.deposits || []))
+  // Les lignes entièrement déposées restent affichées (cochées) : on peut les décocher.
+  const lines = computed(() => buildDepositLines(plan.value, sheet.value?.deposits || [], { keepCovered: true }))
   const groups = computed(() => groupDepositLinesByItem(lines.value))
   const movements = computed(() => sheet.value?.movements || [])
   // Stockages du match : section « Espaces de stockage », même sans rien à y déposer.
@@ -72,7 +73,7 @@ export function useGuestVentilation() {
    * portent, match le plus proche d'abord) ou dans un stockage sans ligne prévue
    * (`storageId` + `itemName`).
    */
-  async function deposit({ parts = [], unitsPerPack = null, storageId, itemName, packed, loose, depositorName }) {
+  async function deposit({ parts = [], unitsPerPack = null, storageId, itemName, packed, loose, depositorName, reload = true }) {
     let written = 0
     try {
       if (!parts.length) {
@@ -90,13 +91,14 @@ export function useGuestVentilation() {
       throw e
     } finally {
       // Relue même après un échec : une part déjà enregistrée apparaît dans « Déjà déposé ».
-      await load({ silent: true })
+      // `reload: false` : le lot (checkmark sur plusieurs lignes) relit une seule fois.
+      if (reload) await load({ silent: true })
     }
   }
 
-  async function cancel(movementId) {
+  async function cancel(movementId, { reload = true } = {}) {
     await cancelGuestVentilationDeposit(movementId)
-    await load({ silent: true })
+    if (reload) await load({ silent: true })
   }
 
   return { sheet, plan, groups, movements, storages, viewMode, setViewMode, loading, error, load, deposit, cancel }

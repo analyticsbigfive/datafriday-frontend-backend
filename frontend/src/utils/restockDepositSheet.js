@@ -13,6 +13,12 @@
 //   - les dépôts « Ventilation » déjà confirmés pour ce match (mouvements Logistic,
 //     GET /logistics/:spaceId/ventilation-deposits) ne la couvrent pas entièrement.
 //     Un dépôt partiel laisse la ligne avec le reste à déposer.
+//
+// `keepCovered` (feuille affichée en Ventilation) : une ligne entièrement couverte par
+// les dépôts reste dans la liste, quantité PRÉVUE intacte et `covered: true`, pour
+// rester cochée à l'écran et pouvoir être décochée (annulation du dépôt). Les
+// consommateurs du reste à déposer (index « À déposer » des PDV, By Item) n'en
+// passent pas : une ligne couverte n'y figure plus.
 
 import { applyPlanEdits, recomputePackaging } from '@/utils/restockPlanSnapshot'
 import { packSizeForPackaging } from '@/utils/stockPlanning'
@@ -50,11 +56,12 @@ function indexDeposits(deposits) {
  * @param {object|null} plan RestockPlan complet (GET /restock-plans/:id)
  * @param {Array<{elementId:string, itemKey:string, packed:number, loose:number,
  *   unitsPerPack?:number|null}>} [deposits] dépôts « Ventilation » du match
+ * @param {{keepCovered?:boolean}} [opts] garder les lignes entièrement déposées (`covered`)
  * @returns {Array<object>} lignes figées (grain destination × article), quantité
  *   ramenée au reste à déposer (`restockQuantity`), packs recalculés, et
  *   `depositedQuantity` (déjà déposé sur cette ligne)
  */
-export function buildDepositLines(plan, deposits = []) {
+export function buildDepositLines(plan, deposits = [], { keepCovered = false } = {}) {
   if (!plan) return []
   const restocked = plan.restockedRows && typeof plan.restockedRows === 'object' ? plan.restockedRows : {}
   const lines = applyPlanEdits(plan.restockLines || [], plan.lineOverrides || {})
@@ -84,7 +91,10 @@ export function buildDepositLines(plan, deposits = []) {
       pool.set(key, { packed: 0, loose: available - consumed, unitsPerPack: d.unitsPerPack })
     }
     const remaining = quantity - consumed
-    if (remaining <= EPSILON) continue
+    if (remaining <= EPSILON) {
+      if (keepCovered) out.push({ ...line, depositedQuantity: consumed, covered: true })
+      continue
+    }
     out.push(consumed > 0
       ? {
           ...line,
@@ -157,14 +167,25 @@ export function groupDepositLinesByItem(lines) {
     const rawPacks = line.packaging?.packedCount
     const packs = Number.isFinite(Number(rawPacks)) && rawPacks != null ? Number(rawPacks) : null
     const quantity = Number(line.restockQuantity) || 0
-    const part = { rowKey: line.rowKey, planId: line.planId ?? null, quantity }
+    const covered = line.covered === true
+    const part = { rowKey: line.rowKey, planId: line.planId ?? null, quantity, covered }
     // Même destination sur plusieurs feuilles (plusieurs matchs choisis) : une seule
     // ligne, dont les parts gardent chaque feuille pour répartir le dépôt.
     const existing = group.rows.find((r) => r.shopId === String(line.shopId))
     if (existing) {
-      existing.quantity += quantity
-      existing.packs = existing.packs != null && packs != null ? existing.packs + packs : null
-      existing.parts.push(part)
+      // Une part déjà déposée ne compte pas dans le reste à déposer de la ligne : ni sa
+      // quantité, ni sa feuille dans la répartition d'un nouveau dépôt.
+      if (covered && !existing.covered) continue
+      if (!covered && existing.covered) {
+        existing.quantity = quantity
+        existing.packs = packs
+        existing.parts = [part]
+        existing.covered = false
+      } else {
+        existing.quantity += quantity
+        existing.packs = existing.packs != null && packs != null ? existing.packs + packs : null
+        existing.parts.push(part)
+      }
       const merged = mergeReceivedFrom(existing.receivedFrom, line.receivedFrom)
       if (merged) existing.receivedFrom = merged
       continue
@@ -178,6 +199,8 @@ export function groupDepositLinesByItem(lines) {
       quantity,
       packs,
       parts: [part],
+      // Toute la ligne est déjà déposée (feuille affichée avec `keepCovered`).
+      covered,
       // Circuit : d'où vient ce que le PDV reçoit (absent sur les anciens plans).
       ...(receivedFrom ? { receivedFrom } : {}),
     })
@@ -191,11 +214,23 @@ export function groupDepositLinesByItem(lines) {
 }
 
 /**
+ * Groupes sans leurs lignes déjà déposées (`covered`), les groupes vides retirés : ce qui
+ * reste vraiment à déposer (compteur d'onglet, transferts, exports).
+ */
+export function pendingDepositGroups(groups) {
+  return (groups || [])
+    .map((group) => ({ ...group, rows: (group.rows || []).filter((r) => !r.covered) }))
+    .filter((group) => group.rows.length > 0)
+}
+
+/**
  * Totaux d'un groupe d'article à partir de ses lignes.
  * @param {Array<{quantity:number, packs:number|null}>} rows
  * @returns {{totalQuantity:number, totalPacks:number|null}}
  */
-export function summarizeDepositRows(rows) {
+export function summarizeDepositRows(allRows) {
+  // Une ligne déjà déposée (`covered`) n'est plus « à déposer » : hors totaux.
+  const rows = allRows.filter((r) => !r.covered)
   const totalQuantity = rows.reduce((sum, r) => sum + r.quantity, 0)
   // Total en packs seulement si TOUTES les lignes ont un nombre de packs :
   // additionner des packs et des lignes sans conditionnement mentirait.

@@ -289,7 +289,7 @@
               >
                 <v-icon size="16" class="mr-1">mdi-truck-delivery-outline</v-icon>
                 <span>{{ t('logiVentilationBtn') }}</span>
-                <span class="lg-tab-count">({{ ventilation.groups.length }})</span>
+                <span class="lg-tab-count">({{ ventilation.pendingCount }})</span>
               </button>
               <!-- QR code des logisticiens (accès PIN à la feuille de ventilation). -->
               <button
@@ -603,6 +603,8 @@ import LogisticItemCard from '@/components/space-workspace/logistic/LogisticItem
 import LogisticMovementDialog from '@/components/space-workspace/shared/LogisticMovementDialog.vue'
 import LogisticTransferConfirmDrawer from '@/components/space-workspace/logistic/drawers/LogisticTransferConfirmDrawer.vue'
 import { useVentilationChecks, provideVentilationChecks, depositUnits } from '@/composables/useVentilationChecks'
+import { useVentilationDepositChecks } from '@/composables/useVentilationDepositChecks'
+import { pendingDepositGroups } from '@/utils/restockDepositSheet'
 import LogisticDepositConfirmDrawer from '@/components/space-workspace/logistic/drawers/LogisticDepositConfirmDrawer.vue'
 import LogisticLossesDrawer from '@/components/space-workspace/logistic/drawers/LogisticLossesDrawer.vue'
 import LogisticHistoryDrawer from '@/components/space-workspace/logistic/drawers/LogisticHistoryDrawer.vue'
@@ -740,13 +742,25 @@ export default {
       fetchChecks: () => getVentilationChecks(route.params.spaceId, ventilation.eventIds),
       saveCheck: (change) => saveVentilationCheck(route.params.spaceId, ventilation.eventIds, change),
     })
-    provideVentilationChecks(ventilationChecks)
+    // Checkmark = dépôt réel : l'écriture, l'annulation et la relecture sont branchées
+    // dans `created` (elles ont besoin du référentiel d'articles de la vue).
+    const ventilationRowActions = { deposit: null, cancel: null, afterBatch: null, onError: null }
+    const ventilationDepositChecks = useVentilationDepositChecks({
+      base: ventilationChecks,
+      groups: () => ventilation.groups,
+      deposit: (hit) => ventilationRowActions.deposit(hit),
+      cancel: (hit) => ventilationRowActions.cancel(hit),
+      afterBatch: (summary) => ventilationRowActions.afterBatch(summary),
+      onError: (e) => ventilationRowActions.onError(e),
+    })
+    provideVentilationChecks(ventilationDepositChecks)
     // Transferts stockage source vers PDV (tâches logistiques) ; le rafraîchissement
     // du panneau Tâches est branché dans `created`.
     const tasksRefresh = ref(null)
     const ventilationTransfers = useVentilationTransfers({
       store,
-      groups: () => ventilation.visibleGroups,
+      // Transferts : seulement ce qui reste à déposer (pas les lignes déjà déposées).
+      groups: () => pendingDepositGroups(ventilation.visibleGroups),
       storages: () => ventilation.storages,
       spaceId: () => route.params.spaceId,
       onGenerated: () => tasksRefresh.value?.(),
@@ -758,7 +772,7 @@ export default {
     const ventilationAccess = reactive(useVentilationAccess())
     // Lignes « stocké » des réserves (builder state) pour filtrer les articles des Storages.
     const storageInv = useStorageInventory()
-    return { store, router, route, t, locale, liveRefresh, revalidate, tasksRefresh, ventilationTransfers, storageInv, ventilation, ventilationChecks, ventilationLabels, eventSelection, ventilationAccess }
+    return { store, router, route, t, locale, liveRefresh, revalidate, tasksRefresh, ventilationTransfers, storageInv, ventilation, ventilationChecks, ventilationRowActions, ventilationLabels, eventSelection, ventilationAccess }
   },
   data() {
     return {
@@ -1023,6 +1037,21 @@ export default {
   },
   created() {
     this.liveRefresh = () => this.refreshLive()
+    // Checkmark de la Ventilation : dépôt de la quantité restante, annulation au décochage.
+    Object.assign(this.ventilationRowActions, {
+      deposit: ({ group, row }) => {
+        const item = this.logisticItemFor(row.shopId, group.itemName)
+        const logisticUnitsPerPack = item ? Number(this.unitsPerPackFor(row.shopId, item)) || null : null
+        return this.ventilation.depositRowQuantity({ group, row }, { item, logisticUnitsPerPack }, this.currentSpaceId)
+      },
+      cancel: (hit) => this.ventilation.cancelRowDeposits(hit),
+      // Feuille relue ; le stock aussi après une annulation (le mouvement inverse l'a modifié).
+      afterBatch: async ({ cancelled }) => {
+        await this.ventilation.refresh(this.currentSpaceId)
+        if (cancelled) await this.refreshLive()
+      },
+      onError: (e) => this.toast(e?.response?.data?.message || e?.userMessage || this.t('logiMovementError'), 'error'),
+    })
     this.revalidate = () => this.revalidateOnReturn()
     this.tasksRefresh = () => this.$refs.tasksPanelRef?.fetchTasks()
   },
@@ -1097,7 +1126,7 @@ export default {
       const subtitle = [this.spaceLabel, this.ventilation.planName].filter(Boolean).join(' · ')
       if (this.activeTab === 'ventilation') {
         return ventilationExportTable({
-          groups: filterGroupsBySearch(this.ventilation.visibleGroups, this.elementSearch),
+          groups: filterGroupsBySearch(pendingDepositGroups(this.ventilation.visibleGroups), this.elementSearch),
           storages: this.ventilation.storages,
           mode: this.ventilation.viewMode,
           t: this.t,

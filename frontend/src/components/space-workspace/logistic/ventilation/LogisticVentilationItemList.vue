@@ -27,6 +27,7 @@
         v-if="canConfirm && checks"
         type="button"
         class="lgvl-check"
+        :disabled="busy"
         :class="{ 'lgvl-check--on': isDone(group.itemKey) }"
         :title="t('logiVentilationCheckItem')"
         :aria-label="t('logiVentilationCheckItem')"
@@ -67,7 +68,7 @@
 </template>
 
 <script setup>
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { useVentilationLabels } from '@/composables/useVentilationLabels'
 import { splitGroupRows } from '@/utils/ventilationViews'
@@ -77,6 +78,8 @@ import LogisticVentilationRow from './LogisticVentilationRow.vue'
 const { t } = useI18n()
 const { quantityLabel, packSizeLabel } = useVentilationLabels()
 const checks = useInjectedVentilationChecks()
+// Un geste à la fois : le checkmark écrit de vrais dépôts de stock.
+const busy = computed(() => !!checks?.busy?.value)
 
 const props = defineProps({
   /** Groupes par article (groupDepositLinesByItem), déjà filtrés. */
@@ -113,6 +116,7 @@ function toggleDone(group) {
 .lgvl-head { display: flex; align-items: center; gap: 8px; padding-right: 12px; }
 .lgvl-card--done { border-color: #bbf7d0; background: var(--fb-success-soft, #f0fdf4); }
 .lgvl-check { flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--fb-border, #e5e7eb); background: var(--fb-surface, #fff); color: var(--fb-muted, #6b7280); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.lgvl-check:disabled { opacity: 0.5; cursor: not-allowed; }
 .lgvl-check--on { background: var(--fb-success, #16a34a); border-color: var(--fb-success, #16a34a); color: #fff; }
 .lgvl-trigger { appearance: none; flex: 1; min-width: 0; width: 100%; box-sizing: border-box; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto 18px; align-items: center; gap: 12px; padding: 12px 16px; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
 .lgvl-icon { width: 40px; height: 40px; border-radius: 10px; background: var(--fb-subtle, #f7f7f8); color: var(--fb-muted, #6b7280); display: flex; align-items: center; justify-content: center; }
