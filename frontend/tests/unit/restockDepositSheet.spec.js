@@ -1,7 +1,7 @@
 // Feuille « à déposer » de Logistic (utils/restockDepositSheet.js) : corrections
 // manuelles appliquées, lignes cochées « réarmé » retirées, regroupement par article.
 
-import { buildDepositLines, groupDepositLinesByItem, depositPrefill, packSizeLookup } from '@/utils/restockDepositSheet'
+import { buildDepositLines, groupDepositLinesByItem, pendingDepositGroups, depositPrefill, packSizeLookup } from '@/utils/restockDepositSheet'
 
 const packaging = (packedCount, packagingUnitNumber = 30) => ({
   packedCount,
@@ -166,5 +166,43 @@ describe('circuit : receivedFrom conservé jusqu\'au regroupement', () => {
   it('ancien plan sans receivedFrom : aucun champ ajouté', () => {
     const [g] = groupDepositLinesByItem([line({ rowKey: 'a' })])
     expect('receivedFrom' in g.rows[0]).toBe(false)
+  })
+})
+
+describe('keepCovered (feuille affichée en Ventilation)', () => {
+  const plan = { restockLines: [line({ rowKey: 'a', restockQuantity: 12, packaging: packaging(1, 12) })] }
+  const deposit = (loose) => [{ elementId: 's1', itemKey: 'Bonbons', packed: 0, loose }]
+
+  it('retire la ligne entièrement déposée par défaut (reste à déposer)', () => {
+    expect(buildDepositLines(plan, deposit(12))).toEqual([])
+  })
+
+  it('la garde cochée avec sa quantité prévue avec keepCovered', () => {
+    const lines = buildDepositLines(plan, deposit(12), { keepCovered: true })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ covered: true, restockQuantity: 12, depositedQuantity: 12 })
+  })
+
+  it('une ligne partiellement déposée garde son reste et n\'est pas couverte', () => {
+    const [l] = buildDepositLines(plan, deposit(5), { keepCovered: true })
+    expect(l.restockQuantity).toBe(7)
+    expect(l.covered).toBeUndefined()
+  })
+
+  it('la ligne du groupe est couverte et ne compte pas dans les totaux', () => {
+    const lines = buildDepositLines({ restockLines: [
+      line({ rowKey: 'a', restockQuantity: 12, packaging: packaging(1, 12) }),
+      line({ rowKey: 'b', shopId: 's2', shopName: 'Loire 13', restockQuantity: 24, packaging: packaging(2, 12) }),
+    ] }, deposit(12), { keepCovered: true })
+    const [group] = groupDepositLinesByItem(lines)
+    expect(group.rows.find((r) => r.shopId === 's1').covered).toBe(true)
+    expect(group.rows.find((r) => r.shopId === 's2').covered).toBe(false)
+    expect(group.totalQuantity).toBe(24)
+    expect(pendingDepositGroups([group])[0].rows.map((r) => r.shopId)).toEqual(['s2'])
+  })
+
+  it('pendingDepositGroups retire un groupe entièrement déposé', () => {
+    const [group] = groupDepositLinesByItem(buildDepositLines(plan, deposit(12), { keepCovered: true }))
+    expect(pendingDepositGroups([group])).toEqual([])
   })
 })

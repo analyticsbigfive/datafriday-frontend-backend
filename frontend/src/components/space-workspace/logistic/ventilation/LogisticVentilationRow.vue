@@ -18,6 +18,7 @@
         :title="t('logiVentilationCheckRow')"
         :aria-label="t('logiVentilationCheckRow')"
         :aria-pressed="done"
+        :disabled="checkDisabled"
         @click="toggleDone"
       >
         <v-icon size="14">mdi-check</v-icon>
@@ -27,6 +28,7 @@
         class="lgvr-btn"
         :title="t('logiDepositConfirmTitle')"
         :aria-label="t('logiDepositConfirmTitle')"
+        :disabled="busy"
         @click="$emit('confirm')"
       >
         <v-icon size="14">mdi-pencil-outline</v-icon>
@@ -67,13 +69,19 @@ const hasQuantity = computed(() => Number(props.row.quantity) > 0 || Number(prop
 const expectedLabel = computed(() => (hasQuantity.value ? quantityLabel(props.item, props.row.quantity, props.row.packs) : ''))
 
 const entry = computed(() => (checks ? checks.entry(props.item.itemKey, props.row.shopId) : null))
+// Cochée = entièrement déposée (le checkmark écrit un vrai dépôt de stock).
 const done = computed(() => !!entry.value?.checked)
+// Un geste à la fois (double clic = double dépôt) ; sans quantité prévue, rien à déposer :
+// le crayon reste le moyen de saisir un dépôt à la main.
+const busy = computed(() => !!checks?.busy?.value)
+const checkDisabled = computed(() => busy.value || (!done.value && !hasQuantity.value))
 const comment = computed(() => entry.value?.comment || null)
 
 // Quantité saisie différente de la prévue : prévue barrée, saisie à côté.
 const changedLabel = computed(() => {
   const q = entry.value?.quantity
-  if (q == null || !hasQuantity.value) return ''
+  // Quantité modifiée au crayon : montrée seulement une fois la ligne entièrement déposée.
+  if (q == null || !hasQuantity.value || !props.row.covered) return ''
   const expectedUnits = props.row.packs != null && props.item.unitsPerPack
     ? Number(props.row.packs) * Number(props.item.unitsPerPack)
     : Number(props.row.quantity)
@@ -100,6 +108,7 @@ function toggleDone() {
 .lgvr-comment { color: var(--fb-muted, #6b7280); }
 .lgvr-btn { width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--fb-border, #e5e7eb); display: flex; align-items: center; justify-content: center; cursor: pointer; background: var(--fb-surface, #fff); color: var(--fb-muted, #6b7280); }
 .lgvr-btn:hover { background: var(--fb-subtle, #f3f4f6); }
+.lgvr-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .lgvr-btn--on { background: var(--fb-success, #16a34a); border-color: var(--fb-success, #16a34a); color: #fff; }
 .lgvr-btn--on:hover { background: var(--fb-success, #16a34a); }
 </style>

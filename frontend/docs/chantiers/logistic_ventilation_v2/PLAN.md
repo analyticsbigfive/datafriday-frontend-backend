@@ -110,3 +110,15 @@ Suite de `docs/chantiers/logistic_ventilation/PLAN.md` (v1 en production le 2026
 - Arrêter / Reprendre / Nouveau PIN visent l'accès (`windowId`), plus le match.
 - Une autre combinaison ne modifie jamais l'accès d'une combinaison existante.
 - Route `GET /ventilation-access/spaces/:spaceId` supprimée (plus d'appelant).
+
+## Checkmark = dépôt réel (retour Bertrand 2026-11-10)
+
+Avant : la coche n'écrivait qu'une ligne `VentilationDepositCheck`, le stock des PDV ne bougeait pas.
+Maintenant (`useVentilationDepositChecks`) :
+- état « coché » = ligne entièrement couverte par les mouvements VENTILATION (`covered`, feuille lue avec `keepCovered`) ;
+- cocher une ligne, une carte PDV, un article ou « tous les PDV » écrit un dépôt par ligne (quantité exacte restante, packs entiers + vrac) ;
+- décocher annule les dépôts de la ligne (mouvement inverse, stock relu) ;
+- le crayon garde la quantité modifiée et le commentaire (`VentilationDepositCheck`, `checked` n'est plus lu) ;
+- une ligne couverte reste affichée (vert) mais sort des totaux, du compteur d'onglet, des transferts, des exports et de l'index « À déposer » (Boutiques, By Item) ;
+- page PIN : même comportement, décocher ne peut annuler que les dépôts de cet appareil (403 sinon, message affiché).
+À tester dans le navigateur : cocher Container HK, vérifier Boutiques et By Item, décocher, cocher une carte PDV entière, page PIN.

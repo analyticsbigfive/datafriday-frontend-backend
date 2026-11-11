@@ -17,6 +17,7 @@
         v-if="canConfirm && checks"
         type="button"
         class="lgvs-check"
+        :disabled="busy"
         :class="{ 'lgvs-check--on': isCardDone(card) }"
         :title="t('logiVentilationCheckShop')"
         :aria-label="t('logiVentilationCheckShop')"
@@ -66,6 +67,7 @@
           v-if="canConfirm && checks && depositCount(card)"
           type="button"
           class="lgvs-check"
+          :disabled="busy"
           :class="{ 'lgvs-check--on': isCardDone(card) }"
           :title="t('logiVentilationCheckShop')"
           :aria-label="t('logiVentilationCheckShop')"
@@ -101,6 +103,8 @@ import LogisticVentilationRow from './LogisticVentilationRow.vue'
 
 const { t } = useI18n()
 const checks = useInjectedVentilationChecks()
+// Un geste à la fois : le checkmark écrit de vrais dépôts de stock.
+const busy = computed(() => !!checks?.busy?.value)
 
 const props = defineProps({
   /** Groupes par article (groupDepositLinesByItem), déjà filtrés. */
@@ -119,7 +123,7 @@ function toggle(key) { expanded[key] = !expanded[key] }
 
 /** Articles ayant quelque chose à déposer dans cette destination. */
 function depositCount(card) {
-  return card.items.filter((i) => i.row.quantity > 0).length
+  return card.items.filter((i) => i.row.quantity > 0 && !i.row.covered).length
 }
 
 /** Lignes à déposer de la carte : [clé article, id destination]. */
@@ -139,6 +143,7 @@ function toggleCard(card) {
 .lgvs-card--expanded { border-color: rgba(255, 49, 49, 0.28); box-shadow: var(--fb-shadow-hover, 0 6px 20px rgba(15, 23, 42, 0.08)); }
 .lgvs-head { display: flex; align-items: center; gap: 8px; padding-right: 12px; }
 .lgvs-check { flex-shrink: 0; width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--fb-border, #e5e7eb); background: var(--fb-surface, #fff); color: var(--fb-muted, #6b7280); display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.lgvs-check:disabled { opacity: 0.5; cursor: not-allowed; }
 .lgvs-check--on { background: var(--fb-success, #16a34a); border-color: var(--fb-success, #16a34a); color: #fff; }
 .lgvs-trigger { appearance: none; flex: 1; min-width: 0; width: 100%; box-sizing: border-box; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto 18px; align-items: center; gap: 12px; padding: 12px 16px; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; cursor: pointer; }
 .lgvs-icon { width: 40px; height: 40px; border-radius: 10px; background: var(--fb-subtle, #f7f7f8); color: var(--fb-muted, #6b7280); display: flex; align-items: center; justify-content: center; }

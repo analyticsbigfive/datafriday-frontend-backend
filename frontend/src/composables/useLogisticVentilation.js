@@ -15,10 +15,11 @@ import {
   cancelVentilationDeposit,
   getVentilationStorages,
 } from '@/api/endpoints/logistics.api'
-import { buildDepositLines, groupDepositLinesByItem, depositPrefill } from '@/utils/restockDepositSheet'
+import { buildDepositLines, groupDepositLinesByItem, pendingDepositGroups, depositPrefill } from '@/utils/restockDepositSheet'
 import { buildRestockNeedIndex } from '@/composables/usePredictedNeed'
 import { readViewMode, writeViewMode, normalizeViewMode } from '@/utils/ventilationViewMode'
 import { buildSupplierIndex, supplierOptions as buildSupplierOptions, filterGroupsBySupplier } from '@/utils/ventilationSuppliers'
+import { exactDepositShare, activeRowDeposits } from '@/utils/ventilationRowDeposit'
 import {
   pickPlansForEvents,
   mergeRestockPlans,
@@ -41,7 +42,10 @@ export function useLogisticVentilation({ store, t }) {
   const eventIds = ref([])
   const eventId = computed(() => eventIds.value[0] || null)
   const loading = ref(false)
+  // Reste à déposer (lignes déjà déposées retirées) : index « À déposer » des PDV, By Item.
   const lines = shallowRef([])
+  // Feuille affichée en Ventilation : les lignes entièrement déposées y restent cochées.
+  const sheetLines = shallowRef([])
   // Stockages des configurations des matchs choisis (pas de configuration en Ventilation).
   const storages = ref([])
   // Dépôts des matchs un par un (liste « Déjà déposé », annulation, décision #76).
@@ -64,7 +68,9 @@ export function useLogisticVentilation({ store, t }) {
   // Dernière sélection demandée : la réponse lente d'une ancienne sélection est ignorée.
   let loadSeq = 0
 
-  const groups = computed(() => groupDepositLinesByItem(lines.value))
+  const groups = computed(() => groupDepositLinesByItem(sheetLines.value))
+  /** Articles qui ont encore une ligne à déposer (compteur de l'onglet). */
+  const pendingCount = computed(() => pendingDepositGroups(groups.value).length)
   const supplierList = computed(() => (store.getters['suppliers/suppliers'] || []).filter((x) => x?.id))
   // Noms des fournisseurs (les fiches articles n'ont souvent que l'id).
   const supplierNames = computed(() => new Map(supplierList.value.map((x) => [String(x.id), x.name || x.supplierName || ''])))
@@ -74,7 +80,7 @@ export function useLogisticVentilation({ store, t }) {
     return new Set(supplierList.value.filter((x) => (x.sites || []).map(String).includes(String(shownSpaceId.value))).map((x) => String(x.id)))
   })
   const supplierIndex = computed(() =>
-    buildSupplierIndex(plan.value, marketPrices.value, supplierNames.value, { lines: lines.value, spaceSupplierIds: spaceSupplierIds.value }),
+    buildSupplierIndex(plan.value, marketPrices.value, supplierNames.value, { lines: sheetLines.value, spaceSupplierIds: spaceSupplierIds.value }),
   )
   const supplierOptions = computed(() => buildSupplierOptions(groups.value, supplierIndex.value))
   /** Groupes affichés : filtre Fournisseur appliqué (la recherche reste à la vue). */
@@ -96,6 +102,7 @@ export function useLogisticVentilation({ store, t }) {
     plan.value = null
     planName.value = null
     lines.value = []
+    sheetLines.value = []
     movements.value = []
     storages.value = []
     supplierFilter.value = []
@@ -163,17 +170,13 @@ export function useLogisticVentilation({ store, t }) {
       unitsPerPack: store.getters['logistics/levelFor'](d.elementId, d.itemKey)?.unitsPerPack || null,
     }))
     lines.value = buildDepositLines(plan.value, enriched)
+    sheetLines.value = buildDepositLines(plan.value, enriched, { keepCovered: true })
   }
 
-  /**
-   * Ouvre le drawer pour une ligne.
-   * @param {{group:object, row:object}} payload ligne de la vue Ventilation
-   * @param {{item:object|null, logisticUnitsPerPack:number|null}} logistic article
-   *   Logistic de la destination (identité par nom) et sa taille de pack
-   */
-  function openConfirm({ group, row }, { item = null, logisticUnitsPerPack = null } = {}) {
+  /** Cible de dépôt d'une ligne (drawer et checkmark) : même conditionnement, mêmes feuilles. */
+  function depositTargetFor({ group, row }, { item = null, logisticUnitsPerPack = null } = {}) {
     const prefill = depositPrefill(row, logisticUnitsPerPack, group.unitsPerPack)
-    target.value = {
+    return {
       itemKey: group.itemKey,
       itemName: group.itemName,
       shopName: row.shopName,
@@ -187,6 +190,16 @@ export function useLogisticVentilation({ store, t }) {
       parts: row.parts || [],
       item,
     }
+  }
+
+  /**
+   * Ouvre le drawer pour une ligne.
+   * @param {{group:object, row:object}} payload ligne de la vue Ventilation
+   * @param {{item:object|null, logisticUnitsPerPack:number|null}} logistic article
+   *   Logistic de la destination (identité par nom) et sa taille de pack
+   */
+  function openConfirm(payload, logistic = {}) {
+    target.value = depositTargetFor(payload, logistic)
     error.value = null
     dialog.value = true
   }
@@ -207,12 +220,12 @@ export function useLogisticVentilation({ store, t }) {
     })
   }
 
-  /** Crée le ou les mouvements « Ventilation ». @returns {Promise<boolean>} succès */
-  async function submit({ packed, loose }, spaceId) {
-    const current = target.value
-    if (!current || !spaceId || !eventId.value) return false
-    saving.value = true
-    error.value = null
+  /**
+   * Écrit les mouvements « Ventilation » d'une saisie sur une cible, un par feuille.
+   * @returns {Promise<number>} nombre de mouvements écrits ; en cas d'échec, l'erreur
+   *   porte `writtenCount` (une part déjà enregistrée ne doit pas être rejouée).
+   */
+  async function writeDeposit(current, { packed, loose }, spaceId) {
     let written = 0
     try {
       for (const share of depositMovements({ packed, loose }, current)) {
@@ -231,6 +244,21 @@ export function useLogisticVentilation({ store, t }) {
         })
         written += 1
       }
+    } catch (e) {
+      e.writtenCount = written
+      throw e
+    }
+    return written
+  }
+
+  /** Crée le ou les mouvements « Ventilation ». @returns {Promise<boolean>} succès */
+  async function submit({ packed, loose }, spaceId) {
+    const current = target.value
+    if (!current || !spaceId || !eventId.value) return false
+    saving.value = true
+    error.value = null
+    try {
+      await writeDeposit(current, { packed, loose }, spaceId)
       dialog.value = false
       await refresh(spaceId)
       return true
@@ -238,13 +266,33 @@ export function useLogisticVentilation({ store, t }) {
       error.value = e?.response?.data?.message || e?.userMessage || t('logiMovementError')
       // Dépôt réparti en partie enregistré : fenêtre fermée et feuille relue, pour ne
       // pas réenregistrer la première part en réessayant.
-      if (written) {
+      if (e?.writtenCount) {
         dialog.value = false
         await refresh(spaceId)
       }
       return false
     } finally {
       saving.value = false
+    }
+  }
+
+  /**
+   * Checkmark : dépose la quantité exacte restante de la ligne, sans drawer. Ne relit
+   * pas la feuille (l'appelant le fait une fois pour un lot de lignes).
+   * @param {{group:object, row:object}} payload ligne de la Ventilation
+   * @param {{item:object|null, logisticUnitsPerPack:number|null}} logistic article Logistic
+   */
+  async function depositRowQuantity(payload, logistic, spaceId) {
+    if (!spaceId || !eventId.value) throw new Error('missing-event')
+    const current = depositTargetFor(payload, logistic)
+    await writeDeposit(current, exactDepositShare(payload.row.quantity, current.unitsPerPack), spaceId)
+  }
+
+  /** Décochage : annule (mouvement inverse) les dépôts actifs de la ligne. */
+  async function cancelRowDeposits({ group, row }) {
+    for (const m of activeRowDeposits(movements.value, row.shopId, group.itemName)) {
+      // eslint-disable-next-line no-await-in-loop -- un mouvement inverse après l'autre
+      await cancelVentilationDeposit(m.id)
     }
   }
 
@@ -270,6 +318,7 @@ export function useLogisticVentilation({ store, t }) {
     storages,
     groups,
     visibleGroups,
+    pendingCount,
     supplierIndex,
     supplierOptions,
     supplierFilter,
@@ -289,6 +338,8 @@ export function useLogisticVentilation({ store, t }) {
     refresh,
     openConfirm,
     submit,
+    depositRowQuantity,
+    cancelRowDeposits,
     cancel,
   }
 }
