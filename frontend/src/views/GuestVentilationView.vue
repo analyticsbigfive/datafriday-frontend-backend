@@ -88,7 +88,9 @@ import LogisticDepositConfirmDrawer from '@/components/space-workspace/logistic/
 import { useGuestVentilation, readDepositorName, writeDepositorName } from '@/composables/useGuestVentilation'
 import { guestPinLandingRoute } from '@/utils/guestPinLanding'
 import { depositPrefill, packSizeLookup } from '@/utils/restockDepositSheet'
+import { exactDepositShare, activeRowDeposits } from '@/utils/ventilationRowDeposit'
 import { useVentilationChecks, provideVentilationChecks, depositUnits } from '@/composables/useVentilationChecks'
+import { useVentilationDepositChecks } from '@/composables/useVentilationDepositChecks'
 import { getGuestVentilationChecks, saveGuestVentilationCheck } from '@/api/endpoints/guestPin.api'
 import { clearVentilationPin } from '@/utils/ventilationPinMemory'
 
@@ -113,8 +115,17 @@ export default {
       fetchChecks: () => getGuestVentilationChecks(),
       saveCheck: (change) => saveGuestVentilationCheck({ ...change, depositorName: readDepositorName() || undefined }),
     })
-    provideVentilationChecks(ventilationChecks)
-    return { t, store, session, ventilationChecks, ...ventilation }
+    // Checkmark = dépôt réel (écriture, annulation et relecture branchées dans `mounted`).
+    const rowActions = { deposit: null, cancel: null, afterBatch: null, onError: null }
+    provideVentilationChecks(useVentilationDepositChecks({
+      base: ventilationChecks,
+      groups: () => ventilation.groups.value,
+      deposit: (hit) => rowActions.deposit(hit),
+      cancel: (hit) => rowActions.cancel(hit),
+      afterBatch: () => rowActions.afterBatch(),
+      onError: (e) => rowActions.onError(e),
+    }))
+    return { t, store, session, ventilationChecks, rowActions, ...ventilation }
   },
   data() {
     return {
@@ -130,6 +141,37 @@ export default {
     }
   },
   mounted() {
+    Object.assign(this.rowActions, {
+      // Quantité exacte restante de la ligne, avec la taille de pack Logistic de la destination.
+      deposit: ({ group, row }) => {
+        if (!this.depositorName) {
+          this.nameDialog = true
+          throw Object.assign(new Error('depositor-name-missing'), { silent: true })
+        }
+        const logisticUpp = packSizeLookup(this.sheet?.packSizes)(row.shopId, group.itemName)
+        const { unitsPerPack } = depositPrefill(row, logisticUpp, group.unitsPerPack)
+        return this.deposit({
+          parts: row.parts || [],
+          unitsPerPack,
+          storageId: row.parts?.length ? null : row.shopId,
+          itemName: group.itemName,
+          ...exactDepositShare(row.quantity, unitsPerPack),
+          depositorName: this.depositorName,
+          reload: false,
+        })
+      },
+      cancel: async ({ group, row }) => {
+        for (const m of activeRowDeposits(this.movements, row.shopId, group.itemName)) {
+          // eslint-disable-next-line no-await-in-loop -- un mouvement inverse après l'autre
+          await this.cancel(m.id, { reload: false })
+        }
+      },
+      afterBatch: () => this.load({ silent: true }),
+      onError: (e) => {
+        if (e?.silent) return
+        this.notify(e?.response?.data?.message || e?.message || this.t('logiMovementError'), 'error')
+      },
+    })
     this.load()
     this.ventilationChecks.load()
     this.timer = setInterval(() => {
