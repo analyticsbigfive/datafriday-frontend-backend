@@ -68,6 +68,7 @@ export async function putRestockState(spaceId, snapshot) {
   // Plan chargé (RestockPlan) : rechargé au restore. Dans les extras — un
   // backend antérieur en whitelist stricte retombe sur le noyau sans lui.
   if (s.loadedPlanId !== undefined) extras.loadedPlanId = s.loadedPlanId
+  if (s.editingPlanId !== undefined) extras.editingPlanId = s.editingPlanId
   // fiche 314-01 / maquette 14-08 — état de l'onglet Espaces de stockage :
   // % par ligne (remplace l'ancien storageAdjustments absolu, plus émis),
   // ajustement global et inventaire source explicite.

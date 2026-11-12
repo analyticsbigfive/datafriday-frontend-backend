@@ -2019,6 +2019,10 @@ export default {
       collapsed: { stock: true, restock: true, shopping: true },
       restockedRows: {},
       restoringState: false,
+      // Faux tant que loadAll n'a pas fini sa restauration : les changements d'état du
+      // chargement initial (défauts auto) ne doivent pas écraser l'état sauvegardé
+      // (loadedPlanId perdu après un hard refresh).
+      stateRestoreDone: false,
       // --- Plan chargé (RestockPlan, ADR-0005) ---
       // Distinct de l'état de session : tant que loadedPlanId est posé, les
       // 3 étapes affichent la PHOTO du plan (aiguillage stockSettingsRows /
@@ -3764,6 +3768,8 @@ export default {
         // Envoyé dans les `extras` du PUT (restock.api.js) : un backend plus
         // ancien en whitelist stricte retombe sur le noyau sans lui.
         loadedPlanId: this.loadedPlanId,
+        // Commande en modification (étape 1 depuis une commande) : survit au refresh.
+        editingPlanId: this.editingPlanId,
         // fiche 314-01 / maquette 14-08 — état de l'onglet Espaces de stockage
         // (extras aussi : blob jsonb opaque, aucun changement backend).
         storagePercents: this.storagePercents,
@@ -3953,6 +3959,8 @@ export default {
     this.store.dispatch('kitchens/fetchKitchens').catch(() => {})
     await this.loadAll()
     await plansReady
+    // Commande en modification restaurée mais supprimée entre-temps : on l'oublie.
+    if (this.editingPlanId && !(this.plans || []).some((p) => p.id === this.editingPlanId)) this.editingPlanId = null
     await this.openLatestPlanOnEntry()
     // Assistant : le panneau de l'étape active doit s'afficher déplié. L'URL
     // (?step=) prime sur l'étape restaurée (deep-link / refresh / partage).
@@ -4107,6 +4115,7 @@ export default {
       } catch (err) {
         this.showSnackbar(err?.message || this.t('srSnackLoadError'), 'error')
       } finally {
+        this.stateRestoreDone = true
         this.loading = false
       }
     },
@@ -4145,6 +4154,10 @@ export default {
       localDb.setRestockState(spaceId, saved)
       this.restoringState = true
       if (saved.loadedPlanId) this.entryPlanHandled = true
+      else if (saved.editingPlanId) {
+        this.editingPlanId = saved.editingPlanId
+        this.entryPlanHandled = true
+      }
       // 1) Entrées (priment sur les défauts auto résolus ci-dessus), SAUF si
       //    une navigation explicite ?event= a déjà fixé objectif + sélection.
       if (!opts.keepNavSelection) {
@@ -4208,7 +4221,7 @@ export default {
      * source autoritaire au prochain chargement.
      */
     persistRestockState(snapshot) {
-      if (this.restoringState) return
+      if (this.restoringState || !this.stateRestoreDone) return
       const spaceId = this.route.params?.spaceId
       // 1) localStorage immédiat : aucun état perdu si l'onglet se ferme avant 500 ms.
       localDb.setRestockState(spaceId, snapshot)
