@@ -43,7 +43,7 @@
           v-if="plansAvailable"
           :plans="plans"
           :loading="plansLoading"
-          :active-plan-id="loadedPlanId"
+          :active-plan-id="loadedPlanId || editingPlanId"
           :can-write="canWritePlans"
           :error="plansError"
           @load="loadPlan"
