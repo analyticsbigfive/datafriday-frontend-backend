@@ -27,6 +27,16 @@ describe('MarketPriceRecipeUsageService', () => {
     expect(prisma.packaging.findMany.mock.calls[0][0].where.deletedAt).toBeNull();
   });
 
+  it('ignore les menu items et composants supprimés', async () => {
+    const { prisma, service } = build([], [], []);
+    await service.findUsedMarketPriceIds('t1');
+    expect(prisma.ingredient.findMany.mock.calls[0][0].where.OR).toEqual([
+      { componentIngredients: { some: { component: { deletedAt: null } } } },
+      { menuItemIngredients: { some: { menuItem: { deletedAt: null } } } },
+    ]);
+    expect(prisma.packaging.findMany.mock.calls[0][0].where.menuItemPackagings).toEqual({ some: { menuItem: { deletedAt: null } } });
+  });
+
   it('applique le filtre de périmètre des comptes restreints', async () => {
     const scope = { supplierRel: { sites: { hasSome: ['s1'] } } };
     const { prisma, service } = build([{ marketPriceId: 'a' }], [], [], scope);
