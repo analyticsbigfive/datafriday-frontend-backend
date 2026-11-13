@@ -24,7 +24,11 @@ export class MarketPriceRecipeUsageService {
           tenantId,
           deletedAt: null,
           marketPriceId: { not: null },
-          OR: [{ componentIngredients: { some: {} } }, { menuItemIngredients: { some: {} } }],
+          // Un menu item ou un composant supprimé (soft-delete) ne compte plus comme recette.
+          OR: [
+            { componentIngredients: { some: { component: { deletedAt: null } } } },
+            { menuItemIngredients: { some: { menuItem: { deletedAt: null } } } },
+          ],
         },
         select: { marketPriceId: true },
         distinct: ['marketPriceId'],
@@ -34,7 +38,7 @@ export class MarketPriceRecipeUsageService {
           tenantId,
           deletedAt: null,
           marketPriceId: { not: null },
-          menuItemPackagings: { some: {} },
+          menuItemPackagings: { some: { menuItem: { deletedAt: null } } },
         },
         select: { marketPriceId: true },
         distinct: ['marketPriceId'],
