@@ -131,6 +131,9 @@ export class MenuComponentsService {
       });
 
       await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [componentId], reason: 'component_edit', sourceRef: { componentId } });
+      // Sans cette purge, la liste (cache 1 h) gardait l'ancienne composition. Après refreshCosts,
+      // pour ne pas remettre en cache un coût périmé (même ordre que update()).
+      await this.listCache.invalidate(tenantId);
       // Non bloquant : les articles qui utilisent ce composant sont recalculés en arrière-plan.
       void this.itemPropagation.propagate(componentId, tenantId);
       return this.findOne(componentId, tenantId);
@@ -183,6 +186,9 @@ export class MenuComponentsService {
       });
 
       await this.menuComponentCostService.refreshCosts(tenantId, { componentIds: [componentId], reason: 'component_edit', sourceRef: { componentId } });
+      // Sans cette purge, la liste (cache 1 h) gardait l'ancienne composition. Après refreshCosts,
+      // pour ne pas remettre en cache un coût périmé (même ordre que update()).
+      await this.listCache.invalidate(tenantId);
       // Non bloquant : les articles qui utilisent ce composant sont recalculés en arrière-plan.
       void this.itemPropagation.propagate(componentId, tenantId);
       return this.findOne(componentId, tenantId);
