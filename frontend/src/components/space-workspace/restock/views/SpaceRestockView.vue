@@ -1662,7 +1662,7 @@ import { getMenuItemById, getMenuItemRecipes } from '@/api/endpoints/menu-item.a
 import { listEventPredictVersions } from '@/api/endpoints/eventPredict.api'
 // Catalogue fournisseurs (/suppliers) — le store analyse ne les porte pas tous
 // (il vient de shop-details). Nécessaire pour nommer le fournisseur d'un ingrédient.
-import { getSuppliers } from '@/api/endpoints/menu.api'
+import { getSuppliers, getConfigShopMenuItemsLight, getSpaceMenuItemsWithAvailability } from '@/api/endpoints/menu.api'
 import {
   getInventory as apiGetInventory,
   getLatestInventory as apiGetLatestInventory,
@@ -1675,6 +1675,7 @@ import { getShopElementMappings } from '@/utils/api'
 // Réconciliation menu (« non rattachés ») — assignation NestJS par shop + matcher
 // nom (mêmes utilitaires qu'EventPredict, clé = nom de shop normalisé).
 import { runWithConcurrency } from '@/utils/asyncPool'
+import { loadRestockAssignmentBatch } from '@/utils/restockShopAssignmentBatch'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { findPurchaseFor, pickSpaceHomonym, pickStorageMarketPrice } from '@/utils/storageRefillSupplier'
 import { findBestMatch } from '@/utils/menuItemMatching'
@@ -5004,8 +5005,20 @@ export default {
         // cache TTL keyé `shopId::configId`) PARTAGÉ avec EventPredict +
         // Inventory → dédup + cache : évite le burst /space-menu/shop (429).
         // Cap 3 (au lieu de Promise.all non borné) pour la concurrence backend.
-        const results = new Array(rows.length)
-        await runWithConcurrency(rows, 3, async (r) => {
+        // LOT D'ABORD : 2 appels pour toute la configuration (articles activés par PdV +
+        // disponibilité de l'espace) au lieu de 2 appels par PdV (66 PdV = 132 appels, 429
+        // et retentatives). La boucle par PdV ci-dessous ne sert plus que de repli quand le
+        // lot échoue ou revient vide (cf. utils/restockShopAssignmentBatch.js).
+        const batchResults = await loadRestockAssignmentBatch({
+          spaceId,
+          configId: cfgId,
+          rows,
+          fetchBatch: (s, c) => getConfigShopMenuItemsLight(s, c),
+          fetchSpaceItems: getSpaceMenuItemsWithAvailability,
+        })
+        if (token !== this._restockAssignmentToken) return
+        const results = batchResults || new Array(rows.length)
+        if (!batchResults) await runWithConcurrency(rows, 3, async (r) => {
           const idx = rows.indexOf(r)
           const shopId = String(r?.id ?? r?._id ?? r?.shopId ?? '')
           const name = r?.name ?? r?.shopName ?? ''
