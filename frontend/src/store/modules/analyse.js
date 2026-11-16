@@ -1712,6 +1712,9 @@ const actions = {
     // (menuItemCostMap, taxonomie) — jamais de la recette composée (Restock uniquement,
     // cf. useSpaceData.js). Évite le fan-out /menu-components/:id (audit perf 2026-09-03).
     const skipRecipeCatalog = typeof payload === 'object' && payload !== null ? !!payload.skipRecipeCatalog : false
+    // Promesse optionnelle (AnalyseView) : lecture des préférences de compte lancée en parallèle.
+    // Jamais attendue ici ; fetchSpaceData l'attend avant de rendre la phase 1 (startupPreferences).
+    const preferencesReady = typeof payload === 'object' && payload !== null ? payload.preferencesReady : undefined
     const CACHE_TTL = 15 * 60 * 1000
     const fresh =
       !force &&
@@ -1760,7 +1763,7 @@ const actions = {
       // Rendu immédiat depuis le store ; revalidation silencieuse en fond (les
       // données fraîches remplaceront réactivement celles affichées, sans skeleton).
       commit('SET_ERROR', null)
-      dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog }).catch((err) => {
+      dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog, preferencesReady }).catch((err) => {
         // L'écran garde les données déjà affichées ; l'échec est seulement tracé.
         console.warn('[analyse] revalidation arrière-plan échouée, données précédentes conservées:', err?.message)
       })
@@ -1772,7 +1775,7 @@ const actions = {
     commit('SET_ERROR', null)
     commit('SET_CATALOG_LOAD_ERRORS', null)
     try {
-      await dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog })
+      await dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog, preferencesReady })
     } catch (err) {
       commit('SET_ERROR', err.message || 'Erreur de chargement du space')
       // Phase 2 ne sera jamais appelée si la phase 1 jette → on lève le skeleton.
@@ -1809,6 +1812,7 @@ const actions = {
     const spaceId = typeof payload === 'object' && payload !== null ? payload.spaceId : payload
     const isLive = typeof payload === 'object' && payload !== null ? !!payload.isLive : false
     const skipRecipeCatalog = typeof payload === 'object' && payload !== null ? !!payload.skipRecipeCatalog : false
+    const preferencesReady = typeof payload === 'object' && payload !== null ? payload.preferencesReady : undefined
     // Délégué au composable useSpaceData (two-phase load).
     // Phase 1 (critique) est attendue → loading=false dès qu'elle complète.
     // Phase 2 (enrichissement) rappelle onEnrichment en arrière-plan.
@@ -1866,7 +1870,7 @@ const actions = {
       if (enrichment.events?.length) commit('SET_EVENTS', enrichment.events)
       // Phase 2 terminée → on retire les skeletons des graphiques.
       commit('SET_ENRICHING', false)
-    }, { excludeSimulated: !isLive, skipRecipeCatalog })
+    }, { excludeSimulated: !isLive, skipRecipeCatalog, preferencesReady })
     // Revalidation du MÊME espace : le résultat phase 1 porte des catalogues vides par
     // construction (l'enrichissement arrive par callback). Les committer effaçait un
     // catalogue déjà chargé, puis le laissait vide si la vague 2b échouait.
