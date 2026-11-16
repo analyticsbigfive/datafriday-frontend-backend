@@ -21,7 +21,7 @@ import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { ValidationErrorEnricherInterceptor } from './interceptors/validation-error-enricher.interceptor';
 import { RequirePermissions } from '../../core/auth/decorators/permissions.decorator';
-import { MenuComponentsFindAllQueryDto } from './dto/menu-components.query.dto';
+import { MenuComponentsByIdsQueryDto, MenuComponentsFindAllQueryDto } from './dto/menu-components.query.dto';
 import { MenuComponentCostService } from './services/menu-component-cost.service';
 
 @ApiTags('Menu Components')
@@ -75,6 +75,20 @@ export class MenuComponentsController {
       limit ? parseInt(limit, 10) : 100,
       user,
     );
+  }
+
+  // Déclarée AVANT `:id`, sinon « by-ids » serait lu comme un identifiant.
+  @Get('by-ids')
+  @ApiOperation({ summary: 'Obtenir le détail de plusieurs composants (sans cache, même contenu que GET :id)' })
+  @ApiQuery({ name: 'ids', required: true, type: String, description: 'Identifiants séparés par des virgules (100 maximum)' })
+  @ApiResponse({ status: 200, description: 'Détails des composants trouvés et visibles' })
+  findByIds(
+    @Query() params: MenuComponentsByIdsQueryDto,
+    @CurrentUser() user: any,
+    @CurrentTenant() tenantId: string,
+  ) {
+    this.logger.log(`GET /menu-components/by-ids - User: ${user?.id}, Tenant: ${tenantId}`);
+    return this.menuComponentsService.findByIds(params.ids, tenantId, user);
   }
 
   @Get(':id')
