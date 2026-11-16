@@ -12,6 +12,7 @@ import { TenantListCache } from '../../shared/cache/tenant-list-cache';
 import { MenuComponentCostService } from './services/menu-component-cost.service';
 import { MenuComponentValidationService } from './services/menu-component-validation.service';
 import { MenuComponentItemPropagationService } from './services/menu-component-item-propagation.service';
+import { buildByIdsWhere, parseComponentIds } from './services/menu-component-by-ids';
 import { assertSeasonsBelongToTenant, componentSeasonLinksInclude, seasonLinksWrite, withSeasonIds } from './services/menu-component-seasons';
 import { assertIngredientsAllowedForSpaces } from '../../shared/utils/ingredient-space-rule';
 import { assertBrickUnused, getComponentUsage } from '../../shared/cost-propagation/brick-usage';
@@ -392,6 +393,22 @@ export class MenuComponentsService {
       this.logger.error(`Failed to fetch menu components: ${error.message}`, error.stack);
       throw error;
     }
+  }
+
+  /**
+   * Détail de plusieurs composants en une requête, sans cache : même contenu que `findOne` pour
+   * chaque id (voir services/menu-component-by-ids.ts). Un id inconnu, supprimé ou hors du périmètre
+   * de l'utilisateur est absent de la réponse.
+   */
+  async findByIds(rawIds: string, tenantId: string, user?: SpaceScopedUser) {
+    const ids = parseComponentIds(rawIds);
+    if (!ids.length) return { data: [] };
+    const visible = await this.visibleSpaces(user);
+    const components = await this.prisma.menuComponent.findMany({
+      where: buildByIdsWhere(ids, tenantId, visible),
+      include: this.includeRelations,
+    });
+    return { data: components.map(withSeasonIds) };
   }
 
   async findOne(id: string, tenantId: string, user?: SpaceScopedUser) {

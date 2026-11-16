@@ -125,11 +125,12 @@ export function buildSubComponentsFromDetail(full, ingById = new Map()) {
  * @param {object}   [opts]
  * @param {Array}    [opts.ingredients=[]] catalogue ingrédients (résolution de noms)
  * @param {number}   [opts.concurrency=5]
- * @param {Function} [opts.fetchComponent] injectable — défaut `getMenuComponent`
+ * @param {Function} [opts.fetchComponent] injectable, défaut `getMenuComponent` (relecture par id, repli)
+ * @param {Function} [opts.fetchComponentsBatch] injectable, défaut `getMenuComponentsByIds` (lots de 50)
  * @returns {Promise<{components: Array<object>, hydrated: number, missing: number}>}
  */
 export async function hydrateSubComponents(components = [], opts = {}) {
-  const { ingredients = [], concurrency = 5, fetchComponent } = opts
+  const { ingredients = [], concurrency = 5, fetchComponent, fetchComponentsBatch } = opts
   const out = [...(components || [])]
   const needDetail = out.filter((c) => c?.id && !(c?.subComponents?.length))
   if (!needDetail.length) {
@@ -138,24 +139,53 @@ export async function hydrateSubComponents(components = [], opts = {}) {
 
   try {
     const { runWithConcurrency } = await import('@/utils/asyncPool')
-    const fetcher =
-      fetchComponent || (await import('@/api/endpoints/menu.api')).getMenuComponent
+    const { loadComponentDetails } = await import('@/utils/componentDetailBatch')
+    // Import paresseux, une seule fois, et seulement si un des deux appels n'est pas injecté.
+    let apiModule = null
+    const loadApi = async () => {
+      if (!apiModule) apiModule = await import('@/api/endpoints/menu.api')
+      return apiModule
+    }
+    const fetcher = fetchComponent || (await loadApi()).getMenuComponent
+    // Lot par défaut seulement quand rien n'est injecté : un appelant (ou un test) qui fournit
+    // `fetchComponent` garde le chemin par composant, sans appel réseau inattendu.
+    const batchFetcher =
+      fetchComponentsBatch !== undefined
+        ? fetchComponentsBatch
+        : fetchComponent
+          ? null
+          : (await loadApi()).getMenuComponentsByIds
 
     const ingById = new Map(
       (ingredients || []).filter((x) => x?.id != null).map((x) => [String(x.id), x]),
     )
     const detailById = new Map()
-    await runWithConcurrency(needDetail, concurrency, async (c) => {
+    const keepDetail = (id, full) => {
+      const subs = buildSubComponentsFromDetail(full, ingById)
+      if (subs.length) {
+        detailById.set(id, {
+          subComponents: subs,
+          numberOfUnitsRecipe: full?.numberOfUnitsRecipe,
+        })
+      }
+    }
+
+    // 1) Détails par lots (1 appel pour 50 composants au lieu de 50 appels).
+    const { details, failedIds } = await loadComponentDetails({
+      ids: needDetail.map((c) => c.id),
+      fetchBatch: batchFetcher,
+    })
+    for (const c of needDetail) {
+      const full = details.get(String(c.id))
+      if (full) keepDetail(c.id, full)
+    }
+
+    // 2) Repli : seuls les ids des lots en échec sont relus un par un (comportement d'avant).
+    const toFetchOne = needDetail.filter((c) => failedIds.has(String(c.id)))
+    await runWithConcurrency(toFetchOne, concurrency, async (c) => {
       try {
         const d = await fetcher(c.id)
-        const full = d?.data ?? d
-        const subs = buildSubComponentsFromDetail(full, ingById)
-        if (subs.length) {
-          detailById.set(c.id, {
-            subComponents: subs,
-            numberOfUnitsRecipe: full?.numberOfUnitsRecipe,
-          })
-        }
+        keepDetail(c.id, d?.data ?? d)
       } catch (_) {
         /* toléré : composant sans détail → non éclaté */
       }
