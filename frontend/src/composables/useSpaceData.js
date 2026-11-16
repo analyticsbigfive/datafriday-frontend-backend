@@ -32,6 +32,7 @@ import { getWeezeventProducts } from '@/api/endpoints/aggregation.api'
 import { getProductMappings } from '@/api/endpoints/mapping.api'
 import { enrichGranularMenuDimensions } from '@/utils/analyseDimensions'
 import { retryRequest, settleRequest } from '@/utils/retryRequest'
+import { waitForPreferencesReady } from '@/utils/startupPreferences'
 
 const normalizeList = (v) => (Array.isArray(v) ? v : v?.data || [])
 
@@ -99,7 +100,7 @@ async function fetchAllMenuComponents() {
   return rows
 }
 
-export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimulated = true, skipRecipeCatalog = false } = {}) {
+export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimulated = true, skipRecipeCatalog = false, preferencesReady = null } = {}) {
   // Mode démo retiré : on charge toujours via l'API réelle. Aucune donnée mock.
   console.log('[useSpaceData] 🟢 Fetching from API: /api/v1/spaces/' + spaceId)
 
@@ -405,6 +406,13 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         catalogErrors,
       }
     }
+
+    // Préférences de compte (période par défaut), lues en parallèle par AnalyseView : on les
+    // attend ICI, après la phase 1 et après le lancement de shop-details (granularPromise, t=0)
+    // mais AVANT loadEnrichment. Plus tard, le callback d'enrichissement pourrait committer
+    // shopGranularData avant les commits de la phase 1, qui l'écraseraient par []. Plafonnée
+    // (startupPreferences), ne lève jamais ; absente pour tous les autres écrans.
+    await waitForPreferencesReady(preferencesReady)
 
     // Phase 1 result — used for immediate first paint
     const phase1Result = {
