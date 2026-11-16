@@ -4593,6 +4593,18 @@ export default {
         //     avait provoqué des 429 Render, pas plus.
         // Le store `shopMenuItems` reste INCHANGÉ pour Restock/Inventory : les
         // deux endpoints ne sont pas interchangeables. Cap 3 conservé.
+        // LOT D'ABORD : le cache de tous les shops de la config est rempli en 2 appels
+        // (articles de l'espace + matrice d'assignation) au lieu de 1 appel par shop
+        // (33 appels à chaque ouverture). La boucle ci-dessous trouve alors le cache
+        // valide et ne rappelle rien ; si le lot échoue ou revient vide, elle charge shop
+        // par shop comme avant (cf. utils/shopMenuAvailabilityBatch.js).
+        await store
+          .dispatch("shopMenuAvailability/hydrateForShops", {
+            spaceId,
+            configId: cfgId,
+            shopIds: rows.map((r) => String(r?.id ?? r?._id ?? r?.shopId ?? "")),
+          })
+          .catch(() => false);
         const results = new Array(rows.length);
         await runWithConcurrency(rows, 3, async (r) => {
           const idx = rows.indexOf(r);

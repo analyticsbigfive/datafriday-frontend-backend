@@ -1,5 +1,10 @@
-import { getShopAvailableMenuItems } from '@/api/endpoints/menu.api'
+import {
+  getShopAvailableMenuItems,
+  getSpaceMenuItemsWithAvailability,
+  getSpaceMenuConfiguration,
+} from '@/api/endpoints/menu.api'
 import { applyEnabledChanges } from '@/utils/shopMenuAssignmentMaps'
+import { loadShopRowsForConfig } from '@/utils/shopMenuAvailabilityBatch'
 
 /**
  * Catalogue d'un shop avec DISPONIBILITÉ calculée côté serveur — BUG-291-02.
@@ -111,6 +116,53 @@ export default {
           commit('SET_FOR_SHOP', { shopId, configId, rows: unwrap(res) })
         } finally {
           commit('SET_FETCHING_FOR_SHOP', { shopId, configId, val: false })
+          inflight.delete(key)
+        }
+      })()
+      inflight.set(key, p)
+      return p
+    },
+
+    /**
+     * Remplit le cache de PLUSIEURS shops d'une configuration en 2 appels (articles de
+     * l'espace + matrice d'assignation) au lieu d'un `fetchForShop` par shop (N+1), puis
+     * `fetchForShop` trouve le cache valide et ne rappelle rien. Voir
+     * `utils/shopMenuAvailabilityBatch.js` pour l'équivalence avec la réponse par shop.
+     *
+     * Ne lève jamais : rend `false` quand le lot est indisponible (échec ou réponse vide),
+     * auquel cas rien n'est écrit et la boucle par shop de l'appelant reprend comme avant.
+     * Seuls les shops dont le cache n'est pas valide sont écrits (sauf `forceRefresh`).
+     * Single-flight par espace + configuration : deux écrans qui chargent en même temps
+     * partagent les mêmes 2 appels.
+     */
+    async hydrateForShops({ commit, getters }, { spaceId, configId = null, shopIds = [], forceRefresh = false } = {}) {
+      if (!spaceId || !configId) return false
+      const wanted = [...new Set((shopIds || []).map(String).filter(Boolean))].filter(
+        (id) => forceRefresh || !getters.isCacheValidForShop(id, configId),
+      )
+      if (!wanted.length) return true
+      const key = `hydrate::${spaceId}::${configId}`
+      if (inflight.has(key) && !forceRefresh) {
+        const ok = await inflight.get(key)
+        // Le lot partagé a pu couvrir un autre sous-ensemble de shops : si certains manquent
+        // encore, l'appelant les chargera par shop (cache valide = aucun appel superflu).
+        return ok
+      }
+      const p = (async () => {
+        try {
+          const byShop = await loadShopRowsForConfig({
+            spaceId,
+            configId,
+            shopIds: wanted,
+            fetchSpaceItems: getSpaceMenuItemsWithAvailability,
+            fetchMatrix: getSpaceMenuConfiguration,
+          })
+          if (!byShop) return false
+          for (const id of wanted) commit('SET_FOR_SHOP', { shopId: id, configId, rows: byShop[id] })
+          return true
+        } catch (_) {
+          return false
+        } finally {
           inflight.delete(key)
         }
       })()
