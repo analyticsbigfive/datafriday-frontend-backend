@@ -5971,8 +5971,17 @@ export default {
       const { counts, sourceEvent } = await readPreviousInventorySources({
         readLogistic: () => this.loadLogisticRemaining(spaceId, { fresh }),
         // Le store garde son fallback localStorage si l'API échoue.
+        // Même événement, même espace : le GET n'est relancé qu'après 15 s ou sur demande fraîche
+        // (le store garde les comptages du premier chargement). Un chargement en erreur n'est
+        // jamais gardé : on lève pour que la lecture suivante réessaie.
         readStoreCounts: () =>
-          spaceId ? this.store.dispatch('inventory/loadInventory', { spaceId, eventId: countsEventId || null }) : null,
+          spaceId
+            ? recent(`store-counts:${spaceId}:${countsEventId || ''}`, async () => {
+                await this.store.dispatch('inventory/loadInventory', { spaceId, eventId: countsEventId || null })
+                const failure = this.store.state.inventory?.error
+                if (failure) throw new Error(String(failure))
+              })
+            : null,
         skipPrevious,
         previousEvent,
         useLocalOnly: !!this.store.state.analyse?.fromMock,
