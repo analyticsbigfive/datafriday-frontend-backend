@@ -1094,11 +1094,11 @@
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
             </span>
             <span class="ep-synth-cell">
-              <template v-if="predictedReady && staffingReady">{{ formatCurrency(totalPredictedCostGlobal) }}</template>
+              <template v-if="predictedCostReady && staffingReady">{{ formatCurrency(totalPredictedCostGlobal) }}</template>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
             </span>
             <span class="ep-synth-cell">
-              <template v-if="predictedReady && staffingReady">{{ predictedMargin.toFixed(2) }}%</template>
+              <template v-if="predictedCostReady && staffingReady">{{ predictedMargin.toFixed(2) }}%</template>
               <span v-else class="ep-skel-value ep-skel-value-sm" :aria-label="t('epCalculatingAria')" />
             </span>
 
@@ -1155,7 +1155,7 @@
           <!-- Margin -->
           <div class="ep-metric-card ep-metric-card-success">
             <h3 class="ep-metric-label">{{ t('epMetricMargin') }}</h3>
-            <p v-if="predictedReady" class="ep-metric-value">{{ predictedMargin.toFixed(2) }}%</p>
+            <p v-if="predictedCostReady" class="ep-metric-value">{{ predictedMargin.toFixed(2) }}%</p>
             <span v-else class="ep-skel-value" :aria-label="t('epCalculatingAria')" />
             <div class="ep-metric-adjusted">
               <p class="ep-metric-adjusted-label">{{ t('epmAdjusted') }}</p>
@@ -1389,6 +1389,8 @@ import {
 import { getShopMenus } from "@/api/endpoints/space-menu.api";
 import { getTeams as restGetTeams } from "@/api/endpoints/team.api";
 import { getAllMenuItems as restGetAllMenuItems } from "@/api/endpoints/menu-item.api";
+import { buildCatalogState, recipeDepth as catalogRecipeDepth } from "@/utils/eventPredictCatalogState";
+import { createDeferredCatalog } from "@/utils/deferredCatalog";
 import { assignMenuItemsToShop, saveSpaceMenuConfiguration } from "@/api/endpoints/menu.api";
 import { resolveIngredientSupplierId } from "@/utils/menuItemAvailability";
 import { runWithConcurrency } from "@/utils/asyncPool";
@@ -1596,6 +1598,9 @@ export default {
     const { t } = useI18n();
     const versionsApi = useEventPredictVersions();
     const route = useRoute();
+    // Catalogue complet du tenant, appliqué en retard sans gater le chargement (cf.
+    // utils/deferredCatalog.js). Hors data : pas réactif, c'est de la coordination.
+    const catalogGate = createDeferredCatalog();
     // Mode debug prédiction DISPONIBLE : dev build OU query `?debugPrediction=1`.
     // Masqué par défaut ailleurs. Ne calcule la trace QUE dans ces sessions
     // (coût nul pour l'utilisateur normal). Le toggle runtime `debugMode`
@@ -1633,7 +1638,7 @@ export default {
       // (pas juste disponible) — sinon coût de re-scoring à chaque calcul.
       isDebug: () => debugPredictionAvailable.value && debugMode.value,
     }));
-    return { t, versionsApi, timeline, eventsHolder, granularHolder, debugPredictionAvailable, debugMode };
+    return { t, versionsApi, timeline, eventsHolder, granularHolder, debugPredictionAvailable, debugMode, catalogGate };
   },
   data() {
     return {
@@ -1666,6 +1671,9 @@ export default {
       shopGranularData: [],
       menuItemCostMap: {},
       menuItems: [],
+      // true tant que le catalogue complet n'est pas arrivé ET appliqué (coûts et noms
+      // d'articles seulement partiels, repli store) : masque les chiffres qui en dépendent.
+      catalogPending: false,
       ingredients: [],
       components: [],
       suppliers: [],
@@ -1889,7 +1897,11 @@ export default {
      *  (dérivé des deux) est complet. Skeleton sinon — jamais de valeur à
      *  moitié prête. */
     adjustedReady() {
-      return this.predictedReady && this._assignmentLoaded;
+      return this.predictedReady && this._assignmentLoaded && !this.catalogPending;
+    },
+    /** Coût et marge prédits : timeline calculée ET catalogue (coûts unitaires) appliqué. */
+    predictedCostReady() {
+      return this.predictedReady && !this.catalogPending;
     },
     // Outils visibles selon les permissions RBAC du rôle (ADMIN voit tout).
     visibleToolboxItems() {
@@ -3870,6 +3882,8 @@ export default {
     this.applyDeepLinkFromRoute();
   },
   beforeUnmount() {
+    // Une arrivée tardive du catalogue ne doit plus rien appliquer.
+    this.catalogGate.dispose();
     // Overlay fermé → DashboardView repasse son drawer en mode route normal.
     window.dispatchEvent(new CustomEvent('datafriday:eventpredict-active', { detail: { active: false } }));
     window.removeEventListener('datafriday:main-navigation-state', this._navStateHandler);
@@ -3967,6 +3981,7 @@ export default {
         (store.state.analyse?.events?.length || 0) > 0 &&
         (store.state.analyse?.configurations?.length || 0) > 0
       );
+      let catalog = null;
       try {
         const demo = isDemoMode();
 
@@ -4060,30 +4075,26 @@ export default {
           storeAtLoad.menuItems.some(
             (mi) => Array.isArray(mi.components) && mi.components.length,
           );
-        const [
-          allEvents,
-          shopGranular,
-          menuItems,
-        ] = demo
-          ? [[], [], []]
-          : await Promise.all([
-              // Events viennent du STORE (REST useSpaceData), pas de l'Edge
-              // Function `getAllEvents` qui renvoie un set partiel/obsolète
-              // (2 events au lieu des 11 réels du space). Voir evSource ci-dessous.
-              Promise.resolve([]),
-              // getAllShopDetailsBySpace (shop-performance-by-space) = Edge Function
-              // du projet uvxx MORT → 500. REDONDANT avec getSpaceShopGranular
-              // (NestJS, `granPromise` ci-dessus, avalé par finishHeavyLoad qui swap
-              // si meilleur recouvrement). On NE tape PLUS le backend mort → [] ; le
-              // granular vient du store (useSpaceData) + REST NestJS.
-              Promise.resolve([]),
-              // getAllMenuItems : MIGRÉ make-server (uvxx MORT) → NestJS
-              // (menu-item.api, /menu-items paginé). Non-enrichi → loadAll retombe
-              // sur le store (apiMisEnriched plus bas). Gaté par storeHasEnrichedMenuItems.
-              storeHasEnrichedMenuItems
-                ? Promise.resolve([])
-                : restGetAllMenuItems().catch(() => []),
-            ]);
+        // Events : source = STORE (REST useSpaceData), pas l'Edge Function
+        // `getAllEvents` (set partiel/obsolète, voir evSource plus bas).
+        const allEvents = [];
+        // getAllShopDetailsBySpace (shop-performance-by-space) = Edge Function du projet
+        // uvxx MORT → 500. REDONDANT avec getSpaceShopGranular (NestJS, `granPromise`
+        // ci-dessus, avalé par finishHeavyLoad qui swap si meilleur recouvrement). On NE
+        // tape PLUS le backend mort ; le granular vient du store + REST NestJS.
+        const shopGranular = [];
+        // getAllMenuItems : MIGRÉ make-server (uvxx MORT) → NestJS (menu-item.api,
+        // /menu-items paginé, plusieurs pages : le plus long appel de la page). PERF : il
+        // ne gate PLUS le chargement. Les /event-timeline, predict-versions, staffing et
+        // référentiels n'en dépendent pas ; seuls les coûts et noms d'articles en
+        // dépendent. L'état catalogue est appliqué une 1re fois sans lui (repli store, cf.
+        // plus bas) puis à son arrivée (catalogGate : jeton de génération, ordre garanti).
+        // Non-enrichi → repli sur le store. Gaté par storeHasEnrichedMenuItems.
+        catalog = this.catalogGate.start(
+          demo || storeHasEnrichedMenuItems
+            ? Promise.resolve([])
+            : restGetAllMenuItems().catch(() => []),
+        );
 
         // PERF: NE PAS attendre le granular REST lourd ici. getSpaceShopGranular
         // (`/shop-details?granular=1`) est le gros join ventes — son propre
@@ -4208,36 +4219,14 @@ export default {
         // éditer les détails sans dropdown vide.
         this.ensureReferentialsFromEvents();
 
-        // Build menu item cost map (id → unit cost) avec fallback store
-        const costMap = {};
-        const miSource = (Array.isArray(menuItems) && menuItems.length)
-          ? menuItems
-          : [];
-        for (const mi of miSource) {
-          // Clé seulement si coût réel : une clé à 0 masquerait la valeur du
-          // store dans effectiveMenuItemCostMap (merge local-prioritaire) et
-          // bloquait déjà le fallback store ci-dessous (map non vide).
-          const c = Number(mi?.unitCost || mi?.cost || 0);
-          if (mi?.id && c > 0) costMap[mi.id] = c;
-        }
-        // Si vide, reprendre depuis le store (mock Arena)
-        if (Object.keys(costMap).length === 0) {
-          const storeCostMap = store.state.analyse?.menuItemCostMap || {};
-          Object.assign(costMap, storeCostMap);
-        }
-        this.menuItemCostMap = costMap;
-        this.menuItems = miSource;
-
-        // Si menuItems API vide ou non-enrichi (pas de components), prendre le store
-        // (mock Arena enrichi avec components/readyForSale/spaceIds — requis par
-        // EventPredictMenusSection / StockUpSection pour l'algorithme).
+        // Coûts unitaires + liste d'articles (règle : utils/eventPredictCatalogState.js).
+        // Catalogue pas encore arrivé → application avec repli store maintenant, puis
+        // réapplication à son arrivée ; déjà arrivé → appliqué tout de suite, une seule fois.
+        catalog.applyInitial(
+          (items, ctx) => this.applyCatalogState(items, ctx),
+          { onPending: (pending) => { this.catalogPending = pending; } },
+        );
         const storeAnalyse = store.state.analyse || {};
-        const storeMis = Array.isArray(storeAnalyse.menuItems) ? storeAnalyse.menuItems : [];
-        const apiMisEnriched = this.menuItems.length > 0
-          && this.menuItems.some((mi) => Array.isArray(mi.components) && mi.components.length);
-        if (!apiMisEnriched && storeMis.length) {
-          this.menuItems = storeMis;
-        }
         this.suppliers = Array.isArray(storeAnalyse.suppliers) ? storeAnalyse.suppliers : [];
         this.ingredients = Array.isArray(storeAnalyse.ingredients) ? storeAnalyse.ingredients : [];
         this.components = Array.isArray(storeAnalyse.components) ? storeAnalyse.components : [];
@@ -4371,7 +4360,22 @@ export default {
         // eslint-disable-next-line no-console
         console.error("[EVENT PREDICT] Failed to load:", err);
       } finally {
+        // Chargement interrompu avant l'application initiale : libère whenSettled().
+        if (catalog) catalog.abandon();
         this.loading = false;
+      }
+    },
+    /**
+     * Applique l'état catalogue (coûts + articles). Appelé sans le catalogue complet (repli
+     * store) puis à son arrivée (`late`). En retard, on n'appauvrit jamais la liste
+     * d'articles : si le store a entre-temps adopté une version plus riche en lignes de
+     * recette (watcher storeAnalyseMenuItems, BUG-291-01), on la garde.
+     */
+    applyCatalogState(apiMenuItems, { late = false } = {}) {
+      const state = buildCatalogState(apiMenuItems, store.state.analyse);
+      this.menuItemCostMap = state.costMap;
+      if (!late || catalogRecipeDepth(state.menuItems) >= catalogRecipeDepth(this.menuItems)) {
+        this.menuItems = state.menuItems;
       }
     },
     /**
@@ -6397,6 +6401,11 @@ export default {
         // normalise vers `totalRevenue`/`totalQuantity` lus par aggregateTimeline.
         const raw = await getSpaceEventTimeline(this.space.id, eventId);
         // Guard contre une réponse arrivant après un changement d'event.
+        if (this.selectedEventId !== eventId) return;
+        // Le snapshot des coûts ci-dessous est pris UNE FOIS : on attend que le catalogue
+        // complet soit appliqué (résolu d'avance dans le cas courant), pour un résultat
+        // identique à avant. Le chemin d'un event futur n'attend rien.
+        await this.catalogGate.whenSettled();
         if (this.selectedEventId !== eventId) return;
         const data = (Array.isArray(raw) ? raw : []).map((r) => ({
           ...r,
