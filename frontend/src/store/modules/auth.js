@@ -5,11 +5,17 @@ import { supabase, getSessionOnce, readPersistedSession } from '@/lib/supabase'
 import api from '@/lib/api'
 import { setAccessToken, clearAccessToken, isExplicitlyLoggedOut } from '@/api/client'
 import { resolveAuthStateChange, AUTH_EVENT_DECISION } from '@/utils/authSessionEvent'
+import { createCurrentUserFlight } from '@/utils/currentUserFlight'
 
 // In-flight promise to deduplicate concurrent checkOnboardingStatus calls
 let checkOnboardingStatusPromise = null
 // In-flight promise to deduplicate concurrent fetchCurrentUser calls
 let fetchCurrentUserPromise = null
+// Partage de la lecture réseau `/me` entre appelants proches dans le temps (voir
+// utils/currentUserFlight.js) : checkOnboardingStatus l'a déjà lue, inutile de la relire
+// juste après depuis initialize / signIn / onAuthStateChange.
+const currentUserFlight = createCurrentUserFlight()
+const readCurrentUser = () => api.get('/me')
 // Souscription à onAuthStateChange. Conservée pour pouvoir la libérer : `initialize`
 // est dispatché par le beforeEach global ET par AuthCallbackView, et un premier appel
 // qui échoue avant SET_INITIALIZED laisserait sinon deux listeners empilés — donc deux
@@ -140,6 +146,7 @@ const mutations = {
     state.isSuperAdmin = false
     state.error = null
     clearAccessToken()
+    currentUserFlight.clear()
   }
 }
 
@@ -291,6 +298,12 @@ const actions = {
 
     checkOnboardingStatusPromise = (async () => {
       try {
+        // /me part en même temps que /onboarding/status au lieu de l'attendre : la requête ne
+        // dépend pas du statut (seul le jeton compte). Rien n'est appliqué au store ici : les
+        // commits restent dans fetchCurrentUser, appelé plus bas APRÈS le SET_TENANT du statut,
+        // et qui rejoint cette lecture. Utilisateur sans organisation : /me répond 404, avalé
+        // (aucun appel de fetchCurrentUser dans ce cas).
+        currentUserFlight.prefetch(getters.userId, readCurrentUser)
         const response = await api.get('/onboarding/status')
 
         if (response.data.user && response.data.tenant) {
@@ -400,7 +413,7 @@ const actions = {
 
       // Enrichir avec le rôle dynamique (RBAC) et les permissions — non bloquant
       try {
-        await dispatch('fetchCurrentUser')
+        await dispatch('fetchCurrentUser', { fresh: true })
       } catch (e) {
         console.warn('[createOrganization] fetchCurrentUser failed:', e?.message)
       }
@@ -466,7 +479,7 @@ const actions = {
 
       // Enrichir avec le rôle dynamique (RBAC) et les permissions — non bloquant
       try {
-        await dispatch('fetchCurrentUser')
+        await dispatch('fetchCurrentUser', { fresh: true })
       } catch (e) {
         console.warn('[joinOrganization] fetchCurrentUser failed:', e?.message)
       }
@@ -485,7 +498,10 @@ const actions = {
   },
 
   // 8. Récupérer le profil utilisateur courant (rôle + permissions RBAC)
-  async fetchCurrentUser({ commit, getters }) {
+  // `fresh: true` force une lecture réseau neuve (contexte qui vient de changer : organisation
+  // créée ou rejointe, profil modifié). Sans lui, une lecture réussie il y a moins de 5 s pour
+  // le même utilisateur est réutilisée (voir utils/currentUserFlight.js).
+  async fetchCurrentUser({ commit, getters }, { fresh = false } = {}) {
     if (!getters.token) return null
     // Dédupliquer les appels concurrents (ex: onAuthStateChange + un appel explicite
     // depuis une vue se chevauchant) : même principe que checkOnboardingStatus.
@@ -495,7 +511,7 @@ const actions = {
 
     fetchCurrentUserPromise = (async () => {
       try {
-        const response = await api.get('/me')
+        const response = await currentUserFlight.load(getters.userId, readCurrentUser, { fresh })
         const data = response.data
 
         // Identité réelle (menu utilisateur / profil) — toujours disponible même
