@@ -1,5 +1,6 @@
 // API functions for spaces
 import api from '../client'
+import { splitCachedInflightMissing, awaitInflightInto } from '@/utils/inflightSplit'
 
 function isMissingWeezeventMappingTable(error) {
   const status = error?.response?.status
@@ -332,20 +333,23 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCach
 
   // bypassCache (module Live) : mêmes raisons que getSpaceEventTimeline ci-dessus —
   // tout va au réseau, mais le cache est quand même réécrit avec la réponse fraîche.
-  const missing = []
-  for (const eventId of ids) {
-    const cacheKey = keyOf(eventId)
-    if (bypassCache) {
-      missing.push(eventId)
-    } else if (_eventTimelineCache.has(cacheKey)) {
-      result.set(eventId, _lruGet(_eventTimelineCache, cacheKey))
-    } else if (_eventTimelineInflight.has(cacheKey)) {
-      result.set(eventId, await _eventTimelineInflight.get(cacheKey))
-    } else {
-      missing.push(eventId)
-    }
+  // Tri SANS await (inflightSplit.js) : les events déjà en vol ne retardent plus le fetch
+  // des events neufs. On les attend en parallèle de ce fetch, une fois lancé.
+  const { cached, inflight, missing } = splitCachedInflightMissing(ids, {
+    keyOf,
+    getCached: (key) => _lruGet(_eventTimelineCache, key),
+    getInflight: (key) => _eventTimelineInflight.get(key),
+    bypassCache,
+  })
+  for (const [eventId, rows] of cached) result.set(eventId, rows)
+  const inflightDone = awaitInflightInto(result, inflight)
+  // Marqué « handled » : si le fetch des manquants échoue avant, son erreur prime et ce
+  // rejet ne doit pas devenir une unhandledRejection.
+  inflightDone.catch(() => {})
+  if (!missing.length) {
+    await inflightDone
+    return result
   }
-  if (!missing.length) return result
 
   // BUG-363-01 : résolution PAR PAQUET. Une promesse dédiée par event, résolue dès
   // que SON paquet HTTP atterrit — au lieu d'une promesse unique résolue à la fin du
@@ -397,6 +401,7 @@ export async function getSpaceEventTimelineBatch(spaceId, eventIds, { bypassCach
   } finally {
     for (const eventId of missing) _eventTimelineInflight.delete(keyOf(eventId))
   }
+  await inflightDone
   return result
 }
 
@@ -427,20 +432,20 @@ export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypas
     return result
   }
 
-  const missing = []
-  for (const eventId of ids) {
-    const cacheKey = `${spaceId}:${eventId}`
-    if (bypassCache) {
-      missing.push(eventId)
-    } else if (_basketCache.has(cacheKey)) {
-      result.set(eventId, _lruGet(_basketCache, cacheKey))
-    } else if (_basketInflight.has(cacheKey)) {
-      result.set(eventId, await _basketInflight.get(cacheKey))
-    } else {
-      missing.push(eventId)
-    }
+  // Même tri sans await que getSpaceEventTimelineBatch (inflightSplit.js).
+  const { cached, inflight, missing } = splitCachedInflightMissing(ids, {
+    keyOf: (eventId) => `${spaceId}:${eventId}`,
+    getCached: (key) => _lruGet(_basketCache, key),
+    getInflight: (key) => _basketInflight.get(key),
+    bypassCache,
+  })
+  for (const [eventId, rows] of cached) result.set(eventId, rows)
+  const inflightDone = awaitInflightInto(result, inflight)
+  inflightDone.catch(() => {})
+  if (!missing.length) {
+    await inflightDone
+    return result
   }
-  if (!missing.length) return result
 
   // BUG-363-01 : résolution PAR PAQUET, même mécanique que getSpaceEventTimelineBatch
   // ci-dessus (promesse dédiée par event + onEvent au fil des paquets).
@@ -479,6 +484,7 @@ export async function getSpaceTransactionBasketsBatch(spaceId, eventIds, { bypas
   } finally {
     for (const eventId of missing) _basketInflight.delete(`${spaceId}:${eventId}`)
   }
+  await inflightDone
   return result
 }
 
