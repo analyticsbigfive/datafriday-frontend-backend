@@ -79,3 +79,26 @@ export async function loadRestockAssignmentBatch({ spaceId, configId, rows, fetc
   }
   return buildAssignmentResultsFromBatch(rows, byShop, spaceItems)
 }
+
+/**
+ * Enrobe les deux lectures réseau du lot pour fusionner celles qui sont déjà en vol : appelée
+ * plusieurs fois de suite (chargement, puis changement d'évènement), la page relançait les deux
+ * mêmes GET à chaque fois. La méthode appelante n'est PAS fusionnée (elle a son propre jeton
+ * d'abandon) : seules les requêtes le sont. `force` contourne la fusion et relit le serveur.
+ * Clés : espace + configuration pour le lot 1, espace seul pour le lot 2.
+ *
+ * @param {Object} args
+ * @param {{run: Function}} args.flight instance de createSingleFlight (utils/singleFlight.js)
+ * @param {(spaceId:string, configId:string) => Promise<Object>} args.fetchBatch
+ * @param {(spaceId:string) => Promise<{items:Array}>} args.fetchSpaceItems
+ * @param {boolean} [args.force]
+ * @returns {{fetchBatch: Function, fetchSpaceItems: Function}}
+ */
+export function mergeInFlightAssignmentFetchers({ flight, fetchBatch, fetchSpaceItems, force = false }) {
+  return {
+    fetchBatch: (spaceId, configId) =>
+      flight.run(`shop-items::${spaceId}::${configId}`, () => fetchBatch(spaceId, configId), { force }),
+    fetchSpaceItems: (spaceId) =>
+      flight.run(`space-items::${spaceId}`, () => fetchSpaceItems(spaceId), { force }),
+  }
+}

@@ -4,12 +4,13 @@
 // pour `utils/bomPlanning` (feuille de course). `MAX_DEPTH` est porté par le module.
 import { marketPricePackSize } from '@/utils/marketPricePackSize'
 import { expandMenuItem, buildComponentLookup } from './menuItemExpansion'
+import {
+  normalizeName,
+  findReferenceInPools,
+  collectReferenceCandidates,
+} from './stockReferenceIndex'
 
 const FB_ELEMENT_TYPES = new Set(['shop', 'hospitality', 'kitchen'])
-
-function normalizeName(value) {
-  return String(value || '').trim().toLowerCase()
-}
 
 /**
  * BUG-291-02 — index des articles IMPOSSIBLES À PRODUIRE côté serveur (recette
@@ -504,10 +505,6 @@ export function findStockReference(
   menuItems = [],
   marketPrices = [],
 ) {
-  const idCandidates = new Set(
-    [item?.itemId, item?.id, item?.sourceId, item?.marketPriceId].filter(Boolean).map(String),
-  )
-  const name = normalizeName(item?.itemName || item?.name)
   // Les Market Prices ferment la marche : c'est un catalogue d'ACHAT, pas de
   // recette. Une ligne qui résout déjà en ingrédient / composant / menu item
   // garde sa référence — le pool ne sert qu'aux lignes libres (réserves saisies
@@ -519,24 +516,9 @@ export function findStockReference(
   // testés candidat par candidat dans un seul .find) laissait un homonyme placé
   // plus tôt dans la liste (« Beurre ») gagner PAR NOM contre l'ingrédient
   // réellement référencé plus loin (« Beurre doux motte ») — et remonter le
-  // conditionnement du mauvais article.
-  const matchesId = (c) =>
-    !!c &&
-    [c.id, c.sourceId, c.marketPriceId, c.marketPrice?.id].some(
-      (v) => v != null && idCandidates.has(String(v)),
-    )
-  if (idCandidates.size) {
-    for (const pool of pools) {
-      const hit = pool.find(matchesId)
-      if (hit) return hit
-    }
-  }
-  if (!name) return null
-  for (const pool of pools) {
-    const hit = pool.find((c) => c && normalizeName(c.name || c.itemName) === name)
-    if (hit) return hit
-  }
-  return null
+  // conditionnement du mauvais article. Les deux passes vivent dans
+  // `stockReferenceIndex` (recherche indexée, mêmes résultats que le parcours linéaire).
+  return findReferenceInPools(item, pools)
 }
 
 /**
@@ -597,28 +579,8 @@ function findStockReferenceCandidates(
   menuItems = [],
   marketPrices = [],
 ) {
-  const idCandidates = new Set(
-    [item?.itemId, item?.id, item?.sourceId, item?.marketPriceId].filter(Boolean).map(String),
-  )
-  const name = normalizeName(item?.itemName || item?.name)
   const pools = [ingredients || [], components || [], menuItems || [], marketPrices || []]
-  const matchesId = (c) =>
-    !!c &&
-    [c.id, c.sourceId, c.marketPriceId, c.marketPrice?.id].some(
-      (v) => v != null && idCandidates.has(String(v)),
-    )
-  const out = []
-  if (idCandidates.size) {
-    for (const pool of pools) for (const c of pool) if (matchesId(c)) out.push(c)
-  }
-  if (name) {
-    for (const pool of pools) {
-      for (const c of pool) {
-        if (c && normalizeName(c.name || c.itemName) === name && !out.includes(c)) out.push(c)
-      }
-    }
-  }
-  return out
+  return collectReferenceCandidates(item, pools)
 }
 
 export function computePackagingForQuantity(

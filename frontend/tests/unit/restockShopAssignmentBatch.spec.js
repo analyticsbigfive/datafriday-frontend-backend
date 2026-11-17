@@ -1,8 +1,10 @@
 import {
   buildAssignmentResultsFromBatch,
   loadRestockAssignmentBatch,
+  mergeInFlightAssignmentFetchers,
   restockShopIdOfRow,
 } from '@/utils/restockShopAssignmentBatch'
+import { createSingleFlight } from '@/utils/singleFlight'
 
 const rows = [
   { id: 'shop-a', name: 'Buvette A' },
@@ -117,5 +119,97 @@ describe('loadRestockAssignmentBatch', () => {
     expect(await loadRestockAssignmentBatch({ spaceId: 's', configId: '', rows, fetchBatch, fetchSpaceItems })).toBeNull()
     expect(await loadRestockAssignmentBatch({ spaceId: 's', configId: 'c', rows: [], fetchBatch, fetchSpaceItems })).toBeNull()
     expect(fetchBatch).not.toHaveBeenCalled()
+  })
+})
+
+describe('mergeInFlightAssignmentFetchers', () => {
+  const makeFetchers = () => {
+    let resolveBatch
+    let resolveItems
+    return {
+      fetchBatch: jest.fn(() => new Promise((res) => { resolveBatch = res })),
+      fetchSpaceItems: jest.fn(() => new Promise((res) => { resolveItems = res })),
+      resolveBatch: (v) => resolveBatch(v),
+      resolveItems: (v) => resolveItems(v),
+    }
+  }
+
+  it('fusionne deux chargements successifs : un seul GET par lot, même réponse pour les deux', async () => {
+    const f = makeFetchers()
+    const flight = createSingleFlight()
+    const a = mergeInFlightAssignmentFetchers({ flight, fetchBatch: f.fetchBatch, fetchSpaceItems: f.fetchSpaceItems })
+    const b = mergeInFlightAssignmentFetchers({ flight, fetchBatch: f.fetchBatch, fetchSpaceItems: f.fetchSpaceItems })
+
+    const p1 = a.fetchBatch('sp', 'cfg')
+    const p2 = b.fetchBatch('sp', 'cfg')
+    const q1 = a.fetchSpaceItems('sp')
+    const q2 = b.fetchSpaceItems('sp')
+
+    expect(f.fetchBatch).toHaveBeenCalledTimes(1)
+    expect(f.fetchSpaceItems).toHaveBeenCalledTimes(1)
+
+    f.resolveBatch({ 'shop-a': { items: [] } })
+    f.resolveItems({ items: [] })
+    expect(await p1).toBe(await p2)
+    expect(await q1).toBe(await q2)
+  })
+
+  it('clés : espace + configuration pour le lot 1, espace seul pour le lot 2', async () => {
+    const f = makeFetchers()
+    const flight = createSingleFlight()
+    const m = mergeInFlightAssignmentFetchers({ flight, fetchBatch: f.fetchBatch, fetchSpaceItems: f.fetchSpaceItems })
+
+    m.fetchBatch('sp', 'cfg-1')
+    m.fetchBatch('sp', 'cfg-2')
+    m.fetchSpaceItems('sp')
+    m.fetchSpaceItems('sp-autre')
+
+    expect(f.fetchBatch).toHaveBeenCalledTimes(2)
+    expect(f.fetchSpaceItems).toHaveBeenCalledTimes(2)
+  })
+
+  it('force contourne la fusion et relit le serveur', () => {
+    const f = makeFetchers()
+    const flight = createSingleFlight()
+    const normal = mergeInFlightAssignmentFetchers({ flight, fetchBatch: f.fetchBatch, fetchSpaceItems: f.fetchSpaceItems })
+    const forced = mergeInFlightAssignmentFetchers({ flight, fetchBatch: f.fetchBatch, fetchSpaceItems: f.fetchSpaceItems, force: true })
+
+    normal.fetchBatch('sp', 'cfg')
+    forced.fetchBatch('sp', 'cfg')
+    normal.fetchSpaceItems('sp')
+    forced.fetchSpaceItems('sp')
+
+    expect(f.fetchBatch).toHaveBeenCalledTimes(2)
+    expect(f.fetchSpaceItems).toHaveBeenCalledTimes(2)
+  })
+
+  it('après la fin du premier chargement, le suivant relance les GET (pas de cache)', async () => {
+    const flight = createSingleFlight()
+    const fetchBatch = jest.fn().mockResolvedValue({ 'shop-a': { items: [] } })
+    const fetchSpaceItems = jest.fn().mockResolvedValue({ items: [] })
+    const m = mergeInFlightAssignmentFetchers({ flight, fetchBatch, fetchSpaceItems })
+
+    await m.fetchBatch('sp', 'cfg')
+    await m.fetchSpaceItems('sp')
+    await m.fetchBatch('sp', 'cfg')
+    await m.fetchSpaceItems('sp')
+
+    expect(fetchBatch).toHaveBeenCalledTimes(2)
+    expect(fetchSpaceItems).toHaveBeenCalledTimes(2)
+  })
+
+  it('deux chargements simultanés via loadRestockAssignmentBatch ne tirent chaque GET qu une fois', async () => {
+    const flight = createSingleFlight()
+    const fetchBatch = jest.fn().mockResolvedValue({ 'shop-a': { items: [{ id: 'mi-1', name: 'Bière', basePrice: 6 }] } })
+    const fetchSpaceItems = jest.fn().mockResolvedValue({ items: [{ id: 'mi-1', name: 'Bière', available: true }] })
+    const fetchers = mergeInFlightAssignmentFetchers({ flight, fetchBatch, fetchSpaceItems })
+    const args = { spaceId: 'sp', configId: 'cfg', rows: [{ id: 'shop-a', name: 'Buvette A' }], ...fetchers }
+
+    const [r1, r2] = await Promise.all([loadRestockAssignmentBatch(args), loadRestockAssignmentBatch(args)])
+
+    expect(fetchBatch).toHaveBeenCalledTimes(1)
+    expect(fetchSpaceItems).toHaveBeenCalledTimes(1)
+    expect(r1).toEqual(r2)
+    expect(r1[0].items.map((i) => i.id)).toEqual(['mi-1'])
   })
 })
