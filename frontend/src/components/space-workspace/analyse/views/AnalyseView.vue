@@ -946,6 +946,7 @@ import { setAccessToken } from '@/api/client'
 import { getUserPreferences } from '@/utils/api'
 import { decideAllConfigsContext, ALL_CONFIGS_CTX_AFTER_PHASE1_MS } from '@/utils/analyseAllConfigsContextGate'
 import { startDefaultRangePreference } from '@/utils/startupPreferences'
+import { createDefaultRangePresetCache } from '@/utils/defaultRangePresetCache'
 import { supabase } from '@/lib/supabase'
 import { parseEventDate as parseEventDateLocal, formatDateShort } from '@/utils/dateFr'
 import {
@@ -2638,11 +2639,20 @@ async function ensureAuthAndLoad(spaceId) {
   // pour que le périmètre (filteredEvents) soit le bon dès le premier commit, sans rechargement ;
   // plafond 1,5 s, ensuite SET_DEFAULT_TIME_RANGE fait suivre la période à l'arrivée.
   // Sans préférence valide : DEFAULT_ANALYSE_DATE_RANGE (12 mois glissants).
+  // Cache local par compte (stale-while-revalidate) : la dernière période connue est appliquée
+  // tout de suite, sans attendre cette lecture distante (~1 s) ; la lecture continue en
+  // arrière-plan, met le cache à jour et corrige la période si elle a changé. Pas de compte
+  // identifié ou storage inaccessible : pas de cache, comportement inchangé.
+  let storage = null
+  try { storage = window.localStorage } catch (_) { /* accès bloqué : pas de cache */ }
+  const presetCache = createDefaultRangePresetCache({ storage, userId: store.state.auth?.userId })
   const preferencesReady = startDefaultRangePreference({
     fetchPreferences: getUserPreferences,
     applyPreset: (preset) => store.commit('analyse/SET_DEFAULT_TIME_RANGE', preset),
     validPresets: VALID_DATE_RANGE_VALUES,
     warn: (message) => console.warn('[AnalyseView]', message),
+    readCached: presetCache ? presetCache.read : undefined,
+    writeCached: presetCache ? presetCache.write : undefined,
   })
   try {
     const { data } = await supabase.auth.getSession()
