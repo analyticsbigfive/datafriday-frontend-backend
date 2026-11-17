@@ -115,6 +115,17 @@ export async function getMenuComponent(id) {
 }
 
 /**
+ * Détail de PLUSIEURS composants en un appel (100 ids au maximum), même contenu que
+ * `getMenuComponent` pour chaque id et sans cache serveur : remplace une boucle d'appels par id.
+ * Un id inconnu, supprimé ou hors du périmètre de l'utilisateur est absent de la réponse.
+ * @param {string[]} ids
+ * @returns {Promise<{data: Object[]}>}
+ */
+export async function getMenuComponentsByIds(ids) {
+  return api.get('/menu-components/by-ids', { params: { ids: (ids || []).join(',') } })
+}
+
+/**
  * Mettre à jour un composant de menu
  * @param {string} id
  * @param {Object} data

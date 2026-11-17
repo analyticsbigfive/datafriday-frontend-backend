@@ -108,17 +108,40 @@ export async function getProductMappingStats(integrationId) {
   }
 }
 
-export async function getProductMappings(locationId) {
+/**
+ * Mappings produit → article. `pairsOnly` : le backend ne renvoie que
+ * { weezeventProductId, menuItemId } en une requête (sans prix ni relations). Un backend qui
+ * ignore `view` et pagine, ou un résultat tronqué par son plafond, retombent sur la
+ * pagination complète en mode normal (jamais de données partielles).
+ */
+export async function getProductMappings(locationId, { pairsOnly = false } = {}) {
   try {
     const limit = 200
-    const fetchPage = async (page) => {
-      const params = { page, limit }
+    const fetchPage = async (page, extraParams = {}) => {
+      const params = { page, limit, ...extraParams }
       if (locationId) params.locationId = locationId
       const response = await api.get('/mappings/product-menu', { params })
       return response.data || response
     }
 
-    const firstPage = await fetchPage(1)
+    let firstPage
+    if (pairsOnly) {
+      const pairsPage = await fetchPage(1, { view: 'pairs' })
+      const pairsMeta = pairsPage?.meta
+      if ((pairsMeta?.totalPages || 1) <= 1 && !pairsMeta?.truncated) {
+        return Array.isArray(pairsPage?.data) ? [...pairsPage.data] : []
+      }
+      if (pairsMeta?.truncated) {
+        // Plafond atteint : on refait la lecture complète en mode normal.
+        firstPage = await fetchPage(1)
+      } else {
+        // Backend sans mode paires (view ignoré) : la page 1 reçue est déjà la page 1 normale.
+        firstPage = pairsPage
+      }
+    } else {
+      firstPage = await fetchPage(1)
+    }
+
     const mappings = Array.isArray(firstPage?.data) ? [...firstPage.data] : []
     const totalPages = firstPage?.meta?.totalPages || 1
 

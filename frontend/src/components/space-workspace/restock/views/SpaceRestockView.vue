@@ -1662,7 +1662,7 @@ import { getMenuItemById, getMenuItemRecipes } from '@/api/endpoints/menu-item.a
 import { listEventPredictVersions } from '@/api/endpoints/eventPredict.api'
 // Catalogue fournisseurs (/suppliers) — le store analyse ne les porte pas tous
 // (il vient de shop-details). Nécessaire pour nommer le fournisseur d'un ingrédient.
-import { getSuppliers } from '@/api/endpoints/menu.api'
+import { getSuppliers, getConfigShopMenuItemsLight, getSpaceMenuItemsWithAvailability } from '@/api/endpoints/menu.api'
 import {
   getInventory as apiGetInventory,
   getLatestInventory as apiGetLatestInventory,
@@ -1675,6 +1675,12 @@ import { getShopElementMappings } from '@/utils/api'
 // Réconciliation menu (« non rattachés ») — assignation NestJS par shop + matcher
 // nom (mêmes utilitaires qu'EventPredict, clé = nom de shop normalisé).
 import { runWithConcurrency } from '@/utils/asyncPool'
+import { loadRestockAssignmentBatch, mergeInFlightAssignmentFetchers } from '@/utils/restockShopAssignmentBatch'
+// Fusion des appels identiques en vol + lecture parallèle de l'inventaire précédent + état
+// Réarmement préchargé (chaîne de chargement de Commandes).
+import { createSingleFlight } from '@/utils/singleFlight'
+import { buildPreviousInventoryKey, readPreviousInventorySources } from '@/utils/restockPreviousInventory'
+import { startRestockStatePrefetch, readRestockState } from '@/utils/restockStatePrefetch'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { findPurchaseFor, pickSpaceHomonym, pickStorageMarketPrice } from '@/utils/storageRefillSupplier'
 import { findBestMatch } from '@/utils/menuItemMatching'
@@ -1814,6 +1820,14 @@ function extractInventoryCounts(payload) {
     values.length > 0 &&
     values.every((shopCounts) => shopCounts && typeof shopCounts === 'object')
   return looksLikeCounts ? payload : {}
+}
+
+// Accès de l'état Réarmement injectés dans utils/restockStatePrefetch.js.
+const RESTOCK_STATE_IO = {
+  isDemo: isDemoMode,
+  isApiDown: isRestockApiDown,
+  fetchState: getRestockState,
+  onError: onRestockApiError,
 }
 
 export default {
@@ -3945,6 +3959,10 @@ export default {
     // _restockPutTimer) — keepAlive : survit aux allers-retours d'onglets,
     // se vide à la vraie re-navigation.
     this._storageAlertsNotified = new Set()
+    // Une seule exécution en vol par clé (utils/singleFlight.js) : inventaire précédent et
+    // lectures réseau du lot « assignation menu par PdV ». Non réactif.
+    this._previousInventoryFlight = createSingleFlight()
+    this._assignmentFlight = createSingleFlight()
   },
   async mounted() {
     // Active le Teleport une fois la cible du v-app-bar parent présente dans le DOM.
@@ -3953,6 +3971,9 @@ export default {
     // backend absent → panneau masqué (plansAvailable = false).
     const mountSpaceId = this.route.params?.spaceId
     const plansReady = mountSpaceId ? this.plansApi.refresh(mountSpaceId) : Promise.resolve()
+    // GET restock-state ne dépend que de l'espace : on le lance maintenant, il est consommé par
+    // restoreRestockState (à la fin de loadAll) au lieu d'être attendu en série à ce moment-là.
+    this._restockStatePrefetch = startRestockStatePrefetch(mountSpaceId, RESTOCK_STATE_IO)
     // Sélecteur « Inventaire source » : liste des inventaires sauvegardés.
     if (mountSpaceId) this.loadInventoryReconciliations(mountSpaceId)
     // Cuisines (e-mail / téléphone de l'onglet Composants) : cache 15 min du module.
@@ -4138,15 +4159,11 @@ export default {
      */
     async restoreRestockState(opts = {}) {
       const spaceId = this.route.params?.spaceId
-      let saved = null
-      // 1) Source autoritaire : API (sauf démo / API déjà tombée cette session).
-      if (spaceId && !isDemoMode() && !isRestockApiDown()) {
-        try {
-          saved = await getRestockState(spaceId) // null si aucun état en BDD
-        } catch (err) {
-          onRestockApiError(err)
-        }
-      }
+      // 1) Source autoritaire : API (sauf démo / API déjà tombée cette session). Réutilise la
+      // lecture lancée au montage si elle existe pour cet espace, sinon appel direct.
+      const prefetch = this._restockStatePrefetch || null
+      this._restockStatePrefetch = null
+      let saved = await readRestockState({ spaceId, prefetch, ...RESTOCK_STATE_IO }) // null si aucun état en BDD
       // 2) Fallback localStorage (API null / down / démo).
       if (!saved) saved = localDb.getRestockState(spaceId)
       if (!saved) return
@@ -5004,8 +5021,26 @@ export default {
         // cache TTL keyé `shopId::configId`) PARTAGÉ avec EventPredict +
         // Inventory → dédup + cache : évite le burst /space-menu/shop (429).
         // Cap 3 (au lieu de Promise.all non borné) pour la concurrence backend.
-        const results = new Array(rows.length)
-        await runWithConcurrency(rows, 3, async (r) => {
+        // LOT D'ABORD : 2 appels pour toute la configuration (articles activés par PdV +
+        // disponibilité de l'espace) au lieu de 2 appels par PdV (66 PdV = 132 appels, 429
+        // et retentatives). La boucle par PdV ci-dessous ne sert plus que de repli quand le
+        // lot échoue ou revient vide (cf. utils/restockShopAssignmentBatch.js).
+        // Les deux GET du lot sont fusionnés quand un identique est déjà en vol (appels
+        // successifs de cette méthode) ; `force` relit le serveur.
+        const batchResults = await loadRestockAssignmentBatch({
+          spaceId,
+          configId: cfgId,
+          rows,
+          ...mergeInFlightAssignmentFetchers({
+            flight: this._assignmentFlight,
+            fetchBatch: (s, c) => getConfigShopMenuItemsLight(s, c),
+            fetchSpaceItems: getSpaceMenuItemsWithAvailability,
+            force,
+          }),
+        })
+        if (token !== this._restockAssignmentToken) return
+        const results = batchResults || new Array(rows.length)
+        if (!batchResults) await runWithConcurrency(rows, 3, async (r) => {
           const idx = rows.indexOf(r)
           const shopId = String(r?.id ?? r?._id ?? r?.shopId ?? '')
           const name = r?.name ?? r?.shopName ?? ''
@@ -5875,9 +5910,8 @@ export default {
     },
     async loadPreviousInventory() {
       const spaceId = this.route.params?.spaceId
-      await this.loadLogisticRemaining(spaceId)
       // Règle 3 : alimente inventoryStore.inventoryCounts (source canonique du
-      // restant DE REPLI, Logistic ci-dessus est désormais la source primaire).
+      // restant DE REPLI, Logistic est désormais la source primaire).
       // Mode Ventes → counts de l'event de référence ; mode Prévision →
       // counts de l'EVENT SÉLECTIONNÉ (celui qu'on vient de compter côté
       // Inventaire — charger l'event précédent écrasait ces comptages et
@@ -5890,60 +5924,47 @@ export default {
         (this.objectiveSource === 'sales'
           ? this.referenceEventId
           : this.selectedEvents[0]?.id || null)
-      if (spaceId) {
-        try {
-          await this.store.dispatch('inventory/loadInventory', { spaceId, eventId: countsEventId || null })
-        } catch (_) { /* le store garde son fallback localStorage */ }
-      }
-      if (!spaceId || (this.objectiveSource !== 'sales' && !this.selectedEvents.length)) {
-        this.previousInventoryCounts = {}
-        this.previousInventoryEvent = null
-        return
-      }
-
-      this.previousInventoryLoading = true
-      try {
-        // Choix explicite → l'event choisi devient la source du snapshot ET du
-        // libellé du bandeau ; sinon cascade historique (event précédent).
-        const previousEvent = this.sourceInventoryEventId
-          ? this.events.find((e) => e.id === this.sourceInventoryEventId) || null
-          : this.resolvePreviousEvent()
-        let counts = {}
-        let sourceEvent = previousEvent
-        const useLocalInventoryOnly = !!this.store.state.analyse?.fromMock
-
-        if (previousEvent) {
-          if (useLocalInventoryOnly) {
-            counts = this.readLocalInventory(spaceId, previousEvent.id)
-          } else {
-            try {
-              counts = extractInventoryCounts(await apiGetInventory(spaceId, previousEvent.id))
-            } catch (_) {
-              counts = this.readLocalInventory(spaceId, previousEvent.id)
-            }
-          }
-          if (!Object.keys(counts).length) {
-            counts = this.readLocalInventory(spaceId, previousEvent.id)
-          }
-        }
-
-        if (!Object.keys(counts).length && !useLocalInventoryOnly) {
-          try {
-            const latest = await apiGetLatestInventory(spaceId)
-            counts = extractInventoryCounts(latest)
-            if (latest?.eventId) {
-              sourceEvent = this.events.find((event) => event.id === latest.eventId) || sourceEvent
-            }
-          } catch (_) {
-            counts = {}
-          }
-        }
-
-        this.previousInventoryCounts = counts
-        this.previousInventoryEvent = sourceEvent || null
-      } finally {
-        this.previousInventoryLoading = false
-      }
+      // Choix explicite → l'event choisi devient la source du snapshot ET du
+      // libellé du bandeau ; sinon cascade historique (event précédent).
+      const previousEvent = this.sourceInventoryEventId
+        ? this.events.find((e) => e.id === this.sourceInventoryEventId) || null
+        : this.resolvePreviousEvent()
+      // Appels identiques en vol (watchers, génération, chargement initial) : un seul
+      // déroulé partagé. Seul ce qui est en vol est fusionné, jamais un résultat terminé
+      // (generateRestockTable relit des données fraîches).
+      const key = buildPreviousInventoryKey({
+        spaceId,
+        configIds: this.resolvedObjectiveConfigIds,
+        countsEventId,
+        sourceInventoryEventId: this.sourceInventoryEventId,
+        objectiveSource: this.objectiveSource,
+        selectedEventIds: this.selectedEvents.map((e) => e.id),
+        previousEventId: previousEvent?.id,
+      })
+      return this._previousInventoryFlight.run(key, () =>
+        this.runPreviousInventoryLoad({ spaceId, countsEventId, previousEvent }),
+      )
+    },
+    /** Lectures de l'inventaire précédent en parallèle (utils/restockPreviousInventory.js). */
+    async runPreviousInventoryLoad({ spaceId, countsEventId, previousEvent }) {
+      const skipPrevious = !spaceId || (this.objectiveSource !== 'sales' && !this.selectedEvents.length)
+      const { counts, sourceEvent } = await readPreviousInventorySources({
+        readLogistic: () => this.loadLogisticRemaining(spaceId),
+        // Le store garde son fallback localStorage si l'API échoue.
+        readStoreCounts: () =>
+          spaceId ? this.store.dispatch('inventory/loadInventory', { spaceId, eventId: countsEventId || null }) : null,
+        skipPrevious,
+        previousEvent,
+        useLocalOnly: !!this.store.state.analyse?.fromMock,
+        fetchPrevious: (eventId) => apiGetInventory(spaceId, eventId),
+        fetchLatest: () => apiGetLatestInventory(spaceId),
+        readLocal: (eventId) => this.readLocalInventory(spaceId, eventId),
+        extractCounts: extractInventoryCounts,
+        findEventById: (id) => this.events.find((event) => event.id === id) || null,
+        setLoading: (loading) => { this.previousInventoryLoading = loading },
+      })
+      this.previousInventoryCounts = counts
+      this.previousInventoryEvent = sourceEvent || null
     },
     readLocalInventory(spaceId, eventId) {
       try {
