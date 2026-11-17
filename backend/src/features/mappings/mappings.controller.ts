@@ -339,6 +339,7 @@ export class MappingsController {
   @ApiQuery({ name: 'includeSales', required: false, type: Boolean, description: 'Inclure weezeventProduct.salesPricing (réellement encaissé). Coûteux sauf si scopé par integrationId/dates — désactivé par défaut.', example: false })
   @ApiQuery({ name: 'fromDate', required: false, description: 'Borne basse (ISO) de la fenêtre des ventes agrégées (salesPricing).' })
   @ApiQuery({ name: 'toDate', required: false, description: 'Borne haute (ISO) de la fenêtre des ventes agrégées (salesPricing).' })
+  @ApiQuery({ name: 'view', required: false, description: "'pairs' : renvoie seulement { weezeventProductId, menuItemId } en une seule requête, sans pagination, sans prix ni relations." })
   @ApiResponse({
     status: 200,
     description: 'Liste paginée des mappings product → menu item',
@@ -373,7 +374,7 @@ export class MappingsController {
     @CurrentUser() user: any,
     @Query() params: MappingsGetProductMappingsQueryDto,
   ) {
-    const { locationId, page = 1, limit = 200, includeSales, integrationId, fromDate, toDate } = params;
+    const { locationId, page = 1, limit = 200, includeSales, integrationId, fromDate, toDate, view } = params;
     const parseDate = (v?: string) => {
       if (!v) return undefined;
       const d = new Date(v);
@@ -384,6 +385,7 @@ export class MappingsController {
       integrationId,
       fromDate: parseDate(fromDate),
       toDate: parseDate(toDate),
+      pairsOnly: view === 'pairs',
     });
   }
 
