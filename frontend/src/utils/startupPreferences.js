@@ -22,16 +22,26 @@ export const PREFERENCES_READY_TIMEOUT_MS = 1500
 /**
  * Lance la lecture de la préférence « période par défaut » IMMÉDIATEMENT.
  *
+ * Cache optionnel (stale-while-revalidate, `readCached` / `writeCached`) : si une ancienne
+ * valeur valide est mémorisée, elle est appliquée tout de suite et `ready` se résout sans
+ * attendre le réseau. La lecture distante continue en arrière-plan : à son arrivée (même
+ * après `ready` ou le plafond), elle met le cache à jour et corrige la période si elle
+ * diffère de celle appliquée. Un échec distant conserve le cache tel quel.
+ *
  * @param {object} deps
  * @param {() => Promise<any>} deps.fetchPreferences lecture des préférences du compte
- * @param {(preset: string) => void} deps.applyPreset applique la période (commit du store)
- * @param {string[]} deps.validPresets valeurs de période acceptées (garde-fou inchangé)
+ * @param {(preset: (string|null)) => void} deps.applyPreset applique la période (commit du
+ *   store), `null` pour revenir au défaut
+ * @param {string[]} deps.validPresets valeurs de période acceptées (garde-fou, cache compris)
  * @param {number} [deps.timeoutMs] plafond d'attente de `ready`
  * @param {(message: string) => void} [deps.warn] journal d'un échec de lecture
- * @returns {Promise<'applied'|'unchanged'|'failed'|'timeout'>} `ready`, JAMAIS rejetée, qui
- *   se résout au premier de : préférence lue et appliquée, aucune préférence valide, échec
- *   de lecture, plafond atteint. Après un plafond, une lecture qui aboutit applique
- *   quand même la préférence (application tardive).
+ * @param {() => (string|null|undefined)} [deps.readCached] dernière période connue du compte
+ * @param {(preset: (string|null)) => void} [deps.writeCached] mémorise la période du compte
+ *   (`null` : le compte n'a pas de préférence)
+ * @returns {Promise<'cached'|'applied'|'unchanged'|'failed'|'timeout'>} `ready`, JAMAIS
+ *   rejetée, qui se résout au premier de : cache valide appliqué, préférence lue et appliquée,
+ *   aucune préférence valide, échec de lecture, plafond atteint. Après un plafond, une lecture
+ *   qui aboutit applique quand même la préférence (application tardive).
  */
 export function startDefaultRangePreference({
   fetchPreferences,
@@ -39,10 +49,13 @@ export function startDefaultRangePreference({
   validPresets,
   timeoutMs = PREFERENCES_READY_TIMEOUT_MS,
   warn = () => {},
+  readCached,
+  writeCached,
 } = {}) {
   let settled = false
   let timer = null
   let resolveReady = () => {}
+  let appliedFromCache = null
 
   const ready = new Promise((resolve) => { resolveReady = resolve })
   const settle = (outcome) => {
@@ -54,24 +67,51 @@ export function startDefaultRangePreference({
 
   timer = setTimeout(() => settle('timeout'), timeoutMs)
 
+  const isValid = (preset) => !!preset && (validPresets || []).includes(preset)
+
   const onFailure = (e) => {
     warn(`préférences indisponibles, période par défaut appliquée: ${e?.message}`)
     settle('failed')
   }
+  // Applique une période ; en cas d'erreur du commit : même traitement qu'un échec de lecture.
+  const tryApply = (preset) => {
+    try {
+      applyPreset(preset)
+      return true
+    } catch (e) {
+      onFailure(e)
+      return false
+    }
+  }
+  const saveCached = (preset) => {
+    if (!writeCached) return
+    try { writeCached(preset) } catch (_) { /* le cache est un bonus, jamais bloquant */ }
+  }
+  const loadCached = () => {
+    if (!readCached) return null
+    try {
+      const cached = readCached()
+      return isValid(cached) ? cached : null
+    } catch (_) {
+      return null
+    }
+  }
+
   const onPreferences = (prefs) => {
     const preset = prefs?.defaultDateRangePreset
-    if (!preset || !(validPresets || []).includes(preset)) {
+    if (!isValid(preset)) {
+      // Compte sans préférence : on oublie le cache et, s'il avait été appliqué, on revient
+      // au défaut (la mutation du store fait suivre la période si elle n'a pas été touchée).
+      saveCached(null)
+      if (appliedFromCache && !tryApply(null)) return
       settle('unchanged')
       return
     }
-    try {
-      applyPreset(preset)
-    } catch (e) {
-      onFailure(e)
-      return
-    }
+    saveCached(preset)
     // Appliquée AVANT la résolution de `ready` : fetchSpaceData ne rend la phase 1
-    // qu'après, donc le périmètre est le bon dès le premier commit.
+    // qu'après, donc le périmètre est le bon dès le premier commit. Si le cache portait
+    // déjà cette valeur, rien à refaire.
+    if (preset !== appliedFromCache && !tryApply(preset)) return
     settle('applied')
   }
 
@@ -82,6 +122,14 @@ export function startDefaultRangePreference({
     reading = Promise.reject(e)
   }
   reading.then(onPreferences, onFailure)
+
+  // Après le départ de la lecture distante : la dernière période connue est appliquée sans
+  // attendre. Une erreur du commit passe par onFailure (warn, 'failed') sans rien bloquer.
+  const cached = loadCached()
+  if (cached && tryApply(cached)) {
+    appliedFromCache = cached
+    settle('cached')
+  }
 
   return ready
 }
