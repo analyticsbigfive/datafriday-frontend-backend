@@ -1679,6 +1679,7 @@ import { loadRestockAssignmentBatch, mergeInFlightAssignmentFetchers } from '@/u
 // Fusion des appels identiques en vol + lecture parallèle de l'inventaire précédent + état
 // Réarmement préchargé (chaîne de chargement de Commandes).
 import { createSingleFlight } from '@/utils/singleFlight'
+import { createRecentFlight } from '@/utils/recentFlight'
 import { buildPreviousInventoryKey, readPreviousInventorySources } from '@/utils/restockPreviousInventory'
 import { startRestockStatePrefetch, readRestockState } from '@/utils/restockStatePrefetch'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
@@ -3963,6 +3964,11 @@ export default {
     // lectures réseau du lot « assignation menu par PdV ». Non réactif.
     this._previousInventoryFlight = createSingleFlight()
     this._assignmentFlight = createSingleFlight()
+    // Lectures réseau de l'inventaire précédent (stock Logistique, inventaires par event) : au
+    // chargement, loadPreviousInventory tourne 3 fois de suite avec les mêmes paramètres ; en
+    // production chaque tour relisait tout (~1,2 s pour le stock Logistique). Un résultat récent
+    // (15 s) est réutilisé, sauf demande « fraîche » (utils/recentFlight.js). Non réactif.
+    this._recentReads = createRecentFlight({ ttlMs: 15000 })
   },
   async mounted() {
     // Active le Teleport une fois la cible du v-app-bar parent présente dans le DOM.
@@ -4004,7 +4010,8 @@ export default {
     // recharge l'inventaire via generateRestockTable). Première activation
     // ignorée : elle tire en même temps que mounted(), et loadAll() appelle
     // déjà loadPreviousInventory(). Le store dédoublonne les appels en vol.
-    if (this._restockActivatedOnce) this.loadPreviousInventory()
+    // Retour sur l'écran : lecture neuve (le stock Logistique a pu bouger entre-temps).
+    if (this._restockActivatedOnce) this.loadPreviousInventory({ fresh: true })
     else this._restockActivatedOnce = true
   },
   beforeUnmount() {
@@ -4127,6 +4134,8 @@ export default {
         this.refreshSelectedPredictions()
         // Assignation menu par shop (NestJS) → split « non rattachés » en step 2.
         this.loadRestockShopAssignment()
+        // Pas de « fresh » ici : au premier chargement rien n'est gardé, et un chargement
+        // « frais » ne rejoindrait pas une lecture déjà en vol (appels en plus).
         await this.loadPreviousInventory()
         this.ensureStockItemDefaults()
         // DB locale : restaure l'état réarmement persisté (sélection, ajustements,
@@ -5891,7 +5900,7 @@ export default {
      * ensemble à chaque appel existant (génération, changement d'event/scénario,
      * changement d'Inventaire source, etc.), sans multiplier les points d'appel.
      */
-    async loadLogisticRemaining(spaceId) {
+    async loadLogisticRemaining(spaceId, { fresh = false } = {}) {
       // Anti-race : loadPreviousInventory est appelé depuis 8 endroits, parfois
       // en rafale (changement d'event puis de scénario). Sans garde, une
       // réponse lente peut arriver APRÈS une plus récente et écraser un index à
@@ -5902,13 +5911,21 @@ export default {
         if (mySeq === this._logisticRemainingSeq) this.logisticRemainingIndex = {}
         return
       }
-      const { index } = await loadLogisticRemainingIndex({
-        spaceId,
-        configIds: Array.from(this.resolvedObjectiveConfigIds || []),
-      })
+      const configIds = Array.from(this.resolvedObjectiveConfigIds || [])
+      // Même espace, mêmes configs : une lecture récente suffit (l'index n'est que lu).
+      const { index } = await this._recentReads.run(
+        `logistic:${spaceId}:${[...configIds].map(String).sort().join(',')}`,
+        () => loadLogisticRemainingIndex({ spaceId, configIds }),
+        { fresh },
+      )
       if (mySeq === this._logisticRemainingSeq) this.logisticRemainingIndex = index
     },
-    async loadPreviousInventory() {
+    /**
+     * @param {{fresh?: boolean}} [opts] fresh : ignore les lectures récentes gardées (génération,
+     *   retour sur l'écran, chargement complet). Sans lui, les relectures rapprochées du
+     *   chargement (watchers) réutilisent le résultat d'il y a moins de 15 s.
+     */
+    async loadPreviousInventory({ fresh = false } = {}) {
       const spaceId = this.route.params?.spaceId
       // Règle 3 : alimente inventoryStore.inventoryCounts (source canonique du
       // restant DE REPLI, Logistic est désormais la source primaire).
@@ -5941,23 +5958,26 @@ export default {
         selectedEventIds: this.selectedEvents.map((e) => e.id),
         previousEventId: previousEvent?.id,
       })
-      return this._previousInventoryFlight.run(key, () =>
-        this.runPreviousInventoryLoad({ spaceId, countsEventId, previousEvent }),
+      // Une demande fraîche ne rejoint jamais une exécution en vol qui pourrait réutiliser un résultat gardé.
+      return this._previousInventoryFlight.run(fresh ? `${key}|fresh` : key, () =>
+        this.runPreviousInventoryLoad({ spaceId, countsEventId, previousEvent, fresh }),
       )
     },
     /** Lectures de l'inventaire précédent en parallèle (utils/restockPreviousInventory.js). */
-    async runPreviousInventoryLoad({ spaceId, countsEventId, previousEvent }) {
+    async runPreviousInventoryLoad({ spaceId, countsEventId, previousEvent, fresh = false }) {
       const skipPrevious = !spaceId || (this.objectiveSource !== 'sales' && !this.selectedEvents.length)
+      // Lectures réseau réutilisables quelques secondes (mêmes paramètres = même réponse).
+      const recent = (key, read) => this._recentReads.run(key, read, { fresh })
       const { counts, sourceEvent } = await readPreviousInventorySources({
-        readLogistic: () => this.loadLogisticRemaining(spaceId),
+        readLogistic: () => this.loadLogisticRemaining(spaceId, { fresh }),
         // Le store garde son fallback localStorage si l'API échoue.
         readStoreCounts: () =>
           spaceId ? this.store.dispatch('inventory/loadInventory', { spaceId, eventId: countsEventId || null }) : null,
         skipPrevious,
         previousEvent,
         useLocalOnly: !!this.store.state.analyse?.fromMock,
-        fetchPrevious: (eventId) => apiGetInventory(spaceId, eventId),
-        fetchLatest: () => apiGetLatestInventory(spaceId),
+        fetchPrevious: (eventId) => recent(`inventory:${spaceId}:${eventId}`, () => apiGetInventory(spaceId, eventId)),
+        fetchLatest: () => recent(`inventory-latest:${spaceId}`, () => apiGetLatestInventory(spaceId)),
         readLocal: (eventId) => this.readLocalInventory(spaceId, eventId),
         extractCounts: extractInventoryCounts,
         findEventById: (id) => this.events.find((event) => event.id === id) || null,
@@ -6012,7 +6032,8 @@ export default {
       if (!this.canGenerate) return false
       // Régénérer = recalculer en vivant → invalide la photo du plan chargé.
       if (!(await this.guardPlanEdit())) return false
-      await this.loadPreviousInventory()
+      // Génération : toujours des données fraîches (jamais un résultat gardé).
+      await this.loadPreviousInventory({ fresh: true })
       this.restockGenerated = true
       this.shoppingGenerated = false
       this.showSnackbar(this.t('srSnackRestockGenerated'), 'success')
