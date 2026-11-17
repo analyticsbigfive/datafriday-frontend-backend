@@ -2,8 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { MenuItemPricingService } from '../../../shared/pricing/menu-item-pricing.service';
 import { BulkProductMappingDto } from '../dto/mapping.dto';
-import { productIdsSoldAtLocation, upsertProductMappings } from '../mappings.queries';
+import { buildProductMappingWhere, findProductMappingPairs, upsertProductMappings } from '../mappings.queries';
 import { MappingSupportService } from './mapping-support.service';
+
+/** Plafond de lignes du mode « paires » de getProductMappings (lecture unique, sans pagination). */
+const PRODUCT_MAPPING_PAIRS_CAP = 20000;
 
 /**
  * Rattachement des produits vendus aux articles du menu, et statistiques de rattachement.
@@ -63,24 +66,34 @@ export class ProductMappingService {
       integrationId?: string;
       fromDate?: Date;
       toDate?: Date;
+      /** Mode « paires » : { weezeventProductId, menuItemId } seuls, un SELECT, sans pagination. */
+      pairsOnly?: boolean;
     } = {},
   ) {
-    const { includeSales = false, integrationId, fromDate, toDate } = opts;
+    const { includeSales = false, integrationId, fromDate, toDate, pairsOnly = false } = opts;
     this.logger.log(
       `Fetching product mappings for tenant ${tenantId} (location=${weezeventLocationId ?? 'all'}, integration=${integrationId ?? 'all'}, includeSales=${includeSales})`,
     );
 
-    const where: any = { tenantId };
-
     // Scoper par intégration : filtre la liste ET permet de scoper l'agrégat ventes
     // (sans quoi `integrationId` exclurait à tort les ventes des autres intégrations).
-    if (integrationId) {
-      where.salesProduct = { integrationId };
-    }
+    const where = await buildProductMappingWhere(this.prisma, tenantId, {
+      integrationId,
+      locationId: weezeventLocationId,
+    });
 
-    if (weezeventLocationId) {
-      // Filter by products sold at this location via transaction items
-      where.salesProductId = { in: await productIdsSoldAtLocation(this.prisma, tenantId, weezeventLocationId) };
+    if (pairsOnly) {
+      const pairs = await findProductMappingPairs(this.prisma, where, PRODUCT_MAPPING_PAIRS_CAP);
+      const truncated = pairs.length >= PRODUCT_MAPPING_PAIRS_CAP;
+      if (truncated) {
+        this.logger.warn(
+          `Product mappings pairs capped at ${PRODUCT_MAPPING_PAIRS_CAP} for tenant ${tenantId}: result truncated`,
+        );
+      }
+      return {
+        data: pairs,
+        meta: { page: 1, limit: pairs.length, total: pairs.length, totalPages: 1, truncated },
+      };
     }
 
     const safeLimit = Math.min(Math.max(limit, 1), 1000);

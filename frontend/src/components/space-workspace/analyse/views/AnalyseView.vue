@@ -944,6 +944,9 @@ import ReportJ1Document from '../ReportJ1Document.vue'
 import store from '@/store'
 import { setAccessToken } from '@/api/client'
 import { getUserPreferences } from '@/utils/api'
+import { decideAllConfigsContext, ALL_CONFIGS_CTX_AFTER_PHASE1_MS } from '@/utils/analyseAllConfigsContextGate'
+import { startDefaultRangePreference } from '@/utils/startupPreferences'
+import { createDefaultRangePresetCache } from '@/utils/defaultRangePresetCache'
 import { supabase } from '@/lib/supabase'
 import { parseEventDate as parseEventDateLocal, formatDateShort } from '@/utils/dateFr'
 import {
@@ -1612,33 +1615,21 @@ watch(
 
 // PERF (décision « différer seulement ») : le contexte « All Configurations »
 // (N+1 : configs × (getConfiguration + assignation Edge + shopMenuItems PAR SHOP))
-// ne bloque plus le chargement — loadSpace ne le dispatch plus. On le déclenche
-// ICI, après la fin de la phase 2 (enriching=false), avec repli idle 3 s si la
-// phase 2 traîne. L'enrichissement dims arrive donc en fond (réconciliation se
-// recompose au commit — comportement existant). Garde : ne rien faire si une
-// config précise a été sélectionnée entre-temps (son contexte se charge déjà) ou
-// si le contexte union est déjà chargé/en cours.
+// ne bloque pas le premier rendu (loadSpace ne le dispatch pas). Il part dès la fin de
+// la phase 1 (repli ALL_CONFIGS_CTX_AFTER_PHASE1_MS) : il ne dépend que de l'espace et
+// des configurations, pas de shop-details, donc il n'attend plus la phase 2 et
+// progresse en parallèle de l'appel shop-details. L'enrichissement dims arrive en fond
+// (réconciliation se recompose au commit, comportement existant). Le watcher
+// `enriching` (fin de la phase 2) reste un filet. Garde (decideAllConfigsContext) : rien
+// à faire si une config précise est sélectionnée (son contexte se charge déjà) ou si le
+// contexte union est déjà chargé/en cours.
 let allConfigsCtxRequested = false
 function requestDeferredAllConfigsContext() {
   if (allConfigsCtxRequested) return
-  const st = store.state.analyse
-  if (!st.spaceId && !st.space?.id) return // space pas encore chargé → retenter plus tard
-  // Event Predict ouvert : l'union serait du travail invisible (configs × shops).
-  // Ne PAS latcher — le watcher selectedToolbox relancera au retour sur Analyse.
-  if (st.selectedToolbox === 'event-predict') return
-  const sel = st.filters.selectedConfigurationId
-  // Config précise sélectionnée entre-temps, ou contexte déjà en cours/chargé →
-  // le différé n'a plus rien à faire.
-  if (
-    (sel && sel !== 'cfg-all') ||
-    st.configContextLoading ||
-    (st.configShopContext?.configId === null && (st.configShopContext?.floorElements?.length || 0) > 0)
-  ) {
-    allConfigsCtxRequested = true
-    return
-  }
+  const decision = decideAllConfigsContext(store.state.analyse)
+  if (decision === 'wait') return // espace inconnu ou Event Predict ouvert : ne pas verrouiller
   allConfigsCtxRequested = true
-  store.dispatch('analyse/loadAllConfigsShopContext')
+  if (decision === 'dispatch') store.dispatch('analyse/loadAllConfigsShopContext')
 }
 // Retour depuis Event Predict : l'union sautée pendant l'overlay part maintenant.
 watch(
@@ -1654,13 +1645,16 @@ watch(
     if (prev === true && enriching === false) requestDeferredAllConfigsContext()
   },
 )
-// Repli : 3 s après la fin de la phase 1 (si la phase 2 traîne, on lance quand même).
+// Déclencheur dès la fin de la phase 1. Le délai (macrotâche) laisse la continuation de
+// ensureAuthAndLoad (microtâches suivant `await loadSpace`) restaurer d'abord la config du
+// deep-link `?config=<id>` : updateFilter commit en synchrone, donc quand le timer part la
+// garde voit la config précise, verrouille et ne dispatche pas l'union pour rien.
 watch(
   () => store.state.analyse.loading,
   (loading, prev) => {
     if (prev === true && loading === false && typeof window !== 'undefined') {
       allConfigsCtxRequested = false // nouveau cycle de chargement (space chargé/rechargé)
-      window.setTimeout(requestDeferredAllConfigsContext, 3000)
+      window.setTimeout(requestDeferredAllConfigsContext, ALL_CONFIGS_CTX_AFTER_PHASE1_MS)
     }
   },
 )
@@ -2638,6 +2632,28 @@ async function ensureAuthAndLoad(spaceId) {
   // Capté AVANT loadSpace : loadSpace remet selectedConfigurationId à null, ce qui
   // déclenche le watcher qui efface `?config` de l'URL → on perdrait le deep-link.
   const urlConfig = String(route.query?.config || '')
+  // Préférence de compte « période par défaut » (réglages → /preferences) : enregistrée depuis
+  // ConsolidatedAccountView. Lue EN PARALLÈLE de loadSpace (elle partait avant, en série : 500 à
+  // 780 ms qui retardaient aussi shop-details). Elle n'a pas besoin du jeton de getSession (jeton
+  // anonyme public). fetchSpaceData attend `preferencesReady` juste avant de rendre la phase 1,
+  // pour que le périmètre (filteredEvents) soit le bon dès le premier commit, sans rechargement ;
+  // plafond 1,5 s, ensuite SET_DEFAULT_TIME_RANGE fait suivre la période à l'arrivée.
+  // Sans préférence valide : DEFAULT_ANALYSE_DATE_RANGE (12 mois glissants).
+  // Cache local par compte (stale-while-revalidate) : la dernière période connue est appliquée
+  // tout de suite, sans attendre cette lecture distante (~1 s) ; la lecture continue en
+  // arrière-plan, met le cache à jour et corrige la période si elle a changé. Pas de compte
+  // identifié ou storage inaccessible : pas de cache, comportement inchangé.
+  let storage = null
+  try { storage = window.localStorage } catch (_) { /* accès bloqué : pas de cache */ }
+  const presetCache = createDefaultRangePresetCache({ storage, userId: store.state.auth?.userId })
+  const preferencesReady = startDefaultRangePreference({
+    fetchPreferences: getUserPreferences,
+    applyPreset: (preset) => store.commit('analyse/SET_DEFAULT_TIME_RANGE', preset),
+    validPresets: VALID_DATE_RANGE_VALUES,
+    warn: (message) => console.warn('[AnalyseView]', message),
+    readCached: presetCache ? presetCache.read : undefined,
+    writeCached: presetCache ? presetCache.write : undefined,
+  })
   try {
     const { data } = await supabase.auth.getSession()
     const token = data?.session?.access_token
@@ -2645,24 +2661,13 @@ async function ensureAuthAndLoad(spaceId) {
   } catch (e) {
     console.warn('[AnalyseView] Unable to fetch Supabase session:', e?.message)
   }
-  // Préférence de compte « période par défaut » (réglages → /preferences) : enregistrée depuis
-  // ConsolidatedAccountView mais jamais appliquée jusqu'ici. Posée AVANT loadSpace pour que le
-  // périmètre (filteredEvents) soit le bon dès le premier chargement des paquets, sans rechargement.
-  // Sans préférence valide : DEFAULT_ANALYSE_DATE_RANGE (12 mois glissants).
-  try {
-    const prefs = await getUserPreferences()
-    const preset = prefs?.defaultDateRangePreset
-    if (preset && VALID_DATE_RANGE_VALUES.includes(preset)) store.commit('analyse/SET_DEFAULT_TIME_RANGE', preset)
-  } catch (e) {
-    console.warn('[AnalyseView] préférences indisponibles, période par défaut appliquée:', e?.message)
-  }
   try {
     // skipRecipeCatalog : l'Analyse ne lit ni ingrédients ni composants (Restock/Inventory
     // seulement). Sans ce flag, la vague 2b paginait /ingredients et /menu-components puis
     // faisait UN appel /menu-components/:id par composant (des dizaines à des centaines de
     // requêtes), en concurrence avec les paquets event-timeline/baskets dans le navigateur
     // et sur l'API (audit perf 2026-09-21). Même décision que Live (2026-09-03).
-    await store.dispatch('analyse/loadSpace', { spaceId, skipRecipeCatalog: true })
+    await store.dispatch('analyse/loadSpace', { spaceId, skipRecipeCatalog: true, preferencesReady })
     // Prefetch market prices (catalogue global tenant, partagé Inventory/Logistic/
     // Restock) HORS chemin critique : la query coûte ~60s à froid. Le charger dès
     // l'entrée dans l'espace chauffe le cache (SWR) avant l'ouverture d'Inventory.
