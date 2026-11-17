@@ -239,7 +239,9 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
         // Weezevent, pas le spaceId DataFriday) — pas de résolution spaceId→locationId
         // disponible ici sans appel réseau supplémentaire, donc appel volontairement
         // non scopé (backend filtre déjà par tenant).
-        getProductMappings().catch((e) => { console.warn('[useSpaceData] ⚠️ productMappings failed:', e?.response?.status, e?.message); return [] }),
+        // Paires seules (produit, article) : c'est tout ce que lisent les consommateurs ici,
+        // le backend les renvoie en une requête au lieu de paginer avec prix et relations.
+        getProductMappings(undefined, { pairsOnly: true }).catch((e) => { console.warn('[useSpaceData] ⚠️ productMappings failed:', e?.response?.status, e?.message); return [] }),
       ])
       // Détection « tables Weezevent absentes » : portée par la réponse shop-details,
       // donc déplacée ici depuis la phase 1 (qui ne fait plus cet appel). L'état

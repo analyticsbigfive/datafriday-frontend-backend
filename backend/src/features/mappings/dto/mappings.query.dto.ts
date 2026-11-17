@@ -100,4 +100,9 @@ export class MappingsGetProductMappingsQueryDto {
   @IsString()
   @MaxLength(2000)
   toDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  view?: string;
 }
