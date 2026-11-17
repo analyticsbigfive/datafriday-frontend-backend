@@ -5,6 +5,12 @@
 import { marketPricePackSize } from '@/utils/marketPricePackSize'
 import { expandMenuItem, buildComponentLookup } from './menuItemExpansion'
 import {
+  shopRecordMatchesElement,
+  getRecordMenuItemId,
+  getRecordQuantity,
+} from './stockRecordMatching'
+import { createStockRecordIndex } from './stockRecordIndex'
+import {
   normalizeName,
   findReferenceInPools,
   collectReferenceCandidates,
@@ -161,37 +167,9 @@ export function stockItemKey(item) {
   return `${item?.id || item?.name || 'item'}|||${item?.unit || 'unit'}`
 }
 
-export function shopRecordMatchesElement(record, element) {
-  if (!record || !element) return false
-  const recordKeys = [
-    record.shopId,
-    record.elementId,
-    record.shop,
-    record.shopName,
-    record.elementName,
-    record.registryId,
-  ].filter(Boolean).map(String)
-  const elementKeys = [
-    element.id,
-    element.registryId,
-    element.name,
-    element.shopName,
-  ].filter(Boolean).map(String)
-  return recordKeys.some((rk) => elementKeys.includes(rk))
-}
-
-export function getRecordMenuItemId(record) {
-  return record?.menuItemId || record?.mappedMenuItemId || record?.itemId || ''
-}
-
-export function getRecordQuantity(record) {
-  return toNumber(
-    record?.totalQuantity ??
-      record?.adjustedQuantity ??
-      record?.quantity ??
-      record?.qty,
-  )
-}
+// Ces trois helpers vivent dans `stockRecordMatching` (import sans cycle pour
+// `stockRecordIndex`) ; ré-exportés ici pour les importeurs existants.
+export { shopRecordMatchesElement, getRecordMenuItemId, getRecordQuantity }
 
 export function getPredictedQuantityForElement(records, element, menuItemId) {
   return (records || []).reduce((sum, record) => {
@@ -266,12 +244,38 @@ export function expandMenuItemStock(
   // `components` devient inutile ici — paramètre CONSERVÉ pour ne pas casser les
   // appelants, dont la signature positionnelle place `depth` juste après.
   const menuItemsById = new Map((menuItems || []).map((mi) => [mi.id, mi]))
+  return expandMenuItemStockWithLookup(
+    menuItemId,
+    menuItemQuantity,
+    rootMenuItemName,
+    menuItemsById,
+    buildComponentLookup(menuItems),
+    depth,
+  )
+}
+
+/**
+ * Même expansion que `expandMenuItemStock`, mais avec l'index du catalogue DÉJÀ
+ * construit (`menuItemsById` + `buildComponentLookup(menuItems)`). Les calculs qui
+ * développent des centaines de couples (PdV, article) sur le même catalogue
+ * (`buildStockRequirements`) le construisent une fois et le réutilisent, au lieu
+ * de le reconstruire à chaque couple. Sûr à partager : `expandMenuItem` ne fait que
+ * LIRE ces deux structures et renvoie des lignes neuves.
+ */
+export function expandMenuItemStockWithLookup(
+  menuItemId,
+  menuItemQuantity,
+  rootMenuItemName,
+  menuItemsById,
+  lookup,
+  depth = 0,
+) {
   return expandMenuItem({
     menuItemId,
     quantity: menuItemQuantity,
     rootMenuItemName,
     menuItemsById,
-    lookup: buildComponentLookup(menuItems),
+    lookup,
     depth,
     // Le réarmement n'a pas de signal d'hydratation : `true` préserve son
     // comportement historique (le filet de sécurité reste disponible).
@@ -280,9 +284,29 @@ export function expandMenuItemStock(
   })
 }
 
+/**
+ * Ids des menu items d'un PdV : sélection EXPLICITE si elle existe, sinon ceux
+ * dérivés des records. La dérivation parcourt tous les PdV × tous les records :
+ * elle est calculée au plus UNE fois par appel (et seulement si un PdV n'a pas de
+ * sélection explicite), pas une fois par PdV.
+ */
+function createSelectedIdsResolver(configuration, predictedRecords, selectedMenuItems) {
+  let derived = null
+  return (shop) => {
+    const explicitIds = normalizeSelectedIds(selectedMenuItems[shop.id])
+    if (explicitIds.length) return explicitIds
+    if (derived === null) derived = deriveSelectedMenuItemsByShop(configuration, predictedRecords)
+    return normalizeSelectedIds(derived[shop.id])
+  }
+}
+
 export function buildStockRequirements({
   configuration,
   menuItems = [],
+  // Plus lu depuis que l'expansion passe par `expandMenuItemStockWithLookup` (le
+  // paramètre `components` d'`expandMenuItemStock` était déjà ignoré) ; conservé
+  // pour ne pas casser les appelants qui le passent.
+  // eslint-disable-next-line no-unused-vars
   components = [],
   predictedRecords = [],
   selectedMenuItems = {},
@@ -311,19 +335,29 @@ export function buildStockRequirements({
   // MÊME normaliseur, quel que soit le normaliseur de l'appelant.
   const closedSet = new Set((closedShopNames || []).map((n) => normalizeName(n)).filter(Boolean))
   const unavailableIndex = buildUnavailableIndex(unavailableItems)
+  // Index des records (par menu item) et du catalogue d'expansion : construits UNE
+  // fois pour l'appel, au lieu d'un balayage complet des records et d'une
+  // reconstruction du catalogue par couple (PdV, article). Jamais conservés
+  // entre deux appels.
+  const recordIndex = createStockRecordIndex(predictedRecords)
+  const resolveSelectedIds = createSelectedIdsResolver(
+    configuration,
+    predictedRecords,
+    selectedMenuItems,
+  )
+  let componentLookup = null
 
   collectFbElements(configuration).forEach((shop) => {
     if (closedSet.size && shop?.name && closedSet.has(normalizeName(shop.name))) return
-    const explicitIds = normalizeSelectedIds(selectedMenuItems[shop.id])
-    const selectedIds = explicitIds.length
-      ? explicitIds
-      : normalizeSelectedIds(deriveSelectedMenuItemsByShop(configuration, predictedRecords)[shop.id])
+    const selectedIds = resolveSelectedIds(shop)
 
     selectedIds.forEach((menuItemId) => {
       // Record représentatif (shop + item) → nom + mappedMenuItemId pour
-      // rattraper le catalogue quand l'id timeline ≠ id catalogue.
-      const sample = (predictedRecords || []).find(
-        (r) => getRecordMenuItemId(r) === menuItemId && shopRecordMatchesElement(r, shop),
+      // rattraper le catalogue quand l'id timeline ≠ id catalogue. La quantité
+      // prédite et le test « manuel pur » sortent du même parcours.
+      const { sample, quantity: predictedQuantity, manualOnly } = recordIndex.summarize(
+        shop,
+        menuItemId,
       )
       const recordName = sample?.itemName || sample?.mappedMenuItemName || ''
       const menuItem =
@@ -341,14 +375,9 @@ export function buildStockRequirements({
         return
       }
 
-      const predictedQuantity = getPredictedQuantityForElement(
-        predictedRecords,
-        shop,
-        menuItemId,
-      )
       // Lignes manuelles (records isManual) = DÉJÀ ajustées à la construction →
       // % neutralisé ici, sinon double application (fiche 311_02).
-      const adjustment = isManualOnlyForElement(predictedRecords, shop, menuItemId)
+      const adjustment = manualOnly
         ? 100
         : toNumber(quantityAdjustments[`${shop.id}-${menuItemId}`], 100)
       // Parité EventPredictStockUpSection.getAdjustedQuantity() : sans prédiction,
@@ -362,8 +391,15 @@ export function buildStockRequirements({
       // timeline). Sinon (catalogue incomplet ou id orphelin) → ligne feuille
       // directe depuis le record (nom + quantité prédite) pour que la prévision
       // s'affiche au lieu d'un « No forecast ».
+      if (menuItem && componentLookup === null) componentLookup = buildComponentLookup(menuItems)
       const expansion = menuItem
-        ? expandMenuItemStock(menuItem.id, adjustedQuantity, menuItem.name, menuItems, components)
+        ? expandMenuItemStockWithLookup(
+            menuItem.id,
+            adjustedQuantity,
+            menuItem.name,
+            menuItemsById,
+            componentLookup,
+          )
         : []
       const itemLabel = recordName || menuItem?.name || menuItemId
       const expanded = expansion.length
@@ -457,13 +493,17 @@ export function buildMenuItemDemand({
   // PdV fermés exclus (parité buildStockRequirements) : pas d'achat pour un point fermé.
   const closedSet = new Set((closedShopNames || []).map((n) => normalizeName(n)).filter(Boolean))
   const unavailableIndex = buildUnavailableIndex(unavailableItems)
+  // Parité buildStockRequirements : index des records construit une fois par appel.
+  const recordIndex = createStockRecordIndex(predictedRecords)
+  const resolveSelectedIds = createSelectedIdsResolver(
+    configuration,
+    predictedRecords,
+    selectedMenuItems,
+  )
 
   collectFbElements(configuration).forEach((shop) => {
     if (closedSet.size && shop?.name && closedSet.has(normalizeName(shop.name))) return
-    const explicitIds = normalizeSelectedIds(selectedMenuItems[shop.id])
-    const selectedIds = explicitIds.length
-      ? explicitIds
-      : normalizeSelectedIds(deriveSelectedMenuItemsByShop(configuration, predictedRecords)[shop.id])
+    const selectedIds = resolveSelectedIds(shop)
 
     selectedIds.forEach((menuItemId) => {
       const menuItem = menuItemsById.get(menuItemId)
@@ -471,9 +511,12 @@ export function buildMenuItemDemand({
       if (isUnavailableItem(unavailableIndex, menuItemId, menuItem.id, menuItem.name)) {
         return
       }
-      const predictedQuantity = getPredictedQuantityForElement(predictedRecords, shop, menuItemId)
+      const { quantity: predictedQuantity, manualOnly } = recordIndex.summarize(
+        shop,
+        menuItemId,
+      )
       // Parité buildStockRequirements : lignes manuelles déjà ajustées → % neutralisé.
-      const adjustment = isManualOnlyForElement(predictedRecords, shop, menuItemId)
+      const adjustment = manualOnly
         ? 100
         : toNumber(quantityAdjustments[`${shop.id}-${menuItemId}`], 100)
       const adjustedQuantity = Math.round((predictedQuantity * adjustment) / 100)
