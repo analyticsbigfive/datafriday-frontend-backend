@@ -1775,6 +1775,13 @@ import { upcomingPredictedEvents } from '@/utils/restockUpcomingEvents'
 import { storageRowSupplier } from '@/utils/restockStorageRowSupplier'
 import { isStorageBufferRow } from '@/utils/restockStorageBuffers'
 import { resolvePredictedEventIds } from '@/utils/restockPredictedIds'
+// Stock Logistique relancé dès la fin de la phase 1 avec les configs de la dernière visite, même clé de partage.
+import {
+  logisticReadKey,
+  rememberLogisticConfigIds,
+  recallLogisticConfigIds,
+  startEarlyLogisticRead,
+} from '@/utils/restockEarlyLogistic'
 import { useRestockCatalogReadiness } from '../composables/useRestockCatalogReadiness'
 import { useRestockReturnRefresh, mergeFreshComponents } from '../composables/useRestockReturnRefresh'
 
@@ -4051,6 +4058,17 @@ export default {
         )) {
           await this.store.dispatch('analyse/loadSpace', spaceId)
         }
+        // Stock Logistique : il ne dépend pas des catalogues, seulement des ids de config. On rejoue
+        // les ids lus à la dernière visite de cet espace dès la fin de la phase 1, au lieu d'attendre
+        // la chaîne summary, versions BDD, sélection (utils/restockEarlyLogistic.js). Même clé de
+        // partage que loadLogisticRemaining : mémoire juste = un seul appel, fausse = l'appel normal repart.
+        startEarlyLogisticRead({
+          spaceId,
+          configIds: typeof window !== 'undefined' ? recallLogisticConfigIds(window.localStorage, spaceId) : [],
+          validConfigIds: (this.configurations || []).map((cfg) => cfg.id),
+          recentReads: this._recentReads,
+          loadIndex: loadLogisticRemainingIndex,
+        })
         this.store.dispatch('inventory/loadMarketPrices')
         this.store.dispatch('inventory/loadPackagingTypes')
         // Noms de type / catégorie des Market Price (filtres de l'étape 1, cache TTL).
@@ -5914,10 +5932,12 @@ export default {
       const configIds = Array.from(this.resolvedObjectiveConfigIds || [])
       // Même espace, mêmes configs : une lecture récente suffit (l'index n'est que lu).
       const { index } = await this._recentReads.run(
-        `logistic:${spaceId}:${[...configIds].map(String).sort().join(',')}`,
+        logisticReadKey(spaceId, configIds),
         () => loadLogisticRemainingIndex({ spaceId, configIds }),
         { fresh },
       )
+      // Mémoire de la lecture réussie, rejouée au démarrage suivant (jamais bloquant, jamais en échec).
+      if (typeof window !== 'undefined') rememberLogisticConfigIds(window.localStorage, spaceId, configIds)
       if (mySeq === this._logisticRemainingSeq) this.logisticRemainingIndex = index
     },
     /**

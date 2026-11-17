@@ -275,7 +275,7 @@ export default {
         })
         this.profileData  = { ...this.profileData, firstName: this.form.firstName, lastName: this.form.lastName, phone: this.form.phone }
         // Rafraîchit l'identité globale (menu utilisateur en haut à droite).
-        this.$store.dispatch('auth/fetchCurrentUser').catch(() => {})
+        this.$store.dispatch('auth/fetchCurrentUser', { fresh: true }).catch(() => {})
         this.profileSuccess = true
         setTimeout(() => { this.profileSuccess = false }, 3000)
       } catch (err) {
