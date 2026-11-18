@@ -58,20 +58,18 @@ export class EventCostsService {
     return { events, unknownEventIds };
   }
 
-  /** Articles rattachés à un produit Weezevent avec leur coût courant (même périmètre que la RPC). */
+  /**
+   * Articles rattachés à un produit Weezevent avec leur coût courant (même périmètre que la RPC).
+   * Une seule lecture : le filtre relationnel `salesMappings.some` remplace la lecture préalable
+   * des ids de ProductMapping (même ensemble qu'avant : articles du tenant, coût renseigné, avec
+   * au moins un rattachement du tenant).
+   */
   private async currentCosts(tenantId: string): Promise<Map<string, number>> {
-    const mappings = await this.prisma.productMapping.findMany({
-      where: { tenantId },
-      select: { menuItemId: true },
-      distinct: ['menuItemId'],
-    });
-    const ids = mappings.map((m) => m.menuItemId);
-    const out = new Map<string, number>();
-    if (!ids.length) return out;
     const items = await this.prisma.menuItem.findMany({
-      where: { id: { in: ids }, tenantId, totalCost: { not: null } },
+      where: { tenantId, totalCost: { not: null }, salesMappings: { some: { tenantId } } },
       select: { id: true, totalCost: true },
     });
+    const out = new Map<string, number>();
     for (const it of items) out.set(it.id, Number(it.totalCost));
     return out;
   }
