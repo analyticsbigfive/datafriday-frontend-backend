@@ -10,6 +10,7 @@ import { StockItemIdentityService } from './stock-item-identity.service';
 import { StockReferentialService } from './stock-referential.service';
 import { SalesRawRow, SHOP_TYPES } from '../logistics.types';
 import { collectOrphanLevels } from './orphan-stock-levels';
+import { resolveStockConfigId, stockElementIdsOf } from './stock-view-scope';
 
 /**
  * Niveaux de stock et consommation dérivée des ventes (vue stock, inventaire live, attendus).
@@ -175,68 +176,81 @@ export class StockLevelService {
   /** Prochain event de l'espace dont les portes ne sont pas encore ouvertes
    *  (cf. pickNextEventBeforeDoorsOpen). Candidats bornés à partir de la veille : un
    *  event qui finit après minuit (fin 03:00) reste candidat jusqu'à sa fin. */
-  private async findNextEventBeforeDoorsOpen(spaceId: string, tenantId: string): Promise<{ id: string } | null> {
+  private async findNextEventBeforeDoorsOpen(
+    spaceId: string,
+    tenantId: string,
+    /** Fuseau de l'espace, déjà lu par l'appelant (getStock) : pas de seconde lecture de `Space`. */
+    timezone: string | null | undefined,
+  ): Promise<{ id: string } | null> {
     const now = new Date();
-    const [space, candidates] = await Promise.all([
-      this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { timezone: true } }),
-      this.prisma.event.findMany({
-        where: { spaceId, tenantId, eventDate: { gte: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000) } },
-        orderBy: { eventDate: 'asc' },
-        take: 10,
-        select: {
-          id: true,
-          eventDate: true,
-          eventStartDate: true,
-          eventEndDate: true,
-          eventEndTime: true,
-          sessions: true,
-        },
-      }),
-    ]);
-    const next = pickNextEventBeforeDoorsOpen(candidates, space?.timezone || 'Europe/Paris', now);
+    const candidates = await this.prisma.event.findMany({
+      where: { spaceId, tenantId, eventDate: { gte: new Date(now.getTime() - 2 * 24 * 60 * 60 * 1000) } },
+      orderBy: { eventDate: 'asc' },
+      take: 10,
+      select: {
+        id: true,
+        eventDate: true,
+        eventStartDate: true,
+        eventEndDate: true,
+        eventEndTime: true,
+        sessions: true,
+      },
+    });
+    const next = pickNextEventBeforeDoorsOpen(candidates, timezone || 'Europe/Paris', now);
     return next ? { id: next.id } : null;
   }
 
   async getStock(spaceId: string, tenantId: string, configId?: string, eventId?: string) {
-    const space = await this.prisma.space.findFirst({ where: { id: spaceId, tenantId }, select: { id: true, name: true } });
-    if (!space) throw new NotFoundException(`Space ${spaceId} not found`);
+    // Lecture UNIQUE de l'espace (nom pour la réponse, fuseau pour le prochain match).
+    const spaceRow = await this.prisma.space.findFirst({
+      where: { id: spaceId, tenantId },
+      select: { id: true, name: true, timezone: true },
+    });
+    if (!spaceRow) throw new NotFoundException(`Space ${spaceId} not found`);
+    // La réponse garde exactement { id, name } (le fuseau n'est pas exposé).
+    const space = { id: spaceRow.id, name: spaceRow.name };
 
-    const [configurations, event, nextEvent, stockState] = await Promise.all([
-      // Config n'a pas de tenantId propre (scoping via spaceId, déjà vérifié tenant plus haut).
-      this.prisma.config.findMany({ where: { spaceId }, select: { id: true, name: true }, orderBy: { createdAt: 'asc' } }),
-      eventId ? this.prisma.event.findFirst({ where: { id: eventId, spaceId, tenantId }, select: { configurationId: true } }) : null,
-      // Prochain match pour cet espace : calibre le "besoin prédit" par défaut (retour
-      // PO, sans ?event= explicite dans l'URL) sur la feuille de réarmement du prochain
-      // match plutôt que rien. Même règle que SpaceInventoryView.resolveEventContext
-      // (mode pré-event) : le match du jour reste « prochain » jusqu'à l'ouverture des
-      // portes (eventDate est à minuit, `eventDate > now` l'excluait dès 00:00).
-      this.findNextEventBeforeDoorsOpen(spaceId, tenantId),
-      this.getLevelsAndConsumption(spaceId, tenantId),
-    ]);
-    const { levels, consumption, anchorAt, lastRecoId } = stockState;
+    // Deux branches indépendantes, lancées ensemble (lectures seules, aucune ne lit le
+    // résultat de l'autre) : (1) niveaux + consommation dérivée des ventes, (2) config
+    // effective puis référentiel d'éléments. Seule la branche 2 attend, à la toute fin de
+    // getSpaceElementsWithItems, la liste des éléments en stock issue de la branche 1.
+    // Pression sur le pool pg (max 10) : au départ 4 (niveaux) + 1 (prochain match) + 2
+    // (configs, event) = 7 requêtes, une de moins qu'avant (la 2e lecture de Space est
+    // supprimée) ; ensuite la branche 2 n'ouvre qu'une requête à la fois, la branche 1
+    // au plus 5 (canonicalizeLevelItemKeys) : jamais au-delà du pic précédent.
+    const stockStateP = this.getLevelsAndConsumption(spaceId, tenantId);
+    const stockElementIdsP = stockStateP.then(({ levels }) => stockElementIdsOf(levels));
+    // Si la branche 1 échoue, l'erreur remonte par stockStateP (Promise.all ci-dessous) ;
+    // ce catch évite seulement un unhandledRejection sur la promesse dérivée.
+    stockElementIdsP.catch(() => undefined);
 
-    // Priorité : configId explicite (deep-link ?configuration=) > config de l'event
-    // (deep-link ?event=, comme Space Inventory) > 1re configuration de l'espace.
-    // Sentinel 'all' explicite (chantier 341, vue agrégée par défaut) : ne rentre PAS
-    // dans cette résolution single-config, court-circuite directement.
+    // Prochain match pour cet espace : calibre le "besoin prédit" par défaut (retour
+    // PO, sans ?event= explicite dans l'URL) sur la feuille de réarmement du prochain
+    // match plutôt que rien. Même règle que SpaceInventoryView.resolveEventContext
+    // (mode pré-event) : le match du jour reste « prochain » jusqu'à l'ouverture des
+    // portes (eventDate est à minuit, `eventDate > now` l'excluait dès 00:00).
+    const nextEventP = this.findNextEventBeforeDoorsOpen(spaceId, tenantId, spaceRow.timezone);
+
     const aggregateAllConfigs = configId === 'all';
-    const inConfigs = (id: string | null | undefined) => !!id && configurations.some((c) => c.id === id);
-    const resolvedConfigId = aggregateAllConfigs
-      ? 'all'
-      : (inConfigs(configId) ? configId : null) ??
-        (inConfigs(event?.configurationId) ? event!.configurationId : null) ??
-        configurations[0]?.id ??
-        null;
+    const referentialP = (async () => {
+      const [configurations, event] = await Promise.all([
+        // Config n'a pas de tenantId propre (scoping via spaceId, déjà vérifié tenant plus haut).
+        this.prisma.config.findMany({ where: { spaceId }, select: { id: true, name: true }, orderBy: { createdAt: 'asc' } }),
+        eventId ? this.prisma.event.findFirst({ where: { id: eventId, spaceId, tenantId }, select: { configurationId: true } }) : null,
+      ]);
+      const resolvedConfigId = resolveStockConfigId(configurations, configId, event?.configurationId);
+      const elements = await this.stockReferentialService.getSpaceElementsWithItems(
+        spaceId,
+        tenantId,
+        aggregateAllConfigs ? undefined : resolvedConfigId ?? undefined,
+        { aggregateAllConfigs, stockElementIds: stockElementIdsP },
+      );
+      return { configurations, resolvedConfigId, elements };
+    })();
 
-    const stockElementIds = new Set(
-      levels.filter((l) => l.packedUnits > 0 || l.looseUnits > 0).map((l) => l.elementId),
-    );
-    const elementsWithItems = await this.stockReferentialService.getSpaceElementsWithItems(
-      spaceId,
-      tenantId,
-      aggregateAllConfigs ? undefined : resolvedConfigId ?? undefined,
-      { aggregateAllConfigs, stockElementIds },
-    );
+    const [stockState, nextEvent, referential] = await Promise.all([stockStateP, nextEventP, referentialP]);
+    const { levels, consumption, anchorAt, lastRecoId } = stockState;
+    const { configurations, resolvedConfigId, elements: elementsWithItems } = referential;
 
     // Chaque élément est complété par ses niveaux orphelins non vides, en ligne
     // minimale (cf. collectOrphanLevels).
