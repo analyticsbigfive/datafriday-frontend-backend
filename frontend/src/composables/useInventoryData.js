@@ -13,7 +13,6 @@ import { useStore } from 'vuex'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { getConfiguration } from '@/api/endpoints/configuration.api'
 import { runWithConcurrency } from '@/utils/asyncPool'
-import { startShopItemsBatch } from '@/utils/inventoryShopItemsBatch'
 import {
   INVENTORY_SCOPE_EVENT,
   INVENTORY_SCOPE_SPACE,
@@ -213,11 +212,6 @@ export function useInventoryData(selectedConfigId) {
     }
 
     const run = (async () => {
-      // Articles par PdV (batch, ~1,9 s sur un gros espace) : ils ne dépendent que de
-      // l'espace et de la configuration, pas de la liste des PdV ni du plan. Lus ici, en
-      // parallèle des rows et du plan, au lieu de partir après eux (~0,6 s de chaîne en moins).
-      // Résultat « réglé » : ne rejette jamais, même si le chargement est interrompu avant.
-      const shopItemsRead = startShopItemsBatch(spaceId, configId, { allSpace })
       // --- Rows NestJS + détail config en parallèle : les floors servent à
       //     l'union des shops, pas seulement au storage/merch. ---------------
       // Périmètre 'space' : rows de toutes les configs (sans ?configId=) et plans
@@ -325,23 +319,26 @@ export function useInventoryData(selectedConfigId) {
       // catalogue via `enrichForBuild` → `buildConsolidatedInventory`.
       const itemsByShopId = new Map()
       let batchOk = false
-      // BUG-383-02 (règle Bertrand 2026-09-15) : les PdV à compter sont ceux de la
-      // configuration de l'event, mais les articles à compter par PdV sont l'union de
-      // toutes les configurations de l'espace (le stock est physique, foot et rugby
-      // mélangés, assumé). Le fallback per-shop ci-dessous reste scopé par configuration.
-      // (Requête lancée plus haut, cf. startShopItemsBatch : on n'attend ici que sa réponse.)
-      const shopItems = await shopItemsRead
-      if (shopItems.ok) {
-        const byShop = shopItems.value || {}
+      try {
+        const { getConfigShopMenuItemsLight } = await import('@/api/endpoints/menu.api')
+        // BUG-383-02 (règle Bertrand 2026-09-15) : les PdV à compter sont ceux de la
+        // configuration de l'event, mais les articles à compter par PdV sont l'union de
+        // toutes les configurations de l'espace (le stock est physique, foot et rugby
+        // mélangés, assumé). Le fallback per-shop ci-dessous reste scopé par configuration.
+        const byShop =
+          (await getConfigShopMenuItemsLight(spaceId, configId, {
+            itemsScope: 'space',
+            ...(allSpace ? { shopsScope: 'space' } : {}),
+          })) || {}
         // Le batch omet les shops sans item activé : absence = « 0 item » (l'union
         // des shops est déjà connue), PAS un échec.
         for (const entry of union) {
           itemsByShopId.set(entry.shopId, byShop[entry.shopId]?.items || [])
         }
         batchOk = true
-      } else {
+      } catch (e) {
         // eslint-disable-next-line no-console
-        console.warn('[inventory] batch shop-items indisponible, fallback per-shop:', shopItems.error?.message)
+        console.warn('[inventory] batch shop-items indisponible, fallback per-shop:', e?.message)
       }
       if (stale()) return
 
