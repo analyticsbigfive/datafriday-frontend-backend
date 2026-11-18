@@ -42,6 +42,7 @@ import { buildActiveFilterChips, buildPeriodChip } from '@/utils/analyseFilterCh
 import { pickCatalogList, hasCatalogError } from '@/utils/catalogLoadStatus'
 import { mergeFreshCostMap, replaceCostMap, invalidateEventSessionCaches } from '@/utils/analyseSpaceRefresh'
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
+import { startNestShopPrefetch } from '@/utils/nestShopPrefetch'
 // getConfiguration : MIGRÉ vers l'API NestJS (projet Supabase alsgd VIVANT) au lieu
 // du make-server Edge Function (projet uvxx MORT → 500/522). Import DYNAMIQUE au
 // call-site (buildConfigShopEntry) et NON statique : configuration.api → client.js
@@ -133,12 +134,16 @@ function buildVariations(curr, prev) {
  * etc. — où la recette complète est nécessaire). Renvoie { shopRows, byName: Map<normNom,
  * {shopId, shopName, items[]}> }.
  */
-async function fetchNestShopMenus({ spaceId, configId, perimeter, dispatch, commit }) {
+async function fetchNestShopMenus({ spaceId, configId, perimeter, dispatch, commit, prefetch = null }) {
   const EMPTY = { shopRows: [], byName: new Map(), batchFailed: false }
   if (!spaceId || !configId) return EMPTY
   let allRows = []
   try {
-    const fetched = await dispatch('spaceShops/fetchForSpace', { spaceId }, { root: true }).catch(() => [])
+    // `prefetch` : lectures lancées par buildConfigShopEntry en même temps que la configuration
+    // (utils/nestShopPrefetch.js), même contenu que les appels d'origine ci-dessous.
+    const fetched = prefetch
+      ? await prefetch.rowsP
+      : await dispatch('spaceShops/fetchForSpace', { spaceId }, { root: true }).catch(() => [])
     allRows = Array.isArray(fetched) ? fetched : []
     if (commit) commit('SET_SPACE_SHOPS_ROWS', { spaceId, rows: allRows })
   } catch (_) {
@@ -175,11 +180,17 @@ async function fetchNestShopMenus({ spaceId, configId, perimeter, dispatch, comm
   // produit un contexte SANS articles, qu'il ne faut surtout pas mémoriser pour la
   // session (l'appelant doit pouvoir retenter au prochain dispatch).
   let batchFailed = false
-  try {
-    const { getConfigShopMenuItemsLight } = await import('@/api/endpoints/menu.api')
-    itemsByShopId = (await getConfigShopMenuItemsLight(spaceId, configId)) || {}
-  } catch (_) {
-    batchFailed = true
+  if (prefetch) {
+    const batch = await prefetch.itemsP
+    itemsByShopId = batch.items
+    batchFailed = batch.failed
+  } else {
+    try {
+      const { getConfigShopMenuItemsLight } = await import('@/api/endpoints/menu.api')
+      itemsByShopId = (await getConfigShopMenuItemsLight(spaceId, configId)) || {}
+    } catch (_) {
+      batchFailed = true
+    }
   }
   const byName = new Map()
   for (const r of shopRows) {
@@ -272,6 +283,9 @@ function mergeAssignments(edge, nest) {
 async function buildConfigShopEntry(spaceId, configId, { state, dispatch, commit, rootGetters }) {
   // Lancé en parallèle du reste (pas d'await ici) — consommé après floorElements.
   const b2Promise = getBuilder2SubtypesByName(spaceId)
+  // Liste des PdV de l'espace + lot d'articles lancés AVEC la lecture de la configuration : ils
+  // n'en dépendent pas (les floors servent seulement à filtrer ensuite). 3 vagues -> 1.
+  const nestPrefetch = spaceId && configId ? startNestShopPrefetch({ spaceId, configId, dispatch }) : null
   const inMemCfg = (state.configurations || []).find((c) => c?.id === configId) || null
   const inMemFloors = inMemCfg?.data?.floors || inMemCfg?.floors || []
   const configData = inMemFloors.length
@@ -301,6 +315,7 @@ async function buildConfigShopEntry(spaceId, configId, { state, dispatch, commit
   }
   const { shopRows, byName, batchFailed } = await fetchNestShopMenus({
     spaceId, configId, perimeter: { nameSet: perimeterNameSet, idSet: perimeterIdSet }, dispatch, commit, rootGetters,
+    prefetch: nestPrefetch,
   })
   const elByName = new Map()
   for (const el of configElements) {
