@@ -100,7 +100,7 @@ async function fetchAllMenuComponents() {
   return rows
 }
 
-export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimulated = true, skipRecipeCatalog = false, preferencesReady = null } = {}) {
+export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimulated = true, skipRecipeCatalog = false, preferencesReady = null, earlyCatalogs = false, onConfigurations = null } = {}) {
   // Mode démo retiré : on charge toujours via l'API réelle. Aucune donnée mock.
   console.log('[useSpaceData] 🟢 Fetching from API: /api/v1/spaces/' + spaceId)
 
@@ -119,6 +119,32 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
       return {}
     })
 
+    // ── Lectures de catalogue de la vague 2a ───────────────────────────────
+    // Elles ne dépendent que de l'espace, pas des résultats de la phase 1. Avec `earlyCatalogs`
+    // (Analyse, Live) elles partent à t=0 avec la phase 1 au lieu d'attendre sa fin : une vague
+    // réseau de moins sur le chemin d'affichage. Aucune ne rejette (chacune porte son repli).
+    const startCatalogReads = () => ({
+      menuItems: settleRequest(() => getAllMenuItems(spaceId), { label: 'menuItems' }),
+      productTypes: getProductTypes().catch(() => []),
+      productCategories: getProductCategories().catch(() => []),
+      // Produits Weezevent → prix réels (basePrice) pour Event Predict + repli
+      // dims nature/subnature (réconciliation Analyse). catalogSpaceId filtre le
+      // catalogue sur l'intégration Weezevent DE CET ESPACE (requête indexée simple,
+      // pas de cascade de prix scopée-espace — cf. gotcha noté après le 1er test :
+      // passer `spaceId` ici déclenchait une cascade de repli coûteuse et annulait la
+      // requête après >1 min). Le prix reste le prix modal global rapide.
+      weezeventProducts: getWeezeventProducts(null, null, null, true, { catalogSpaceId: spaceId }).catch((e) => { console.warn('[useSpaceData] ⚠️ weezeventProducts failed:', e?.response?.status, e?.message); return [] }),
+      // Mappings produit Weezevent → MenuItem (pour récupérer les coûts/marges).
+      // NB : `getProductMappings(locationId)` filtre par LOCATION Weezevent (un id
+      // Weezevent, pas le spaceId DataFriday) — pas de résolution spaceId→locationId
+      // disponible ici sans appel réseau supplémentaire, donc appel volontairement
+      // non scopé (backend filtre déjà par tenant).
+      // Paires seules (produit, article) : c'est tout ce que lisent les consommateurs ici,
+      // le backend les renvoie en une requête au lieu de paginer avec prix et relations.
+      productMappings: getProductMappings(undefined, { pairsOnly: true }).catch((e) => { console.warn('[useSpaceData] ⚠️ productMappings failed:', e?.response?.status, e?.message); return [] }),
+    })
+    const earlyCatalogReads = earlyCatalogs ? startCatalogReads() : null
+
     // ── Phase 1 : données critiques pour le premier rendu ──────────────────
     console.log('[useSpaceData] phase 1 — 3 endpoints critiques en parallèle...')
     const _t1 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
@@ -128,11 +154,19 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
       // est SIGNALÉ : le store distingue « cet espace n'a aucune config » (liste vide,
       // fetch OK → purge d'une sélection périmée) de « on ne sait pas » (fetch KO → on
       // conserve la sélection utilisateur, cf. resolveConfigSelectionAfterLoad).
-      getSpaceConfigurations(spaceId).catch((e) => {
-        console.warn('[useSpaceData] ⚠️ configurations failed:', e?.response?.status, e?.message)
-        configurationsFetchFailed = true
-        return []
-      }),
+      getSpaceConfigurations(spaceId).then(
+        (list) => {
+          // Dès que la liste est connue (avant la fin de la phase 1), l'appelant peut lancer ce qui
+          // n'en dépend que (contexte PdV union). Un échec du rappel ne touche pas au chargement.
+          if (onConfigurations) { try { onConfigurations(list) } catch (_) { /* optionnel */ } }
+          return list
+        },
+        (e) => {
+          console.warn('[useSpaceData] ⚠️ configurations failed:', e?.response?.status, e?.message)
+          configurationsFetchFailed = true
+          return []
+        },
+      ),
       // Always fetch DataFriday Events (individual matches, not Weezevent seasons)
       // Scopé par spaceId côté backend — avant ce fix, seule la 1re page (50 events)
       // tenant-wide était lue puis filtrée côté client : un tenant avec >50 events
@@ -221,27 +255,15 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
       // Séparée de 2b (recettes) pour que `enriching` retombe dès que les ventes
       // détaillées sont là, sans attendre la pagination /menu-components + son
       // fan-out de détails (concurrence 5) qui n'alimente que Restock/Stock up.
+      const catalogReads = earlyCatalogReads || startCatalogReads()
       const [menuItemsResult, granularDetails, apiProductTypes, apiProductCategories, apiWeezeventProducts, apiWeezeventProductMappings] = await Promise.all([
-        settleRequest(() => getAllMenuItems(spaceId), { label: 'menuItems' }),
+        catalogReads.menuItems,
         // Granular data — heavy join, lancé à t=0 (avant la phase 1), consommé ici.
         granularPromise,
-        getProductTypes().catch(() => []),
-        getProductCategories().catch(() => []),
-        // Produits Weezevent → prix réels (basePrice) pour Event Predict + repli
-        // dims nature/subnature (réconciliation Analyse). catalogSpaceId filtre le
-        // catalogue sur l'intégration Weezevent DE CET ESPACE (requête indexée simple,
-        // pas de cascade de prix scopée-espace — cf. gotcha noté après le 1er test :
-        // passer `spaceId` ici déclenchait une cascade de repli coûteuse et annulait la
-        // requête après >1 min). Le prix reste le prix modal global rapide.
-        getWeezeventProducts(null, null, null, true, { catalogSpaceId: spaceId }).catch((e) => { console.warn('[useSpaceData] ⚠️ weezeventProducts failed:', e?.response?.status, e?.message); return [] }),
-        // Mappings produit Weezevent → MenuItem (pour récupérer les coûts/marges).
-        // NB : `getProductMappings(locationId)` filtre par LOCATION Weezevent (un id
-        // Weezevent, pas le spaceId DataFriday) — pas de résolution spaceId→locationId
-        // disponible ici sans appel réseau supplémentaire, donc appel volontairement
-        // non scopé (backend filtre déjà par tenant).
-        // Paires seules (produit, article) : c'est tout ce que lisent les consommateurs ici,
-        // le backend les renvoie en une requête au lieu de paginer avec prix et relations.
-        getProductMappings(undefined, { pairsOnly: true }).catch((e) => { console.warn('[useSpaceData] ⚠️ productMappings failed:', e?.response?.status, e?.message); return [] }),
+        catalogReads.productTypes,
+        catalogReads.productCategories,
+        catalogReads.weezeventProducts,
+        catalogReads.productMappings,
       ])
       // Détection « tables Weezevent absentes » : portée par la réponse shop-details,
       // donc déplacée ici depuis la phase 1 (qui ne fait plus cet appel). L'état
@@ -435,7 +457,7 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
       // La 2e passe n'envoie QUE son delta recette — réémettre `shopGranularData` /
       // taxonomie / produits Weezevent relancerait toute la réconciliation une 2e
       // fois pour des données identiques (coûteux sur un gros espace).
-      loadEnrichment(onEnrichment)
+      const startEnrichment = () => loadEnrichment(onEnrichment)
         .then((full) => onEnrichment({
           menuItems: full.menuItems, // refs catalogue résolues (mêmes ids qu'en 2a)
           ingredients: full.ingredients,
@@ -450,6 +472,12 @@ export async function fetchSpaceData(spaceId, onEnrichment = null, { excludeSimu
           // Commandes affiche le bandeau au lieu d'attendre des composants qui ne viendront pas.
           onEnrichment(skipRecipeCatalog ? {} : { catalogErrors: { components: { status: null, message: e?.message || 'enrichment failed' } } })
         })
+      // Catalogues lancés dès t=0 : ils peuvent déjà être arrivés. Le rappel d'enrichissement ne doit
+      // JAMAIS précéder les commits de la phase 1 de l'appelant (qui remettraient shopGranularData à []),
+      // et ces commits tournent dans les microtâches qui suivent ce `return`. Une macrotâche suffit
+      // donc à garantir l'ordre, sans dépendre du nombre de ticks.
+      if (earlyCatalogs && typeof setTimeout === 'function') setTimeout(startEnrichment, 0)
+      else startEnrichment()
       return { ...phase1Result, menuItems: [], suppliers: [], ingredients: [], components: [] }
     }
 
