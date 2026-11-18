@@ -23,10 +23,13 @@ export class StockReferentialService {
     spaceId: string,
     tenantId: string,
     configId?: string,
-    opts?: { aggregateAllConfigs?: boolean; stockElementIds?: Set<string> },
+    opts?: { aggregateAllConfigs?: boolean; stockElementIds?: Set<string> | Promise<Set<string>> },
   ) {
     const aggregateAllConfigs = !!opts?.aggregateAllConfigs;
-    const stockElementIds = opts?.stockElementIds;
+    // Peut être une promesse (getStock la lance en parallèle des niveaux de stock) : elle
+    // n'est lue qu'au filtre `configuredShops`, donc toutes les lectures SQL du référentiel
+    // avancent pendant que les niveaux se calculent.
+    const stockElementIdsInput = opts?.stockElementIds;
     const rows = await this.prisma.spaceElement.findMany({
       where: this.logisticsElementScopeService.spaceElementScopeWhere(spaceId, tenantId),
       select: {
@@ -155,6 +158,7 @@ export class StockReferentialService {
     // résolue — sinon du stock existant (ex. transfert vers un PDV dont la config
     // effective a basculé sur une config sans menu assigné) devient invisible.
     // Même exception pour un PDV avec au moins un produit en tampon.
+    const stockElementIds = await stockElementIdsInput;
     const configuredShops = shops.filter(
       (shop) => (enabledByShop.get(shop.id) ?? []).length > 0 || stockElementIds?.has(shop.id) || bufferRowsByShop.has(shop.id),
     );
