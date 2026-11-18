@@ -187,6 +187,7 @@ import LiveItemsList from '../LiveItemsList.vue'
 import LiveHrPanel from '../LiveHrPanel.vue'
 import LiveInventoryPanel from '@/components/space-workspace/shared/LiveInventoryPanel.vue'
 import LiveSaleSimulatorWidget from '@/components/space-workspace/analyse/LiveSaleSimulatorWidget.vue'
+import { createSingleFlight } from '@/utils/singleFlight'
 
 const { t } = useI18n()
 const { formatPercentLocale } = useNumberFormat()
@@ -233,13 +234,21 @@ function requestAllConfigsContext() {
   store.dispatch('analyse/loadAllConfigsShopContext')
 }
 
+// Au premier affichage la page est montée ET activée (keep-alive) dans le même tick : les deux
+// hooks appellent `ensureSpaceLoaded` avant que le premier chargement ne soit fini. Sans cette
+// fusion, `loadSpace` partait deux fois (11 chemins d'API appelés en double, mesure prod
+// 18/11/2026). Le deuxième appel rejoint le chargement déjà en vol.
+const spaceLoadFlight = createSingleFlight()
+
 async function ensureSpaceLoaded() {
   if (!store.state.analyse?.space || String(store.state.analyse.space.id) !== String(spaceId.value)) {
     // skipRecipeCatalog : Live n'éclate jamais un composant en ingrédients (ça reste
     // le seul droit de la feuille de course Restock, BUG-292-01) — évite le fan-out
     // /menu-components/:id (un appel par composant sans recette déjà connue, jusqu'à
     // plusieurs centaines sur un gros catalogue), inutile ici.
-    await store.dispatch('analyse/loadSpace', { spaceId: spaceId.value, skipRecipeCatalog: true })
+    await spaceLoadFlight.run(String(spaceId.value), () =>
+      store.dispatch('analyse/loadSpace', { spaceId: spaceId.value, skipRecipeCatalog: true }),
+    )
   }
   requestAllConfigsContext()
 }
