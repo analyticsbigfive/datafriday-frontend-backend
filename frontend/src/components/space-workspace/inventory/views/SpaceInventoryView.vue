@@ -822,6 +822,8 @@ import { useGuestInventorySession } from '@/composables/useGuestInventorySession
 import { usePreEventEditWindow } from '@/composables/usePreEventEditWindow'
 import { useInventoryLivePolling } from '@/composables/useInventoryLivePolling'
 import { useInventoryKeepAlive, inventoryRouteKey } from '@/components/space-workspace/inventory/useInventoryKeepAlive'
+import { createSelfNavGuard, routeKeyAfterEventReplace } from '@/components/space-workspace/inventory/inventorySelfNav'
+import { startInventoryEarlyReads, readBaseline, readRestockLines } from '@/utils/inventoryEarlyReads'
 import { formatUnits } from '@/composables/useFormatters'
 import { buildSpaceInventoryMock, buildInventoryCountsMock } from '@/data/spaceInventoryMock'
 import * as localDb from '@/data/localDb'
@@ -853,7 +855,6 @@ import {
   listInventoryReconciliations,
   deleteInventoryReconciliation,
   getPreEventInventory,
-  getPreEventBaseline,
   getPostEventBaseline,
   regeneratePreEventReconciliation,
   getEventSalesConsumption,
@@ -871,7 +872,6 @@ import { buildUnitCostByItemId } from '@/utils/reconciliationCosts'
 import { buildSummaryUnitCosts } from '@/utils/reconciliationAggregate'
 import { flattenLogisticExpected, splitBaselineByElement, describeBaseline } from '@/utils/postEventBaseline'
 import { buildUnitInfoByItemId } from '@/utils/reconciliationUnits'
-import { listRestockPlans, getRestockPlan } from '@/api/endpoints/restock.api'
 import { compareInventoryCards } from '@/utils/inventoryCardSort'
 import {
   reconciliationKey,
@@ -987,6 +987,8 @@ export default {
       revalidate: () => keepAliveHandlers.revalidate?.(),
       contextStale: () => !!keepAliveHandlers.contextStale?.(),
     })
+    // Réécriture d'URL (?event=) faite par la vue elle-même : pas de second chargement.
+    const selfNavGuard = createSelfNavGuard()
     useInventoryLivePolling(
       () => livePollingEnabled.value && keepAlive.isActive.value,
       async () => {
@@ -1033,6 +1035,7 @@ export default {
       livePollExtra,
       keepAlive,
       keepAliveHandlers,
+      selfNavGuard,
     }
   },
   data() {
@@ -2046,9 +2049,12 @@ export default {
           tz,
         )
         if (ev && this.router) {
+          // Le chargement en cours couvre déjà cet event : le watcher de route ignore
+          // la transition que cette réécriture provoque (sinon 2e chargement identique).
+          this.selfNavGuard.expect(routeKeyAfterEventReplace(this.route, ev.id))
           this.router
             .replace({ query: { ...this.route.query, event: ev.id } })
-            .catch(() => {})
+            .catch(() => { this.selfNavGuard.clear() })
         }
       }
       if (!ev) return null
@@ -2212,6 +2218,28 @@ export default {
         this.store.dispatch('inventory/loadMarketPrices')
         this.store.dispatch('inventory/loadPackagingTypes')
 
+        // Lectures qui ne dépendent pas du référentiel affiché : lancées maintenant, en
+        // parallèle du contexte (la vue ne les met en forme qu'après, cf. fetchPreExpected /
+        // fetchPredictedNeed). Avant, elles attendaient la fin de loadContext (~2 s de plus).
+        const earlyReads = startInventoryEarlyReads({
+          spaceId,
+          currentSpaceId: this.currentSpaceId,
+          eventId: this.selectedEventId,
+          isPreMode: this.isPreMode,
+          canSeeExpected: this.canSeeExpected,
+          canSeePredicted: this.canSeePredicted,
+          demo: isDemoMode(),
+        })
+        // Stock Logistic LIVE (demande Bertrand 2026-08-27) : la même quantité que
+        // la carte Logistic elle-même affiche pour cet article/élément, pour
+        // comparer d'un coup d'œil avec ce qui est en cours de comptage ici.
+        // Aucune dépendance au contexte : lu des que l'event est connu.
+        this.store.dispatch('logistics/loadStock', {
+          spaceId,
+          configId: this.selectedConfigId,
+          eventId: this.selectedEventId,
+        })
+
         await Promise.all([
           this.loadContext(spaceId, ctx.configId, { scope: this.scopeFor(!this.isPreMode) }),
           this.store.dispatch('inventory/loadInventory', {
@@ -2228,19 +2256,11 @@ export default {
         // Attendus (les deux modes, permission requise) : APRÈS loadContext — la
         // résolution nom→item a besoin du référentiel affiché. Le besoin prédit
         // a la même dépendance (périmètre des PdV affichés).
-        this.fetchPreExpected()
-        this.fetchPredictedNeed()
+        this.fetchPreExpected(earlyReads)
+        this.fetchPredictedNeed(earlyReads)
         // Post-event : contexte de la réconciliation (prédit, coût, unité) envoyé au
         // serveur, qui tient le document (lot 4b). Différé et sérialisé par le scheduler.
         if (!this.isPreMode) this.postDraftScheduler?.schedule()
-        // Stock Logistic LIVE (demande Bertrand 2026-08-27) : la même quantité que
-        // la carte Logistic elle-même affiche pour cet article/élément, pour
-        // comparer d'un coup d'œil avec ce qui est en cours de comptage ici.
-        this.store.dispatch('logistics/loadStock', {
-          spaceId,
-          configId: this.selectedConfigId,
-          eventId: this.selectedEventId,
-        })
 
         this.mock = buildSpaceInventoryMock()
         if (this.demo) {
@@ -2493,7 +2513,7 @@ export default {
     },
     /** Charge les attendus de l'écran courant (permission requise dans les deux
      *  modes). Pre : hints packed/loose. Post : indice total par article. */
-    async fetchPreExpected() {
+    async fetchPreExpected(earlyReads = null) {
       this.preExpected = null
       this.postExpectedUnits = null
       this.expectedUnavailable = null
@@ -2506,9 +2526,14 @@ export default {
       const spaceId = this.route.params.spaceId
       this.preExpectedLoading = true
       try {
-        const baseline = this.isPreMode
-          ? await getPreEventBaseline(spaceId, this.selectedEventId)
-          : await getPostEventBaseline(spaceId, this.selectedEventId)
+        // Lecture déjà partie avec le contexte si elle correspond (même espace, event, mode),
+        // sinon l'appel direct d'avant. Cette méthode n'est appelée qu'APRÈS loadContext : la
+        // mise en forme ci-dessous lit donc un référentiel complet (unitsPerItemIdMap).
+        const baseline = await readBaseline(earlyReads, {
+          spaceId,
+          eventId: this.selectedEventId,
+          isPreMode: this.isPreMode,
+        })
         // Source « état Logistic » (décision JLH 2026-08-20) : le blob `expected`
         // existe toujours côté serveur à jour. Absent = backend antérieur.
         if (!baseline?.expected) {
@@ -2646,17 +2671,20 @@ export default {
      *  Predict en repli. Silencieux en cas d'échec : on ne bloque jamais un
      *  comptage. Permission DÉDIÉE preInventoryPredicted (réunion Bertrand
      *  2026-08-19) : sans elle, ni fetch ni chip — l'index reste null. */
-    async fetchPredictedNeed() {
+    async fetchPredictedNeed(earlyReads = null) {
       this.predictedNeed = null
       this.predictedNeedMissing = false
       if (!this.canSeePredicted || !this.selectedEventId || isDemoMode()) return
 
       try {
-        const plans = await listRestockPlans(this.currentSpaceId)
-        const match = (plans || []).find((p) => (p.selectedEventIds || []).map(String).includes(String(this.selectedEventId)))
-        if (match) {
-          const full = await getRestockPlan(match.id)
-          const restockIndex = buildRestockNeedIndex(full?.restockLines)
+        // Plan de réarmement du match : lecture déjà partie avec le contexte si elle
+        // correspond, sinon la lecture directe (liste des plans puis plan retenu).
+        const plan = await readRestockLines(earlyReads, {
+          spaceId: this.currentSpaceId,
+          eventId: this.selectedEventId,
+        })
+        if (plan.matched) {
+          const restockIndex = buildRestockNeedIndex(plan.lines)
           if (restockIndex) {
             this.predictedNeed = restockIndex
             return
@@ -3314,6 +3342,8 @@ export default {
         // Instance en cache : le retour sur la page rattrape (useInventoryKeepAlive).
         if (!this.keepAlive.canRun()) return
         this.keepAlive.markLoaded()
+        // Transition produite par la vue elle-même (?event= résolu) : déjà chargé.
+        if (this.selfNavGuard.consume(this.routeContextKey)) return
         await this.reloadForRoute()
       },
     },
