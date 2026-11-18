@@ -2667,7 +2667,12 @@ async function ensureAuthAndLoad(spaceId) {
     // faisait UN appel /menu-components/:id par composant (des dizaines à des centaines de
     // requêtes), en concurrence avec les paquets event-timeline/baskets dans le navigateur
     // et sur l'API (audit perf 2026-09-21). Même décision que Live (2026-09-03).
-    await store.dispatch('analyse/loadSpace', { spaceId, skipRecipeCatalog: true, preferencesReady })
+    // earlyCatalogs / prewarmAllConfigs : départs anticipés (catalogues de la vague 2a dès t=0,
+    // contexte PdV union dès l'arrivée de la liste des configurations). `urlConfig` : un lien profond
+    // `?config=<id>` charge SA configuration, pas l'union, donc pas de préchauffage dans ce cas.
+    await store.dispatch('analyse/loadSpace', {
+      spaceId, skipRecipeCatalog: true, preferencesReady, earlyCatalogs: true, prewarmAllConfigs: true, urlConfig,
+    })
     // Prefetch market prices (catalogue global tenant, partagé Inventory/Logistic/
     // Restock) HORS chemin critique : la query coûte ~60s à froid. Le charger dès
     // l'entrée dans l'espace chauffe le cache (SWR) avant l'ouverture d'Inventory.

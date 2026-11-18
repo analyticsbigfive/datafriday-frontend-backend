@@ -1,4 +1,5 @@
 import { marketPricePackSize } from '@/utils/marketPricePackSize'
+import { createMenuItemIndex } from '@/utils/inventoryLookupIndex'
 // Utility functions for calculating inventory from menu items
 
 // NOTE: les types TS sont supprimés, les imports de type ne sont plus nécessaires
@@ -224,6 +225,10 @@ export function buildConsolidatedInventory(
   // Map to track: component/ingredient name -> Set of menu item names that use it
   const inventoryMap = new Map();
 
+  // Recherches dans le catalogue par clé (mêmes résultats que les anciens `.find`, voir
+  // utils/inventoryLookupIndex) : sans cela chaque ligne parcourait tout le catalogue.
+  const menuIndex = createMenuItemIndex(allMenuItemsData);
+
   // Helper function to recursively get all components/ingredients from a menu item
   const getAllComponentsAndIngredients = (menuItem, depth = 0) => {
     const MAX_DEPTH = 10;
@@ -260,9 +265,7 @@ export function buildConsolidatedInventory(
       }
 
       // Find if this component is itself a menu item that should be expanded
-      const componentMenuItem = allMenuItemsData.find(
-        mi => mi.name === component.name || mi.id === component.sourceId,
-      );
+      const componentMenuItem = menuIndex.firstByIdOrName(component.sourceId, component.name);
 
       if (componentMenuItem && (isCombo || componentMenuItem.comboItem === 'Yes')) {
         // BUG-002/Q18 (Bertrand, 2026-07-24) : comboItem='Yes' explose TOUJOURS en
@@ -556,7 +559,7 @@ export function buildConsolidatedInventory(
     // donc la qté QUE sur une valeur d'intention (`!== 1 && > 0`) — 1 ≡ « pas de facteur
     // paquet », no-op indistinguable du défaut. Le libellé packaging reste null-safe
     // (défaut `null` du form → seul un choix explicite override).
-    const itemData = allMenuItemsData.find(mi => mi.id === data.id || mi.name === name);
+    const itemData = menuIndex.firstByIdOrName(data.id, name);
     const miUnits = Number(itemData?.inventoryNumberOfUnits);
     const miQtyPackaged = miUnits > 0 && miUnits !== 1 ? miUnits : null;
     const miPackaging = itemData?.inventoryPackagingType || null;
@@ -593,7 +596,9 @@ export function buildConsolidatedInventory(
 
     // Step 1: Is this an ingredient? Look in any menu item's components.
     let ingredientComponent;
-    for (const menuItem of allMenuItemsData) {
+    // Seuls les menu items qui portent un composant de cette identité peuvent répondre.
+    const menuItemsWithMatch = menuIndex.withComponentIdOrName(data.id, name);
+    for (const menuItem of menuItemsWithMatch) {
       if (menuItem.components) {
         const component = menuItem.components.find(
           c => c.id === data.id || c.name === name,
@@ -638,7 +643,7 @@ export function buildConsolidatedInventory(
 
       // Fallback: search menu items to find this component, then resolve by sourceId or name.
       if (!componentDef) {
-        for (const menuItem of allMenuItemsData) {
+        for (const menuItem of menuItemsWithMatch) {
           if (!menuItem.components) continue;
           const comp = menuItem.components.find(c => c.id === data.id || c.name === name);
           if (comp && comp.itemType === 'Component') {
@@ -678,13 +683,11 @@ export function buildConsolidatedInventory(
 
     // Step 4: Component (not ingredient) image via matching combo menu item.
     if (!skipImages && !picture && !ingredientComponent) {
-      for (const menuItem of allMenuItemsData) {
+      for (const menuItem of menuItemsWithMatch) {
         if (!menuItem.components) continue;
         const component = menuItem.components.find(c => c.id === data.id || c.name === name);
         if (component && component.itemType === 'Component') {
-          const componentMenuItem = allMenuItemsData.find(
-            mi => mi.name === component.name && mi.comboItem === 'Yes',
-          );
+          const componentMenuItem = menuIndex.firstComboByName(component.name);
           if (componentMenuItem?.picture) {
             picture = componentMenuItem.picture;
             break;
@@ -799,6 +802,11 @@ export function enrichInventoryItemsWithImages(
 /**
  * Builds inventory for Storage elements by aggregating all inventory items from F&B elements
  * that match the Storage element's storage type(s).
+ *
+ * Un élément de `allFBElements` peut porter `prebuiltInventory` : le résultat de
+ * `buildConsolidatedInventory(availableMenuItems, allMenuItemsData, marketPrices, false, components)`
+ * déjà calculé avec les MÊMES entrées. Sans lui, chaque réserve recalculait l'inventaire de chacun
+ * des PdV (réserves x PdV recalculs identiques).
  */
 export function buildStorageInventory(
   storageElementTypes,
@@ -822,17 +830,28 @@ export function buildStorageInventory(
     return storageTypeByNameLower.get(String(menuStorageType).toLowerCase());
   };
 
+  // Recherches par clé dans le catalogue (mêmes résultats que les anciens `.find`).
+  const menuIndex = createMenuItemIndex(allMenuItemsData);
+  // Types de stockage par nom d'article : même réponse pour un nom donné dans tout cet appel.
+  const itemStorageTypesByName = new Map();
+
   // Helper function to get storage types for an inventory item
   const getItemStorageTypes = itemName => {
+    if (itemStorageTypesByName.has(itemName)) return itemStorageTypesByName.get(itemName);
+    const types = computeItemStorageTypes(itemName);
+    itemStorageTypesByName.set(itemName, types);
+    return types;
+  };
+  const computeItemStorageTypes = itemName => {
     // Find the menu item that matches this inventory item
-    const menuItem = allMenuItemsData.find(mi => mi.name === itemName);
+    const menuItem = menuIndex.firstByName(itemName);
 
     if (menuItem && menuItem.storageType && menuItem.storageType.length > 0) {
       return menuItem.storageType.map(st => mapStorageType(st));
     }
 
     // If it's a component/ingredient, look for it in any menu item's components
-    for (const menuItem2 of allMenuItemsData) {
+    for (const menuItem2 of menuIndex.withComponentNamed(itemName)) {
       if (menuItem2.components) {
         const component = menuItem2.components.find(c => c.name === itemName);
         if (component && component.storageType) {
@@ -870,6 +889,8 @@ export function buildStorageInventory(
 
   // Map to track: inventory item name -> item details with usage info
   const storageInventoryMap = new Map();
+  // entrée -> (id du PdV -> ids des menu items déjà listés dans entry.usedIn)
+  const usedInSeen = new Map();
 
   // Filter F&B elements by selectedShopIds if provided
   const fbElementsToProcess =
@@ -887,7 +908,7 @@ export function buildStorageInventory(
     // ingrédient unique garde son nom de menu item ici mais est renommé itemName
     // market price côté shop → deux clés pour la même denrée (le ledger Logistic
     // keyé par nom perdrait les transferts shop↔storage).
-    const consolidatedInventory = buildConsolidatedInventory(
+    const consolidatedInventory = fbElement.prebuiltInventory ?? buildConsolidatedInventory(
       fbElement.availableMenuItems,
       allMenuItemsData,
       marketPrices,
@@ -922,11 +943,20 @@ export function buildStorageInventory(
         }
 
         // Add usage information for each menu item that uses this ingredient
+        // (doublon = même PdV ET même menu item ; index par entrée au lieu d'un `.some`).
+        let seenByFb = usedInSeen.get(entry);
+        if (!seenByFb) {
+          seenByFb = new Map();
+          usedInSeen.set(entry, seenByFb);
+        }
         inventoryItem.usedIn.forEach(menuItem => {
-          const alreadyExists = entry.usedIn.some(
-            u =>
-              u.fbElementId === fbElement.id && u.menuItemId === menuItem.id,
-          );
+          let seenMenuItems = seenByFb.get(fbElement.id);
+          if (!seenMenuItems) {
+            seenMenuItems = new Set();
+            seenByFb.set(fbElement.id, seenMenuItems);
+          }
+          const alreadyExists = seenMenuItems.has(menuItem.id);
+          seenMenuItems.add(menuItem.id);
 
           if (!alreadyExists) {
             entry.usedIn.push({

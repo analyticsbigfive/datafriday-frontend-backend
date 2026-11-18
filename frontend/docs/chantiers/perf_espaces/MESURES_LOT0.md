@@ -450,6 +450,20 @@ Cadre : production en lecture seule (`begin read only`, `DIRECT_URL`), base loca
 
 **Gain attendu, non mesuré.** De 0,9 à 1,5 s à environ 0,1 à 0,25 s pour ce chargement (une requête, un aller-retour base, environ 100 Ko), et 5 à 8 requêtes en moins par chargement d'espace. À confirmer en navigateur après redémarrage du backend local avec la branche.
 
+## 21. Mode paires de `product-menu` : résultat navigateur (2026-11-17, localhost)
+
+Méthode : même code, même serveur (backend redémarré avec le merge 4a016989), alternance sans/avec, un passage de chauffe non compté puis 2 passes sans, 2 passes avec, 65 s entre passes (limiteur local). « Sans » = Playwright retire `view=pairs` de la requête, donc le front retombe sur la pagination d'avant. Script `ab_pm.sh` et mode `BLOCK_BATCH=pairs` du harnais, hors dépôt.
+
+| Espace (page Analyse) | Passes | Chargement terminé | Dernière réponse | Appels | `product-menu` |
+|---|---|---|---|---|---|
+| La Beaujoire, sans | 4 | 4528 ms en moyenne (3666 à 5442) | 3065 ms | 35 | 5 requêtes, chaîne de 0,8 à 1,6 s |
+| La Beaujoire, avec | 4 | 3378 ms en moyenne (2883 à 3912) | 1979 ms | 31 | 1 requête, 0,1 à 0,2 s |
+
+- Gain La Beaujoire : environ 1,15 s sur le chargement terminé (25 %) et 1,1 s sur la dernière réponse. Les 4 paires sans/avec vont dans le même sens. 4 appels en moins par page, comme attendu.
+- Marie Marving : **non concluant.** Une seule passe « avec » exploitable (6646 ms), bornée par le RPC `shop-details` froid (fin à 4,6 s, contre 1,8 s et 3,8 s sur les deux passes « sans »). Le RPC varie plus d'une passe à l'autre que le mode paires ne change quoi que ce soit. Une passe « avec » s'est arrêtée après 5 appels (échec du harnais, sans erreur remontée) et est écartée.
+- Réserve : 4 passes par mode, écart-type large (plusieurs centaines de ms). Le gain sur la chaîne `product-menu` elle-même est net (5 requêtes de 0,6 à 1,6 s contre 1 requête de 0,06 à 0,2 s), le gain sur la page entière est du bon ordre mais pas mesuré avec précision.
+- Les passes « avec » montrent aussi un RPC `shop-details` plus tôt sur La Beaujoire (fin à 0,7 à 1,4 s contre 1,0 à 2,4 s). Constaté, pas expliqué : moins de requêtes simultanées sur la base est une piste, non vérifiée.
+
 ## Reste à mesurer
 
 | Mesure | Ce qu'il faut |

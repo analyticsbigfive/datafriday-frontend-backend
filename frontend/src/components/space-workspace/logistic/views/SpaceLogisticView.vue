@@ -623,6 +623,7 @@ import LogisticEventSelect from '@/components/space-workspace/logistic/LogisticE
 import { getLatestInventory } from '@/api/endpoints/inventory.api'
 import { downloadReconciliationCsv, downloadLossesCsv, getVentilationChecks, saveVentilationCheck } from '@/api/endpoints/logistics.api'
 import { getMarketPrices } from '@/api/endpoints/market.price.api'
+import { listRestockPlans } from '@/api/endpoints/restock.api'
 import { ClipboardList, GitCompare, Download, TrendingDown } from 'lucide-vue-next'
 import WorkspacePanelToggle from '@/components/WorkspacePanelToggle.vue'
 import WorkspaceMobileToolDrawer from '@/components/WorkspaceMobileToolDrawer.vue'
@@ -1296,9 +1297,17 @@ export default {
         // existant depuis Event Predict), sinon 'all' l'écraserait silencieusement.
         const eventId = this.route?.query?.event || null
         const configId = this.route?.query?.configuration || this.route?.query?.config || (eventId ? null : 'all')
+        const stockLoad = this.store.dispatch('logistics/loadStock', { spaceId, configId, eventId })
+        // Fin du stock, sans jamais rejeter : la Ventilation s'en sert seulement pour calculer ses
+        // lignes (taille des packs) et le repli prévision pour ses éléments.
+        const stockReady = Promise.resolve(stockLoad).then(() => true, () => false)
+        // Feuilles de réarmement de l'espace : aucun match requis, on les demande dès l'ouverture.
+        const plansPromise = listRestockPlans(spaceId)
+        plansPromise.catch(() => {}) // l'erreur est traitée là où la liste est lue (repli prévision)
+        const eventsLoad = this.eventSelection.load(spaceId)
         const tasks = [
-          this.store.dispatch('logistics/loadStock', { spaceId, configId, eventId }),
-          this.eventSelection.load(spaceId),
+          stockLoad,
+          eventsLoad,
           // Noms des fournisseurs du filtre de la Ventilation (best-effort).
           Promise.resolve(this.store.dispatch('suppliers/fetchSuppliers')).catch((e) =>
             console.warn('[logistics] fournisseurs indisponibles :', e?.message),
@@ -1314,9 +1323,13 @@ export default {
           tasks.push(this.store.dispatch('logistics/loadReconciliations', { spaceId }))
           tasks.push(this.store.dispatch('logistics/loadLossesSummary', { spaceId }))
         }
+        // « À déposer » : démarre dès que les matchs sont connus, sans attendre le stock (avant :
+        // 5 vagues réseau à la suite APRÈS le stock, mesure prod 18/11/2026). Ce qui dépend du
+        // stock (lignes, repli prévision) l'attend dans fetchPredictedNeed.
+        eventsLoad
+          .then(() => this.fetchPredictedNeed({ stockReady, plansPromise }))
+          .catch((e) => console.warn('[logistics] besoin prévu indisponible :', e?.message))
         await Promise.all(tasks)
-        // Après loadStock : le périmètre des éléments vient du stock chargé.
-        this.fetchPredictedNeed()
       } finally {
         this.loading = false
       }
@@ -1325,7 +1338,7 @@ export default {
      *  sinon le prochain match jusqu'à sa fin réelle). Priorité aux feuilles de
      *  réarmement sauvegardées (décision opérationnelle) sur la prévision brute Event
      *  Predict (repli, premier match seulement). Sans match, la colonne reste absente. */
-    async fetchPredictedNeed({ silent = false } = {}) {
+    async fetchPredictedNeed({ silent = false, stockReady = null, plansPromise = null } = {}) {
       const eventIds = this.eventSelection.selectedIds
       // silent : relecture au retour sur la page, l'affichage courant reste en place.
       if (!silent) {
@@ -1339,14 +1352,24 @@ export default {
       try {
         // Feuilles de réarmement des matchs : « À déposer » (composable Ventilation).
         // Une feuille entièrement déposée ne retombe PAS sur la prévision brute.
-        if (await this.ventilation.loadForEvents(this.currentSpaceId, eventIds, { silent })) {
+        // onPlanFound : les validations (cases cochées) partent en même temps que les dépôts.
+        const found = await this.ventilation.loadForEvents(this.currentSpaceId, eventIds, {
+          silent,
+          plansPromise,
+          stockReady,
+          onPlanFound: () => this.ventilationChecks.load(),
+        })
+        if (found) {
+          // Stock en échec : comme avant, la page n'affiche pas de besoin prévu.
+          if (stockReady && !(await stockReady)) { this.ventilation.reset(); return }
           this.needSource = 'restock'
-          this.ventilationChecks.load()
           return
         }
       } catch (e) {
         console.warn('[logistics] lookup feuille de réarmement échoué, repli Event Predict :', e?.message)
       }
+      // Le repli prévision lit les éléments du stock : on l'attend (déjà fini hors premier chargement).
+      if (stockReady && !(await stockReady)) return
 
       const elements = [...this.shopEntries, ...this.storageEntries].map((e) => ({
         id: e.element.id,

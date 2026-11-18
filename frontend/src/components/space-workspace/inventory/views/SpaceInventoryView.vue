@@ -822,6 +822,7 @@ import { useGuestInventorySession } from '@/composables/useGuestInventorySession
 import { usePreEventEditWindow } from '@/composables/usePreEventEditWindow'
 import { useInventoryLivePolling } from '@/composables/useInventoryLivePolling'
 import { useInventoryKeepAlive, inventoryRouteKey } from '@/components/space-workspace/inventory/useInventoryKeepAlive'
+import { createSelfNavGuard, routeKeyAfterEventReplace } from '@/components/space-workspace/inventory/inventorySelfNav'
 import { formatUnits } from '@/composables/useFormatters'
 import { buildSpaceInventoryMock, buildInventoryCountsMock } from '@/data/spaceInventoryMock'
 import * as localDb from '@/data/localDb'
@@ -987,6 +988,8 @@ export default {
       revalidate: () => keepAliveHandlers.revalidate?.(),
       contextStale: () => !!keepAliveHandlers.contextStale?.(),
     })
+    // Réécriture d'URL (?event=) faite par la vue elle-même : pas de second chargement.
+    const selfNavGuard = createSelfNavGuard()
     useInventoryLivePolling(
       () => livePollingEnabled.value && keepAlive.isActive.value,
       async () => {
@@ -1033,6 +1036,7 @@ export default {
       livePollExtra,
       keepAlive,
       keepAliveHandlers,
+      selfNavGuard,
     }
   },
   data() {
@@ -2046,9 +2050,10 @@ export default {
           tz,
         )
         if (ev && this.router) {
+          this.selfNavGuard.expect(routeKeyAfterEventReplace(this.route, ev.id))
           this.router
             .replace({ query: { ...this.route.query, event: ev.id } })
-            .catch(() => {})
+            .catch(() => { this.selfNavGuard.clear() })
         }
       }
       if (!ev) return null
@@ -3314,6 +3319,7 @@ export default {
         // Instance en cache : le retour sur la page rattrape (useInventoryKeepAlive).
         if (!this.keepAlive.canRun()) return
         this.keepAlive.markLoaded()
+        if (this.selfNavGuard.consume(this.routeContextKey)) return
         await this.reloadForRoute()
       },
     },
