@@ -467,8 +467,12 @@ export function useInventoryData(selectedConfigId) {
     }
   }
 
-  /** [{ element, availableMenuItems, consolidatedInventory }] — une carte par shopId. */
-  const shopsWithInventory = computed(() =>
+  /**
+   * Par PdV : articles enrichis + inventaire consolidé des recettes (sans les lignes tampon).
+   * Calculé UNE seule fois ici : les réserves (`storagesWithInventory`) le réutilisent au lieu de
+   * le recalculer pour chaque réserve (une quinzaine de réserves x une trentaine de PdV).
+   */
+  const shopsBuilt = computed(() =>
     shops.value.map((shop) => {
       const availableMenuItems = shop.items.map(enrichForBuild).filter(Boolean)
       const builtInventory = availableMenuItems.length
@@ -480,6 +484,13 @@ export function useInventoryData(selectedConfigId) {
             components.value,
           )
         : []
+      return { shop, availableMenuItems, builtInventory }
+    }),
+  )
+
+  /** [{ element, availableMenuItems, consolidatedInventory }] : une carte par shopId. */
+  const shopsWithInventory = computed(() =>
+    shopsBuilt.value.map(({ shop, availableMenuItems, builtInventory }) => {
       // Produits en tampon sur ce PDV (ElementInventory) absents des recettes : ajoutés,
       // jamais de filtre sur les articles issus des recettes.
       const bufferRows = savedRowsForElement(
@@ -510,10 +521,12 @@ export function useInventoryData(selectedConfigId) {
   )
 
   const storagesWithInventory = computed(() => {
-    const fbElements = shopsWithInventory.value.map((s) => ({
-      id: s.element.id,
-      name: s.element.name,
+    const fbElements = shopsBuilt.value.map((s) => ({
+      id: s.shop.shopId,
+      name: s.shop.name,
       availableMenuItems: s.availableMenuItems,
+      // Même entrées que l'appel interne de buildStorageInventory : résultat identique, sans recalcul.
+      prebuiltInventory: s.builtInventory,
     }))
     return storageElements.value
       // Un Storage typé UNIQUEMENT 'merch' est servi par merchWithInventory
