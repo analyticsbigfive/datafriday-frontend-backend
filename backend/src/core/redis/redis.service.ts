@@ -119,6 +119,40 @@ export class RedisService implements OnModuleDestroy {
   }
 
   /**
+   * Lit la chaîne JSON brute d'une clé SANS la parser (même clé, même format que {@link get}).
+   * Même tolérance aux pannes que `get` : erreur Redis ou valeur vide = null (miss).
+   */
+  async getRaw(key: string, prefix?: string): Promise<string | null> {
+    try {
+      const fullKey = this.buildKey(key, prefix);
+      const data = await this.redis.get(fullKey);
+      if (!data) {
+        this.logger.debug(`Cache MISS: ${fullKey}`);
+        return null;
+      }
+      this.logger.debug(`Cache HIT: ${fullKey}`);
+      return data;
+    } catch (error) {
+      this.logger.error(`Cache GET error for ${key}: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
+  /**
+   * Écrit une chaîne JSON déjà sérialisée (même clé, même format et même TTL que {@link set}).
+   */
+  async setRaw(key: string, json: string, options: CacheOptions = {}): Promise<void> {
+    try {
+      const fullKey = this.buildKey(key, options.prefix);
+      const ttl = options.ttl || this.defaultTTL;
+      await this.redis.setex(fullKey, ttl, json);
+      this.logger.debug(`Cache SET: ${fullKey} (TTL: ${ttl}s)`);
+    } catch (error) {
+      this.logger.error(`Cache SET error for ${key}: ${(error as Error).message}`);
+    }
+  }
+
+  /**
    * Set value in cache with TTL
    */
   async set(key: string, value: any, options: CacheOptions = {}): Promise<void> {
