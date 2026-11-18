@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../core/database/prisma.service';
 import { RedisService } from '../../../core/redis/redis.service';
+import { RawJsonCache } from '../../../core/redis/raw-json-cache';
 import { SpaceAccessService } from '../../../core/auth/space-access.service';
 import { MenuItemSupportService } from './menu-item-support.service';
 
@@ -28,8 +29,14 @@ export class MenuItemQueryService {
   ) {}
 
   private readonly logger = new Logger(MenuItemQueryService.name);
+  private readonly rawListCache = new RawJsonCache(this.redis);
 
-  async findAll(
+  /**
+   * Liste paginée, renvoyée sous forme de chaîne JSON `{ data, meta }` (celle que Fastify
+   * aurait sérialisée à partir de l'objet) : servie à chaud depuis Redis sans parse ni
+   * re-sérialisation. Le contrôleur la renvoie avec `Content-Type: application/json`.
+   */
+  async findAllJson(
     tenantId: string,
     page = 1,
     limit = 100,
@@ -60,7 +67,7 @@ export class MenuItemQueryService {
         tenantId,
         `list:${page}:${safeLimit}:${scopeKey}:${search ?? ''}:${typeId ?? ''}:${categoryId ?? ''}:${seasonIds ?? ''}:${readyForSale ?? ''}`,
       );
-      return this.redis.getOrSet(cacheKey, async () => {
+      return this.rawListCache.getOrSet(cacheKey, async () => {
         const skip = (page - 1) * safeLimit;
         // spaceId filtre sur la table SpaceMenuItem (join indexé) : évite de charger tout
         // le catalogue tenant quand seul un espace nous intéresse (cf. /space-menus qui

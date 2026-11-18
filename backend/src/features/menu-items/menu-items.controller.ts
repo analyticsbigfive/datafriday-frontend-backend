@@ -10,6 +10,7 @@ import {
   UseGuards,
   Logger,
   Query,
+  Header,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiQuery, ApiParam } from '@nestjs/swagger';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
@@ -171,6 +172,9 @@ export class MenuItemsController {
       },
     },
   })
+  // Le service renvoie la chaîne JSON du cache Redis telle quelle (sans parse ni re-sérialisation) :
+  // le Content-Type est donc posé ici, à l'identique de celui que Fastify met sur un objet.
+  @Header('Content-Type', 'application/json; charset=utf-8')
   findAll(
     @CurrentUser() user: any,
     @CurrentTenant() tenantId: string,
@@ -178,7 +182,7 @@ export class MenuItemsController {
   ) {
     const { page, limit, spaceId, search, typeId, categoryId, seasonIds, readyForSale } = params;
     this.logger.log(`GET /menu-items - User: ${user?.id}, Tenant: ${tenantId}, spaceId: ${spaceId ?? 'all'}`);
-    return this.menuItemQueryService.findAll(tenantId, page ? +page : 1, limit ? +limit : 100, spaceId, {
+    return this.menuItemQueryService.findAllJson(tenantId, page ? +page : 1, limit ? +limit : 100, spaceId, {
       search,
       typeId,
       categoryId,

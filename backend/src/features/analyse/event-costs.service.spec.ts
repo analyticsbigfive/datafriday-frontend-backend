@@ -14,7 +14,6 @@ describe('EventCostsService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     prisma.space.findFirst.mockResolvedValue({ timezone: 'Europe/Paris' });
-    prisma.productMapping.findMany.mockResolvedValue([{ menuItemId: 'm1' }, { menuItemId: 'm2' }]);
     prisma.menuItem.findMany.mockResolvedValue([
       { id: 'm1', totalCost: '5.0000' },
       { id: 'm2', totalCost: '3.0000' },
@@ -60,6 +59,7 @@ describe('EventCostsService', () => {
     prisma.event.findMany.mockResolvedValue([]);
     const res = await service.getEventCosts('t1', 's1', ['x']);
     expect(res).toEqual({ events: {}, unknownEventIds: ['x'] });
+    expect(prisma.menuItem.findMany).not.toHaveBeenCalled();
     expect(prisma.productMapping.findMany).not.toHaveBeenCalled();
   });
 });
