@@ -114,9 +114,17 @@ export function useLogisticVentilation({ store, t }) {
    * récemment modifiée qui le contient, même règle que le serveur) et les fusionne.
    * @param {string} spaceId
    * @param {string[]} orderedEventIds matchs choisis, ordre chronologique
+   * @param {Object} [opts]
+   * @param {boolean} [opts.silent] relecture au retour sur la page, l'affichage courant reste
+   * @param {Promise} [opts.plansPromise] liste des feuilles de l'espace déjà demandée (elle ne
+   *   dépend d'aucun match : la page la lance dès l'ouverture)
+   * @param {Promise} [opts.stockReady] fin du chargement du stock ; il sert seulement au calcul
+   *   des lignes (taille des packs), les lectures réseau n'attendent donc pas
+   * @param {Function} [opts.onPlanFound] appelée dès qu'une feuille est retenue, avant la lecture
+   *   des dépôts : permet de lancer d'autres lectures en même temps (validations)
    * @returns {Promise<boolean>} true si au moins une feuille existe
    */
-  async function loadForEvents(spaceId, orderedEventIds, { silent = false } = {}) {
+  async function loadForEvents(spaceId, orderedEventIds, { silent = false, plansPromise = null, stockReady = null, onPlanFound = null } = {}) {
     const seq = ++loadSeq
     // silent : relecture au retour sur la page, on garde l'affichage courant (ni vidage ni chargement).
     if (silent) eventIds.value = [...(orderedEventIds || [])].map(String)
@@ -129,7 +137,7 @@ export function useLogisticVentilation({ store, t }) {
       .then((list) => { if (seq === loadSeq) storages.value = Array.isArray(list) ? list : [] })
       .catch((e) => console.warn('[logistics] stockages de ventilation indisponibles :', e?.message))
     try {
-      const list = await listRestockPlans(spaceId)
+      const list = await (plansPromise || listRestockPlans(spaceId))
       const picked = pickPlansForEvents(list || [], eventIds.value)
       if (!picked.length || seq !== loadSeq) return false
       const full = (await Promise.all(picked.map((p) => getRestockPlan(p.id).catch(() => null)))).filter(Boolean)
@@ -137,7 +145,8 @@ export function useLogisticVentilation({ store, t }) {
       if (!merged || seq !== loadSeq) return false
       plan.value = merged
       planName.value = merged.name
-      await refresh(spaceId)
+      if (onPlanFound) onPlanFound()
+      await refresh(spaceId, { stockReady })
       return true
     } finally {
       if (seq === loadSeq) loading.value = false
@@ -151,7 +160,7 @@ export function useLogisticVentilation({ store, t }) {
   }
 
   /** Relit les dépôts de tous les matchs des feuilles et recalcule le reste à déposer. */
-  async function refresh(spaceId) {
+  async function refresh(spaceId, { stockReady = null } = {}) {
     if (!plan.value || !spaceId) return
     let sums = []
     try {
@@ -165,6 +174,9 @@ export function useLogisticVentilation({ store, t }) {
     } catch (e) {
       console.warn('[logistics] dépôts de ventilation indisponibles :', e?.message)
     }
+    // La taille des packs vient du stock : on attend sa fin ici, après les lectures réseau,
+    // pour que ces lectures aient pu partir pendant le chargement du stock.
+    if (stockReady) await stockReady
     const enriched = sums.map((d) => ({
       ...d,
       unitsPerPack: store.getters['logistics/levelFor'](d.elementId, d.itemKey)?.unitsPerPack || null,

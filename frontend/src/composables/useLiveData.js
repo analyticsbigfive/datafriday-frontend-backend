@@ -109,6 +109,17 @@ export function useLiveData(spaceId) {
   }
 
   async function resolveEvent() {
+    // Premier chargement (rien de résolu) ou rafraîchissement forcé : la liste des events est
+    // forcément demandée après live-status, quelle que soit sa réponse (les deux sorties
+    // anticipées ci-dessous exigent un event ou une clé déjà résolus). On la lance donc en même
+    // temps pour ne pas payer un aller-retour de plus. Les ticks suivants gardent leur logique
+    // de cache et ne la demandent pas.
+    const listUpfront = forceNext || resolvedKey === null
+      ? getEvents({ spaceId, limit: 200, excludeSimulated: false })
+      : null
+    // Si live-status échoue d'abord, cette promesse n'est jamais attendue : on évite l'alerte
+    // « rejet non géré » (quand elle est attendue plus bas, l'erreur remonte comme avant).
+    if (listUpfront) listUpfront.catch(() => {})
     const status = await getSpaceLiveStatus(spaceId)
     isLive.value = !!(status?.isLive && status?.eventId)
     liveSince.value = status?.since || null
@@ -128,7 +139,7 @@ export function useLiveData(spaceId) {
     if (!forced && key === resolvedKey && Date.now() - eventsFetchedAt < EVENTS_LIST_TTL_MS) {
       return resolvedId
     }
-    const res = await getEvents({ spaceId, limit: 200, excludeSimulated: false })
+    const res = await (listUpfront || getEvents({ spaceId, limit: 200, excludeSimulated: false }))
     const list = Array.isArray(res?.data) ? res.data : (Array.isArray(res) ? res : [])
     if (status?.eventId) {
       event.value = list.find((e) => e.id === status.eventId) || null

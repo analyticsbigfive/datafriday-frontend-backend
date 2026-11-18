@@ -42,6 +42,8 @@ import { buildActiveFilterChips, buildPeriodChip } from '@/utils/analyseFilterCh
 import { pickCatalogList, hasCatalogError } from '@/utils/catalogLoadStatus'
 import { mergeFreshCostMap, replaceCostMap, invalidateEventSessionCaches } from '@/utils/analyseSpaceRefresh'
 import { normalizeType } from '@/components/spaces/views/builder2/constants/elementTaxonomy'
+import { startNestShopPrefetch } from '@/utils/nestShopPrefetch'
+import { pickConfigsToPrewarm } from '@/utils/analyseAllConfigsPrewarm'
 // getConfiguration : MIGRÉ vers l'API NestJS (projet Supabase alsgd VIVANT) au lieu
 // du make-server Edge Function (projet uvxx MORT → 500/522). Import DYNAMIQUE au
 // call-site (buildConfigShopEntry) et NON statique : configuration.api → client.js
@@ -133,12 +135,16 @@ function buildVariations(curr, prev) {
  * etc. — où la recette complète est nécessaire). Renvoie { shopRows, byName: Map<normNom,
  * {shopId, shopName, items[]}> }.
  */
-async function fetchNestShopMenus({ spaceId, configId, perimeter, dispatch, commit }) {
+async function fetchNestShopMenus({ spaceId, configId, perimeter, dispatch, commit, prefetch = null }) {
   const EMPTY = { shopRows: [], byName: new Map(), batchFailed: false }
   if (!spaceId || !configId) return EMPTY
   let allRows = []
   try {
-    const fetched = await dispatch('spaceShops/fetchForSpace', { spaceId }, { root: true }).catch(() => [])
+    // `prefetch` : lectures lancées par buildConfigShopEntry en même temps que la configuration
+    // (utils/nestShopPrefetch.js), même contenu que les appels d'origine ci-dessous.
+    const fetched = prefetch
+      ? await prefetch.rowsP
+      : await dispatch('spaceShops/fetchForSpace', { spaceId }, { root: true }).catch(() => [])
     allRows = Array.isArray(fetched) ? fetched : []
     if (commit) commit('SET_SPACE_SHOPS_ROWS', { spaceId, rows: allRows })
   } catch (_) {
@@ -175,11 +181,17 @@ async function fetchNestShopMenus({ spaceId, configId, perimeter, dispatch, comm
   // produit un contexte SANS articles, qu'il ne faut surtout pas mémoriser pour la
   // session (l'appelant doit pouvoir retenter au prochain dispatch).
   let batchFailed = false
-  try {
-    const { getConfigShopMenuItemsLight } = await import('@/api/endpoints/menu.api')
-    itemsByShopId = (await getConfigShopMenuItemsLight(spaceId, configId)) || {}
-  } catch (_) {
-    batchFailed = true
+  if (prefetch) {
+    const batch = await prefetch.itemsP
+    itemsByShopId = batch.items
+    batchFailed = batch.failed
+  } else {
+    try {
+      const { getConfigShopMenuItemsLight } = await import('@/api/endpoints/menu.api')
+      itemsByShopId = (await getConfigShopMenuItemsLight(spaceId, configId)) || {}
+    } catch (_) {
+      batchFailed = true
+    }
   }
   const byName = new Map()
   for (const r of shopRows) {
@@ -272,6 +284,9 @@ function mergeAssignments(edge, nest) {
 async function buildConfigShopEntry(spaceId, configId, { state, dispatch, commit, rootGetters }) {
   // Lancé en parallèle du reste (pas d'await ici) — consommé après floorElements.
   const b2Promise = getBuilder2SubtypesByName(spaceId)
+  // Liste des PdV de l'espace + lot d'articles lancés AVEC la lecture de la configuration : ils
+  // n'en dépendent pas (les floors servent seulement à filtrer ensuite). 3 vagues -> 1.
+  const nestPrefetch = spaceId && configId ? startNestShopPrefetch({ spaceId, configId, dispatch }) : null
   const inMemCfg = (state.configurations || []).find((c) => c?.id === configId) || null
   const inMemFloors = inMemCfg?.data?.floors || inMemCfg?.floors || []
   const configData = inMemFloors.length
@@ -301,6 +316,7 @@ async function buildConfigShopEntry(spaceId, configId, { state, dispatch, commit
   }
   const { shopRows, byName, batchFailed } = await fetchNestShopMenus({
     spaceId, configId, perimeter: { nameSet: perimeterNameSet, idSet: perimeterIdSet }, dispatch, commit, rootGetters,
+    prefetch: nestPrefetch,
   })
   const elByName = new Map()
   for (const el of configElements) {
@@ -1715,6 +1731,12 @@ const actions = {
     // Promesse optionnelle (AnalyseView) : lecture des préférences de compte lancée en parallèle.
     // Jamais attendue ici ; fetchSpaceData l'attend avant de rendre la phase 1 (startupPreferences).
     const preferencesReady = typeof payload === 'object' && payload !== null ? payload.preferencesReady : undefined
+    // Départs anticipés (Analyse, Live) : catalogues de la vague 2a lancés dès t=0, et contexte PdV
+    // « All Configurations » préchauffé dès que la liste des configurations arrive. Tous deux
+    // optionnels : sans le flag, le chargement est exactement celui d'avant.
+    const earlyCatalogs = typeof payload === 'object' && payload !== null ? !!payload.earlyCatalogs : false
+    const prewarmAllConfigs = typeof payload === 'object' && payload !== null ? !!payload.prewarmAllConfigs : false
+    const urlConfig = typeof payload === 'object' && payload !== null ? String(payload.urlConfig || '') : ''
     const CACHE_TTL = 15 * 60 * 1000
     const fresh =
       !force &&
@@ -1763,7 +1785,7 @@ const actions = {
       // Rendu immédiat depuis le store ; revalidation silencieuse en fond (les
       // données fraîches remplaceront réactivement celles affichées, sans skeleton).
       commit('SET_ERROR', null)
-      dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog, preferencesReady }).catch((err) => {
+      dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog, preferencesReady, earlyCatalogs }).catch((err) => {
         // L'écran garde les données déjà affichées ; l'échec est seulement tracé.
         console.warn('[analyse] revalidation arrière-plan échouée, données précédentes conservées:', err?.message)
       })
@@ -1775,7 +1797,7 @@ const actions = {
     commit('SET_ERROR', null)
     commit('SET_CATALOG_LOAD_ERRORS', null)
     try {
-      await dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog, preferencesReady })
+      await dispatch('useSpaceDataFetch', { spaceId, isLive, skipRecipeCatalog, preferencesReady, earlyCatalogs, prewarmAllConfigs, urlConfig })
     } catch (err) {
       commit('SET_ERROR', err.message || 'Erreur de chargement du space')
       // Phase 2 ne sera jamais appelée si la phase 1 jette → on lève le skeleton.
@@ -1813,6 +1835,9 @@ const actions = {
     const isLive = typeof payload === 'object' && payload !== null ? !!payload.isLive : false
     const skipRecipeCatalog = typeof payload === 'object' && payload !== null ? !!payload.skipRecipeCatalog : false
     const preferencesReady = typeof payload === 'object' && payload !== null ? payload.preferencesReady : undefined
+    const earlyCatalogs = typeof payload === 'object' && payload !== null ? !!payload.earlyCatalogs : false
+    const prewarmAllConfigs = typeof payload === 'object' && payload !== null ? !!payload.prewarmAllConfigs : false
+    const urlConfig = typeof payload === 'object' && payload !== null ? String(payload.urlConfig || '') : ''
     // Délégué au composable useSpaceData (two-phase load).
     // Phase 1 (critique) est attendue → loading=false dès qu'elle complète.
     // Phase 2 (enrichissement) rappelle onEnrichment en arrière-plan.
@@ -1870,7 +1895,19 @@ const actions = {
       if (enrichment.events?.length) commit('SET_EVENTS', enrichment.events)
       // Phase 2 terminée → on retire les skeletons des graphiques.
       commit('SET_ENRICHING', false)
-    }, { excludeSimulated: !isLive, skipRecipeCatalog, preferencesReady })
+    }, {
+      excludeSimulated: !isLive,
+      skipRecipeCatalog,
+      preferencesReady,
+      earlyCatalogs,
+      // La liste des configurations arrive avant la fin de la phase 1 : on y lance le contexte PdV
+      // union au lieu d'attendre le dernier appel de la phase 1 (liste des events).
+      onConfigurations: prewarmAllConfigs
+        ? (configurations) => {
+            dispatch('prewarmAllConfigsContext', { configurations, urlConfig }).catch(() => {})
+          }
+        : null,
+    })
     // Revalidation du MÊME espace : le résultat phase 1 porte des catalogues vides par
     // construction (l'enrichissement arrive par callback). Les committer effaçait un
     // catalogue déjà chargé, puis le laissait vide si la vague 2b échouait.
@@ -2061,6 +2098,35 @@ const actions = {
         commit('SET_CONFIG_CONTEXT_SETTLED', true)
       }
     }
+  },
+
+  /**
+   * Préchauffe le contexte PdV de chaque configuration (cache de `buildConfigShopEntryCached`) dès
+   * que la liste des configurations est connue, sans rien committer : `loadAllConfigsShopContext`
+   * retrouvera ensuite ces promesses (en vol ou terminées). Ne lève jamais. Voir
+   * `utils/analyseAllConfigsPrewarm.js` pour les cas où l'on ne préchauffe pas.
+   */
+  async prewarmAllConfigsContext({ state, dispatch, commit, rootGetters }, { configurations, urlConfig = '' } = {}) {
+    const spaceId = state.spaceId || state.space?.id
+    const valid = filterValidConfigurations(configurations)
+    const picked = pickConfigsToPrewarm({
+      configurations: valid,
+      currentSelection: state.filters?.selectedConfigurationId,
+      toolbox: state.selectedToolbox,
+      urlConfig,
+      resolveSelection: resolveConfigSelectionAfterLoad,
+    })
+    if (!spaceId || !picked.length) return
+    // `buildConfigShopEntry` ne lit que `state.configurations` : on lui donne la liste fraîche, comme
+    // le fera `loadAllConfigsShopContext` une fois la phase 1 committée.
+    const ctx = { state: { configurations: valid }, dispatch, commit, rootGetters }
+    try {
+      await runWithConcurrency(
+        picked.map((c) => [c]),
+        3,
+        async ([c]) => { await buildConfigShopEntryCached(spaceId, c.id, ctx).catch(() => null) },
+      )
+    } catch (_) { /* préchauffage : jamais bloquant */ }
   },
 
   /**
