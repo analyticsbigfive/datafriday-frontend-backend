@@ -25,14 +25,17 @@
     </div>
     <div class="cr__body">
       <div class="cr__intro">
-        <ComparisonFilterList :filters="runtime.appliedFilters.value" />
+        <ComparisonFilterList :filters="runtime.appliedFilters.value">
+          <template #lead>
+            <ForecastScopeNotice v-if="runtime.forecastStats?.value" :stats="runtime.forecastStats.value" />
+          </template>
+        </ComparisonFilterList>
         <ComparisonNotices
           :excluded-events="runtime.excludedEvents.value"
           :same-as-main="runtime.sameAsMain.value"
           :truncation="runtime.truncation.value"
           :intra-event-range-ignored="runtime.intraEventRangeIgnored.value"
         />
-        <ForecastScopeNotice v-if="runtime.forecastStats?.value" :stats="runtime.forecastStats.value" />
       </div>
 
       <div class="cr__stack">
