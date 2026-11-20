@@ -211,6 +211,7 @@
             v-for="element in filteredElementsFlat"
             :key="element.id"
             class="ep-shop-card"
+            :class="{ 'ep-shop-card--off': isShopOff(element.id) }"
           >
                     <!-- Réunion 13/08 : l'expansion inline (Collapsible) devient
                          un tiroir latéral GAUCHE — la colonne centrale était trop
@@ -233,8 +234,9 @@
                             <div
                               class="ep-shop-card-title-row ep-shop-card-summary"
                               role="button"
-                              tabindex="0"
+                              :tabindex="isShopOff(element.id) ? -1 : 0"
                               :aria-expanded="isShopExpanded(element.id)"
+                              :aria-disabled="isShopOff(element.id)"
                               @click="toggleShopExpanded(element.id)"
                               @keydown.enter.prevent="toggleShopExpanded(element.id)"
                               @keydown.space.prevent="toggleShopExpanded(element.id)"
@@ -329,8 +331,9 @@
                           type="button"
                           class="ep-shop-detail-btn"
                           :aria-expanded="isShopExpanded(element.id)"
-                          :aria-label="isShopExpanded(element.id) ? t('epmCollapseShop') : t('epmExpandShop')"
-                          :title="isShopExpanded(element.id) ? t('epmCollapseShop') : t('epmExpandShop')"
+                          :aria-label="shopDetailBtnLabel(element.id)"
+                          :title="shopDetailBtnLabel(element.id)"
+                          :disabled="isShopOff(element.id) && !isShopExpanded(element.id)"
                           @click.stop="toggleShopExpanded(element.id)"
                         >
                           <!-- Le contenu s'ouvre désormais dans un tiroir latéral
@@ -1170,6 +1173,7 @@ import {
 import { menuItemPriceHt } from '@/utils/price'
 import NumberField from '@/components/common/NumberField.vue'
 import { uniformValue, applyFanoutQuantity, splitQuantityAcrossKeys, estimationSliderMax } from '@/utils/estimationMode'
+import { isShopSwitchedOff } from '@/utils/shopAdjustmentState'
 import { resolveCatalogDims } from '@/utils/analyseReconciliation'
 import Card from '@/ui/card.vue'
 import CardHeader from '@/ui/cardHeader.vue'
@@ -3104,10 +3108,26 @@ export default {
     isShopExpanded(elementId) {
       return this.expandedShopId === elementId
     },
+    // PdV coupé (slider à 0 %) : le tiroir ne peut pas S'OUVRIR (bouton, clic
+    // sur le titre ou l'image). Un tiroir déjà ouvert reste fermable, et n'est
+    // pas refermé de force : on y règle les articles un par un, tomber à 0 sur
+    // le dernier ne doit pas éjecter l'utilisateur.
+    isShopOff(elementId) {
+      return isShopSwitchedOff(this.getShopAdjustmentValue(elementId), this.estimationActive)
+    },
+    shopDetailBtnLabel(elementId) {
+      if (this.isShopExpanded(elementId)) return this.t('epmCollapseShop')
+      return this.isShopOff(elementId)
+        ? this.t('epmShopDetailsDisabledAtZero')
+        : this.t('epmExpandShop')
+    },
     toggleShopExpanded(elementId) {
-      this.expandedShopId = this.expandedShopId === elementId ? null : elementId
+      const closing = this.expandedShopId === elementId
+      if (!closing && this.isShopOff(elementId)) return
+      this.expandedShopId = closing ? null : elementId
     },
     setShopExpanded(elementId, open) {
+      if (open && this.isShopOff(elementId)) return
       this.expandedShopId = open
         ? elementId
         : (this.expandedShopId === elementId ? null : this.expandedShopId)
@@ -4132,6 +4152,33 @@ export default {
 .ep-shop-detail-btn:active,
 .ep-item-detail-btn:active {
   transform: scale(.96);
+}
+
+/* PdV coupé (slider à 0 %) : carte grisée, bouton du tiroir inactif. Seul le
+   bloc d'ajustement (curseur, valeur, reset) reste pleinement actif pour
+   pouvoir remonter le curseur. */
+.ep-shop-card.ep-shop-card--off,
+.ep-shop-card.ep-shop-card--off .ep-shop-card-header,
+.ep-shop-card.ep-shop-card--off .ep-shop-card-header:hover {
+  background: var(--fb-subtle, #F3F4F6);
+}
+.ep-shop-card--off .ep-shop-card-image,
+.ep-shop-card--off .ep-shop-card-title-row {
+  opacity: 0.5;
+  filter: grayscale(1);
+}
+.ep-shop-card--off .ep-shop-card-image,
+.ep-shop-card--off .ep-shop-card-summary {
+  cursor: default;
+}
+.ep-shop-detail-btn:disabled,
+.ep-shop-detail-btn:disabled:hover,
+.ep-shop-detail-btn:disabled:active {
+  background: transparent !important;
+  color: var(--fb-muted, #64748b);
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none;
 }
 
 /* Les lignes doivent rester lisibles dans colonne centrale réduite
