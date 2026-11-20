@@ -1,34 +1,42 @@
 <template>
-  <div v-if="count > 0" class="fsn" role="status">
+  <div v-if="lines.length" class="fsn" role="status">
     <v-icon size="16" class="fsn__ico" aria-hidden="true">mdi-information-outline</v-icon>
-    <span>{{ text }}</span>
+    <span class="fsn__txt">
+      <span v-for="line in lines" :key="line">{{ line }}</span>
+    </span>
   </div>
 </template>
 
 <script setup>
-// Encart du rapport Forecast : les modifications de prix, de catégorie et de type ne s'appliquent
-// qu'aux events qui ont une prévision détaillée par article. N'apparaît que s'il y a au moins une
-// de ces modifications ET au moins un event sans cette prévision.
+// Encart du rapport Forecast, seulement s'il y a au moins une modification de prix, de catégorie
+// ou de type :
+//  - events sans prévision par article dont l'effet du prix est estimé par le mix historique
+//    des PdV (information) ;
+//  - events sans aucun grain article nulle part, où le prix reste sans effet.
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { fillTemplate } from '@/utils/forecastModificationLabels'
 
 const props = defineProps({
-  // forecastStats du runtime : { priceModificationCount, eventsWithoutArticleGrain (ids ou nombre), ... }.
+  // forecastStats du runtime : { priceModificationCount, eventsFromHistoricalMix,
+  // eventsWithoutArticleGrain (ids ou nombres), ... }.
   stats: { type: Object, default: null },
 })
 
 const { t } = useI18n()
 
-/** Nombre d'events sans prévision par article (liste d'identifiants ou nombre déjà compté). */
-const count = computed(() => {
-  const s = props.stats
-  if (!s || !(Number(s.priceModificationCount) > 0)) return 0
-  const without = s.eventsWithoutArticleGrain
-  return Array.isArray(without) ? without.length : Number(without) || 0
-})
+const countOf = (v) => (Array.isArray(v) ? v.length : Number(v) || 0)
 
-const text = computed(() => fillTemplate(t('fcstScopeNotice'), { count: count.value }))
+const lines = computed(() => {
+  const s = props.stats
+  if (!s || !(Number(s.priceModificationCount) > 0)) return []
+  const out = []
+  const history = countOf(s.eventsFromHistoricalMix)
+  if (history > 0) out.push(fillTemplate(t('fcstHistoryNotice'), { count: history }))
+  const without = countOf(s.eventsWithoutArticleGrain)
+  if (without > 0) out.push(fillTemplate(t('fcstScopeNotice'), { count: without }))
+  return out
+})
 </script>
 
 <style scoped>
@@ -44,4 +52,5 @@ const text = computed(() => fillTemplate(t('fcstScopeNotice'), { count: count.va
   color: var(--cr-cmp);
 }
 .fsn__ico { flex: none; margin-top: 1px; }
+.fsn__txt { display: flex; flex-direction: column; gap: 4px; }
 </style>

@@ -24,6 +24,22 @@ describe('ForecastScopeNotice', () => {
     expect(box.text()).toContain('3 événement(s)')
   })
 
+  it('events estimés par le mix historique : ligne d\'information, avant celle des events sans effet', () => {
+    const w = mountNotice({ priceModificationCount: 1, eventsFromHistoricalMix: ['e3', 'e4'], eventsWithoutArticleGrain: ['e9'] })
+    const lines = w.findAll('.fsn__txt > span').map((l) => l.text())
+    expect(lines).toEqual([
+      FR.fcstHistoryNotice.replace('{count}', '2'),
+      FR.fcstScopeNotice.replace('{count}', '1'),
+    ])
+    expect(EN.fcstHistoryNotice).toContain('{count}')
+    expect(FR.fcstHistoryNotice).not.toMatch(/\u2014/)
+  })
+
+  it('historique seul : une seule ligne', () => {
+    const w = mountNotice({ priceModificationCount: 1, eventsFromHistoricalMix: 3, eventsWithoutArticleGrain: [] })
+    expect(w.text()).toBe(FR.fcstHistoryNotice.replace('{count}', '3'))
+  })
+
   it('accepte aussi un nombre déjà compté', () => {
     const w = mountNotice({ priceModificationCount: 1, eventsWithoutArticleGrain: 4 })
     expect(w.text()).toContain('4 événement(s)')

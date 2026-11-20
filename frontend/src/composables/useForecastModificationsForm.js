@@ -19,6 +19,7 @@ import { computed, reactive, ref, unref } from 'vue'
 import { forecastTargetOptions } from '@/utils/forecastTargetOptions'
 import {
   FORECAST_MODIFICATION_TYPES,
+  PRICE_MODIFICATION_TYPES,
   addModification,
   canApplyModifications,
   createModification,
@@ -26,6 +27,7 @@ import {
   removeModification,
   validateModification,
 } from '@/utils/forecastModificationModel'
+import { ELASTICITY_DEFAULT, clampElasticity } from '@/utils/forecastElasticity'
 
 const T = FORECAST_MODIFICATION_TYPES
 
@@ -48,6 +50,12 @@ export function useForecastModificationsForm({ articleRecords, catalogById = nul
   const list = ref([])
   // Modification retirée par la dernière saisie de même cible (information discrète).
   const replaced = ref(null)
+  // Élasticité prix, un réglage pour toute la liste (0 : les quantités ne bougent pas).
+  const elasticity = ref(ELASTICITY_DEFAULT)
+
+  function setElasticity(v) {
+    elasticity.value = clampElasticity(v)
+  }
 
   function resetDraft(type = draft.type) {
     Object.assign(draft, emptyDraft(type))
@@ -59,9 +67,20 @@ export function useForecastModificationsForm({ articleRecords, catalogById = nul
     resetDraft(type)
   }
 
+  /** Prix TTC actuel d'un article chiffrable, arrondi au centime ('' si inconnu). */
+  function currentPriceOf(id) {
+    const item = options.value.items.find((i) => i.id === id)
+    const ttc = item && item.priceable ? Number(item.currentTtc) : NaN
+    return Number.isFinite(ttc) && ttc > 0 ? Math.round(ttc * 100) / 100 : ''
+  }
+
   /** Met à jour des champs de la saisie : { target?, value?, mode? }. */
   function patch(fields = {}) {
-    if ('target' in fields) draft.target = fields.target == null ? '' : String(fields.target)
+    if ('target' in fields) {
+      draft.target = fields.target == null ? '' : String(fields.target)
+      // Prix : un nouvel article choisi pré-remplit le champ avec son prix TTC actuel.
+      if (draft.type === T.ITEM_PRICE && !('value' in fields)) draft.value = currentPriceOf(draft.target)
+    }
     if ('value' in fields) draft.value = fields.value
     if ('mode' in fields) draft.mode = fields.mode
   }
@@ -97,19 +116,32 @@ export function useForecastModificationsForm({ articleRecords, catalogById = nul
     list.value = removeModification(list.value, id)
   }
 
-  /** Tout effacer : la liste et la saisie en cours. */
+  /** Tout effacer : la liste, la saisie en cours et l'élasticité. */
   function clear() {
     replaced.value = null
     list.value = []
+    elasticity.value = ELASTICITY_DEFAULT
     resetDraft()
   }
+
+  /** L'élasticité n'a d'effet que s'il y a au moins une modification de prix dans la liste. */
+  const hasPriceModification = computed(() =>
+    list.value.some((m) => PRICE_MODIFICATION_TYPES.includes(m.type)),
+  )
 
   const canApply = computed(() => canApplyModifications(list.value))
 
   /** Modèle émis par `run` : copie indépendante de l'état du brouillon. */
   function toRunModel() {
-    return { kind: 'forecast', modifications: list.value.map((m) => ({ ...m })) }
+    return {
+      kind: 'forecast',
+      modifications: list.value.map((m) => ({ ...m })),
+      elasticity: elasticity.value,
+    }
   }
 
-  return { options, draft, list, replaced, setType, patch, canAdd, add, remove, clear, canApply, toRunModel }
+  return {
+    options, draft, list, replaced, elasticity, hasPriceModification,
+    setType, patch, setElasticity, canAdd, add, remove, clear, canApply, toRunModel,
+  }
 }
