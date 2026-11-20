@@ -32,6 +32,7 @@
           :truncation="runtime.truncation.value"
           :intra-event-range-ignored="runtime.intraEventRangeIgnored.value"
         />
+        <ForecastScopeNotice v-if="runtime.forecastStats?.value" :stats="runtime.forecastStats.value" />
       </div>
 
       <div class="cr__stack">
@@ -108,6 +109,7 @@ import ComparisonBanner from './ComparisonBanner.vue'
 import ComparisonKpiStrip from './ComparisonKpiStrip.vue'
 import ComparisonFilterList from './ComparisonFilterList.vue'
 import ComparisonNotices from './ComparisonNotices.vue'
+import ForecastScopeNotice from '../forecast/ForecastScopeNotice.vue'
 import FinancialMetricsGrid from '../panels/FinancialMetricsGrid.vue'
 import ComparisonRevenueChartCard from './ComparisonRevenueChartCard.vue'
 import ShopDistributionPieChart from '../charts/ShopDistributionPieChart.vue'

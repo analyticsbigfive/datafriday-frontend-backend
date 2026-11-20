@@ -161,6 +161,20 @@ describe('ComparisonDrawerContent', () => {
     expect(w.find('#comparison-capture-root').exists()).toBe(true)
   })
 
+  it('rapport Forecast : l\'encart de périmètre apparaît avec des events sans prévision par article', () => {
+    const forecastStats = ref({ priceModificationCount: 1, eventsWithArticleGrain: ['e1'], eventsWithoutArticleGrain: ['e2', 'e3'] })
+    const { w } = mountContent({ view: 'ready', state: 'ready', forecast: true, runtimeOver: { forecastStats } })
+    const notice = w.find('.fsn')
+    expect(notice.exists()).toBe(true)
+    expect(notice.text()).toContain('2 événement(s)')
+  })
+
+  it('rapport sans forecastStats ou sans événement concerné : pas d\'encart de périmètre', () => {
+    expect(mountContent({ view: 'ready', state: 'ready' }).w.find('.fsn').exists()).toBe(false)
+    const none = ref({ priceModificationCount: 1, eventsWithArticleGrain: ['e1'], eventsWithoutArticleGrain: [] })
+    expect(mountContent({ view: 'ready', state: 'ready', runtimeOver: { forecastStats: none } }).w.find('.fsn').exists()).toBe(false)
+  })
+
   it('Forecast : Appliquer enregistre le modèle forecast et passe en chargement', async () => {
     const { w, ctx } = mountContent({ view: 'form', forecast: true })
     await tick(); await nextTick()
