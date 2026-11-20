@@ -48,6 +48,20 @@ describe('useForecastModificationsForm', () => {
     expect(f.options.value.items).toHaveLength(3)
   })
 
+  it('choisir un article pré-remplit son prix TTC actuel ; article sans prix : champ vide', () => {
+    const f = make()
+    const ttc = f.options.value.items.find((i) => i.id === 'm1').currentTtc
+    f.patch({ target: 'm1' })
+    expect(f.draft.value).toBe(Math.round(ttc * 100) / 100)
+    f.patch({ target: 'm3' })
+    expect(f.draft.value).toBe('')
+    // Hors prix d'article, la cible ne touche pas à la valeur.
+    f.setType(T.CATEGORY_PCT)
+    f.patch({ value: 15 })
+    f.patch({ target: 'Softs' })
+    expect(f.draft.value).toBe(15)
+  })
+
   it('ajoute un prix d\'article, remet la saisie à zéro et rend la liste applicable', () => {
     const f = make()
     f.patch({ target: 'm1', value: '7.5' })
@@ -238,6 +252,30 @@ describe('useForecastModificationsForm', () => {
     f.patch({ value: -10 })
     f.add()
     expect(f.list.value.map((m) => m.type)).toEqual([T.TRANSFORMATION, T.BASKET])
+  })
+
+  it('élasticité : 0 par défaut, bornée, dans le modèle émis, remise à 0 par clear', () => {
+    const f = make()
+    expect(f.elasticity.value).toBe(0)
+    expect(f.hasPriceModification.value).toBe(false)
+    f.patch({ target: 'm1', value: 7 })
+    f.add()
+    expect(f.hasPriceModification.value).toBe(true)
+    f.setElasticity('-1.2')
+    expect(f.toRunModel().elasticity).toBe(-1.2)
+    f.setElasticity(-8)
+    expect(f.elasticity.value).toBe(-3)
+    f.clear()
+    expect(f.elasticity.value).toBe(0)
+    expect(f.toRunModel().elasticity).toBe(0)
+  })
+
+  it('hasPriceModification : faux avec seulement des leviers de volume ou de panier', () => {
+    const f = make()
+    f.setType(T.BASKET)
+    f.patch({ value: 5 })
+    f.add()
+    expect(f.hasPriceModification.value).toBe(false)
   })
 
   it('patch : une cible nulle devient une chaîne vide, une cible numérique une chaîne', () => {

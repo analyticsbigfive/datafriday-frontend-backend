@@ -3,14 +3,23 @@
  * Module PUR.
  *
  * Les records graphe n'ont pas d'article : l'effet d'une modification de prix s'y propage
- * par un ratio dérivé du grain article, soit
- *   somme des CA article après prix seul / somme des CA article de base
- * sur les records article du même event et du même PdV. Repli en cascade :
+ * par des ratios dérivés du grain article, soit
+ *   CA      : somme des CA article après prix / somme des CA article de base
+ *   volume  : somme des quantités article après prix / somme des quantités de base
+ * (le volume ne bouge que si une élasticité est choisie). Repli en cascade :
  *   1. même event et même PdV (shopId, ou elementId côté article)
  *   2. même event et même shopName (insensible à la casse)
  *   3. l'event entier
- *   4. 1 (aucun grain article pour cet event : le prix n'a pas d'effet)
+ *   4. mix historique du PdV : ses records article de TOUS les events (shopId, puis shopName).
+ *      Revient à répartir le CA prévu du PdV entre ses articles selon leur part historique.
+ *   5. mix historique de tout l'espace (PdV sans aucun historique article)
+ *   6. 1 (aucun grain article nulle part : le prix n'a pas d'effet)
+ * Les niveaux 1 à 3 sont la source « event », 4 et 5 la source « history », 6 « none ».
  */
+
+export const RATIO_SOURCES = Object.freeze({ EVENT: 'event', HISTORY: 'history', NONE: 'none' })
+
+const NEUTRAL = Object.freeze({ revenue: 1, quantity: 1, source: RATIO_SOURCES.NONE })
 
 /** Identifiant d'event d'un record, en chaîne ('' si absent). */
 export function eventIdOf(rec) {
@@ -26,55 +35,98 @@ function pdvNameOf(rec) {
   return String(rec?.shopName ?? '').trim().toLowerCase()
 }
 
-function accumulate(map, key, base, priced) {
-  const sum = map.get(key)
-  if (sum) {
-    sum.base += base
-    sum.priced += priced
-  } else {
-    map.set(key, { base, priced })
-  }
+function finiteOr0(v) {
+  const n = Number(v)
+  return Number.isFinite(n) ? n : 0
 }
 
-function ratioOf(sum) {
-  return sum && sum.base !== 0 ? sum.priced / sum.base : null
+function emptySum() {
+  return { base: 0, priced: 0, qty: 0, pricedQty: 0 }
+}
+
+function accumulate(map, key, part) {
+  let sum = map.get(key)
+  if (!sum) {
+    sum = emptySum()
+    map.set(key, sum)
+  }
+  sum.base += part.base
+  sum.priced += part.priced
+  sum.qty += part.qty
+  sum.pricedQty += part.pricedQty
+}
+
+/** Ratios d'une somme, ou null si elle ne porte aucun CA (le niveau suivant prend la main). */
+function factorsOf(sum, source) {
+  if (!sum || sum.base === 0) return null
+  return {
+    revenue: sum.priced / sum.base,
+    quantity: sum.qty !== 0 ? sum.pricedQty / sum.qty : 1,
+    source,
+  }
 }
 
 /**
  * @param {object[]} articleRecords  Records au grain article.
- * @param {number[]} ratios  Ratio de prix de chaque record article (même indices).
- * @returns {{ ratioFor: (chartRecord: object) => number, eventIds: Set<string> }}
+ * @param {{ revenue: number, quantity: number }[]|number[]} factors  Facteurs de chaque record
+ *   article (mêmes indices). Un nombre seul vaut { revenue: n, quantity: 1 }.
+ * @returns {{
+ *   factorsFor: (chartRecord: object) => { revenue: number, quantity: number, source: string },
+ *   ratioFor: (chartRecord: object) => number,
+ *   eventIds: Set<string>,
+ * }}
  */
-export function buildPdvPriceRatioIndex(articleRecords, ratios) {
+export function buildPdvPriceRatioIndex(articleRecords, factors) {
   const byPdv = new Map()
   const byName = new Map()
   const byEvent = new Map()
+  const histPdv = new Map()
+  const histName = new Map()
+  const all = emptySum()
 
   articleRecords.forEach((rec, i) => {
-    const revenue = Number(rec?.revenue)
-    const base = Number.isFinite(revenue) ? revenue : 0
-    const priced = base * (ratios[i] ?? 1)
+    const f = factors[i]
+    const revFactor = typeof f === 'number' ? f : (f?.revenue ?? 1)
+    const qtyFactor = typeof f === 'number' ? 1 : (f?.quantity ?? 1)
+    const base = finiteOr0(rec?.revenue)
+    const qty = finiteOr0(rec?.quantity)
+    const part = { base, priced: base * revFactor, qty, pricedQty: qty * qtyFactor }
+
     const event = eventIdOf(rec)
-    accumulate(byEvent, event, base, priced)
+    accumulate(byEvent, event, part)
     const pdvId = pdvIdOf(rec)
-    if (pdvId) accumulate(byPdv, `${event}|${pdvId}`, base, priced)
+    if (pdvId) {
+      accumulate(byPdv, `${event}|${pdvId}`, part)
+      accumulate(histPdv, pdvId, part)
+    }
     const name = pdvNameOf(rec)
-    if (name) accumulate(byName, `${event}|${name}`, base, priced)
+    if (name) {
+      accumulate(byName, `${event}|${name}`, part)
+      accumulate(histName, name, part)
+    }
+    all.base += part.base
+    all.priced += part.priced
+    all.qty += part.qty
+    all.pricedQty += part.pricedQty
   })
 
-  const eventIds = new Set([...byEvent.keys()].filter((id) => id !== ''))
+  const eventIds = new Set([...byEvent.keys()].filter((id) => id !== '' && byEvent.get(id).base !== 0))
+  const { EVENT, HISTORY } = RATIO_SOURCES
 
-  function ratioFor(chartRecord) {
+  function factorsFor(chartRecord) {
     const event = eventIdOf(chartRecord)
     const pdvId = pdvIdOf(chartRecord)
     const name = pdvNameOf(chartRecord)
     return (
-      (pdvId ? ratioOf(byPdv.get(`${event}|${pdvId}`)) : null) ??
-      (name ? ratioOf(byName.get(`${event}|${name}`)) : null) ??
-      ratioOf(byEvent.get(event)) ??
-      1
+      (pdvId ? factorsOf(byPdv.get(`${event}|${pdvId}`), EVENT) : null) ??
+      (name ? factorsOf(byName.get(`${event}|${name}`), EVENT) : null) ??
+      factorsOf(byEvent.get(event), EVENT) ??
+      (pdvId ? factorsOf(histPdv.get(pdvId), HISTORY) : null) ??
+      (name ? factorsOf(histName.get(name), HISTORY) : null) ??
+      factorsOf(all, HISTORY) ??
+      NEUTRAL
     )
   }
 
-  return { ratioFor, eventIds }
+  return { factorsFor, ratioFor: (rec) => factorsFor(rec).revenue, eventIds }
 }

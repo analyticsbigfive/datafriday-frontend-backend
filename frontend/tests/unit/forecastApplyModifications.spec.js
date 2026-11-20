@@ -61,6 +61,8 @@ const NEUTRAL_STATS = {
   priceModificationCount: 0,
   eventsWithArticleGrain: [],
   eventsWithoutArticleGrain: [],
+  eventsFromHistoricalMix: [],
+  elasticity: 0,
   unpriceableItemIds: [],
   untargetableRecordCount: 0,
 }
@@ -337,16 +339,46 @@ describe('ratio de prix des records PdV', () => {
     expect(out.chartRecords[0].revenue).toBeCloseTo(224, 8)
   })
 
-  it('event sans grain article : ratio 1 et compté dans les stats', () => {
+  // Mix de tout l'espace : base 100 + 50 + 40 + 20 + 20 = 230, après prix 110 + 50 + 44 + 20 + 22 = 246.
+  const SPACE_MIX = 246 / 230
+
+  it('event sans grain article, PdV sans historique : mix de tout l\'espace, compté « historique »', () => {
     const { out } = run([cat])
-    expect(out.chartRecords[3].revenue).toBe(60)
-    expect(out.stats.eventsWithoutArticleGrain).toEqual(['e3'])
+    expect(out.chartRecords[3].revenue).toBeCloseTo(60 * SPACE_MIX, 8)
+    expect(out.stats.eventsFromHistoricalMix).toEqual(['e3'])
+    expect(out.stats.eventsWithoutArticleGrain).toEqual([])
     expect(out.stats.eventsWithArticleGrain).toEqual(['e1', 'e2'])
+  })
+
+  it('event sans grain article : mix historique du MÊME PdV (identifiant), tous events confondus', () => {
+    const data = fixtures()
+    // e3 vend au PdV s2 (Bar B), qui n'a vendu que des bières : ratio 1,1.
+    data.chartRecords = [{ eventId: 'e3', shopId: 's2', shopName: 'autre nom', quantity: 6, revenue: 60, transactionCount: 5 }]
+    const { out } = run([cat], data)
+    expect(out.chartRecords[0].revenue).toBeCloseTo(66, 8)
+    expect(out.stats.eventsFromHistoricalMix).toEqual(['e3'])
+  })
+
+  it('event sans grain article : mix historique du PdV par nom, puis CA prévu réparti selon ce mix', () => {
+    const data = fixtures()
+    data.chartRecords = [{ eventId: 'e3', shopId: 'x', shopName: 'BAR A', quantity: 17, revenue: 340, transactionCount: 14 }]
+    const { out } = run([cat], data)
+    // Bar A : base 170, après prix 180. CA prévu 340 réparti 100/50/20 sur 170 puis prix.
+    expect(out.chartRecords[0].revenue).toBeCloseTo(340 * (180 / 170), 8)
+  })
+
+  it('aucun grain article nulle part : prix sans effet, event compté « sans effet »', () => {
+    const data = fixtures()
+    data.articleRecords = []
+    const { out } = run([cat], data)
+    expect(out.chartRecords[3].revenue).toBe(60)
+    expect(out.stats.eventsWithoutArticleGrain).toEqual(['e1', 'e2', 'e3'])
+    expect(out.stats.eventsFromHistoricalMix).toEqual([])
   })
 
   it('event sans grain article : les leviers de volume et de panier s\'appliquent quand même', () => {
     const { out } = run([cat, mod(T.BASKET, { value: 10 })])
-    expect(out.chartRecords[3].revenue).toBeCloseTo(66, 8)
+    expect(out.chartRecords[3].revenue).toBeCloseTo(60 * SPACE_MIX * 1.1, 8)
   })
 
   it('identifiant de PdV côté article : elementId quand shopId est absent', () => {
@@ -413,5 +445,55 @@ describe('immutabilité', () => {
     expect(out.chartRecords[0].revenue).toBeCloseTo(110, 8)
     expect('quantity' in out.chartRecords[0]).toBe(false)
     expect('transactionCount' in out.chartRecords[0]).toBe(false)
+  })
+})
+
+describe('élasticité prix', () => {
+  const beer = () => mod(T.CATEGORY_PCT, { target: 'Bières', value: 10 })
+  const runE = (modifications, elasticity, data = fixtures()) =>
+    applyForecastModifications({ ...data, modifications, catalogById, spaceId: null, elasticity })
+
+  it('0 par défaut : quantités inchangées, CA suit le prix', () => {
+    const out = runE([beer()], 0)
+    expect(out.articleRecords[0].quantity).toBe(10)
+    expect(out.articleRecords[0].revenue).toBeCloseTo(110, 8)
+    expect(out.stats.elasticity).toBe(0)
+  })
+
+  it('-1 : quantité x r^-1, CA x r^0 sur l\'article modifié ; transactions inchangées', () => {
+    const out = runE([beer()], -1)
+    expect(out.articleRecords[0].quantity).toBeCloseTo(10 / 1.1, 8)
+    expect(out.articleRecords[0].revenue).toBeCloseTo(100, 8)
+    expect(out.articleRecords[0].transactionCount).toBe(8)
+    // Article non visé : rien ne bouge.
+    expect(out.articleRecords[1].quantity).toBe(5)
+    expect(out.stats.elasticity).toBe(-1)
+  })
+
+  it('-2 : CA x r^-1 et quantités agrégées au grain PdV', () => {
+    const out = runE([beer()], -2)
+    const r = 1.1
+    expect(out.articleRecords[0].revenue).toBeCloseTo(100 * r ** -1, 8)
+    // e1 / s1 : quantités 10 (bière) + 5 + 2 = 17 -> 10 r^-2 + 5 + 2
+    expect(out.chartRecords[0].quantity).toBeCloseTo(10 * r ** -2 + 7, 8)
+    expect(out.chartRecords[0].revenue).toBeCloseTo(100 * r ** -1 + 50 + 20, 8)
+    expect(out.chartRecords[0].transactionCount).toBe(14)
+  })
+
+  it('se cumule avec le levier de volume (transformation)', () => {
+    const out = runE([beer(), mod(T.TRANSFORMATION, { value: 10 })], -1)
+    expect(out.articleRecords[0].quantity).toBeCloseTo((10 / 1.1) * 1.1, 8)
+    expect(out.articleRecords[0].transactionCount).toBeCloseTo(8.8, 8)
+  })
+
+  it('sans modification de prix : aucun effet, stats neutres sur l\'élasticité', () => {
+    const out = runE([mod(T.BASKET, { value: 10 })], -2)
+    expect(out.articleRecords[0].quantity).toBe(10)
+    expect(out.stats.elasticity).toBe(0)
+  })
+
+  it('valeur hors bornes ramenée dans [-3, 0]', () => {
+    expect(runE([beer()], -9).stats.elasticity).toBe(-3)
+    expect(runE([beer()], 2).stats.elasticity).toBe(0)
   })
 })

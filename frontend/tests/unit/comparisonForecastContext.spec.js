@@ -61,6 +61,18 @@ describe('forecastFilterLines', () => {
     expect(lines[0].label).toBe('Catégorie Bières : +10 %')
   })
 
+  it('élasticité non nulle avec un prix modifié : une ligne de plus, en dernier', () => {
+    const lines = forecastFilterLines(mods(), { ...ctx, elasticity: -1.5 })
+    expect(lines).toHaveLength(4)
+    expect(lines[3]).toEqual({ key: 'elasticity', label: 'Élasticité prix : -1,5', own: true })
+  })
+
+  it('élasticité nulle, ou sans modification de prix : pas de ligne', () => {
+    expect(forecastFilterLines(mods(), { ...ctx, elasticity: 0 })).toHaveLength(3)
+    const noPrice = [createModification(T.PERCAP, { mode: PERCAP_MODES.BASKET, value: 5 })]
+    expect(forecastFilterLines(noPrice, { ...ctx, elasticity: -2 })).toHaveLength(1)
+  })
+
   it('liste vide ou absente : aucune ligne', () => {
     expect(forecastFilterLines([], ctx)).toEqual([])
     expect(forecastFilterLines(undefined, ctx)).toEqual([])
@@ -99,6 +111,8 @@ describe('withForecastModificationRows', () => {
       t('anExportFilterMode'),
     ])
     expect(out.slice(2, 5).map((r) => r.value)).toEqual(lines.map((l) => l.label))
+    // La ligne « Comparaison » ne répète pas la liste : elle porte l'intitulé du mode.
+    expect(out[1].value).toBe(t('anCmpSummaryForecast'))
   })
 
   it('ne mute pas les lignes reçues', () => {
