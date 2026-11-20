@@ -33,6 +33,9 @@ describe('comparisonReportView', () => {
     expect(comparisonSummaryLabel({ kind: 'category' }, [], t)).toBe('anCmpSummaryAllTypes')
     expect(comparisonSummaryLabel({ kind: 'period' }, [{ key: 'timeRange', label: 'Saison 24/25' }], t)).toBe('Saison 24/25')
     expect(comparisonSummaryLabel({ kind: 'period' }, [], t)).toBe('anCmpSummaryPeriod')
+    // Forecast : libellés des modifications, repli générique sans modification.
+    expect(comparisonSummaryLabel({ kind: 'forecast', modifications: [] }, [{ label: 'Prix -10 %' }, { label: 'Percap +5 %' }], t)).toBe('Prix -10 % · Percap +5 %')
+    expect(comparisonSummaryLabel({ kind: 'forecast', modifications: [] }, [], t)).toBe('anCmpSummaryForecast')
   })
 
   it('un seul event : son nom, sinon le compte', () => {

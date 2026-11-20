@@ -5,8 +5,11 @@
  * Étapes : saisie de comparaison + filtres du principal -> buildComparisonFilters ->
  * bornes de dates -> filterEvents sur la base `spaceAnalysableEvents` -> liste « filtres
  * appliqués » -> détection « mêmes events que le principal » (décision 15).
+ *
+ * Mode Forecast : le comparé a exactement les events du principal (les modifications what-if
+ * portent sur les records, pas sur le périmètre), aucune requête, jamais « mêmes events ».
  */
-import { computed } from 'vue'
+import { computed, unref } from 'vue'
 import defaultStore from '@/store'
 import { buildComparisonFilters, describeComparisonFilters } from '@/utils/comparisonFilters'
 import { resolveDateBounds } from '@/utils/analyseDateBounds'
@@ -19,15 +22,18 @@ import { filterEvents } from '@/utils/analyseEventFilter'
  * @param {import('vue').Ref<Array>} [p.mainEvents]  events filtrés du principal (défaut : getter analyse/filteredEvents)
  * @param {(key: string) => string} p.translate
  * @param {string|null} [p.defaultTimeRange]  période par défaut (pas de puce tant qu'elle est active)
+ * @param {{ active: import('vue').Ref<boolean> }|null} [p.forecast]  comparaison Forecast (useComparisonForecast)
  * @param {object} [p.store]  store Vuex (défaut : le store global, injectable pour les tests)
  */
 export function useComparisonEvents({
-  input, mainFilters, mainEvents = null, translate, defaultTimeRange = null, store = defaultStore,
+  input, mainFilters, mainEvents = null, translate, defaultTimeRange = null, forecast = null,
+  store = defaultStore,
 }) {
   const seasons = computed(() => store.state.seasons?.seasons || [])
 
   const kind = computed(() => input.value?.kind || null)
   const isPredict = computed(() => kind.value === 'predict')
+  const isForecast = computed(() => !!forecast && !!unref(forecast.active))
 
   const filters = computed(() => {
     if (!input.value) return null
@@ -43,9 +49,15 @@ export function useComparisonEvents({
     return resolveDateBounds(filters.value, { seasons: seasons.value, isPredict: false, now: new Date() })
   })
 
+  const principalEvents = computed(() => (
+    mainEvents ? mainEvents.value || [] : store.getters['analyse/filteredEvents'] || []
+  ))
+
   /** Events qui correspondent aux filtres de la comparaison, avant plafond et avant tri Predict. */
   const matchedEvents = computed(() => {
     if (!filters.value) return []
+    // Forecast : mêmes events que le principal, les modifications portent sur les records.
+    if (isForecast.value) return principalEvents.value
     // Tous les events de l'espace (pas le scope de configuration du principal), sauf Predict :
     // même périmètre que le principal par définition (décision 1).
     const base = (isPredict.value
@@ -54,17 +66,14 @@ export function useComparisonEvents({
     return filterEvents(base, filters.value, bounds.value)
   })
 
-  const principalEvents = computed(() => (
-    mainEvents ? mainEvents.value || [] : store.getters['analyse/filteredEvents'] || []
-  ))
-
   /**
    * true quand la comparaison sélectionne exactement les MÊMES events que le principal
    * (pas de faux 0 %, message d'avertissement). Jamais pour Predict : même périmètre
-   * voulu, mais le scénario diffère du réel.
+   * voulu, mais le scénario diffère du réel. Jamais pour Forecast : les events sont les mêmes
+   * par construction, ce sont les valeurs qui diffèrent.
    */
   const sameAsMain = computed(() => {
-    if (!input.value || isPredict.value) return false
+    if (!input.value || isPredict.value || isForecast.value) return false
     const a = matchedEvents.value
     const b = principalEvents.value
     if (!a.length || a.length !== b.length) return false

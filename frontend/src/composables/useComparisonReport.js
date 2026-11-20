@@ -10,12 +10,17 @@
  * Les composants du principal (cartes, répartitions, tableau, graphe) se branchent sur
  * `chartRecords`, `articleRecords` et `events` ; les composants doivent alors fonctionner en
  * « données reçues en paramètres » (lecture seule, lot 5).
+ *
+ * Mode Forecast (`input.kind === 'forecast'` + `forecastSource`) : le comparé est le principal
+ * passé par les modifications what-if (useComparisonForecast). Mêmes events que le principal,
+ * aucun chargement (ventes, paniers, timeline, scénarios), pas de plafond d'events.
  */
 import { computed, unref } from 'vue'
 import defaultStore from '@/store'
 import { ITEM_LEVEL_EVENT_CAP } from '@/composables/useAnalyseItemRecords'
 import { useArticleDimensions } from '@/composables/useArticleDimensions'
 import { useComparisonEvents } from '@/composables/useComparisonEvents'
+import { useComparisonForecast } from '@/composables/useComparisonForecast'
 import { useComparisonPredictScenarios } from '@/composables/useComparisonPredictScenarios'
 import { pickPredictTimeline } from '@/utils/comparisonPredictTimeline'
 import { useComparisonRecords } from '@/composables/useComparisonRecords'
@@ -39,28 +44,47 @@ import { hasActiveRange } from '@/utils/timelineBucketing'
  * @param {import('vue').Ref<object|null>} [p.mainSnapshot]  snapshot du principal (useMainReportSnapshot)
  * @param {string|null} [p.defaultTimeRange]  période par défaut (cf. getDefaultTimeRange du store)
  * @param {{ index: import('vue').Ref<Map|null>, status: import('vue').Ref<string> }} [p.articleDimensions]
+ * @param {{ chartRecords: import('vue').Ref<Array>, articleRecords: import('vue').Ref<Array>,
+ *   catalogById?: import('vue').Ref<Map|null>, isPredict?: import('vue').Ref<boolean>,
+ *   loading?: import('vue').Ref<boolean> }|null} [p.forecastSource]  records du principal pour une
+ *   comparaison `{ kind: 'forecast', modifications }` ; null (défaut) = Forecast non supporté, comportement inchangé
  * @param {object} [p.store]
  */
 export function useComparisonReport({
   input, mainFilters, spaceId, canView, translate,
   mainEvents = null, mainSnapshot = null, defaultTimeRange = null, articleDimensions = null,
-  store = defaultStore,
+  forecastSource = null, store = defaultStore,
 }) {
   const dims = articleDimensions || useArticleDimensions({ spaceId, enabled: canView })
 
-  const scope = useComparisonEvents({ input, mainFilters, mainEvents, translate, defaultTimeRange, store })
-  const { isPredict, filters, matchedEvents } = scope
+  // Forecast : inerte sans source du principal (la saisie `kind: 'forecast'` est alors ignorée).
+  const forecast = useComparisonForecast({
+    input: computed(() => (forecastSource ? input.value : null)),
+    source: forecastSource || {},
+    spaceId,
+    translate,
+  })
+
+  const scope = useComparisonEvents({ input, mainFilters, mainEvents, translate, defaultTimeRange, forecast, store })
+  const { filters, matchedEvents } = scope
+  // Predict au sens du chargement (scénarios, progression, statut) : jamais en Forecast.
+  const predictScope = scope.isPredict
+  // Masque Predict des KPI, du snapshot et de l'affichage : en Forecast, celui du principal.
+  const isPredict = computed(() => (forecast.active.value ? forecast.isPredict.value : predictScope.value))
 
   // Plafond de chargement : au-delà, les events suivants ne sont ni chargés ni comptés (dit à l'écran).
-  const candidates = computed(() => matchedEvents.value.slice(0, ITEM_LEVEL_EVENT_CAP))
+  // Forecast : aucun chargement, donc pas de plafond.
+  const candidates = computed(() => (
+    forecast.active.value ? matchedEvents.value : matchedEvents.value.slice(0, ITEM_LEVEL_EVENT_CAP)
+  ))
 
   // Predict : seuls les events qui ont un scénario exploitable entrent dans le rapport.
-  const scenarios = useComparisonPredictScenarios({ events: candidates, enabled: isPredict })
-  const events = computed(() => (isPredict.value ? scenarios.covered.value : candidates.value))
-  const excludedEvents = computed(() => (isPredict.value ? scenarios.excluded.value : []))
+  const scenarios = useComparisonPredictScenarios({ events: candidates, enabled: predictScope })
+  const events = computed(() => (predictScope.value ? scenarios.covered.value : candidates.value))
+  const excludedEvents = computed(() => (predictScope.value ? scenarios.excluded.value : []))
 
   const truncation = computed(() => ({
-    truncated: matchedEvents.value.length > ITEM_LEVEL_EVENT_CAP,
+    truncated: !forecast.active.value && matchedEvents.value.length > ITEM_LEVEL_EVENT_CAP,
     total: matchedEvents.value.length,
     kept: candidates.value.length,
     cap: ITEM_LEVEL_EVENT_CAP,
@@ -69,17 +93,19 @@ export function useComparisonReport({
   const records = useComparisonRecords({
     filters,
     events,
-    isPredict,
+    isPredict: predictScope,
     scenarioVersions: scenarios.versionByEventId,
     dimensionsIndex: dims.index,
     predictBasis: computed(() => input.value?.predictBasis || 'adjusted'),
+    forecast,
     store,
   })
 
-  // Courbe minute par minute (event unique, ou moyenne de plusieurs events), jamais en Predict.
+  // Courbe minute par minute (event unique, ou moyenne de plusieurs events), jamais en Predict
+  // ni en Forecast (le grain minute n'est pas modifiable par les what-if).
   const timeline = useComparisonTimeline({
     events,
-    enabled: computed(() => !isPredict.value && !!unref(canView)),
+    enabled: computed(() => !predictScope.value && !forecast.active.value && !!unref(canView)),
     spaceId,
     reconcile: records.reconcileForTimeline,
     predicate: records.predicate,
@@ -88,7 +114,7 @@ export function useComparisonReport({
 
   // Predict, un seul event : courbe prédite par minute à la place des barres (null = barres).
   const predictTimeline = computed(() => pickPredictTimeline({
-    isPredict: isPredict.value,
+    isPredict: predictScope.value,
     events: events.value,
     versionByEventId: scenarios.versionByEventId.value,
     basis: input.value?.predictBasis,
@@ -106,12 +132,14 @@ export function useComparisonReport({
     loadedEventIds: records.loadedEventIds,
     spaceId,
     canView,
+    forecast,
     store,
   })
 
   // ── Progression « x/N » et état ──
   const progress = computed(() => {
-    if (!isPredict.value) return records.loadProgress.value
+    if (forecast.active.value) return { loaded: candidates.value.length, total: candidates.value.length }
+    if (!predictScope.value) return records.loadProgress.value
     const seen = scenarios.versionByEventId.value
     return { loaded: candidates.value.filter((e) => seen.has(e.id)).length, total: candidates.value.length }
   })
@@ -119,7 +147,12 @@ export function useComparisonReport({
   /** 'idle' | 'loading' | 'ready' | 'empty' | 'error' */
   const status = computed(() => {
     if (!input.value) return 'idle'
-    if (isPredict.value) {
+    if (forecast.active.value) {
+      const src = forecast.sourceState.value
+      if (src === 'loading') return 'loading'
+      return src === 'ready' ? 'ready' : 'empty'
+    }
+    if (predictScope.value) {
       if (scenarios.status.value === 'loading') return 'loading'
       if (!events.value.length || !records.chartRecords.value.length) return 'empty'
       return 'ready'
@@ -163,7 +196,10 @@ export function useComparisonReport({
   const eventRevenueSeries = computed(() => buildEventRevenueSeries(records.chartRecords.value, events.value))
 
   /** true si le principal a une plage horaire intra-event, que la comparaison ne peut pas reprendre (grain sans minute). */
-  const intraEventRangeIgnored = computed(() => hasActiveRange(mainFilters.value?.selectedTimeRange))
+  // Forecast : les records du principal gardent leur plage horaire, rien n'est ignoré.
+  const intraEventRangeIgnored = computed(() => (
+    !forecast.active.value && hasActiveRange(mainFilters.value?.selectedTimeRange)
+  ))
 
   return {
     // état
@@ -172,7 +208,7 @@ export function useComparisonReport({
     error,
     // périmètre
     filters,
-    appliedFilters: scope.appliedFilters,
+    appliedFilters: computed(() => (forecast.active.value ? forecast.lines.value : scope.appliedFilters.value)),
     events,
     truncation,
     excludedEvents,
@@ -202,6 +238,8 @@ export function useComparisonReport({
     snapshot,
     deltasVsMain,
     mainDeltasVsComparison,
+    // Forecast : effets de prix à signaler (neutres hors Forecast)
+    forecastStats: forecast.stats,
     clearCache: records.clearCache,
   }
 }

@@ -18,6 +18,7 @@ function fakeEngine() {
     status: ref('idle'),
     snapshot: ref(null),
     sameAsMain: ref(false),
+    forecastStats: ref(null),
     inputs: [],
   }
   const factory = (args) => {
@@ -34,6 +35,7 @@ function fakeEngine() {
       intraEventRangeIgnored: computed(() => false),
       isPredict: computed(() => false),
       events: computed(() => []),
+      forecastStats: eng.forecastStats,
       clearCache: jest.fn(),
     }
   }
@@ -54,6 +56,16 @@ function setup(over = {}) {
     createReport: factory, ...over,
   })
   return { comparison, runtime, eng, mainFilters, mainEvents, mainSnapshot, mainChartRecords }
+}
+
+const FORECAST_MODEL = { kind: 'forecast', modifications: [] }
+
+// Setup avec records article du principal : active la source Forecast.
+function setupForecast(over = {}) {
+  const mainArticleRecords = shallowRef([{ eventId: 'm1', menuItemId: 'a', quantity: 1 }])
+  const catalogById = shallowRef(new Map())
+  const ctx = setup({ mainArticleRecords, catalogById, ...over })
+  return { ...ctx, mainArticleRecords, catalogById }
 }
 
 describe('useComparisonRuntime', () => {
@@ -245,5 +257,106 @@ describe('useComparisonRuntime', () => {
 
   it('widgetDeltasFrom renvoie null sans widgets', () => {
     expect(widgetDeltasFrom(null)).toBeNull()
+  })
+
+  describe('Forecast', () => {
+    it('ne transmet pas forecastSource sans mainArticleRecords', () => {
+      const { eng, runtime } = setup()
+      expect(eng.args).not.toHaveProperty('forecastSource')
+      expect(runtime.forecastStats.value).toBeNull()
+    })
+
+    it('transmet forecastSource (records recopiés, catalogue, masque et chargement du principal)', async () => {
+      const { eng, mainSnapshot, mainChartRecords, mainArticleRecords, catalogById } = setupForecast()
+      const src = eng.args.forecastSource
+      expect(src.chartRecords.value).toBe(mainChartRecords.value)
+      expect(src.articleRecords.value).toBe(mainArticleRecords.value)
+      expect(src.catalogById).toBe(catalogById)
+      expect(src.isPredict.value).toBe(false)
+      expect(src.loading.value).toBe(false)
+      mainSnapshot.value = { tag: 'main', isPredict: true }
+      await nextTick()
+      expect(src.isPredict.value).toBe(true)
+      mainSnapshot.value = null
+      await nextTick()
+      expect(src.loading.value).toBe(true)
+      expect(src.isPredict.value).toBe(true)
+    })
+
+    it('recopie events et records dans le même sync debouncé (pas de décalage transitoire)', async () => {
+      const { comparison, runtime, eng, mainEvents, mainChartRecords, mainArticleRecords } = setupForecast()
+      comparison.openDrawer()
+      eng.status.value = 'ready'
+      eng.snapshot.value = { tag: 'cmp' }
+      comparison.run(FORECAST_MODEL)
+      await nextTick()
+      const oldChart = eng.args.forecastSource.chartRecords.value
+      const oldArticle = eng.args.forecastSource.articleRecords.value
+      const oldEvents = eng.args.mainEvents.value
+
+      mainEvents.value = [{ id: 'm2', name: 'M2', date: '2026-02-01' }]
+      mainChartRecords.value = [{ eventId: 'm2', revenue: 20 }]
+      mainArticleRecords.value = [{ eventId: 'm2', menuItemId: 'b', quantity: 2 }]
+      await nextTick()
+      expect(runtime.pending.value).toBe(true)
+      jest.advanceTimersByTime(399)
+      expect(eng.args.mainEvents.value).toBe(oldEvents)
+      expect(eng.args.forecastSource.chartRecords.value).toBe(oldChart)
+      expect(eng.args.forecastSource.articleRecords.value).toBe(oldArticle)
+      jest.advanceTimersByTime(1)
+      await nextTick()
+      expect(eng.args.mainEvents.value).toBe(mainEvents.value)
+      expect(eng.args.forecastSource.chartRecords.value).toBe(mainChartRecords.value)
+      expect(eng.args.forecastSource.articleRecords.value).toBe(mainArticleRecords.value)
+      expect(runtime.pending.value).toBe(false)
+    })
+
+    it('les records vifs seuls relancent un sync en Forecast uniquement', async () => {
+      const { comparison, runtime, eng, mainArticleRecords } = setupForecast()
+      comparison.openDrawer()
+      comparison.run(MODEL)
+      await nextTick()
+      mainArticleRecords.value = [{ eventId: 'm1', menuItemId: 'c', quantity: 3 }]
+      await nextTick()
+      // Modèle non Forecast : aucun effet (comportement inchangé).
+      expect(runtime.pending.value).toBe(false)
+
+      comparison.run(FORECAST_MODEL)
+      await nextTick()
+      // Passage à Forecast avec des copies périmées : resynchronisation immédiate.
+      expect(eng.args.forecastSource.articleRecords.value).toBe(mainArticleRecords.value)
+      expect(runtime.pending.value).toBe(false)
+
+      mainArticleRecords.value = [{ eventId: 'm1', menuItemId: 'd', quantity: 4 }]
+      await nextTick()
+      expect(runtime.pending.value).toBe(true)
+      jest.advanceTimersByTime(400)
+      await nextTick()
+      expect(eng.args.forecastSource.articleRecords.value).toBe(mainArticleRecords.value)
+    })
+
+    it('neutralise sameAsMain : les écarts sont posés en Forecast, coupés sinon', async () => {
+      const { comparison, runtime, eng } = setupForecast()
+      comparison.openDrawer()
+      eng.sameAsMain.value = true
+      eng.snapshot.value = { tag: 'cmp' }
+      eng.status.value = 'ready'
+      comparison.run(FORECAST_MODEL)
+      await nextTick()
+      expect(runtime.sameAsMain.value).toBe(false)
+      expect(runtime.deltasVsMain.value).toMatchObject({ from: 'cmp', vs: 'main' })
+
+      comparison.run(MODEL)
+      await nextTick()
+      expect(runtime.sameAsMain.value).toBe(true)
+      expect(runtime.deltasVsMain.value).toBeNull()
+    })
+
+    it('expose forecastStats du moteur', async () => {
+      const { runtime, eng } = setupForecast()
+      expect(runtime.forecastStats.value).toBeNull()
+      eng.forecastStats.value = { modifiedRevenue: 12 }
+      expect(runtime.forecastStats.value).toEqual({ modifiedRevenue: 12 })
+    })
   })
 })
