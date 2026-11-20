@@ -38,7 +38,9 @@ export function deltaTone(delta, { invert = false } = {}) {
  */
 export function formatDelta(delta, unit = '%') {
   if (!isNum(delta)) return '—'
-  const arrow = delta > 0 ? '▲' : '▼'
   const text = Math.abs(delta).toFixed(1).replace('.', ',')
+  // Écart nul à l'arrondi : ni hausse ni baisse (« ▼ 0,0 % » laissait croire à une baisse).
+  if (text === '0,0') return `= ${text} ${unit}`
+  const arrow = delta > 0 ? '▲' : '▼'
   return `${arrow} ${text} ${unit}`
 }

@@ -40,6 +40,10 @@ describe('formatDelta', () => {
     expect(formatDelta(4.24)).toBe('▲ 4,2 %')
     expect(formatDelta(-1, 'pts')).toBe('▼ 1,0 pts')
     expect(formatDelta(12.5, 'pts')).toBe('▲ 12,5 pts')
+    // Écart nul à l'arrondi : ni flèche de hausse ni de baisse.
+    expect(formatDelta(0)).toBe('= 0,0 %')
+    expect(formatDelta(-0.04)).toBe('= 0,0 %')
+    expect(formatDelta(0.04, 'pts')).toBe('= 0,0 pts')
   })
   it('— si absent', () => {
     expect(formatDelta(null)).toBe('—')
