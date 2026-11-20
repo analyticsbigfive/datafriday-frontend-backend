@@ -178,6 +178,23 @@ describe('ForecastModificationsForm', () => {
     expect(model.modifications).not.toBe(formRef.list.value)
   })
 
+  it('élasticité : champ absent sans modification de prix, puis réglable et transmise à run', async () => {
+    const { w, onRun } = mountForm()
+    const elasticity = () => w.find('input[id$="-elasticity"]')
+    expect(elasticity().exists()).toBe(false)
+    await addItemPrice(w, 'm1', 8.8)
+    expect(elasticity().exists()).toBe(true)
+    expect(w.text()).toContain(FR.fcstElasticityHintZero)
+    await elasticity().setValue('-1')
+    await elasticity().trigger('change')
+    expect(w.text()).toContain(FR.fcstElasticityHint.replace('{pct}', '-9,1 %'))
+    await elasticity().setValue('-9')
+    await elasticity().trigger('change')
+    expect(elasticity().element.value).toBe('-3')
+    await applyButton(w).trigger('click')
+    expect(onRun.mock.calls[0][0].elasticity).toBe(-3)
+  })
+
   it('Appliquer ne fait rien quand la liste est vide', async () => {
     const { w, onRun } = mountForm()
     await applyButton(w).trigger('click')

@@ -30,6 +30,13 @@
       @remove="form.remove"
     />
 
+    <ForecastElasticityField
+      v-if="form.hasPriceModification.value"
+      :id="`${uid}-elasticity`"
+      :model-value="form.elasticity.value"
+      @update:model-value="form.setElasticity"
+    />
+
     <ForecastFormFooter
       :can-apply="form.canApply.value"
       :can-clear="form.list.value.length > 0"
@@ -44,7 +51,7 @@
 <script setup>
 // Formulaire de modifications de l'outil Forecast (drawer Comparaison). Assemble les champs ;
 // toute la logique est dans useForecastModificationsForm (reçu en prop : le brouillon survit à
-// la fermeture du drawer). Émet `run` avec { kind: 'forecast', modifications } (copie).
+// la fermeture du drawer). Émet `run` avec { kind: 'forecast', modifications, elasticity } (copie).
 import { computed, getCurrentInstance } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { FORECAST_MODIFICATION_TYPES } from '@/utils/forecastModificationModel'
@@ -54,6 +61,7 @@ import ComparisonSelect from '../comparison/ComparisonSelect.vue'
 import ForecastModificationFields from './ForecastModificationFields.vue'
 import ForecastModificationList from './ForecastModificationList.vue'
 import ForecastFormFooter from './ForecastFormFooter.vue'
+import ForecastElasticityField from './ForecastElasticityField.vue'
 
 const props = defineProps({
   // Retour de useForecastModificationsForm.
