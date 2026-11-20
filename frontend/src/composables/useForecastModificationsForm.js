@@ -28,6 +28,7 @@ import {
   validateModification,
 } from '@/utils/forecastModificationModel'
 import { ELASTICITY_DEFAULT, clampElasticity } from '@/utils/forecastElasticity'
+import { SCOPE_DEFAULT, normalizeScope } from '@/utils/forecastScope'
 
 const T = FORECAST_MODIFICATION_TYPES
 
@@ -55,6 +56,13 @@ export function useForecastModificationsForm({ articleRecords, catalogById = nul
 
   function setElasticity(v) {
     elasticity.value = clampElasticity(v)
+  }
+
+  // Portée de toute la liste : 'all' (tous les events affichés, défaut) ou 'predicted'.
+  const scope = ref(SCOPE_DEFAULT)
+
+  function setScope(v) {
+    scope.value = normalizeScope(v)
   }
 
   function resetDraft(type = draft.type) {
@@ -116,11 +124,12 @@ export function useForecastModificationsForm({ articleRecords, catalogById = nul
     list.value = removeModification(list.value, id)
   }
 
-  /** Tout effacer : la liste, la saisie en cours et l'élasticité. */
+  /** Tout effacer : la liste, la saisie en cours, l'élasticité et la portée. */
   function clear() {
     replaced.value = null
     list.value = []
     elasticity.value = ELASTICITY_DEFAULT
+    scope.value = SCOPE_DEFAULT
     resetDraft()
   }
 
@@ -137,11 +146,12 @@ export function useForecastModificationsForm({ articleRecords, catalogById = nul
       kind: 'forecast',
       modifications: list.value.map((m) => ({ ...m })),
       elasticity: elasticity.value,
+      scope: scope.value,
     }
   }
 
   return {
-    options, draft, list, replaced, elasticity, hasPriceModification,
-    setType, patch, setElasticity, canAdd, add, remove, clear, canApply, toRunModel,
+    options, draft, list, replaced, elasticity, scope, hasPriceModification,
+    setType, patch, setElasticity, setScope, canAdd, add, remove, clear, canApply, toRunModel,
   }
 }

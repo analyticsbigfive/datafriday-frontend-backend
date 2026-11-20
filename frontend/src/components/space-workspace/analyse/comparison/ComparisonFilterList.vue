@@ -1,16 +1,21 @@
 <template>
   <div class="cfl">
-    <div class="cfl__tags" role="list" :aria-label="t('anCmpFiltersLabel')">
-      <span
-        v-for="f in filters"
-        :key="f.key + f.label"
-        role="listitem"
-        class="cfl__tag"
-        :class="{ 'cfl__tag--own': f.own }"
-      >
-        <v-icon v-if="!f.own" size="14" class="cfl__link" aria-hidden="true">mdi-link-variant</v-icon>
-        {{ f.label }}
-      </span>
+    <!-- Emplacement `lead` : un élément placé au tout début de la rangée de puces (ex. l'icône
+         d'information du rapport Forecast). -->
+    <div class="cfl__row">
+      <slot name="lead" />
+      <div class="cfl__tags" role="list" :aria-label="t('anCmpFiltersLabel')">
+        <span
+          v-for="f in filters"
+          :key="f.key + f.label"
+          role="listitem"
+          class="cfl__tag"
+          :class="{ 'cfl__tag--own': f.own }"
+        >
+          <v-icon v-if="!f.own" size="14" class="cfl__link" aria-hidden="true">mdi-link-variant</v-icon>
+          {{ f.label }}
+        </span>
+      </div>
     </div>
   </div>
 </template>
@@ -30,7 +35,8 @@ const { t } = useI18n()
 
 <style scoped>
 .cfl { display: flex; flex-direction: column; gap: 10px; }
-.cfl__tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.cfl__row { display: flex; align-items: flex-start; gap: 6px; }
+.cfl__tags { display: flex; flex: 1 1 auto; min-width: 0; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .cfl__tag {
   display: inline-flex;
   align-items: center;

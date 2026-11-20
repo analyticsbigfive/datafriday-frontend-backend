@@ -38,7 +38,10 @@ const FORECAST_CATALOG = new Map([['m1', { id: 'm1', name: 'Bière blonde', base
 const FORECAST_BASES = { transformationRate: 12.5, perCapita: 8, basket: 15 }
 
 const lightStub = (name, cls) => ({ name, props: { records: Array, events: Array, deltas: Object, trend: Array, readonly: Boolean, embedded: Boolean, isPredictMode: Boolean, dimensionsIndex: null, dimensionsStatus: String, status: String, mode: String }, template: `<div class="${cls}" />` })
+// L'icône (i) du rapport Forecast vit dans un v-tooltip : le stub rend l'activateur et le contenu.
+const tooltipStub = { template: '<div class="stub-tooltip"><slot name="activator" :props="{}" /><div class="stub-tooltip__body"><slot /></div></div>' }
 const stubs = {
+  'v-tooltip': tooltipStub,
   EventRevenueByShopChart: lightStub('EventRevenueByShopChart', 'stub-chart'),
   ShopDistributionPieChart: lightStub('ShopDistributionPieChart', 'stub-shopdist'),
   MenuItemRevenueDistribution: lightStub('MenuItemRevenueDistribution', 'stub-dist'),
@@ -161,12 +164,15 @@ describe('ComparisonDrawerContent', () => {
     expect(w.find('#comparison-capture-root').exists()).toBe(true)
   })
 
-  it('rapport Forecast : l\'encart de périmètre apparaît avec des events sans prévision par article', () => {
+  it('rapport Forecast : l\'icône (i) apparaît en tête des filtres, le détail est dans l\'infobulle', () => {
     const forecastStats = ref({ priceModificationCount: 1, eventsWithArticleGrain: ['e1'], eventsWithoutArticleGrain: ['e2', 'e3'] })
     const { w } = mountContent({ view: 'ready', state: 'ready', forecast: true, runtimeOver: { forecastStats } })
-    const notice = w.find('.fsn')
-    expect(notice.exists()).toBe(true)
-    expect(notice.text()).toContain('2 événement(s)')
+    const icon = w.find('.cfl__row > .stub-tooltip > .fsn')
+    expect(icon.exists()).toBe(true)
+    expect(icon.attributes('aria-label')).toBeTruthy()
+    expect(w.find('.stub-tooltip__body').text()).toContain('2 événement(s)')
+    // Plus de bandeau permanent dans l'intro du rapport.
+    expect(w.find('.cr__intro [role="status"]').exists()).toBe(false)
   })
 
   it('rapport sans forecastStats ou sans événement concerné : pas d\'encart de périmètre', () => {

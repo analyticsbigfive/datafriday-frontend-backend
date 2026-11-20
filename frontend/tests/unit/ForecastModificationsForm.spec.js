@@ -44,6 +44,8 @@ function mountForm({ hasReport = false, baseValues = BASES } = {}) {
 }
 
 const typeSelect = (w) => w.findAll('select')[0]
+// Mention du champ de saisie (prix HT, erreur) : on écarte celle de la case de portée, toujours présente.
+const fieldHint = (w) => w.findAll('.cf-hint').find((h) => !(h.attributes('id') || '').endsWith('-scope-hint'))
 const addButton = (w) => w.find('.fc-add')
 const applyButton = (w) => w.find('.fc-btn--primary')
 
@@ -114,18 +116,18 @@ describe('ForecastModificationsForm', () => {
     const { w } = mountForm()
     await w.findAll('select')[1].setValue('m1')
     await w.find('input.fc-num').setValue('11')
-    expect(w.find('.cf-hint').exists()).toBe(true)
-    expect(w.find('.cf-hint').text()).toContain('HT')
+    expect(fieldHint(w)).toBeTruthy()
+    expect(fieldHint(w).text()).toContain('HT')
     // Eau : pas de taux de TVA, pas de HT.
     await w.findAll('select')[1].setValue('m2')
-    expect(w.find('.cf-hint').exists()).toBe(false)
+    expect(fieldHint(w)).toBeUndefined()
   })
 
   it('prix négatif : message d\'erreur, Ajouter désactivé', async () => {
     const { w } = mountForm()
     await w.findAll('select')[1].setValue('m1')
     await w.find('input.fc-num').setValue('-3')
-    expect(w.find('.cf-hint').text()).toBe(FR.fcstPriceInvalid)
+    expect(fieldHint(w).text()).toBe(FR.fcstPriceInvalid)
     expect(w.find('input.fc-num').attributes('aria-invalid')).toBe('true')
     expect(addButton(w).attributes('disabled')).toBeDefined()
   })
@@ -277,5 +279,43 @@ describe('ForecastModificationsForm', () => {
     await ghosts[1].trigger('click')
     expect(withReport.onBack).toHaveBeenCalledTimes(1)
     await nextTick()
+  })
+  describe('portée : case « Appliquer uniquement aux événements prédits »', () => {
+    const box = (w) => w.find('input.fc-scope__box')
+    const scopeHint = (w) => w.findAll('.cf-hint').find((h) => (h.attributes('id') || '').endsWith('-scope-hint'))
+
+    it('une case à cocher, décochée au départ, avec sa mention « tous les événements »', () => {
+      const { w } = mountForm()
+      expect(box(w).exists()).toBe(true)
+      expect(box(w).attributes('type')).toBe('checkbox')
+      expect(box(w).element.checked).toBe(false)
+      expect(w.find('.fc-scope').text()).toBe(FR.fcstScopePredictedLabel)
+      expect(scopeHint(w).text()).toBe(FR.fcstScopeHintAll)
+      expect(w.find('label.fc-scope').attributes('for')).toBe(box(w).attributes('id'))
+      expect(box(w).attributes('aria-describedby')).toBe(scopeHint(w).attributes('id'))
+    })
+
+    it('cocher bascule la portée du formulaire sur « predicted » et change la mention', async () => {
+      const { w } = mountForm()
+      await box(w).setValue(true)
+      expect(formRef.scope.value).toBe('predicted')
+      expect(box(w).element.checked).toBe(true)
+      expect(scopeHint(w).text()).toBe(FR.fcstScopeHintPredicted)
+    })
+
+    it('décocher revient à « all »', async () => {
+      const { w } = mountForm()
+      await box(w).setValue(true)
+      await box(w).setValue(false)
+      expect(formRef.scope.value).toBe('all')
+      expect(scopeHint(w).text()).toBe(FR.fcstScopeHintAll)
+    })
+
+    it('la portée choisie part dans le modèle appliqué', async () => {
+      const { w } = mountForm()
+      await addItemPrice(w, 'm1', 7)
+      await box(w).setValue(true)
+      expect(formRef.toRunModel()).toMatchObject({ kind: 'forecast', scope: 'predicted' })
+    })
   })
 })

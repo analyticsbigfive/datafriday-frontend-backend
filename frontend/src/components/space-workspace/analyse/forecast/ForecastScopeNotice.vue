@@ -1,15 +1,26 @@
 <template>
-  <div v-if="lines.length" class="fsn" role="status">
-    <v-icon size="16" class="fsn__ico" aria-hidden="true">mdi-information-outline</v-icon>
+  <!-- Icône (i) en tête des filtres appliqués : le détail du calcul s'affiche au survol (ou au
+       focus clavier), plus de bandeau permanent. Rien du tout s'il n'y a aucun message. -->
+  <v-tooltip v-if="lines.length" location="bottom start" max-width="340">
+    <template #activator="{ props: tip }">
+      <button
+        v-bind="tip"
+        type="button"
+        class="fsn"
+        :aria-label="t('fcstNoticeIconLabel')"
+      >
+        <v-icon size="18" aria-hidden="true">mdi-information-outline</v-icon>
+      </button>
+    </template>
     <span class="fsn__txt">
       <span v-for="line in lines" :key="line">{{ line }}</span>
     </span>
-  </div>
+  </v-tooltip>
 </template>
 
 <script setup>
-// Encart du rapport Forecast, seulement s'il y a au moins une modification de prix, de catégorie
-// ou de type :
+// Message d'information du rapport Forecast, seulement s'il y a au moins une modification de
+// prix, de catégorie ou de type :
 //  - events sans prévision par article dont l'effet du prix est estimé par le mix historique
 //    des PdV (information) ;
 //  - events sans aucun grain article nulle part, où le prix reste sans effet.
@@ -41,16 +52,23 @@ const lines = computed(() => {
 
 <style scoped>
 .fsn {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 9px 12px;
-  border-radius: 10px;
-  font-size: var(--fs-base);
-  line-height: 1.35;
-  background: var(--cr-cmp-bg);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
   color: var(--cr-cmp);
+  cursor: help;
 }
-.fsn__ico { flex: none; margin-top: 1px; }
-.fsn__txt { display: flex; flex-direction: column; gap: 4px; }
+.fsn:hover { background: var(--cr-cmp-bg); }
+.fsn:focus-visible {
+  outline: 2px solid var(--cr-cmp);
+  outline-offset: 1px;
+}
+.fsn__txt { display: flex; flex-direction: column; gap: 6px; line-height: 1.35; }
 </style>
