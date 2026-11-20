@@ -61,6 +61,7 @@ const srText = computed(() => {
   if (kind.value === 'same') return t('anDeltaSrSame')
   if (kind.value === 'none') return t('anDeltaSrNone')
   const text = String(props.delta?.text || '')
+  if (text.startsWith('=')) return t('anDeltaSrZero')
   const value = text.replace(/^[▲▼]\s*/, '').trim()
   const key = text.startsWith('▼') ? 'anDeltaSrDown' : 'anDeltaSrUp'
   return t(key).replace('{value}', value)

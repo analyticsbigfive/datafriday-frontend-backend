@@ -81,7 +81,7 @@
                 >
                   <v-icon size="20">mdi-filter-variant</v-icon>
                 </button>
-                <h1 class="av-header__title av-header__title--desktop">{{ comparison.open.value ? t('anCmpMainTitle') : desktopTitle }}</h1>
+                <h1 class="av-header__title av-header__title--desktop">{{ comparison.open.value ? (selectedToolbox === 'predict' ? t('anToolPredict') : t('anCmpMainTitle')) : desktopTitle }}</h1>
                 <span v-if="comparison.open.value" class="av-header__rtag">{{ t('anCmpMainTag') }}</span>
                 <!-- Titre mobile (maquette Bertrand) : nom d'outil en gros + sous-titre event. -->
                 <div class="av-header__title-mobile">
