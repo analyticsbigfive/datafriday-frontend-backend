@@ -8,7 +8,7 @@ import { useI18n } from "@/i18n/useI18n";
 
 const SECTION_KEY_BY_ROUTE = {
   "space-analyse": "invToolAnalyse",
-  "space-predict": "invToolPredict",
+  "space-predict": "invToolEventPredict",
   "space-inventory": "hdrSecInventory",
   "space-pre-inventory": "hdrSecPreInventory",
   "space-restock": "invToolRestock",

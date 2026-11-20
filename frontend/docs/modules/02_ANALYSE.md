@@ -588,7 +588,9 @@ sur le code React, voir Historique).
 | `tables/MenuItemsByShopTable.vue` | Double vue PdV/article, export XLSX, lien fiche catalogue si l'article est réellement rattaché |
 
 Ces deux vues consomment `articleRecords` (et non `chartRecords`). En mode **Analyse** c'est
-`chartRecords` à l'identique. En mode **Predict**, la prédiction du moteur est shop-level (aucun
+`chartRecords` à l'identique. En mode **Predict** (outil affiché Forecast / Prévision depuis le
+2026-11-20, cf. [section dédiée](#outil-forecast--prévision-et-comparaison-what-if-ancien--predict--2026-11-20)),
+la prédiction du moteur est shop-level (aucun
 `menuItemId`) : le grain article vient alors des **scénarios Event Predict**
 (`EventPredictVersion.predictedRecords`, reconstruits par `regeneratePredictions` dans
 `state.predictScenarioItemRecords`, cf. `utils/predictScenarioRecords.js`). Les events prédits sans
@@ -618,6 +620,169 @@ Le header vient de `WorkspaceAppHeader.vue` (composant partagé, pas spécifique
 routé sur `/spaces-overview` (`router/index.js:130-134`), **pas** `/spaces/:id`. Ces deux fichiers
 contiennent bien le champ `event_revenue_HT` — absent de la vraie route Analyse mais utilisé sur cet
 écran voisin ; à corriger séparément si `/spaces-overview` est audité un jour.
+
+---
+
+## Outil Forecast / Prévision et comparaison what-if (ancien « Predict », 2026-11-20)
+
+> **Ancien nom : Predict.** Depuis le 2026-11-20, l'outil `predict` de la barre d'outils d'Analyse
+> s'affiche **Forecast** (EN) / **Prévision** (FR). Seul le libellé change. Restent inchangés :
+> l'identifiant technique `selectedToolbox === 'predict'`, la permission `front.fb.predict`, la
+> route `space-predict`, le kind de comparaison `predict` (scénarios Event Predict) et les clés
+> i18n `anToolPredict` / `invToolPredict` / `epToolPredict` / `srToolPredict`. La page **Event
+> Predict** (`/spaces/:id/predict`, permission `front.fb.eventPredict`) garde son nom (« Event
+> Predict » en EN, « Préd. Événement » en FR) : son en-tête lit `invToolEventPredict`
+> (`AppHeader.vue`). Quand un ancien texte de cette doc ou d'un bug dit « mode Predict » à propos
+> d'Analyse, c'est cet outil.
+>
+> Commits sur `develop` : `25fe1f05` (renommage), `be09dd88` (moteur pur), `fb55c720`
+> (formulaire), `2a3cfd8a` (comparaison), `259972d2` (câblage `AnalyseView`), `af1c8d79`
+> (transactions prédites). Recette navigateur :
+> [`../recette/FORECAST_RECETTE.md`](../recette/FORECAST_RECETTE.md). Questions ouvertes pour
+> Bertrand : #93 de [`../QUESTIONS_A_BERTRAND.md`](../QUESTIONS_A_BERTRAND.md).
+
+### Renommage : où le nouveau nom apparaît
+
+Menus d'outils d'Analyse, Inventaire, Event Predict et Réarmement (clés `*ToolPredict`),
+titre de `MainNav.vue` (« Prévision »), loader `anLoadingPredict`, libellé de mode d'export
+(`anExportModePredict`) et **suffixe des fichiers d'export `-forecast`** au lieu de `-predict`
+(`composables/useAnalyseExport.js`, `utils/comparisonExportTables.js`). Le loader de route
+`/predict` affiche « Chargement Event Predict… » (`RouteTransitionLoader.vue`).
+
+### Le drawer de modifications (bouton Comparaison en Prévision)
+
+En Prévision, le bouton **Comparaison** (jusque-là réservé à l'outil Analyse,
+`comparisonToolboxAllowed` dans `AnalyseView.vue`) ouvre un drawer de modifications what-if
+(spec Bertrand du 2026-11-19, réponses du 2026-11-20) au lieu du formulaire de comparaison
+classique. Un menu propose **6 types** ; un curseur en % va de -100 à +100 et affiche la valeur
+résultante (« 12,40 € → 13,64 € ») quand la valeur de base du rapport est connue. « Ajouter »
+pousse la modification dans la liste, « Appliquer les modifications » lance le rapport de
+comparaison (« Appliquer » reste grisé tant qu'aucune modification valide n'est dans la liste).
+
+| Type (`forecastModificationModel`) | Cible | Valeur | Effet |
+|---|---|---|---|
+| `itemPrice` (prix TTC d'un Menu Item) | un Menu Item | nouveau prix TTC en euros, `>= 0` ; HT dérivé affiché (taux de TVA du catalogue) | CA de l'article x (nouveau TTC / TTC catalogue) |
+| `categoryPct` (prix d'une catégorie) | une catégorie | % de -100 à +100 | CA des articles de la catégorie x (1 + %) |
+| `typePct` (prix d'un type) | un type | % de -100 à +100 | CA des articles du type x (1 + %) |
+| `transformation` (taux de transformation) | globale | % de -100 à +100 | facteur sur quantités, CA, transactions |
+| `percap` mode A « plus de monde achète » (`mode: 'transformation'`) | globale | % | identique à la transformation |
+| `percap` mode B « panier plus gros, quantités inchangées » (`mode: 'basket'`) | globale | % | CA seul |
+| `basket` (panier moyen) | globale | % | CA seul |
+
+### Règles de calcul
+
+- **Même cible : la dernière ajoutée l'emporte.** Clé de cible = type + cible (un Percap A et un
+  Percap B sont deux cibles distinctes). `addModification` retire toute modification de même clé
+  avant d'ajouter en fin de liste ; `effectiveModifications` applique la même règle au moteur,
+  qui reste donc correct sur une liste construite sans passer par le formulaire. Le formulaire
+  signale le remplacement (« Remplace la modification précédente sur ... »).
+- **Leviers différents : effets multipliés.** `volume = (1 + transformation) x (1 + percap A)`,
+  `basket = (1 + panier) x (1 + percap B)` ; +10 % de transformation et +10 % de panier donnent
+  un CA x 1,1 x 1,1 = **+21 %**. Un prix, une catégorie et un type qui visent le même article ne
+  se cumulent pas : la dernière de la liste gagne et le % s'applique toujours au prix de base,
+  jamais à un prix déjà modifié (`utils/forecastPriceRatio.js`).
+- **Prix.** Ratio = nouveau TTC / TTC catalogue actuel (la TVA s'annule en HT sur HT), appliqué au
+  CA uniquement. **Pas d'élasticité** : quantités, transactions et coûts ne bougent pas quand le
+  prix change. TTC catalogue introuvable ou nul : ratio 1, article « non modifiable » (signalé
+  par `fcstItemNoPrice`). Un article sans `menuItemId` n'est jamais ciblé par une catégorie ou un
+  type ; sa sentinelle « non rattaché » n'apparaît pas dans les listes déroulantes.
+- **Transformation et Percap A** : facteur sur quantités, CA **et** transactions. **Panier et
+  Percap B** : CA seul.
+- **Périmètre : tous les events affichés**, passés compris (un event passé voit son réel modifié).
+- **Comparé = principal modifié.** Le comparé n'est pas chargé : ce sont les `events` et les
+  records du principal (grain PdV `chartRecords` et grain article `articleRecords`) passés par le
+  moteur pur. **Aucune requête API** ; les requêtes Predict du drawer sont même désactivées en
+  Prévision (`enabled: comparison.open && toolbox !== 'predict'`). Le comparé a volontairement les
+  mêmes events que le principal : la comparaison n'est jamais « identique » (`sameAsMain` forcé à
+  faux en Prévision).
+- **Liste vide ou sans modification valide : écart nul** (mêmes tableaux, mêmes références, stats
+  neutres). Une modification à +0 % est valide et donne aussi des écarts nuls.
+- Pas d'arrondi dans le moteur. Un record inchangé garde sa référence.
+- **Records graphe (grain PdV, sans article)** : l'effet d'un prix s'y propage par un ratio dérivé
+  du grain article, soit somme des CA article après prix seul / somme des CA article de base, avec
+  repli en cascade : même event et même PdV, puis même event et même nom de PdV (insensible à la
+  casse), puis l'event entier, puis 1 (`utils/forecastChartPriceRatios.js`).
+
+### Limite de données : le prix n'agit que sur les events avec prévision par article
+
+La prédiction du moteur est shop-level (aucun `menuItemId`, cf. fiche
+[190](../bugs/190_predict_vues_article_absentes_grain_shop_level.md)). Les modifications de
+**prix, de catégorie et de type** n'agissent donc que sur les events qui ont une prévision par
+article (un scénario Event Predict sauvegardé, `state.predictScenarioItemRecords`), ou sur le réel
+passé. **Mesure du 2026-11-20 sur la copie locale de la prod : 1 event futur sur 194** a un
+scénario exploitable. Les modifications de transformation, de Percap et de panier n'ont pas cette
+limite (elles agissent au grain PdV). `ForecastScopeNotice.vue` affiche un encart dans le rapport
+quand il y a au moins une modification de prix ET au moins un event sans prévision détaillée
+(« ... ne s'appliquent pas à N événement(s) sans prévision détaillée par article »,
+`fcstScopeNotice`). Voir la question #93 (a) pour Bertrand.
+
+### Transactions prédites et puces du header
+
+Le moteur de prédiction laisse `transactionCount: 0` sur les events futurs. Avant le 2026-11-20,
+la puce Transactions mélangeait des tickets réels passés et un CA futur, et Panier moyen /
+Transformation étaient faux : les trois puces (**Transactions, Panier moyen, Transformation**)
+étaient donc masquées en Predict. Elles sont **désormais affichées en Prévision**.
+
+Règle (`utils/predictedTransactions.js`) : transactions prévues d'un record = **quantité prévue x
+(tickets / unités) du même PdV** sur les events sources du moteur (`basedOnEventIds` du record,
+sinon l'ensemble des records passés fournis), avec repli sur le **ratio global** des mêmes sources,
+puis **0** si aucune source exploitable ; arrondi à l'entier. Les records prédictifs ne comptent
+jamais dans les ratios (ils ne portent aucune vente observée).
+
+- **Point d'entrée store** : `regeneratePredictions` (`store/modules/analyse.js`, ~l.2263). L'action
+  conserve l'historique réel du moteur (`pastData`, ~l.2298) et appelle
+  `applyPredictedTransactions(predictiveRecords, pastData)` (~l.2418), **après** les overrides de
+  scénario, pour que les transactions suivent les quantités finales.
+- **Bug corrigé dans la même passe** : les copies de scénario d'events **passés** mettaient CA et
+  quantités à l'échelle du scénario mais gardaient les tickets réels. Leur `transactionCount` est
+  maintenant multiplié par le même facteur (`Math.max(0, Math.round(...))`).
+- **Puces** : `chipsFromMetrics(metrics, { isPredict, predictTransactions })`
+  (`utils/comparisonReportSnapshot.js`). Le principal en Prévision passe
+  `predictTransactions: true` (`composables/useMainReportSnapshot.js`) ; le comparé Forecast
+  passe `isForecast` (`composables/useComparisonKpis.js`), donc les deux côtés calculent les mêmes
+  puces. Un comparé de kind `predict` (scénarios Event Predict) garde ces trois puces à `null`
+  (un scénario produit des quantités, jamais de tickets).
+- **Toujours masquées en Prévision** : **TX/MIN** (a besoin de la minute) et **valorisation du
+  stock**. Ce n'est pas un oubli.
+- Estimation à valider par Bertrand : question #93 (b).
+
+### Fichiers clés
+
+| Rôle | Fichier (sous `frontend/src/`) |
+|---|---|
+| Modèle pur des 6 types, validation, clé de cible, leviers globaux | `utils/forecastModificationModel.js` |
+| Moteur pur : applique la liste aux records (article et graphe) | `utils/forecastApplyModifications.js` |
+| Ratio de prix d'un article (dernière gagne, pas d'élasticité) | `utils/forecastPriceRatio.js` |
+| Ratios de prix par PdV pour les records graphe | `utils/forecastChartPriceRatios.js` |
+| Options des menus (Menu Items, catégories, types) depuis les records | `utils/forecastTargetOptions.js` |
+| Prix TTC / HT / TVA d'un Menu Item | `utils/price.js` (`menuItemPriceTtc`, `menuItemVatRate`) |
+| Libellés des modifications (liste, bandeau, export), métadonnées de curseur | `utils/forecastModificationLabels.js`, `utils/forecastSliderMeta.js` |
+| Brouillon du formulaire (saisie + liste) | `composables/useForecastModificationsForm.js` |
+| Formulaire du drawer | `components/space-workspace/analyse/forecast/` (`ForecastModificationsForm`, `ForecastModificationFields`, `ForecastModificationList`, `ForecastPercentSlider`, `ForecastPriceField`, `ForecastPercapMode`, `ForecastFormFooter`) |
+| Encart « events sans prévision détaillée » | `components/space-workspace/analyse/forecast/ForecastScopeNotice.vue` |
+| Câblage Analyse / drawer (catalogue, brouillon, valeurs de base des curseurs, règle de changement d'outil) | `composables/useForecastComparisonWiring.js`, instancié dans `AnalyseView.vue` |
+| Modèle appliqué `{ kind: 'forecast', modifications }` (hors `COMPARISON_KINDS`) | `utils/comparisonForecastModel.js` |
+| Jeux de records du comparé (moteur sur les records du principal) | `composables/useComparisonForecast.js` |
+| Lignes « filtres appliqués » et lignes d'export (une par modification) | `utils/comparisonForecastContext.js` |
+| Source Forecast dans le runtime / rapport / export / KPI de comparaison | `composables/useComparisonRuntime.js`, `useComparisonReport.js`, `useComparisonExport.js`, `useComparisonKpis.js`, `useComparisonEvents.js`, `useComparisonRecords.js` |
+| Transactions prédites | `utils/predictedTransactions.js`, action `regeneratePredictions` de `store/modules/analyse.js` |
+
+Tests unitaires associés : `frontend/tests/unit/forecast*.spec.js`, `price.spec.js`,
+`ForecastModificationsForm.spec.js`, `ForecastScopeNotice.spec.js`,
+`useForecastModificationsForm.spec.js`, `useForecastComparisonWiring.spec.js`,
+`useComparisonForecast.spec.js`, `comparisonForecastContext.spec.js`,
+`predictedTransactions.spec.js`, `analyseRegeneratePredictionsTransactions.spec.js`.
+
+### Comportements à connaître
+
+- **Le brouillon vit dans `AnalyseView`** : fermer puis rouvrir le drawer conserve la saisie et la
+  liste. **Changer d'outil ferme le drawer**, vide le brouillon en quittant la Prévision, et oublie
+  un modèle appliqué qui ne correspond plus à l'outil (Forecast en Analyse, comparaison classique
+  en Prévision), pour ne jamais rouvrir un rapport étranger.
+- **Export CSV** : une ligne « Modification » par modification dans la table des paramètres, sans
+  la ligne « filtres actifs » (sans objet), suffixe de fichier `-forecast`.
+- Les modifications de prix n'apparaissent pas dans le principal : seul le comparé est modifié.
+  Le principal reste le rapport de référence.
 
 ---
 

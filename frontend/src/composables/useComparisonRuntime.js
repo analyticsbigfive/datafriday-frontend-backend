@@ -15,6 +15,11 @@
  * - La session est vidée à la fermeture, en vue 'form' (« Modifier les critères »), en chargement
  *   initial, rapport vide, erreur, mêmes events que le principal : le principal retrouve alors
  *   ses écarts Précédent / N-1.
+ * - Forecast (modèle `{ kind: 'forecast' }`) : le comparé est le principal modifié. Si `mainArticleRecords`
+ *   est fourni, les records du principal (PdV et article) sont recopiés avec les events DANS LE MÊME
+ *   `syncMain()` (jamais de décalage transitoire entre events et records) et transmis au moteur
+ *   (`forecastSource`). Les records vifs ne déclenchent une resynchronisation que pour un modèle
+ *   Forecast ; sans option ni modèle Forecast, le comportement reste strictement inchangé.
  * - Aucun stockage navigateur.
  */
 import { computed, ref, shallowRef, watch, watchEffect, onScopeDispose, getCurrentScope, toRaw, unref } from 'vue'
@@ -24,6 +29,7 @@ import { setMainDeltas, clearComparisonSession } from '@/composables/useComparis
 import { computeReportDeltas } from '@/utils/comparisonDeltas'
 import { buildEventRevenueSeries } from '@/utils/comparisonEventSeries'
 import { trendFromEventSeries } from '@/utils/comparisonTrend'
+import { isForecastModel } from '@/utils/comparisonForecastModel'
 
 export const COMPARISON_DEBOUNCE_MS = 400
 
@@ -56,7 +62,9 @@ export function widgetDeltasFrom(deltas) {
  * @param {Ref<object>} p.mainFilters  state.filters du principal (lecture seule)
  * @param {Ref<Array>} [p.mainEvents]  events filtrés du principal (défaut : getter analyse/filteredEvents)
  * @param {Ref<object|null>} p.mainSnapshot  retour de useMainReportSnapshot
- * @param {Ref<Array>} [p.mainChartRecords]  chartRecords du principal (série de tendance)
+ * @param {Ref<Array>} [p.mainChartRecords]  chartRecords du principal (série de tendance, source Forecast)
+ * @param {Ref<Array>} [p.mainArticleRecords]  records article du principal ; l'alimenter active la source Forecast
+ * @param {Ref<Map|null>} [p.catalogById]  menuItemId (chaîne) vers Menu Item, pour les modifications Forecast
  * @param {Ref<string|null>} p.spaceId
  * @param {Ref<boolean>} p.canView  permission stats.financial.view
  * @param {(key: string) => string} p.translate
@@ -67,7 +75,7 @@ export function widgetDeltasFrom(deltas) {
  */
 export function useComparisonRuntime({
   comparison, mainFilters, mainEvents = null, mainSnapshot, mainChartRecords = null,
-  spaceId, canView, translate, defaultTimeRange = null,
+  mainArticleRecords = null, catalogById = null, spaceId, canView, translate, defaultTimeRange = null,
   debounceMs = COMPARISON_DEBOUNCE_MS, createReport = useComparisonReport, store = defaultStore,
 }) {
   // ── Activation : drawer ouvert ET modèle appliqué ──
@@ -81,6 +89,12 @@ export function useComparisonRuntime({
   const stableFilters = shallowRef(detach(unref(mainFilters)) || {})
   let syncedSignature = signature()
   const stableEvents = shallowRef(liveMainEvents.value)
+  // Records du principal recopiés avec les events (même syncMain) pour la source Forecast.
+  const liveChartRecords = () => (mainChartRecords ? unref(mainChartRecords) || [] : [])
+  const liveArticleRecords = () => (mainArticleRecords ? unref(mainArticleRecords) || [] : [])
+  const stableChartRecords = shallowRef(liveChartRecords())
+  const stableArticleRecords = shallowRef(liveArticleRecords())
+  const forecastApplied = computed(() => isForecastModel(comparison.applied.value))
   // true entre une modification du principal et la fin du délai.
   const pending = ref(false)
   let timer = null
@@ -94,8 +108,13 @@ export function useComparisonRuntime({
     stableFilters.value = detach(unref(mainFilters)) || {}
     syncedSignature = signature()
     stableEvents.value = liveMainEvents.value
+    stableChartRecords.value = liveChartRecords()
+    stableArticleRecords.value = liveArticleRecords()
     pending.value = false
   }
+  const recordsStale = () => (
+    liveChartRecords() !== stableChartRecords.value || liveArticleRecords() !== stableArticleRecords.value
+  )
   function scheduleSync() {
     pending.value = true
     clearTimer()
@@ -113,11 +132,18 @@ export function useComparisonRuntime({
     () => (active.value ? liveMainEvents.value : null),
     (e) => { if (e && e !== stableEvents.value) scheduleSync() },
   )
+  // Records vifs : suivis seulement pour un modèle Forecast (sinon aucun effet, comportement inchangé).
+  watch(
+    () => (active.value && forecastApplied.value && mainArticleRecords ? [liveChartRecords(), liveArticleRecords()] : null),
+    (r) => { if (r && recordsStale()) scheduleSync() },
+  )
+  // Passage à un modèle Forecast avec des copies périmées : resynchronisation immédiate.
+  watch(forecastApplied, (on) => { if (on && active.value && mainArticleRecords && recordsStale()) syncMain() }, { flush: 'sync' })
 
   // ── Moteur ──
   const input = computed(() => (active.value ? comparison.applied.value : null))
   const engineCanView = computed(() => active.value && !!unref(canView))
-  const report = createReport({
+  const reportArgs = {
     input,
     mainFilters: stableFilters,
     mainEvents: stableEvents,
@@ -126,7 +152,18 @@ export function useComparisonRuntime({
     translate,
     defaultTimeRange,
     store,
-  })
+  }
+  // Source Forecast : seulement si les records article du principal sont fournis.
+  if (mainArticleRecords) {
+    reportArgs.forecastSource = {
+      chartRecords: stableChartRecords,
+      articleRecords: stableArticleRecords,
+      catalogById,
+      isPredict: computed(() => (unref(mainSnapshot) ? !!unref(mainSnapshot).isPredict : true)),
+      loading: computed(() => !unref(mainSnapshot)),
+    }
+  }
+  const report = createReport(reportArgs)
 
   // ── État ──
   // true dès qu'un rapport complet a été montré pour le modèle appliqué courant : un recalcul
@@ -148,11 +185,13 @@ export function useComparisonRuntime({
   ))
 
   // ── Écarts dans les deux sens ──
+  // Forecast : le comparé a volontairement les mêmes events que le principal, jamais « identique ».
+  const sameAsMain = computed(() => !forecastApplied.value && !!report.sameAsMain.value)
   const live = computed(() => {
     if (!active.value || pending.value) return null
     const snap = report.snapshot?.value
     const main = unref(mainSnapshot)
-    if (!snap || !main || report.sameAsMain.value) return null
+    if (!snap || !main || sameAsMain.value) return null
     return { vsMain: computeReportDeltas(snap, main), mainVs: computeReportDeltas(main, snap) }
   })
   const held = shallowRef(null)
@@ -214,11 +253,13 @@ export function useComparisonRuntime({
     // périmètre
     appliedFilters: report.appliedFilters,
     excludedEvents: report.excludedEvents,
-    sameAsMain: report.sameAsMain,
+    sameAsMain,
     truncation: report.truncation,
     intraEventRangeIgnored: report.intraEventRangeIgnored,
     isPredict: report.isPredict,
     events: report.events,
+    // statistiques de la comparaison Forecast (null hors Forecast)
+    forecastStats: computed(() => report.forecastStats?.value || null),
     // écarts
     deltasVsMain,
     mainDeltasVsComparison,

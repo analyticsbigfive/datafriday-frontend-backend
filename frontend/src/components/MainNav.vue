@@ -41,7 +41,7 @@
       <v-list-item
         v-if="can('front.fb.predict')"
         prepend-icon="mdi-trending-up"
-        title="Prédire"
+        title="Prévision"
         @click="trigger('space-predict')"
       />
       <v-list-item
@@ -160,7 +160,7 @@ const route = useRoute()
 // Destinations scopées à un espace : le `:spaceId` vient de la route courante.
 // Ce tiroir est aussi ouvert depuis des pages HORS espace (SpacesPage, Account,
 // MenuBuilder) où il n'y a pas de spaceId → repli sur `/spaces` pour que
-// l'utilisateur en choisisse un. Analyse/Prédire/Préd. Événement partagent la
+// l'utilisateur en choisisse un. Analyse/Prévision/Préd. Événement partagent la
 // route `space-analyse`, différenciées par `?toolbox=` ; Live a sa route dédiée.
 const SPACE_SCOPED_PATHS = {
   'space-analyse': (id) => `/spaces/${id}`,

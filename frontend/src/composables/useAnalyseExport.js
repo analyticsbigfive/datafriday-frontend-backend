@@ -55,7 +55,7 @@ export function useAnalyseExport({ ensureDataset, spaceName, isPredictMode, noti
     const day = new Date().toISOString().split('T')[0]
     // Suffixe explicite : un classeur de prévisions transféré sans mention se lit
     // comme du réalisé.
-    return `analyse-${slug}-${day}${isPredictMode.value ? '-predict' : ''}`
+    return `analyse-${slug}-${day}${isPredictMode.value ? '-forecast' : ''}`
   }
 
   function download(blob, filename) {

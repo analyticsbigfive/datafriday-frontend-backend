@@ -81,7 +81,7 @@
                 >
                   <v-icon size="20">mdi-filter-variant</v-icon>
                 </button>
-                <h1 class="av-header__title av-header__title--desktop">{{ comparison.open.value ? t('anCmpMainTitle') : desktopTitle }}</h1>
+                <h1 class="av-header__title av-header__title--desktop">{{ comparison.open.value ? (selectedToolbox === 'predict' ? t('anToolPredict') : t('anCmpMainTitle')) : desktopTitle }}</h1>
                 <span v-if="comparison.open.value" class="av-header__rtag">{{ t('anCmpMainTag') }}</span>
                 <!-- Titre mobile (maquette Bertrand) : nom d'outil en gros + sous-titre event. -->
                 <div class="av-header__title-mobile">
@@ -128,7 +128,7 @@
                      par un menu ⋮ unique (cf. .av-header__actions--desktop @media). -->
                 <div class="av-header__actions av-header__actions--desktop d-flex align-center">
                 <button
-                  v-if="selectedToolbox === 'analyse' && !isLive"
+                  v-if="comparisonToolboxAllowed && !isLive"
                   v-can="'stats.financial.view'"
                   type="button"
                   class="av-cmp-btn"
@@ -244,7 +244,7 @@
                      en overlay depuis la DROITE. Placé juste avant le ▶ (demande Bertrand).
                      En Live, filtres gelés (timeRange=all) → masqué. -->
                 <button
-                  v-if="selectedToolbox === 'analyse' && !isLive"
+                  v-if="comparisonToolboxAllowed && !isLive"
                   v-can="'stats.financial.view'"
                   type="button"
                   class="av-mobile-filter-trigger av-mobile-cmp-trigger"
@@ -303,7 +303,7 @@
                   </template>
                   <v-list density="compact">
                     <ComparisonMenuItem
-                      v-if="selectedToolbox === 'analyse'"
+                      v-if="comparisonToolboxAllowed"
                       v-can="'stats.financial.view'"
                       @open="comparison.openDrawer()"
                     />
@@ -802,6 +802,8 @@
             :comparison="comparison"
             :form="comparisonForm"
             :runtime="comparisonRuntime"
+            :forecast-form="forecastWiring.drawerForm.value"
+            :forecast-base-values="forecastWiring.baseValues.value"
             :exporting="comparisonExporting"
             :copying="comparisonCopying"
             :sharing="comparisonSharing"
@@ -924,6 +926,7 @@ import { provideReportJ1Placement } from '@/composables/useReportJ1Placement'
 import ComparisonDrawerHead from '@/components/space-workspace/analyse/comparison/ComparisonDrawerHead.vue'
 import { useComparisonRuntime } from '@/composables/useComparisonRuntime'
 import { useMainReportSnapshot } from '@/composables/useMainReportSnapshot'
+import { useForecastComparisonWiring } from '@/composables/useForecastComparisonWiring'
 import { getDefaultTimeRange } from '@/store/modules/analyse'
 import { useComparisonForm } from '@/composables/useComparisonForm'
 import DeltaPill from '@/components/space-workspace/shared/DeltaPill.vue'
@@ -1044,15 +1047,21 @@ const {
   resetFilters,
 } = useFilters()
 
+// Outil courant vu par le drawer Comparaison (`selectedToolbox` n'est déclaré que plus bas).
+// Le drawer existe en Analyse et en Forecast (Predict) ; en Forecast il porte le what-if.
+const comparisonToolbox = computed(() => store.state.analyse.selectedToolbox)
+const comparisonToolboxAllowed = computed(
+  () => comparisonToolbox.value === 'analyse' || comparisonToolbox.value === 'predict',
+)
 // Formulaire du drawer Comparaison (brouillon conservé fermeture comprise ; vérification
-// Predict uniquement drawer ouvert).
+// Predict uniquement drawer ouvert ET hors Forecast : aucune requête Predict inutile en what-if).
 const comparisonForm = useComparisonForm({
   mainFilters: filters,
   mainEvents: filteredEvents,
   spaceId: computed(() => route.params.spaceId || null),
   translate: t,
   locale,
-  enabled: comparison.open,
+  enabled: computed(() => comparison.open.value && comparisonToolbox.value !== 'predict'),
 })
 
 // Dimensions article rendement (marque, industriel, fournisseur, promotion) : une requête
@@ -1955,12 +1964,24 @@ const mainSnapshot = useMainReportSnapshot({
   dimensionsIndex: articleDimensionsIndex,
   sourceState: kpiSourceState,
 })
+// Outil Forecast dans le drawer Comparaison : catalogue, brouillon des modifications, valeurs
+// de départ des curseurs et règle de changement d'outil (logique dans le composable).
+const forecastWiring = useForecastComparisonWiring({
+  toolbox: comparisonToolbox,
+  comparison,
+  articleRecords,
+  menuItems,
+  spaceId: computed(() => route.params.spaceId || null),
+  mainSnapshot,
+})
 const comparisonRuntime = useComparisonRuntime({
   comparison,
   mainFilters: filters,
   mainEvents: filteredEvents,
   mainSnapshot,
   mainChartRecords: chartRecords,
+  mainArticleRecords: articleRecords,
+  catalogById: forecastWiring.catalogById,
   spaceId: computed(() => route.params.spaceId || null),
   canView: canViewFinancial,
   translate: t,
