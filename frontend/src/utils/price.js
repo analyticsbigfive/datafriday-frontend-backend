@@ -96,3 +96,75 @@ export function menuItemPriceHt(mi, spaceId = null) {
   // --- Repli : synthétique (basePrice déjà HT) ou prix nu sans taux -----------
   return Number(mi.basePrice) || 0 // (5)
 }
+
+/** Nombre fini ou `null` (null, undefined et chaîne vide sont des absences, pas des zéros). */
+function finiteOrNull(v) {
+  if (v == null || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/** TTC déduit d'un HT direct quand le taux de TVA (en %) est connu, sinon `null`. */
+function ttcFromHt(ht, vatRate) {
+  const h = finiteOrNull(ht)
+  const v = finiteOrNull(vatRate)
+  return h != null && v != null && v > 0 ? h * (1 + v / 100) : null
+}
+
+/**
+ * Prix unitaire TTC d'un menu item, pour un espace donné. Même ordre de priorité de
+ * sources que `menuItemPriceHt`, mais en TTC (aucun calcul de TVA quand le TTC est lu
+ * directement). Sert de référence au ratio « nouveau prix TTC / prix catalogue actuel ».
+ *
+ * Ordre de résolution :
+ *  1. TTC par espace, forme objet  `spacePricing[spaceId].gross.ttc` puis `.price`
+ *     (à défaut, TTC déduit de `gross.ht` si un taux de TVA est connu)
+ *  2. TTC par espace, forme legacy `spaceSpecificPrices[]`
+ *  3. TTC par espace, forme DB     `spacePrices[spaceId]` (`ttc` puis `price`)
+ *  4. TTC global                   `pricing.gross.ttc`
+ *     (à défaut, TTC déduit de `pricing.gross.ht` si un taux de TVA est connu)
+ *  5. Repli                        `basePrice` tel quel
+ *
+ * @param {object} mi  Menu item normalisé.
+ * @param {string|null} spaceId  Espace courant (prix propre à l'espace).
+ * @returns {number} Prix unitaire TTC (0 si indéterminable).
+ */
+export function menuItemPriceTtc(mi, spaceId = null) {
+  if (!mi || typeof mi !== 'object') return 0
+  const globalVat = mi.pricing?.vatRate ?? mi.vatRate
+
+  // --- Prix propre à l'espace -------------------------------------------------
+  const spEntry =
+    spaceId && mi.spacePricing && typeof mi.spacePricing === 'object'
+      ? mi.spacePricing[spaceId]
+      : null
+  if (spEntry) {
+    const direct = finiteOrNull(spEntry.gross?.ttc) ?? finiteOrNull(spEntry.price)
+    if (direct != null) return direct // (1)
+    const derived = ttcFromHt(spEntry.gross?.ht, spEntry.vatRate ?? globalVat)
+    if (derived != null) return derived // (1 bis)
+  }
+  if (spaceId && Array.isArray(mi.spaceSpecificPrices)) {
+    const e = mi.spaceSpecificPrices.find(
+      (p) => Array.isArray(p?.spaceIds) && p.spaceIds.includes(spaceId),
+    )
+    const ttc = finiteOrNull(e?.price)
+    if (ttc != null) return ttc // (2)
+  }
+  const spRaw =
+    spaceId && mi.spacePrices && typeof mi.spacePrices === 'object'
+      ? mi.spacePrices[spaceId]
+      : null
+  if (spRaw) {
+    const ttc = finiteOrNull(spRaw.ttc) ?? finiteOrNull(spRaw.price)
+    if (ttc != null) return ttc // (3)
+  }
+
+  // --- Prix global ------------------------------------------------------------
+  const globalTtc = finiteOrNull(mi.pricing?.gross?.ttc)
+  if (globalTtc != null) return globalTtc // (4)
+  const globalDerived = ttcFromHt(mi.pricing?.gross?.ht, globalVat)
+  if (globalDerived != null) return globalDerived // (4 bis)
+
+  return finiteOrNull(mi.basePrice) ?? 0 // (5)
+}
