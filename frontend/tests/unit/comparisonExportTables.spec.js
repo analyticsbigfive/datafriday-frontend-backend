@@ -111,11 +111,11 @@ describe('noms de fichiers', () => {
     expect(localDay(new Date(2026, 0, 5, 23, 59))).toBe('2026-01-05')
     expect(localDay(new Date(2026, 11, 31, 0, 1))).toBe('2026-12-31')
   })
-  it('comparisonFileBase : avec et sans libellé, suffixe predict', () => {
+  it('comparisonFileBase : avec et sans libellé, suffixe forecast', () => {
     const date = new Date(2026, 9, 14)
     expect(comparisonFileBase({ spaceName: 'Stade Océane', label: 'Saison 2025', date })).toBe('comparaison-stade-oceane-saison-2025-2026-10-14')
     expect(comparisonFileBase({ spaceName: 'Stade Océane', date })).toBe('comparaison-stade-oceane-2026-10-14')
-    expect(comparisonFileBase({ spaceName: '', date, predict: true })).toBe('comparaison-analyse-2026-10-14-predict')
+    expect(comparisonFileBase({ spaceName: '', date, predict: true })).toBe('comparaison-analyse-2026-10-14-forecast')
   })
 })
 

@@ -44,7 +44,7 @@ jest.mock('@/utils/timelineBucketing', () => ({
   preprocessTimelineRecords: (rows) => rows,
 }))
 
-import { createApp, ref, nextTick } from 'vue'
+import { createApp, ref, shallowRef, nextTick } from 'vue'
 import { buildConfigShopEntryReadOnly } from '@/store/modules/analyse'
 import store from '@/store'
 import { getSpaceEventTimelineBatch, getSpaceTransactionBasketsBatch } from '@/api/endpoints/space.api'
@@ -52,6 +52,7 @@ import { listEventPredictVersions } from '@/api/endpoints/eventPredict.api'
 import { getStockValuation } from '@/api/endpoints/analyse-rendement.api'
 import { useComparisonReport } from '@/composables/useComparisonReport'
 import { ITEM_LEVEL_EVENT_CAP } from '@/composables/useAnalyseItemRecords'
+import { FORECAST_MODIFICATION_TYPES as T, PERCAP_MODES, createModification } from '@/utils/forecastModificationModel'
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms))
 async function settle() {
@@ -97,7 +98,7 @@ function setupApis({ delay = false } = {}) {
   getSpaceTransactionBasketsBatch.mockImplementation(async (spaceId, ids) => new Map(ids.map((id) => [id, [basket(id)]])))
 }
 
-function build({ input, mainEvents = [], mainSnapshot = null, canView = false, analysable = EVENTS, spaceEvents = null, mainFilters = MAIN_FILTERS } = {}) {
+function build({ input, mainEvents = [], mainSnapshot = null, canView = false, analysable = EVENTS, spaceEvents = null, mainFilters = MAIN_FILTERS, forecastSource } = {}) {
   store.getters = {
     'analyse/analysableEvents': analysable,
     'analyse/spaceAnalysableEvents': spaceEvents || analysable,
@@ -115,6 +116,7 @@ function build({ input, mainEvents = [], mainSnapshot = null, canView = false, a
     canView: ref(canView),
     translate: (k) => k,
     articleDimensions: { index: ref(null), status: ref('ready') },
+    ...(forecastSource ? { forecastSource } : {}),
   }))
   return { report: out, inputRef, mainFiltersRef }
 }
@@ -313,5 +315,110 @@ describe('useComparisonReport', () => {
     expect(getStockValuation).toHaveBeenCalledTimes(1)
     expect(report.rendementRaw.value.stockValue).toBe(500)
     expect(report.widgets.value.stockValue).toBe(500)
+  })
+})
+
+describe('useComparisonReport, comparaison Forecast', () => {
+  // Records du principal (shallowRef : comme des computed, sans proxy réactif).
+  const forecastSourceOf = (over = {}) => ({
+    chartRecords: shallowRef([sale('e1'), sale('e2')]),
+    articleRecords: shallowRef([sale('e1'), sale('e2')]),
+    catalogById: ref(new Map()),
+    isPredict: ref(false),
+    loading: ref(false),
+    ...over,
+  })
+  const basketPlus10 = () => createModification(T.PERCAP, { mode: PERCAP_MODES.BASKET, value: 10 })
+  const buildForecast = (modifications, extra = {}) => build({
+    input: { kind: 'forecast', modifications },
+    mainEvents: [EVENTS[0], EVENTS[1]],
+    forecastSource: forecastSourceOf(),
+    ...extra,
+  })
+
+  it('aucune API de ventes, paniers ni timeline : mêmes events que le principal, records modifiés', async () => {
+    const { report } = buildForecast([basketPlus10()], { canView: false })
+    await settle()
+    await tick(400)
+    expect(getSpaceEventTimelineBatch).not.toHaveBeenCalled()
+    expect(getSpaceTransactionBasketsBatch).not.toHaveBeenCalled()
+    expect(listEventPredictVersions).not.toHaveBeenCalled()
+    expect(report.status.value).toBe('ready')
+    expect(report.events.value.map((e) => e.id)).toEqual(['e1', 'e2'])
+    expect(report.sameAsMain.value).toBe(false)
+    expect(report.isPredict.value).toBe(false)
+    expect(report.timeline.active.value).toBe(false)
+    expect(report.timeline.records.value).toEqual([])
+    // CA du principal 2 x 100, +10 % de panier ; transactions et quantités inchangées
+    expect(report.chips.value.revenue).toBeCloseTo(220, 6)
+    expect(report.chips.value.transactions).toBe(10)
+    expect(report.totals.value.revenue).toBeCloseTo(220, 6)
+    expect(report.snapshot.value.sections.shopChartRevenue).toBeCloseTo(220, 6)
+    expect(report.articleRecords.value.reduce((n, r) => n + r.revenue, 0)).toBeCloseTo(220, 6)
+    expect(report.filteredBaskets.value).toEqual([])
+  })
+
+  it('liste vide : records du principal inchangés, aucun filtre appliqué', async () => {
+    const source = forecastSourceOf()
+    const { report } = buildForecast([], { forecastSource: source })
+    await settle()
+    expect(report.status.value).toBe('ready')
+    expect(report.chartRecords.value).toBe(source.chartRecords.value)
+    expect(report.appliedFilters.value).toEqual([])
+    expect(report.chips.value.revenue).toBe(200)
+    expect(report.forecastStats.value.priceModificationCount).toBe(0)
+  })
+
+  it('une ligne de filtre appliqué par modification, propre à la comparaison', async () => {
+    const { report } = buildForecast([basketPlus10()])
+    await settle()
+    expect(report.appliedFilters.value).toHaveLength(1)
+    expect(report.appliedFilters.value[0]).toMatchObject({ key: 'percap:basket', own: true })
+    // translate est l'identité dans ce spec : le gabarit global de la modification est utilisé
+    expect(report.appliedFilters.value[0].label).toBe('fcstLabelGlobal')
+  })
+
+  it('pas de plafond d\'events ni de plage horaire ignorée', async () => {
+    const many = Array.from({ length: ITEM_LEVEL_EVENT_CAP + 20 }, (_, i) => ev(`x${i}`, '2026-01-10'))
+    const filters = { ...MAIN_FILTERS, selectedTimeRange: { start: '19:00', end: '21:00' } }
+    const { report } = buildForecast([basketPlus10()], { mainEvents: many, analysable: many, mainFilters: filters })
+    await settle()
+    expect(report.truncation.value).toEqual({ truncated: false, total: ITEM_LEVEL_EVENT_CAP + 20, kept: ITEM_LEVEL_EVENT_CAP + 20, cap: ITEM_LEVEL_EVENT_CAP })
+    expect(report.events.value).toHaveLength(ITEM_LEVEL_EVENT_CAP + 20)
+    expect(report.intraEventRangeIgnored.value).toBe(false)
+    expect(getSpaceEventTimelineBatch).not.toHaveBeenCalled()
+  })
+
+  it('états : loading pendant le chargement du principal, empty sans record', async () => {
+    const source = forecastSourceOf({ loading: ref(true) })
+    const { report } = buildForecast([], { forecastSource: source })
+    await settle()
+    expect(report.status.value).toBe('loading')
+    source.loading.value = false
+    await settle()
+    expect(report.status.value).toBe('ready')
+    source.chartRecords.value = []
+    await settle()
+    expect(report.status.value).toBe('empty')
+    expect(report.snapshot.value).toBeNull()
+  })
+
+  it('le masque Predict du principal est repris, sans scénarios chargés : transactions, panier et transformation calculés, TX/MIN et stock null', async () => {
+    const { report } = buildForecast([basketPlus10()], { forecastSource: forecastSourceOf({ isPredict: ref(true) }) })
+    await settle()
+    expect(report.isPredict.value).toBe(true)
+    // Records du principal (transactions estimées) : même calcul que hors Predict (cf. test précédent).
+    expect(report.chips.value.transactions).toBe(10)
+    expect(report.chips.value.avgTransaction).toBeCloseTo(22, 6)
+    expect(report.widgets.value.transactionRate).toBeNull()
+    expect(report.widgets.value.stockValue).toBeNull()
+    expect(listEventPredictVersions).not.toHaveBeenCalled()
+  })
+
+  it('sans forecastSource, une saisie forecast reste inerte (comportement inchangé)', async () => {
+    const { report } = build({ input: { kind: 'forecast', modifications: [basketPlus10()] }, mainEvents: [EVENTS[0]] })
+    await settle()
+    expect(report.forecastStats.value.priceModificationCount).toBe(0)
+    expect(report.appliedFilters.value.some((f) => f.key === 'percap:basket')).toBe(false)
   })
 })

@@ -161,9 +161,9 @@
                 <!-- Predict View Section -->
                 <section class="space-y-6">
                   <div>
-                    <h2 class="text-lg font-semibold mb-1">Predict View</h2>
+                    <h2 class="text-lg font-semibold mb-1">Forecast View</h2>
                     <p class="text-sm text-gray-600 dark:text-gray-400">
-                      Configure default settings for the Predict View
+                      Configure default settings for the Forecast View
                     </p>
                   </div>
 
@@ -189,7 +189,7 @@
                         </option>
                       </select>
                       <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                        This setting determines the default date range filter when you switch to the Predict view.
+                        This setting determines the default date range filter when you switch to the Forecast view.
                       </p>
                     </div>
 
@@ -199,8 +199,8 @@
                         How it works
                       </h3>
                       <ul class="text-sm space-y-1 text-purple-800 dark:text-purple-200">
-                        <li>• When you switch to Predict from the Tools dropdown, your saved date range will be applied</li>
-                        <li>• Predict view focuses on future events and uses different date presets than Analyse view</li>
+                        <li>• When you switch to Forecast from the Tools dropdown, your saved date range will be applied</li>
+                        <li>• Forecast view focuses on future events and uses different date presets than Analyse view</li>
                         <li>• You can always change the date range using the filters at any time</li>
                         <li>• This preference is saved separately from your Analyse view preference</li>
                       </ul>
@@ -326,7 +326,7 @@ export default {
         const result = await api.saveUserPreferences({ defaultPredictDateRangePreset: newValue });
         console.log('[PREFERENCES] Save result:', result);
         this.$toast?.success?.(
-          `Default Predict date range set to "${PREDICT_DATE_RANGE_LABEL_MAP[newValue] || newValue}"`
+          `Default Forecast date range set to "${PREDICT_DATE_RANGE_LABEL_MAP[newValue] || newValue}"`
         );
       } catch (error) {
         console.error('[PREFERENCES] Failed to save Predict preferences:', error);

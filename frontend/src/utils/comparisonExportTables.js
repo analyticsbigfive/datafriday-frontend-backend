@@ -67,7 +67,7 @@ export function localDay(date = new Date()) {
  */
 export function comparisonFileBase({ spaceName, label = '', date = new Date(), predict = false }) {
   const parts = ['comparaison', slugify(spaceName, 'analyse'), slugify(label, '', 40), localDay(date)].filter(Boolean)
-  return parts.join('-') + (predict ? '-predict' : '')
+  return parts.join('-') + (predict ? '-forecast' : '')
 }
 
 /**

@@ -135,6 +135,7 @@ Client Axios central `src/api/client.js` (`baseURL = VUE_APP_API_URL`), 27 clien
 |---|---|---|---|---|---|
 | Liste espaces | /spaces | CRUD espaces | `space.api` | — | Ulrich |
 | **Analyse** | /spaces/:id | KPI/coûts/menu d'un espace | `analyse.api` (dashboard, kpis/events, kpis/menu, cost-breakdown) | front.fb.analyse | **Jean-Luc** |
+| **Forecast / Prévision** (outil d'Analyse, ex-« Predict », à ne pas confondre avec Event Predict) | /spaces/:id, outil `predict` du menu d'outils | Analyse prévisionnelle et comparaison what-if (prix, catégorie, type, transformation, Percap, panier), voir [`modules/02_ANALYSE.md`](modules/02_ANALYSE.md) | aucune requête propre au what-if (records du principal) | front.fb.predict | **Jean-Luc** |
 | **Builder v2** | /spaces/:id/builder2 | Éditeur de plan (autosave granulaire) — frontend v1 (`/spaces/:id/builder`) retiré le 2026-07-22 | `builder-v2.api` | space.edit | Ulrich |
 | **Event Predict** | /spaces/:id/predict | Prévision par événement | `eventPredict.api` (predict-versions) | front.fb.eventPredict | **Jean-Luc** |
 | **Inventaire** | /spaces/:id/inventory | Comptages par shop/storage | `inventory.api` | front.fb.spaceInventory | **Jean-Luc** |
