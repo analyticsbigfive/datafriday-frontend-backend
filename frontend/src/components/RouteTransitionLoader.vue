@@ -81,7 +81,7 @@ export default {
     labelFor(path) {
       const p = String(path || '')
       if (/event-predict/.test(p)) return 'Chargement Event Predict…'
-      if (/\/predict/.test(p)) return 'Chargement Predict…'
+      if (/\/predict/.test(p)) return 'Chargement Event Predict…'
       if (/\/pre-inventory/.test(p)) return 'Chargement Pre-event Inventory…'
       if (/\/inventory/.test(p)) return 'Chargement Post-event Inventory…'
       if (/\/builder/.test(p)) return 'Chargement Space Builder…'
