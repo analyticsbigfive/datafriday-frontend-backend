@@ -15,6 +15,8 @@ import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
 import { useAnalyseExport } from '@/composables/useAnalyseExport'
 import { comparisonSummaryLabel } from '@/utils/comparisonReportView'
 import { buildDeltaTable, buildEventAggregates, comparisonFileBase } from '@/utils/comparisonExportTables'
+import { isForecastModel } from '@/utils/comparisonForecastModel'
+import { withForecastModificationRows } from '@/utils/comparisonForecastContext'
 
 /**
  * @param {object} p
@@ -69,7 +71,11 @@ export function useComparisonExport({ comparison, runtime, mainSnapshot, spaceNa
           parameter: t('anCmpExportFilterComparison'),
           value: label.value || '—',
         })
-        tables.push({ ...table, rows })
+        // Forecast : une ligne par modification, sans la ligne des filtres actifs.
+        const finalRows = isForecastModel(comparison.applied.value)
+          ? withForecastModificationRows(rows, runtime.appliedFilters.value, t)
+          : rows
+        tables.push({ ...table, rows: finalRows })
       } else if (table.key === 'kpi') {
         const keep = table.columns.filter((c) => c.key !== 'deltaPrev' && c.key !== 'deltaYoy')
         tables.push({ ...table, columns: keep })
@@ -90,7 +96,7 @@ export function useComparisonExport({ comparison, runtime, mainSnapshot, spaceNa
   const fileBase = () => comparisonFileBase({
     spaceName: spaceName.value,
     label: label.value,
-    predict: runtime.isPredict.value,
+    predict: runtime.isPredict.value || isForecastModel(comparison.applied.value),
   })
 
   const { exporting, onExportCsv } = useAnalyseExport({

@@ -10,6 +10,10 @@
  *
  * Plage horaire intra-event : le grain chargé est « summary » (sans minute), le curseur
  * horaire est donc inerte ici (skipMinute), comme dans le principal quand sa courbe est fermée.
+ *
+ * Cas Forecast : le comparé est le principal passé par le moteur de modifications what-if
+ * (useComparisonForecast). Ni ventes ni paniers à charger, aucun refiltrage : les records
+ * reçus portent déjà les filtres du principal.
  */
 import { computed } from 'vue'
 import defaultStore from '@/store'
@@ -32,16 +36,20 @@ import { versionForBasis } from '@/utils/comparisonPredictBasis'
  * @param {import('vue').Ref<Map>} p.scenarioVersions  eventId -> version Event Predict retenue
  * @param {import('vue').Ref<Map|null>} p.dimensionsIndex  index des dimensions article
  * @param {import('vue').Ref<string>} [p.predictBasis]  'adjusted' (défaut) | 'algo' : base des quantités du scénario
+ * @param {object|null} [p.forecast]  useComparisonForecast ({ active, chartRecords, articleRecords, sourceState })
  * @param {object} [p.store]
  */
 export function useComparisonRecords({
-  filters, events, isPredict, scenarioVersions, dimensionsIndex, predictBasis = null, store = defaultStore,
+  filters, events, isPredict, scenarioVersions, dimensionsIndex, predictBasis = null, forecast = null,
+  store = defaultStore,
 }) {
+  const isForecast = computed(() => !!forecast && !!forecast.active.value)
+
   // Contexte élargi aux configurations des events chargés (lecture seule, principal intact).
   const reconciliationCtx = useComparisonReconciliationContext({ events, store })
 
-  // Predict : aucune vente réelle à charger.
-  const loadEvents = computed(() => (isPredict.value ? [] : events.value || []))
+  // Predict et Forecast : aucune vente réelle à charger.
+  const loadEvents = computed(() => (isPredict.value || isForecast.value ? [] : events.value || []))
   const items = useAnalyseItemRecords(loadEvents, { reconciliationContext: reconciliationCtx })
   const baskets = useTransactionBaskets(loadEvents)
 
@@ -55,7 +63,7 @@ export function useComparisonRecords({
 
   // ── Réel (mode Analyse) ──
   const itemLevelRecords = computed(() => {
-    if (isPredict.value || !filters.value) return []
+    if (isPredict.value || isForecast.value || !filters.value) return []
     const recs = items.itemRecords.value || []
     return recs.length ? recs.filter(predicate.value) : []
   })
@@ -76,12 +84,18 @@ export function useComparisonRecords({
   })
 
   // Même jeu pour les graphes et les vues article (en Predict, le scénario porte déjà le grain article).
-  const chartRecords = computed(() => (isPredict.value ? scenarioRecords.value : itemLevelRecords.value))
-  const articleRecords = chartRecords
+  // Forecast : records du principal modifiés, sans refiltrage.
+  const chartRecords = computed(() => {
+    if (isForecast.value) return forecast.chartRecords.value
+    return isPredict.value ? scenarioRecords.value : itemLevelRecords.value
+  })
+  const articleRecords = computed(() => (
+    isForecast.value ? forecast.articleRecords.value : chartRecords.value
+  ))
 
   // ── Paniers (transactions, panier moyen, TX/MIN) ──
   const filteredBaskets = computed(() => {
-    if (isPredict.value || !filters.value) return []
+    if (isPredict.value || isForecast.value || !filters.value) return []
     const recs = baskets.basketRecords.value || []
     if (!recs.length) return []
     return recs
@@ -91,16 +105,19 @@ export function useComparisonRecords({
 
   const basketsState = baskets.sourceState
   const perShopTransactionRateSum = computed(() => (
-    isPredict.value || basketsState.value === 'loading' || basketsState.value === 'error'
+    isPredict.value || isForecast.value || basketsState.value === 'loading' || basketsState.value === 'error'
       ? null
       : sumShopTransactionRates(filteredBaskets.value)
   ))
 
-  const kpiSourceState = computed(() => resolveKpiSourceState({
-    isPredict: isPredict.value,
-    itemLevelState: items.sourceState.value,
-    transactionState: basketsState.value,
-  }))
+  const kpiSourceState = computed(() => {
+    if (isForecast.value) return forecast.sourceState.value
+    return resolveKpiSourceState({
+      isPredict: isPredict.value,
+      itemLevelState: items.sourceState.value,
+      transactionState: basketsState.value,
+    })
+  })
 
   return {
     itemLevelRecords,

@@ -2,6 +2,8 @@
  * comparisonReportView : view-models purs du rapport de comparaison (drawer).
  * Aucune dépendance au DOM ni au store : les formateurs et `t` arrivent en paramètres.
  */
+import { isForecastModel } from '@/utils/comparisonForecastModel'
+import { forecastSummaryLabel } from '@/utils/comparisonForecastContext'
 
 // Les 8 puces du haut, dans l'ordre et avec les couleurs de la bande du principal (headerKpis).
 export const KPI_CHIP_DEFS = [
@@ -46,6 +48,8 @@ export function buildKpiChips(chips, chipDeltas, { t, fmt }) {
  */
 export function comparisonSummaryLabel(model, appliedFilters, t, events = []) {
   if (!model) return ''
+  // Forecast : résumé des modifications (les lignes des filtres appliqués les décrivent).
+  if (isForecastModel(model)) return forecastSummaryLabel(appliedFilters, t)
   if (model.kind === 'predict') return t('anCmpSummaryPredict')
   if (model.kind === 'event' && (model.eventIds || []).length === 1) {
     // Un seul event : son nom plutôt que « 1 événement(s) » (repli sur le compte si introuvable).

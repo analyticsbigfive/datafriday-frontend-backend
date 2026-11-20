@@ -49,7 +49,7 @@ afterEach(() => {
   document.createElement.mockRestore()
 })
 
-function mountExport({ runtimeOver = {}, stateValue = 'ready' } = {}) {
+function mountExport({ runtimeOver = {}, stateValue = 'ready', applied = null } = {}) {
   const store = makeStore()
   const notify = jest.fn()
   const api = {}
@@ -63,7 +63,7 @@ function mountExport({ runtimeOver = {}, stateValue = 'ready' } = {}) {
   const Host = defineComponent({
     setup() {
       Object.assign(api, useComparisonExport({
-        comparison: fakeComparison(),
+        comparison: applied ? fakeComparison({ applied: shallowRef(applied) }) : fakeComparison(),
         runtime: rt,
         mainSnapshot: shallowRef(B),
         spaceName: computed(() => 'Stade Océane'),
@@ -101,6 +101,20 @@ describe('useComparisonExport', () => {
     api.exportCsv()
     expect(anchor.download).toMatch(/^comparaison-stade-oceane-.*\d{4}-\d{2}-\d{2}\.csv$/)
     expect(api.fileBase()).toBe(anchor.download.replace('.csv', ''))
+  })
+
+  it('Forecast : une ligne par modification dans les paramètres et suffixe -forecast', () => {
+    const { api } = mountExport({
+      applied: { kind: 'forecast', modifications: [] },
+      runtimeOver: { appliedFilters: ref([{ key: 'm1', label: 'Bière : prix 7 €' }, { key: 'm2', label: 'Percap +5 %' }]) },
+    })
+    api.exportCsv()
+    const csv = captured[0]
+    expect(csv).toMatch(/Modification;Bière : prix 7 €/)
+    expect(csv).toMatch(/Modification;Percap \+5 %/)
+    expect(csv).toMatch(/Comparaison;/)
+    expect(anchor.download).toMatch(/-forecast\.csv$/)
+    expect(api.fileBase()).toMatch(/-forecast$/)
   })
 
   it('ne touche jamais au dataset du principal dans le store', () => {
