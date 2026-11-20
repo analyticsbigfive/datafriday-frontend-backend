@@ -30,6 +30,7 @@ import {
 import { t as translate, getCurrentLocale } from '@/i18n/translations'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { scenarioRecordsToAnalyseRecords } from '@/utils/predictScenarioRecords'
+import { applyPredictedTransactions } from '@/utils/predictedTransactions'
 import { parseEventSessions } from '@/utils/eventSessions'
 import {
   applyDayWeatherFilters,
@@ -2268,6 +2269,8 @@ const actions = {
     const _t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
     let predictiveRecords = []
     const actualOnly = state.shopGranularData.filter((r) => !r.isPredictive)
+    // Historique réel utilisé par le moteur (repli des sources pour estimer les transactions).
+    let pastData = []
     try {
       // PERF : même sémantique que generatePredictionsForAllFutureEvents
       // (predictiveAnalytics.js L434-476 — split futur/passé identique) mais la
@@ -2292,7 +2295,7 @@ const actions = {
         } else pastEvents.push(event)
       }
       const pastEventIds = new Set(pastEvents.map((e) => e.id))
-      const pastData = actualOnly.filter((d) => pastEventIds.has(d.eventId))
+      pastData = actualOnly.filter((d) => pastEventIds.has(d.eventId))
       if (futureEvents.length && pastEvents.length && pastData.length) {
         for (const fe of futureEvents) {
           // Mémo par event×config×volume de données : re-entrée en mode predict
@@ -2384,6 +2387,9 @@ const actions = {
             isPredictive: true,
             revenue: Math.round((Number(r.revenue ?? r.revenueHt) || 0) * factor * 100) / 100,
             quantity: Math.max(0, Math.round((r.quantity || 0) * factor)),
+            // Mêmes proportions que le CA et les quantités : un ticket réel non mis à l'échelle
+            // mélangerait des transactions du match réel à un CA scénarisé.
+            transactionCount: Math.max(0, Math.round((r.transactionCount || 0) * factor)),
             fromVersionId: version.id,
           })
         }
@@ -2406,6 +2412,10 @@ const actions = {
     for (const [eventId, version] of versionMap.entries()) {
       commit('SET_ACTIVE_PREDICTION_VERSION', { eventId, versionId: version.id })
     }
+
+    // Transactions prévues des events futurs (le moteur laisse transactionCount à 0), après
+    // les overrides de scénario : elles suivent les quantités finales.
+    predictiveRecords = applyPredictedTransactions(predictiveRecords, pastData)
 
     // Marque ces records comme générés par le MOTEUR (vs pré-calibrés par le
     // mock). Sert de garde au déclencheur predict (AnalyseView) : on régénère

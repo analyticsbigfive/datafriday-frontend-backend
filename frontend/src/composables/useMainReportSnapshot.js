@@ -36,7 +36,9 @@ export function useMainReportSnapshot({
     return buildReportSnapshot({
       isPredict: predict,
       eventCount: (unref(events) || []).length,
-      chips: chipsFromMetrics(metrics, { isPredict: predict }),
+      // Le principal en Predict (outil Forecast) lit des records qui portent des transactions
+      // estimées : puces Transactions / Panier / Transformation calculées, comme le comparé Forecast.
+      chips: chipsFromMetrics(metrics, { isPredict: predict, predictTransactions: true }),
       widgets: widgetsFromMetrics(metrics, rendementRaw, { isPredict: predict }),
       chartRecords: unref(chartRecords) || [],
       articleRecords: unref(articleRecords) || [],
