@@ -24,12 +24,24 @@ describe('chipsFromMetrics', () => {
     })
     expect(Object.keys(c)).toEqual(CHIP_KEYS)
   })
-  it('Predict : transactions, panier et transformation sans objet', () => {
+  it('Predict sans transactions estimées (scénarios) : transactions, panier et transformation sans objet', () => {
     const c = chipsFromMetrics(metrics, { isPredict: true })
     expect(c.transactions).toBeNull()
     expect(c.avgTransaction).toBeNull()
     expect(c.transferRate).toBeNull()
     expect(c.revenue).toBe(1000)
+  })
+  it('Predict avec transactions estimées (Forecast) : mêmes formules que hors Predict', () => {
+    const c = chipsFromMetrics(metrics, { isPredict: true, predictTransactions: true })
+    expect(c).toEqual(chipsFromMetrics(metrics))
+    expect(c.transactions).toBe(100)
+    expect(c.avgTransaction).toBe(10)
+    expect(c.transferRate).toBe(25)
+  })
+  it('Predict avec transactions estimées, sans spectateurs : transformation null', () => {
+    const c = chipsFromMetrics({ ...metrics, displayAttendees: ref(0) }, { isPredict: true, predictTransactions: true })
+    expect(c.transactions).toBe(100)
+    expect(c.transferRate).toBeNull()
   })
   it('sans spectateurs : transformation null', () => {
     const c = chipsFromMetrics({ ...metrics, displayAttendees: ref(0) })
@@ -44,8 +56,8 @@ describe('widgetsFromMetrics', () => {
     expect(w).toEqual({ revenuePerTpe: 12, revenuePerCollaborator: null, margin: 70, transactionRate: 1.2, stockValue: 800 })
     expect(Object.keys(w)).toEqual(WIDGET_KEYS)
   })
-  it('Predict : TX/MIN et VALO STOCK null', () => {
-    const w = widgetsFromMetrics(metrics, raw, { isPredict: true })
+  it('Predict : TX/MIN et VALO STOCK restent null (même avec des transactions estimées)', () => {
+    const w = widgetsFromMetrics(metrics, raw, { isPredict: true, predictTransactions: true })
     expect(w.transactionRate).toBeNull()
     expect(w.stockValue).toBeNull()
     expect(w.margin).toBe(70)
@@ -135,10 +147,13 @@ describe('useMainReportSnapshot', () => {
     state.value = 'ready'
     expect(snap.value).not.toBeNull()
   })
-  it('Predict : champs sans objet à null', () => {
+  it('Predict : transactions, panier et transformation calculés, TX/MIN et VALO STOCK à null', () => {
     const snap = useMainReportSnapshot({ ...common, isPredict: ref(true) })
     expect(snap.value.isPredict).toBe(true)
-    expect(snap.value.chips.transactions).toBeNull()
+    expect(snap.value.chips.transactions).toBe(100)
+    expect(snap.value.chips.avgTransaction).toBe(10)
+    expect(snap.value.chips.transferRate).toBe(25)
+    expect(snap.value.widgets.transactionRate).toBeNull()
     expect(snap.value.widgets.stockValue).toBeNull()
   })
 })

@@ -403,11 +403,15 @@ describe('useComparisonReport, comparaison Forecast', () => {
     expect(report.snapshot.value).toBeNull()
   })
 
-  it('le masque Predict du principal est repris tel quel, sans scénarios chargés', async () => {
+  it('le masque Predict du principal est repris, sans scénarios chargés : transactions, panier et transformation calculés, TX/MIN et stock null', async () => {
     const { report } = buildForecast([basketPlus10()], { forecastSource: forecastSourceOf({ isPredict: ref(true) }) })
     await settle()
     expect(report.isPredict.value).toBe(true)
-    expect(report.chips.value.transactions).toBeNull()
+    // Records du principal (transactions estimées) : même calcul que hors Predict (cf. test précédent).
+    expect(report.chips.value.transactions).toBe(10)
+    expect(report.chips.value.avgTransaction).toBeCloseTo(22, 6)
+    expect(report.widgets.value.transactionRate).toBeNull()
+    expect(report.widgets.value.stockValue).toBeNull()
     expect(listEventPredictVersions).not.toHaveBeenCalled()
   })
 

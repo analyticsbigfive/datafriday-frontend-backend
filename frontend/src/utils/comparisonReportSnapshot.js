@@ -50,21 +50,24 @@ const num = (v) => {
 /**
  * Les 8 puces du haut depuis `metrics` (useMetricsCalculator), avec les formules du
  * header d'AnalyseView (headerKpis). En Predict, transactions / panier / transformation
- * n'ont pas d'objet (un scénario produit des quantités, jamais de tickets) : null.
+ * n'ont d'objet que si les records portent des transactions : c'est le cas de l'outil
+ * Forecast (transactions estimées par utils/predictedTransactions, `predictTransactions`
+ * vrai), pas d'un scénario Event Predict (quantités, jamais de tickets : null).
  */
-export function chipsFromMetrics(metrics, { isPredict = false } = {}) {
+export function chipsFromMetrics(metrics, { isPredict = false, predictTransactions = false } = {}) {
   const m = metrics || {}
   const rev = num(m.displayRevenue) ?? 0
   const trans = num(m.displayTransactions) ?? 0
   const att = num(m.displayAttendees) ?? 0
+  const noTransactions = isPredict && !predictTransactions
   return {
     revenue: rev,
     avgRevenuePerEvent: num(m.displayAvgRevenue) ?? 0,
     cost: num(m.displayCost) ?? 0,
-    transactions: isPredict ? null : trans,
-    avgTransaction: isPredict ? null : (trans ? rev / trans : 0),
+    transactions: noTransactions ? null : trans,
+    avgTransaction: noTransactions ? null : (trans ? rev / trans : 0),
     attendees: att,
-    transferRate: isPredict || !att ? null : (trans / att) * 100,
+    transferRate: noTransactions || !att ? null : (trans / att) * 100,
     perCapita: num(m.displayPerCapita) ?? 0,
   }
 }

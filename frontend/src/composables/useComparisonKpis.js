@@ -3,7 +3,8 @@
  * calculés avec les mêmes composables et les mêmes règles que le principal :
  * useMetricsCalculator (8 puces + marge + TX/MIN), useRendementWidgets (CA/TPE, CA/COLLAB,
  * VALO STOCK : events sans effectif exclus, « — » avec filtre PdV/type/zone) et
- * computeItemTotals. Predict : transactions, panier, transformation, TX/MIN et VALO STOCK = null.
+ * computeItemTotals. Predict : TX/MIN et VALO STOCK = null ; transactions, panier, transformation = null
+ * sauf en Forecast (records portant des transactions estimées).
  */
 import { computed, ref } from 'vue'
 import defaultStore from '@/store'
@@ -77,7 +78,9 @@ export function useComparisonKpis({
     stockApplicable: computed(() => !isPredict.value),
   })
 
-  const chips = computed(() => chipsFromMetrics(metrics, { isPredict: isPredict.value }))
+  // Forecast : mêmes records que le principal (transactions estimées) donc mêmes puces calculées.
+  // Predict scénarios : aucun ticket dans les records, ces trois puces restent null.
+  const chips = computed(() => chipsFromMetrics(metrics, { isPredict: isPredict.value, predictTransactions: isForecast.value }))
   const widgets = computed(() => widgetsFromMetrics(metrics, rendement.raw, { isPredict: isPredict.value }))
 
   // Totaux au grain article (computeItemTotals), sur les events réellement chargés.
