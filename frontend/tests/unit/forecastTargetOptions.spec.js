@@ -56,6 +56,25 @@ describe('forecastTargetOptions', () => {
     expect(byId.m404).toMatchObject({ currentTtc: 0, priceable: false })
   })
 
+  it('vatRate : taux du prix affiché (espace puis global), null si inconnu', () => {
+    const catalog = new Map([
+      ['m1', { id: 'm1', basePrice: 8, pricing: { vatRate: 10 } }],
+      ['m2', { id: 'm2', basePrice: 3 }],
+      ['m4', { id: 'm4', basePrice: 8, pricing: { vatRate: 10 }, spacePricing: { sp1: { gross: { ttc: 10 }, vatRate: 20 } } }],
+    ])
+    const articleRecords = [
+      rec({}),
+      rec({ menuItemId: 'm2', menuItemName: 'Eau' }),
+      rec({ menuItemId: 'm4', menuItemName: 'Prix espace' }),
+      rec({ menuItemId: 'm404', menuItemName: 'Hors catalogue' }),
+    ]
+    const byId = (spaceId) => Object.fromEntries(
+      forecastTargetOptions({ articleRecords, catalogById: catalog, spaceId }).items.map((i) => [i.id, i.vatRate]),
+    )
+    expect(byId('sp1')).toEqual({ m1: 10, m2: null, m4: 20, m404: null })
+    expect(byId('autre').m4).toBe(10)
+  })
+
   it('utilise le prix propre à l\'espace courant', () => {
     const articleRecords = [rec({ menuItemId: 'm4', menuItemName: 'Prix espace' })]
     expect(forecastTargetOptions({ articleRecords, catalogById, spaceId: 'sp1' }).items[0].currentTtc).toBe(10)

@@ -7,7 +7,7 @@
  * rattaché » n'apparaît jamais dans les catégories ni les types.
  */
 
-import { menuItemPriceTtc } from '@/utils/price'
+import { menuItemPriceTtc, menuItemVatRate } from '@/utils/price'
 import { articleFromRecord, isTargetableArticle } from '@/utils/forecastPriceRatio'
 import { UNATTACHED_ITEM_KEY } from '@/utils/analyseReconciliation'
 
@@ -26,7 +26,8 @@ function sortedNames(set) {
  * @param {Map<string, object>} [input.catalogById]  menuItemId (chaîne) vers Menu Item.
  * @param {string|null} [input.spaceId]  Espace courant.
  * @returns {{
- *   items: { id: string, name: string, currentTtc: number, priceable: boolean }[],
+ *   items: { id: string, name: string, currentTtc: number, vatRate: number|null, priceable: boolean }[],
+ *     (vatRate : taux de TVA en % du prix TTC, null si inconnu : pas de HT dérivable),
  *   categories: string[],
  *   types: string[],
  * }}  items triés par nom ; categories et types : noms distincts triés.
@@ -58,6 +59,7 @@ export function forecastTargetOptions({ articleRecords, catalogById = null, spac
       id: article.menuItemId,
       name,
       currentTtc,
+      vatRate: menuItemVatRate(catalogItem, spaceId),
       priceable: currentTtc > 0,
     })
   }

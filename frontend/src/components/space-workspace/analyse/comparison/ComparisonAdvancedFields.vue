@@ -55,6 +55,7 @@
           step="1"
           :value="temperature[0]"
           :aria-label="t('anCmpTempMinAria')"
+          data-swipe-lock
           @input="onMin($event.target.value)"
         />
         <input
@@ -64,6 +65,7 @@
           step="1"
           :value="temperature[1]"
           :aria-label="t('anCmpTempMaxAria')"
+          data-swipe-lock
           @input="onMax($event.target.value)"
         />
       </div>
