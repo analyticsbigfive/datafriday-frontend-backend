@@ -12,9 +12,13 @@ import {
 } from '@/utils/forecastModificationModel'
 import { modificationLabel } from '@/utils/forecastModificationLabels'
 import { clampElasticity } from '@/utils/forecastElasticity'
+import { isPredictedOnly } from '@/utils/forecastScope'
 
 /** Clé de la ligne « élasticité » (une seule, après les modifications). */
 export const ELASTICITY_LINE_KEY = 'elasticity'
+
+/** Clé de la ligne « portée » (seulement si elle n'est pas « tous les events »). */
+export const SCOPE_LINE_KEY = 'scope'
 
 const FILTER_ACTIVE_KEY = 'anExportFilterActive'
 const COMPARISON_KEY = 'anCmpExportFilterComparison'
@@ -33,9 +37,11 @@ const SEPARATOR = ' · '
  * @param {(n: number) => string} ctx.formatCurrency
  * @param {number} [ctx.elasticity]  Élasticité prix : une ligne de plus si non nulle et s'il y a
  *   au moins une modification de prix (sans prix, elle n'a aucun effet).
+ * @param {string} [ctx.scope]  Portée : une dernière ligne « Portée : événements prédits
+ *   uniquement » quand elle est restreinte aux events prédits (rien pour « tous les events »).
  * @returns {{ key: string, label: string, own: boolean }[]}
  */
-export function forecastFilterLines(modifications, { t, options = null, formatCurrency, elasticity = 0 } = {}) {
+export function forecastFilterLines(modifications, { t, options = null, formatCurrency, elasticity = 0, scope = 'all' } = {}) {
   const active = effectiveModifications(modifications)
   const lines = active.map((m) => ({
     key: modificationKey(m),
@@ -46,6 +52,9 @@ export function forecastFilterLines(modifications, { t, options = null, formatCu
   if (e !== 0 && active.some((m) => PRICE_MODIFICATION_TYPES.includes(m.type))) {
     const value = e.toFixed(1).replace('.', ',')
     lines.push({ key: ELASTICITY_LINE_KEY, label: t('fcstLabelElasticity').replace('{value}', value), own: true })
+  }
+  if (active.length > 0 && isPredictedOnly(scope)) {
+    lines.push({ key: SCOPE_LINE_KEY, label: t('fcstLabelScopePredicted'), own: true })
   }
   return lines
 }
