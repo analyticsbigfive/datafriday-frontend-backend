@@ -17,7 +17,7 @@ import { forecastTargetOptions } from '@/utils/forecastTargetOptions'
 
 /**
  * @param {Object} p
- * @param {import('vue').Ref<object|null>} p.input  saisie de comparaison ({ kind: 'forecast', modifications })
+ * @param {import('vue').Ref<object|null>} p.input  saisie de comparaison ({ kind: 'forecast', modifications, elasticity? })
  * @param {Object} p.source  jeux du principal (refs ou computed)
  * @param {import('vue').Ref<Array>} p.source.chartRecords  records au grain PdV
  * @param {import('vue').Ref<Array>} p.source.articleRecords  records au grain article
@@ -39,6 +39,7 @@ export function useComparisonForecast({
     modifications: active.value ? input.value.modifications || [] : [],
     catalogById: unref(source.catalogById) || null,
     spaceId: unref(spaceId) || null,
+    elasticity: active.value ? input.value.elasticity || 0 : 0,
   }))
 
   const chartRecords = computed(() => result.value.chartRecords)
@@ -66,6 +67,7 @@ export function useComparisonForecast({
       t: translate,
       options: options.value,
       formatCurrency: formatCurrency || ((n) => formatCurrencyDetailed(n)),
+      elasticity: input.value.elasticity || 0,
     })
   })
 
