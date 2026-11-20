@@ -25,7 +25,7 @@ préalable pour travailler sur le code.
 | Page | Domaine cartographie | Owner | Bugs actifs confirmés |
 |---|---|---|---|
 | [01_EVENT_PREDICT_ALGORITHME.md](01_EVENT_PREDICT_ALGORITHME.md) | Prévision (Event Predict) | Jean-Luc | 8 |
-| [02_ANALYSE.md](02_ANALYSE.md) | Analyse & agrégation | Jean-Luc | 10 |
+| [02_ANALYSE.md](02_ANALYSE.md) | Analyse & agrégation + outil Forecast / Prévision (ex-Predict) et comparaison what-if (2026-11-20, section dédiée) | Jean-Luc | 10 |
 | [03_BUILDER_ESPACES.md](03_BUILDER_ESPACES.md) | Espaces & builder | Ulrich | 6 |
 | [04_MENU_CATALOGUE.md](04_MENU_CATALOGUE.md) | Menu & recettes + Achats & référentiels | Ulrich | 5 |
 | [05_INTEGRATIONS_VENTES.md](05_INTEGRATIONS_VENTES.md) | Intégrations & ventes | Ulrich | 6 |
@@ -41,7 +41,7 @@ préalable pour travailler sur le code.
 | [10_POST_EVENT_INVENTORY.md](10_POST_EVENT_INVENTORY.md) | Stock — écrans Pre-event + Post-event Inventory, cycle de réconciliation et ponts inter-modules (page feature, complète 06 sans le dupliquer) ; § 9 vérification logique vs spec métier + § 10 exemple live Auxerre (2026-07-20) | Jean-Luc | — |
 | [11_RH_STAFFING.md](11_RH_STAFFING.md) | RH / Staffing — étape 1 : écrans Suppliers/Positions branchés sur `/hr` (localStorage, sans BDD) ; cible complète (spec pptx + règles xlsx, algo à revalider Bertrand #28) conservée en § 6 (2026-07-21) | Jean-Luc | 3 (201-203) |
 | [12_RAPPORT_J1.md](12_RAPPORT_J1.md) | Rapport J+1 — PDF post-événement (bouton bandeau rouge Analyse) : réel vs prédictif, Food/Beverage/Beer, top 5, météo facultative (2026-08-04, questions #42-#44/#46) | Jean-Luc | — |
-| [13_RAPPORT_SAISON.md](13_RAPPORT_SAISON.md) | Rapport Saison — périodes personnalisées (Settings > Configuration > Saisons) reprises comme presets de dates Analyse/Predict ; SQL #12 à appliquer avant déploiement (2026-08-04, question #45) | Jean-Luc | — |
+| [13_RAPPORT_SAISON.md](13_RAPPORT_SAISON.md) | Rapport Saison : périodes personnalisées (Settings > Configuration > Saisons) reprises comme presets de dates Analyse/Forecast (ex-Predict) ; SQL #12 à appliquer avant déploiement (2026-08-04, question #45) | Jean-Luc | — |
 
 **~61 bugs/gaps actifs confirmés au total**, chacun avec sa citation `fichier:ligne` — voir la
 section "Bugs actifs confirmés" de chaque page. **Ce n'est volontairement pas dupliqué ici** (la
