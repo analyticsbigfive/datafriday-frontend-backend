@@ -21,6 +21,7 @@ import {
 import { articleFromRecord, isTargetableArticle, priceRatioFor } from '@/utils/forecastPriceRatio'
 import { RATIO_SOURCES, buildPdvPriceRatioIndex, eventIdOf } from '@/utils/forecastChartPriceRatios'
 import { clampElasticity, priceEffect } from '@/utils/forecastElasticity'
+import { isPredictedOnly, isPredictedRecord } from '@/utils/forecastScope'
 
 const NO_EFFECT = Object.freeze({ revenue: 1, quantity: 1 })
 
@@ -86,6 +87,10 @@ function articlePriceEffects(articles, active, ctx, elasticity) {
  * @param {Map<string, object>} [input.catalogById]  menuItemId (chaîne) vers Menu Item.
  * @param {string|null} [input.spaceId]  Espace courant.
  * @param {number} [input.elasticity]  Élasticité prix (0 par défaut : quantités inchangées).
+ * @param {string} [input.scope]  'all' (défaut : tous les events affichés, passés compris) ou
+ *   'predicted' (seuls les records `isPredictive` sont modifiés, les events passés gardent leur
+ *   réel). Les ratios de prix, eux, restent calculés sur tous les records : le mix historique
+ *   d'un PdV sert encore à estimer un event prédit sans prévision par article.
  * @returns {{ chartRecords: object[], articleRecords: object[], stats: object }}
  *   stats : priceModificationCount, elasticity, eventsWithArticleGrain (prévision par article),
  *   eventsFromHistoricalMix (estimés par le mix historique des PdV), eventsWithoutArticleGrain
@@ -100,9 +105,14 @@ export function applyForecastModifications({
   catalogById = null,
   spaceId = null,
   elasticity = 0,
+  scope = 'all',
 }) {
   const active = effectiveModifications(modifications)
   if (active.length === 0) return { chartRecords, articleRecords, stats: neutralStats() }
+
+  // Hors portée : le record est rendu tel quel (même référence), quelle que soit la modification.
+  const predictedOnly = isPredictedOnly(scope)
+  const inScope = (rec) => !predictedOnly || isPredictedRecord(rec)
 
   const { volume, basket } = leverFactors(active)
   const leverFactor = volume * basket
@@ -124,7 +134,12 @@ export function applyForecastModifications({
     effects = computed.effects
     index = buildPdvPriceRatioIndex(articles, effects)
     stats.elasticity = e
-    stats.eventsWithArticleGrain = [...index.eventIds].sort()
+    const predictedEvents = predictedOnly
+      ? new Set(articles.filter(isPredictedRecord).map((rec) => eventIdOf(rec)))
+      : null
+    stats.eventsWithArticleGrain = [...index.eventIds]
+      .filter((id) => !predictedEvents || predictedEvents.has(id))
+      .sort()
     stats.unpriceableItemIds = [...computed.unpriceable].sort()
     stats.untargetableRecordCount = computed.untargetable
   }
@@ -132,6 +147,7 @@ export function applyForecastModifications({
   const fromHistory = new Set()
   const withoutGrain = new Set()
   const scaledCharts = charts.map((rec) => {
+    if (!inScope(rec)) return rec
     const f = index ? index.factorsFor(rec) : NO_EFFECT
     if (index) {
       const event = eventIdOf(rec)
@@ -149,9 +165,9 @@ export function applyForecastModifications({
   }
 
   return {
-    articleRecords: articles.map((rec, i) =>
-      scaleRecord(rec, effects[i].revenue * leverFactor, effects[i].quantity * volume, volume),
-    ),
+    articleRecords: articles.map((rec, i) => (inScope(rec)
+      ? scaleRecord(rec, effects[i].revenue * leverFactor, effects[i].quantity * volume, volume)
+      : rec)),
     chartRecords: scaledCharts,
     stats,
   }
