@@ -168,3 +168,35 @@ export function menuItemPriceTtc(mi, spaceId = null) {
 
   return finiteOrNull(mi.basePrice) ?? 0 // (5)
 }
+
+/**
+ * Taux de TVA (en %) qui accompagne le prix TTC lu par `menuItemPriceTtc`, pour afficher un
+ * HT dérivé. Même ordre de sources que le TTC : entrée propre à l'espace (forme objet,
+ * legacy, DB brute) puis taux global ; le taux de l'entrée prime sur le taux global.
+ *
+ * @param {object} mi  Menu item normalisé.
+ * @param {string|null} spaceId  Espace courant.
+ * @returns {number|null} Taux en % (> 0), ou `null` si inconnu (pas de HT à afficher).
+ */
+export function menuItemVatRate(mi, spaceId = null) {
+  if (!mi || typeof mi !== 'object') return null
+  const globalVat = finiteOrNull(mi.pricing?.vatRate) ?? finiteOrNull(mi.vatRate)
+  let own = null
+  if (spaceId) {
+    const spEntry =
+      mi.spacePricing && typeof mi.spacePricing === 'object' ? mi.spacePricing[spaceId] : null
+    const legacy = Array.isArray(mi.spaceSpecificPrices)
+      ? mi.spaceSpecificPrices.find((p) => Array.isArray(p?.spaceIds) && p.spaceIds.includes(spaceId))
+      : null
+    const raw = mi.spacePrices && typeof mi.spacePrices === 'object' ? mi.spacePrices[spaceId] : null
+    if (spEntry && (finiteOrNull(spEntry.gross?.ttc) ?? finiteOrNull(spEntry.price) ?? finiteOrNull(spEntry.gross?.ht)) != null) {
+      own = spEntry
+    } else if (legacy && finiteOrNull(legacy.price) != null) {
+      own = legacy
+    } else if (raw && (finiteOrNull(raw.ttc) ?? finiteOrNull(raw.price)) != null) {
+      own = raw
+    }
+  }
+  const rate = finiteOrNull(own?.vatRate) ?? globalVat
+  return rate != null && rate > 0 ? rate : null
+}

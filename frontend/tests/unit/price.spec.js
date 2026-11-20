@@ -1,4 +1,4 @@
-import { htFromTtc, menuItemPriceHt, menuItemPriceTtc } from '@/utils/price'
+import { htFromTtc, menuItemPriceHt, menuItemPriceTtc, menuItemVatRate } from '@/utils/price'
 
 describe('htFromTtc — TTC → HT', () => {
   it('détaxe au taux en pourcentage', () => {
@@ -140,5 +140,36 @@ describe('menuItemPriceTtc : TTC unitaire d\'un menu item', () => {
   it('ne modifie pas le comportement de menuItemPriceHt', () => {
     const mi = { basePrice: 8, pricing: { vatRate: 10 } }
     expect(menuItemPriceHt(mi, null)).toBeCloseTo(7.2727, 3)
+  })
+})
+
+describe('menuItemVatRate : taux de TVA du prix TTC affiché', () => {
+  it('taux global (pricing.vatRate puis vatRate)', () => {
+    expect(menuItemVatRate({ basePrice: 8, pricing: { vatRate: 10 } }, null)).toBe(10)
+    expect(menuItemVatRate({ basePrice: 8, vatRate: 5.5 }, 'sp1')).toBe(5.5)
+  })
+
+  it('le taux de l\'entrée propre à l\'espace prime sur le taux global', () => {
+    const forms = [
+      { spacePricing: { sp1: { gross: { ttc: 10 }, vatRate: 20 } } },
+      { spaceSpecificPrices: [{ spaceIds: ['sp1'], price: 10, vatRate: 20 }] },
+      { spacePrices: { sp1: { ttc: 10, vatRate: 20 } } },
+    ]
+    for (const form of forms) {
+      expect(menuItemVatRate({ basePrice: 8, pricing: { vatRate: 10 }, ...form }, 'sp1')).toBe(20)
+      expect(menuItemVatRate({ basePrice: 8, pricing: { vatRate: 10 }, ...form }, 'autre')).toBe(10)
+    }
+  })
+
+  it('entrée d\'espace sans taux : repli sur le taux global', () => {
+    const mi = { vatRate: 10, spacePricing: { sp1: { gross: { ttc: 10 } } } }
+    expect(menuItemVatRate(mi, 'sp1')).toBe(10)
+  })
+
+  it('inconnu, nul, négatif ou objet invalide : null', () => {
+    expect(menuItemVatRate({ basePrice: 8 }, 'sp1')).toBeNull()
+    expect(menuItemVatRate({ basePrice: 8, vatRate: 0 }, null)).toBeNull()
+    expect(menuItemVatRate({ basePrice: 8, vatRate: -5 }, null)).toBeNull()
+    expect(menuItemVatRate(null, null)).toBeNull()
   })
 })

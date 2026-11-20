@@ -1,7 +1,17 @@
 <template>
-  <!-- Contenu du drawer Comparaison : aiguille selon la vue (form | loading | ready | error). -->
+  <!-- Contenu du drawer Comparaison : aiguille selon la vue (form | loading | ready | error).
+       Outil Forecast (forecastForm fourni) : le formulaire de modifications remplace celui de
+       la comparaison. -->
+  <ForecastModificationsForm
+    v-if="comparison.view.value === 'form' && forecastForm"
+    :form="forecastForm"
+    :base-values="forecastBaseValues"
+    :has-report="!!comparison.applied.value"
+    @run="comparison.run($event)"
+    @back="comparison.backToReport()"
+  />
   <ComparisonForm
-    v-if="comparison.view.value === 'form'"
+    v-else-if="comparison.view.value === 'form'"
     :form="form"
     :has-report="!!comparison.applied.value"
     @run="comparison.run($event)"
@@ -38,6 +48,7 @@
 
 <script setup>
 import ComparisonForm from './ComparisonForm.vue'
+import ForecastModificationsForm from '../forecast/ForecastModificationsForm.vue'
 import ComparisonLoading from './ComparisonLoading.vue'
 import ComparisonError from './ComparisonError.vue'
 import ComparisonEmpty from './ComparisonEmpty.vue'
@@ -56,6 +67,10 @@ defineProps({
   form: { type: Object, required: true },
   // Retour de useComparisonRuntime (état du rapport, écarts, moteur).
   runtime: { type: Object, required: true },
+  // Outil Forecast : retour de useForecastModificationsForm (null : formulaire de comparaison).
+  forecastForm: { type: Object, default: null },
+  // { transformationRate, perCapita, basket } du rapport principal, pour les curseurs Forecast.
+  forecastBaseValues: { type: Object, default: null },
 })
 // Export CSV, copie et partage : relayés au parent (AnalyseView).
 const emit = defineEmits(['export-csv', 'copy', 'share'])
