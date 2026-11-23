@@ -51,6 +51,11 @@ export function useMetricsCalculator({
   // y apparaît exactement une fois, la somme est donc le nombre réel de tickets et
   // reste filtrable par PdV/horaire. Quand fourni, il remplace la somme item-level.
   transactionRecords = null,
+  // Prévision / Forecast : les records sont au grain PdV (menuItemId nul), donc sans coût propre.
+  // Ref<{ costOf(record), resolvable }|null> (composables/usePredictCostEstimator) : quand il est
+  // fourni, le coût de chaque record vient de l'estimateur et `costResolvable` de son drapeau.
+  // `null` (Analyse) : calcul au grain article, inchangé.
+  costEstimator = null,
 }) {
   const _records = () => unref(filteredShopGranularData) || []
   const _txRecords = () => unref(transactionRecords)
@@ -63,6 +68,7 @@ export function useMetricsCalculator({
   const _perShop = () => unref(perShopTransactionRate)
   const _rateUnavailable = () => !!unref(transactionRateUnavailable)
   const _rollup = () => unref(eventRollupTotals)
+  const _costEstimator = () => unref(costEstimator)
 
   // Lot 3.1 — Mode «single event» : un seul event sélectionné dans les filtres.
   // Quand actif : pas de moyenne par événement (les « Moy./Évén. » retombent sur
@@ -75,6 +81,7 @@ export function useMetricsCalculator({
     const costMap = _costMap()
     const unitCostOf = makeCostFor(costMap, _costByEvent())
     const eventIdsWithRevenue = new Set()
+    const estimator = _costEstimator()
 
     let revenue = 0
     let cost = 0
@@ -87,7 +94,7 @@ export function useMetricsCalculator({
     for (const r of records) {
       const rowRevenue = r.revenue || 0
       revenue += rowRevenue
-      cost += unitCostOf(r.eventId, r.menuItemId) * (r.quantity || 0)
+      cost += estimator ? estimator.costOf(r) : unitCostOf(r.eventId, r.menuItemId) * (r.quantity || 0)
       if (r.menuItemId) hasCostableRow = true
       transactions += r.transactionCount || 0
       if (rowRevenue > 0 && r.eventId) eventIdsWithRevenue.add(r.eventId)
@@ -134,7 +141,9 @@ export function useMetricsCalculator({
     //    `MenuItem.totalCost` saisi).
     // Sans ce garde-fou, l'écran a longtemps publié « MARGE 100,0 % » comme un
     // résultat. Les consommateurs doivent traiter `null` (KpiCard rend « — »).
-    const costResolvable = hasCostableRow && Object.keys(costMap).length > 0
+    const costResolvable = estimator
+      ? estimator.resolvable
+      : hasCostableRow && Object.keys(costMap).length > 0
     const margin = !revenue || !costResolvable
       ? null
       : ((revenue - cost) / revenue) * 100

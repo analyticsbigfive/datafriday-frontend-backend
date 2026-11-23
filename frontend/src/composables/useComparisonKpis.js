@@ -10,6 +10,7 @@ import { computed, ref } from 'vue'
 import defaultStore from '@/store'
 import { useMetricsCalculator } from '@/composables/useMetricsCalculator'
 import { useRendementWidgets } from '@/composables/useRendementWidgets'
+import { usePredictCostEstimator } from '@/composables/usePredictCostEstimator'
 import { computeEventRollupTotals } from '@/utils/analyseRollupTotals'
 import { computeItemTotals } from '@/utils/analyseVariations'
 import { chipsFromMetrics, widgetsFromMetrics } from '@/utils/comparisonReportSnapshot'
@@ -46,7 +47,17 @@ export function useComparisonKpis({
       : null
   ))
 
+  // Forecast : les records sont au grain PdV, sans coût. Coût estimé par pièce du PdV depuis les
+  // records article NON modifiés du principal, multiplié par la quantité modifiée (même méthode que le principal).
+  const costEstimator = usePredictCostEstimator({
+    enabled: isForecast,
+    articleRecords: computed(() => forecast?.baseArticleRecords?.value || []),
+    menuItemCostMap,
+    menuItemCostByEvent,
+  })
+
   const metrics = useMetricsCalculator({
+    costEstimator,
     filteredShopGranularData: kpiRecords,
     chartFilteredEvents: events,
     menuItemCostMap,
