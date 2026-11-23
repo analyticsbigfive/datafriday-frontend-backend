@@ -12,7 +12,7 @@
  *   isPredict: boolean,
  *   eventCount: number,
  *   chips:   { revenue, avgRevenuePerEvent, cost, transactions, avgTransaction,
- *              attendees, transferRate, perCapita },
+ *              attendees, transferRate, perCapita, netRevenue },
  *   widgets: { revenuePerTpe, revenuePerCollaborator, margin, transactionRate, stockValue },
  *   categories: [{ key, value }],                       // CA par type d'article (cartes du haut)
  *   breakdowns: { revenue: Dims, quantity: Dims, supplierCost: Entries|null,
@@ -34,10 +34,13 @@ import { buildShopDistributionEntries } from '@/utils/shopDistribution'
 
 export const SNAPSHOT_VERSION = 1
 
-/** Clés des 8 puces du haut, dans l'ordre d'affichage. */
+/**
+ * Clés des 8 puces du haut, dans l'ordre d'affichage, puis `netRevenue` (CA - coût) : pas une
+ * puce de la bande, il alimente la ligne « Revenue net » des bandeaux rouges.
+ */
 export const CHIP_KEYS = [
   'revenue', 'avgRevenuePerEvent', 'cost', 'transactions',
-  'avgTransaction', 'attendees', 'transferRate', 'perCapita',
+  'avgTransaction', 'attendees', 'transferRate', 'perCapita', 'netRevenue',
 ]
 /** Clés des 5 widgets. */
 export const WIDGET_KEYS = ['revenuePerTpe', 'revenuePerCollaborator', 'margin', 'transactionRate', 'stockValue']
@@ -60,15 +63,20 @@ export function chipsFromMetrics(metrics, { isPredict = false, predictTransactio
   const trans = num(m.displayTransactions) ?? 0
   const att = num(m.displayAttendees) ?? 0
   const noTransactions = isPredict && !predictTransactions
+  const cost = num(m.displayCost) ?? 0
+  // Revenue net = CA - coût. null (« — ») quand aucun coût n'est calculable : sans coût connu,
+  // CA - 0 passerait le CA brut pour un revenu net.
+  const costKnown = unref(m.costResolvable) !== false
   return {
     revenue: rev,
     avgRevenuePerEvent: num(m.displayAvgRevenue) ?? 0,
-    cost: num(m.displayCost) ?? 0,
+    cost,
     transactions: noTransactions ? null : trans,
     avgTransaction: noTransactions ? null : (trans ? rev / trans : 0),
     attendees: att,
     transferRate: noTransactions || !att ? null : (trans / att) * 100,
     perCapita: num(m.displayPerCapita) ?? 0,
+    netRevenue: costKnown ? rev - cost : null,
   }
 }
 
