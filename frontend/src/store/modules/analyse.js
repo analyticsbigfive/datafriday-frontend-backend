@@ -31,6 +31,12 @@ import { t as translate, getCurrentLocale } from '@/i18n/translations'
 import { normalizeStr } from '@/utils/predictiveAnalytics'
 import { scenarioRecordsToAnalyseRecords } from '@/utils/predictScenarioRecords'
 import { applyPredictedTransactions } from '@/utils/predictedTransactions'
+import {
+  readForecastPastUseScenario,
+  writeForecastPastUseScenario,
+  splitEventsByTemporality,
+  scenarioAppliesToEvent,
+} from '@/utils/forecastPastScenario'
 import { parseEventSessions } from '@/utils/eventSessions'
 import {
   applyDayWeatherFilters,
@@ -741,6 +747,12 @@ const state = () => ({
   // vues « Répartition du CA par article » / « Articles du menu par PdV » n'ont
   // aucune dimension article en mode Predict. Vidé par clearPredictions.
   predictScenarioItemRecords: [],
+  // Outil Prévision : les events PASSÉS affichent leurs ventes réelles par défaut ; la case du
+  // bandeau (mémorisée en localStorage) les bascule sur leur scénario Event Predict.
+  forecastPastUseScenario: readForecastPastUseScenario(),
+  // Events passés qui ont un scénario exploitable (alimente la visibilité de la case). Calculé
+  // par regeneratePredictions, vidé par clearPredictions.
+  forecastPastScenarioEventIds: [],
 
   // Caches
   // (BUG-285 : `transactionRateCache`/`shopPerformanceCache` supprimés — déclarés
@@ -1642,6 +1654,12 @@ const mutations = {
     const arr = Array.isArray(records) ? records : []
     state.predictScenarioItemRecords = Object.isFrozen(arr) ? arr : Object.freeze(arr)
   },
+  SET_FORECAST_PAST_USE_SCENARIO(state, value) {
+    state.forecastPastUseScenario = value === true
+  },
+  SET_FORECAST_PAST_SCENARIO_EVENT_IDS(state, ids) {
+    state.forecastPastScenarioEventIds = Array.isArray(ids) ? ids : []
+  },
   // BUG-285 : purge des caches par clé au CHANGEMENT d'espace. loadSpace remplace
   // les tableaux plats (events, shopGranularData…) mais ces accumulateurs par
   // eventId/configId/spaceId gardaient les données de tous les espaces visités —
@@ -2269,8 +2287,19 @@ const actions = {
     const _t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now())
     let predictiveRecords = []
     const actualOnly = state.shopGranularData.filter((r) => !r.isPredictive)
+    // Split futur/passé AVANT le try : si le moteur plante, les events futurs restent futurs
+    // (l'overlay des scénarios ne doit pas les traiter comme des passés).
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const { futureEvents, pastEvents } = splitEventsByTemporality(
+      state.events,
+      new Set(actualOnly.map((d) => d.eventId)),
+      today,
+    )
+    const futureEventIds = new Set(futureEvents.map((e) => e.id))
+    const pastEventIds = new Set(pastEvents.map((e) => e.id))
     // Historique réel utilisé par le moteur (repli des sources pour estimer les transactions).
-    let pastData = []
+    const pastData = actualOnly.filter((d) => pastEventIds.has(d.eventId))
     try {
       // PERF : même sémantique que generatePredictionsForAllFutureEvents
       // (predictiveAnalytics.js L434-476 — split futur/passé identique) mais la
@@ -2278,24 +2307,6 @@ const actions = {
       // events (3-8 s de scoring bloquaient l'UI au switch toolbox). Les RÈGLES
       // de scoring restent 100 % dans predictiveAnalytics (intouché).
       const { generatePredictionsForEvent } = await import('@/utils/predictiveAnalytics')
-      const { parseEventDate } = await import('@/utils/dateFr')
-      const today = new Date()
-      today.setHours(0, 0, 0, 0)
-      const eventsWithData = new Set(actualOnly.map((d) => d.eventId))
-      const futureEvents = []
-      const pastEvents = []
-      for (const event of state.events || []) {
-        const d = parseEventDate(event.eventDate)
-        if (!d) continue
-        d.setHours(0, 0, 0, 0)
-        if (d.getTime() > today.getTime()) futureEvents.push(event)
-        else if (d.getTime() === today.getTime()) {
-          if (!eventsWithData.has(event.id)) futureEvents.push(event)
-          else pastEvents.push(event)
-        } else pastEvents.push(event)
-      }
-      const pastEventIds = new Set(pastEvents.map((e) => e.id))
-      pastData = actualOnly.filter((d) => pastEventIds.has(d.eventId))
       if (futureEvents.length && pastEvents.length && pastData.length) {
         for (const fe of futureEvents) {
           // Mémo par event×config×volume de données : re-entrée en mode predict
@@ -2350,6 +2361,9 @@ const actions = {
       if (el?.id != null && el?.name) elementNameById.set(String(el.id), el.name)
     }
     const predictedEventIds = new Set(predictiveRecords.map((r) => r.eventId))
+    // Lu ICI (après les awaits du moteur) : un clic sur la case pendant le calcul est pris en compte.
+    const usePastScenario = state.forecastPastUseScenario === true
+    const pastScenarioEventIds = [] // events passés avec scénario exploitable (visibilité de la case)
     for (const ev of state.events) {
       const active = lsRead(`event-predict-active-version:${ev.id}`)
       const def = lsRead(`event-predict-default-version:${ev.id}`)
@@ -2362,6 +2376,13 @@ const actions = {
       // Total à atteindre = adjusted si dispo, sinon brut.
       const target = Number(version.adjustedTotalRevenue || version.totalRevenue || 0)
       if (!target) continue
+      // Event passé : par défaut il garde ses ventes réelles. Sans copies prédictives ni lignes
+      // article de scénario, le getter predictive-preferred et AnalyseView retombent sur le réel.
+      const isFuture = futureEventIds.has(ev.id)
+      if (!isFuture) {
+        pastScenarioEventIds.push(ev.id)
+        if (!scenarioAppliesToEvent({ isFuture, usePastScenario })) continue
+      }
       versionMap.set(ev.id, version)
       // Grain article : indépendant de la branche futur/passé ci-dessous (celle-ci
       // ne fait que rescaler du shop-level). Un scénario sauvegardé AVANT le calcul
@@ -2426,10 +2447,24 @@ const actions = {
     const engineTagged = [...predictiveRecords, ...pastPredictive].map((r) => ({ ...r, _engine: true }))
     commit('SET_SHOP_GRANULAR', [...actualOnly, ...engineTagged])
     commit('SET_PREDICT_SCENARIO_ITEM_RECORDS', scenarioItemRecords)
+    commit('SET_FORECAST_PAST_SCENARIO_EVENT_IDS', pastScenarioEventIds)
     commit('SET_PREDICTIONS_GENERATING', false)
     console.log(
       `[perf] regeneratePredictions ${Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - _t0)}ms — ${engineTagged.length} records prédictifs, ${scenarioItemRecords.length} records article (scénarios)`,
     )
+  },
+
+  /**
+   * Case « Events passés : scénario Event Predict » de l'outil Prévision : mémorise le choix et
+   * régénère les prédictions (copies scénario des events passés ajoutées ou retirées).
+   */
+  setForecastPastUseScenario({ state, commit, dispatch }, value) {
+    const next = value === true
+    commit('SET_FORECAST_PAST_USE_SCENARIO', next)
+    writeForecastPastUseScenario(next)
+    const tb = state.selectedToolbox
+    if (tb === 'predict' || tb === 'event-predict') return dispatch('regeneratePredictions')
+    return undefined
   },
 
   /**
@@ -2441,6 +2476,9 @@ const actions = {
     // mode predict laisserait sinon des records article fantômes).
     if (state.predictScenarioItemRecords.length) {
       commit('SET_PREDICT_SCENARIO_ITEM_RECORDS', [])
+    }
+    if (state.forecastPastScenarioEventIds.length) {
+      commit('SET_FORECAST_PAST_SCENARIO_EVENT_IDS', [])
     }
     if (!state.shopGranularData.some((r) => r.isPredictive)) return
     commit('SET_SHOP_GRANULAR', state.shopGranularData.filter((r) => !r.isPredictive))
