@@ -337,13 +337,19 @@
               </div>
               <!-- Ligne 2 : périmètre (nombre d'events ou nom de l'event) à gauche, effectifs de l'event à
                    droite. La période est dans les tags, sous le bandeau. -->
-              <div v-if="!loading && (bannerScopeLabel || singleSelectedEventOps || showMainNetRevenue)" class="av-header__row2">
+              <div v-if="!loading && (bannerScopeLabel || singleSelectedEventOps || showMainNetRevenue || showPastScenarioToggle)" class="av-header__row2">
                 <span v-if="bannerScopeLabel" class="av-header__scope">{{ bannerScopeLabel }}</span>
                 <!-- Prévision : Revenue net (CA - coût) du principal, repère de l'écart affiché dans la comparaison. -->
                 <NetRevenueLine
                   v-if="showMainNetRevenue"
                   class="av-header__net"
                   :value="mainSnapshot?.chips?.netRevenue ?? null"
+                />
+                <!-- Prévision : les events passés montrent le réel (défaut) ou leur scénario Event Predict. -->
+                <ForecastPastScenarioToggle
+                  v-if="showPastScenarioToggle"
+                  :model-value="usePastScenario"
+                  @update:model-value="setUsePastScenario"
                 />
                 <!-- Effectifs opérationnels de l'évènement (retour Bertrand) : nombre de
                      collaborateurs + nombre de TPE, poussés tout à droite
@@ -928,6 +934,8 @@ import { useComparisonSwipe } from '@/composables/useComparisonSwipe'
 import ComparisonMainKpiStrip from '@/components/space-workspace/analyse/comparison/ComparisonMainKpiStrip.vue'
 import ReportJ1AddButton from '@/components/space-workspace/analyse/report-j1/ReportJ1AddButton.vue'
 import NetRevenueLine from '@/components/space-workspace/analyse/comparison/NetRevenueLine.vue'
+import ForecastPastScenarioToggle from '@/components/space-workspace/analyse/forecast/ForecastPastScenarioToggle.vue'
+import { useForecastPastScenario } from '@/composables/useForecastPastScenario'
 import ReportJ1PlacementDrawer from '@/components/space-workspace/analyse/report-j1/ReportJ1PlacementDrawer.vue'
 import { provideReportJ1Placement } from '@/composables/useReportJ1Placement'
 import ComparisonDrawerHead from '@/components/space-workspace/analyse/comparison/ComparisonDrawerHead.vue'
@@ -2300,6 +2308,13 @@ const comparisonMainKpiStrip = computed(() => comparison.open.value && !isCompar
 const isPredictMode = computed(() => selectedToolbox.value === 'predict')
 // Revenue net dans le bandeau rouge de la Prévision, dès que le rapport est chargé.
 const showMainNetRevenue = computed(() => isPredictMode.value && !!mainSnapshot.value)
+// Prévision : case « Events passés : scénario Event Predict » (visible s'il existe un event passé
+// avec scénario parmi les events affichés).
+const {
+  showToggle: showPastScenarioToggle,
+  usePastScenario,
+  setUsePastScenario,
+} = useForecastPastScenario({ isPredict: isPredictRecords, events: filteredEvents })
 // Libellé « Nom — date » de l'évènement quand la sélection en contient EXACTEMENT
 // un, chaîne vide sinon. Recherche dans `analysableEvents` (et non `events`) avec
 // la même comparaison stricte d'id que le store (`new Set(selectedEventIds).has(e.id)`,
@@ -3229,7 +3244,8 @@ async function ensureAuthAndLoad(spaceId) {
   padding: 0 22px 14px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 6px 12px;
 }
 /* Copier / partager (ligne 1) — ronds blancs sur le rouge. */
 .av-header__row1 :deep(.fs-icon-btn) {

@@ -746,6 +746,22 @@ jamais dans les ratios (ils ne portent aucune vente observée).
   stock**. Ce n'est pas un oubli.
 - Estimation à valider par Bertrand : question #93 (b).
 
+### Events passés : réel (défaut) ou scénario Event Predict
+
+En Prévision, un event **passé** affiche par défaut ses **ventes réelles**, même s'il a un
+scénario Event Predict enregistré. Une case du bandeau rouge « Events passés : scénario Event
+Predict », décochée par défaut et mémorisée en localStorage (`analyse:forecast-past-use-scenario`),
+bascule les passés sur leur scénario (copies prédictives scalées + lignes article du scénario). Les
+events futurs gardent toujours leur prédiction. La case n'est visible que s'il existe au moins un
+event passé avec scénario parmi les events affichés.
+
+- Règle dans `regeneratePredictions` : le split futur/passé est calculé **avant** le `try` du
+  moteur (`utils/forecastPastScenario.js`) ; un passé dont le scénario ne s'applique pas est ignoré
+  par l'overlay (ni copies, ni lignes article, ni version active). Le getter predictive-preferred et
+  `AnalyseView` retombent alors sur le réel sans autre changement.
+- État : `forecastPastUseScenario`, `forecastPastScenarioEventIds` ; action
+  `setForecastPastUseScenario` (écrit le localStorage et régénère).
+
 ### Fichiers clés
 
 | Rôle | Fichier (sous `frontend/src/`) |
@@ -766,12 +782,14 @@ jamais dans les ratios (ils ne portent aucune vente observée).
 | Lignes « filtres appliqués » et lignes d'export (une par modification) | `utils/comparisonForecastContext.js` |
 | Source Forecast dans le runtime / rapport / export / KPI de comparaison | `composables/useComparisonRuntime.js`, `useComparisonReport.js`, `useComparisonExport.js`, `useComparisonKpis.js`, `useComparisonEvents.js`, `useComparisonRecords.js` |
 | Transactions prédites | `utils/predictedTransactions.js`, action `regeneratePredictions` de `store/modules/analyse.js` |
+| Events passés : réel ou scénario (case du bandeau) | `utils/forecastPastScenario.js`, `composables/useForecastPastScenario.js`, `components/space-workspace/analyse/forecast/ForecastPastScenarioToggle.vue` |
 
 Tests unitaires associés : `frontend/tests/unit/forecast*.spec.js`, `price.spec.js`,
 `ForecastModificationsForm.spec.js`, `ForecastScopeNotice.spec.js`,
 `useForecastModificationsForm.spec.js`, `useForecastComparisonWiring.spec.js`,
 `useComparisonForecast.spec.js`, `comparisonForecastContext.spec.js`,
-`predictedTransactions.spec.js`, `analyseRegeneratePredictionsTransactions.spec.js`.
+`predictedTransactions.spec.js`, `analyseRegeneratePredictionsTransactions.spec.js`,
+`forecastPastScenario.spec.js`.
 
 ### Comportements à connaître
 
