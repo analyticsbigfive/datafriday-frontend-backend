@@ -3336,12 +3336,17 @@ export default {
           referenceMp?.supplierId ||
           referenceMp?.supplier?.id ||
           '__unknown_supplier__'
-        const supplier = this.suppliers.find((s) => s.id === supplierId)
-        // Mode produits finis : un plat fini sans fournisseur n'est pas un
-        // « fournisseur non défini » → groupe « Produits finis ». En mode
-        // ingrédients, resolveIngredientSupplier étiquette le même cas
-        // « Sans fournisseur (ingrédients manquants) » (srNoSupplierGroup).
-        const supplierName = supplier?.name || this.t('srFinishedProductsGroup')
+        // Catalogue /suppliers complet d'abord (le store analyse n'en a qu'un
+        // sous-ensemble), comme resolveIngredientSupplier.
+        const supplier =
+          this.bomSuppliers.find((s) => s.id === supplierId) ||
+          this.suppliers.find((s) => s.id === supplierId)
+        // Pas de nom inventé : fournisseur introuvable = « Fournisseur non défini ».
+        const supplierName =
+          supplier?.name ||
+          referenceMp?.supplierRel?.name ||
+          referenceMp?.supplier?.name ||
+          this.t('srSupplierUndefined')
 
         if (!supplierMap.has(supplierId)) {
           supplierMap.set(supplierId, {
