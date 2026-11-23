@@ -26,12 +26,14 @@ export function eventIdOf(rec) {
   return rec?.eventId == null ? '' : String(rec.eventId)
 }
 
-function pdvIdOf(rec) {
+/** Identifiant de PdV d'un record (shopId, ou elementId côté article), null si absent. */
+export function pdvIdOf(rec) {
   const id = rec?.shopId ?? rec?.elementId
   return id == null || id === '' ? null : String(id)
 }
 
-function pdvNameOf(rec) {
+/** Nom de PdV normalisé (minuscules, sans espaces autour), '' si absent. */
+export function pdvNameOf(rec) {
   return String(rec?.shopName ?? '').trim().toLowerCase()
 }
 

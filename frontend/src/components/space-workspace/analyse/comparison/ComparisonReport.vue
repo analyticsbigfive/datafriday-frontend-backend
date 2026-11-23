@@ -2,6 +2,7 @@
   <div id="comparison-capture-root" class="cr" :aria-busy="runtime.refreshing.value ? 'true' : undefined">
     <ComparisonBanner
       :label="summaryLabel"
+      :net-revenue="netRevenue"
       :event-count="runtime.events.value.length"
       :show-event-count="comparison.applied.value?.kind !== 'event'"
       :mobile="mobile"
@@ -107,6 +108,7 @@
 import { ref, computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { comparisonSummaryLabel } from '@/utils/comparisonReportView'
+import { isForecastModel } from '@/utils/comparisonForecastModel'
 import { useComparisonKpiChips } from '@/composables/useComparisonKpiChips'
 import ComparisonBanner from './ComparisonBanner.vue'
 import ComparisonKpiStrip from './ComparisonKpiStrip.vue'
@@ -138,6 +140,15 @@ const { t } = useI18n()
 const report = computed(() => props.runtime.report)
 const distributionMode = ref('revenue')
 const { chips: kpiChips, hasValues } = useComparisonKpiChips(props.runtime)
+// Forecast : Revenue net (CA - coût) du rapport et son écart par rapport à la prévision d'origine du principal.
+const netRevenue = computed(() => (
+  isForecastModel(props.comparison.applied.value)
+    ? {
+      value: props.runtime.report.chips.value?.netRevenue ?? null,
+      delta: props.runtime.deltasVsMain.value?.chips?.netRevenue || null,
+    }
+    : null
+))
 const summaryLabel = computed(() => comparisonSummaryLabel(
   props.comparison.applied.value, props.runtime.appliedFilters.value, t, props.runtime.events.value,
 ))

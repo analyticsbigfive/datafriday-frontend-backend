@@ -63,7 +63,8 @@
       </button>
     </div>
     <div class="cb__sub">
-      <span class="cb__label">{{ label }}<template v-if="label && showEventCount"> · </template><template v-if="showEventCount">{{ eventsText }}</template></span>
+      <NetRevenueLine v-if="netRevenue" class="cb__net" :value="netRevenue.value" :delta="netRevenue.delta" />
+      <span v-else class="cb__label">{{ label }}<template v-if="label && showEventCount"> · </template><template v-if="showEventCount">{{ eventsText }}</template></span>
       <span class="cb__spacer"></span>
       <button type="button" class="cb__edit" @click="emit('edit')">
         <v-icon size="16">mdi-pencil-outline</v-icon>
@@ -78,10 +79,14 @@
 // Il ÉMET seulement : l'export CSV, la copie et le partage sont branchés par AnalyseView.
 import { computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
+import NetRevenueLine from './NetRevenueLine.vue'
 
 const props = defineProps({
   // Libellé de la comparaison (période, type/catégorie, N événements, Predict).
   label: { type: String, default: '' },
+  // Forecast : { value, delta } du Revenue net, affiché à la place du libellé (les modifications sont
+  // déjà listées sous le bandeau). null = libellé habituel.
+  netRevenue: { type: Object, default: null },
   // Nombre d'events du rapport de comparaison.
   eventCount: { type: Number, default: 0 },
   // false : le libellé dit déjà le nombre d'events (type Événement), pas de répétition.
@@ -160,6 +165,7 @@ const eventsText = computed(() => t('anCmpEventsCount').replace('{n}', String(pr
   font-size: var(--fs-sm);
 }
 .cb__label { min-width: 0; opacity: 0.92; }
+.cb__net { flex: 1 1 auto; }
 .cb__edit {
   display: inline-flex;
   align-items: center;
