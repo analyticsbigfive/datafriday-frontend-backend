@@ -47,6 +47,8 @@ export function useComparisonForecast({
   const chartRecords = computed(() => result.value.chartRecords)
   const articleRecords = computed(() => result.value.articleRecords)
   const stats = computed(() => result.value.stats)
+  /** Records article du principal, NON modifiés : base des coûts par pièce (le coût suit la quantité modifiée). */
+  const baseArticleRecords = computed(() => unref(source.articleRecords) || [])
 
   /** Le masque Predict est celui du principal : le comparé Forecast en hérite. */
   const isPredict = computed(() => !!unref(source.isPredict))
@@ -74,5 +76,5 @@ export function useComparisonForecast({
     })
   })
 
-  return { active, chartRecords, articleRecords, stats, isPredict, sourceState, lines }
+  return { active, chartRecords, articleRecords, baseArticleRecords, stats, isPredict, sourceState, lines }
 }

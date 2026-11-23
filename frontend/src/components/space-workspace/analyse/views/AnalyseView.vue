@@ -337,8 +337,14 @@
               </div>
               <!-- Ligne 2 : périmètre (nombre d'events ou nom de l'event) à gauche, effectifs de l'event à
                    droite. La période est dans les tags, sous le bandeau. -->
-              <div v-if="!loading && (bannerScopeLabel || singleSelectedEventOps)" class="av-header__row2">
+              <div v-if="!loading && (bannerScopeLabel || singleSelectedEventOps || showMainNetRevenue)" class="av-header__row2">
                 <span v-if="bannerScopeLabel" class="av-header__scope">{{ bannerScopeLabel }}</span>
+                <!-- Prévision : Revenue net (CA - coût) du principal, repère de l'écart affiché dans la comparaison. -->
+                <NetRevenueLine
+                  v-if="showMainNetRevenue"
+                  class="av-header__net"
+                  :value="mainSnapshot?.chips?.netRevenue ?? null"
+                />
                 <!-- Effectifs opérationnels de l'évènement (retour Bertrand) : nombre de
                      collaborateurs + nombre de TPE, poussés tout à droite
                      du bandeau. Seulement quand UN
@@ -921,6 +927,7 @@ import ComparisonMenuItem from '@/components/space-workspace/analyse/comparison/
 import { useComparisonSwipe } from '@/composables/useComparisonSwipe'
 import ComparisonMainKpiStrip from '@/components/space-workspace/analyse/comparison/ComparisonMainKpiStrip.vue'
 import ReportJ1AddButton from '@/components/space-workspace/analyse/report-j1/ReportJ1AddButton.vue'
+import NetRevenueLine from '@/components/space-workspace/analyse/comparison/NetRevenueLine.vue'
 import ReportJ1PlacementDrawer from '@/components/space-workspace/analyse/report-j1/ReportJ1PlacementDrawer.vue'
 import { provideReportJ1Placement } from '@/composables/useReportJ1Placement'
 import ComparisonDrawerHead from '@/components/space-workspace/analyse/comparison/ComparisonDrawerHead.vue'
@@ -934,6 +941,7 @@ import { useArticleDimensions } from '@/composables/useArticleDimensions'
 import { useRendementWidgets } from '@/composables/useRendementWidgets'
 import { hasArticleDimensionFilter } from '@/utils/articleDimensionFilter'
 import { useMetricsCalculator } from '@/composables/useMetricsCalculator'
+import { usePredictCostEstimator } from '@/composables/usePredictCostEstimator'
 import { useShopPerformance } from '@/composables/useShopPerformance'
 import { useAnalyseTimeline } from '@/composables/useAnalyseTimeline'
 import { useAnalyseItemRecords, ITEM_LEVEL_EVENT_CAP } from '@/composables/useAnalyseItemRecords'
@@ -1760,7 +1768,17 @@ const eventRollupTotals = computed(() => {
   return { revenue, transactions, eventsWithRevenueCount }
 })
 
+// Prévision : les records sont au grain PdV, sans article ni coût (coût 0, marge « — »). Le coût est
+// estimé par pièce du PdV depuis les records article du périmètre (utils/costPerUnitIndex).
+const predictCostEstimator = usePredictCostEstimator({
+  enabled: isPredictRecords,
+  articleRecords,
+  menuItemCostMap,
+  menuItemCostByEvent,
+})
+
 const metrics = useMetricsCalculator({
+  costEstimator: predictCostEstimator,
   filteredShopGranularData: kpiRecords,
   chartFilteredEvents: filteredEvents,
   menuItemCostMap,
@@ -2280,6 +2298,8 @@ const tagChips = computed(() => [
 // Mode comparaison desktop : les KPI du principal passent au-dessus du bandeau rouge.
 const comparisonMainKpiStrip = computed(() => comparison.open.value && !isComparisonMobile.value)
 const isPredictMode = computed(() => selectedToolbox.value === 'predict')
+// Revenue net dans le bandeau rouge de la Prévision, dès que le rapport est chargé.
+const showMainNetRevenue = computed(() => isPredictMode.value && !!mainSnapshot.value)
 // Libellé « Nom — date » de l'évènement quand la sélection en contient EXACTEMENT
 // un, chaîne vide sinon. Recherche dans `analysableEvents` (et non `events`) avec
 // la même comparaison stricte d'id que le store (`new Set(selectedEventIds).has(e.id)`,
@@ -2964,6 +2984,7 @@ async function ensureAuthAndLoad(spaceId) {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+.av-header__net { color: #fff; margin-left: 6px; }
 .av-header__ops {
   display: flex;
   flex-direction: column;

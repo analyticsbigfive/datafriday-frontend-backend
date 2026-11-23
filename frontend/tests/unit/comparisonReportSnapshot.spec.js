@@ -20,9 +20,15 @@ describe('chipsFromMetrics', () => {
     const c = chipsFromMetrics(metrics)
     expect(c).toEqual({
       revenue: 1000, avgRevenuePerEvent: 500, cost: 300, transactions: 100,
-      avgTransaction: 10, attendees: 400, transferRate: 25, perCapita: 2.5,
+      avgTransaction: 10, attendees: 400, transferRate: 25, perCapita: 2.5, netRevenue: 700,
     })
     expect(Object.keys(c)).toEqual(CHIP_KEYS)
+  })
+  it('Revenue net = CA - coût ; null quand aucun coût n\'est calculable', () => {
+    expect(chipsFromMetrics(metrics).netRevenue).toBe(700)
+    expect(chipsFromMetrics({ ...metrics, costResolvable: ref(true) }).netRevenue).toBe(700)
+    // Sans coût connu, CA - 0 passerait le CA brut pour un revenu net : « — ».
+    expect(chipsFromMetrics({ ...metrics, costResolvable: ref(false) }).netRevenue).toBeNull()
   })
   it('Predict sans transactions estimées (scénarios) : transactions, panier et transformation sans objet', () => {
     const c = chipsFromMetrics(metrics, { isPredict: true })
