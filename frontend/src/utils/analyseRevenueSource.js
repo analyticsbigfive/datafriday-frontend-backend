@@ -47,6 +47,41 @@ export function pickRevenueRecords({
 }
 
 /**
+ * Filtre article actif (menu item, type, catégorie, marque, industriel, fournisseur, promotion).
+ * @param {object} f filtres de l'Analyse
+ * @returns {boolean}
+ */
+export function hasArticleFilter(f = {}) {
+  return ARTICLE_FILTER_KEYS.some((k) => Array.isArray(f?.[k]) && f[k].length > 0)
+}
+
+const ARTICLE_FILTER_KEYS = [
+  'selectedMenuItemIds',
+  'selectedMenuItemTypes',
+  'selectedMenuItemCategories',
+  'selectedBrands',
+  'selectedIndustrials',
+  'selectedSuppliers',
+  'selectedPromotions',
+  'selectedPromotionTypes',
+]
+
+/**
+ * Records des KPI et graphes en mode Prévision. Les records PdV (shop-level) n'ont aucune
+ * dimension article : un filtre article les viderait (type, catégorie) ou serait sans effet
+ * (menu item). Dès qu'un filtre article est actif, la source devient donc le grain article
+ * (réel passé + scénarios), le seul qui porte la dimension filtrée.
+ * Hors Prévision, ou sans filtre article : comportement inchangé (`pickRevenueRecords`).
+ * @param {{isPredict: boolean, filters: object, itemLevelRecords: Array, shopLevelRecords: Array,
+ *          articleRecords: Array}} args
+ * @returns {Array}
+ */
+export function pickForecastRevenueRecords({ isPredict, filters, itemLevelRecords, shopLevelRecords, articleRecords }) {
+  if (isPredict && hasArticleFilter(filters)) return articleRecords || []
+  return pickRevenueRecords({ isPredict, itemLevelRecords, shopLevelRecords })
+}
+
+/**
  * État d'affichage : 'loading' | 'ready' | 'empty'.
  *
  * Le distinguo 'empty' vs 'loading' est le point critique du lot. Zéro record
