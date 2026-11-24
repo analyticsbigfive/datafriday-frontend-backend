@@ -1,6 +1,6 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, PartialType } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsArray } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, Min, Max } from 'class-validator';
 import { JwtDatabaseGuard } from '../../core/auth/guards/jwt-db.guard';
 import { CurrentTenant } from '../../core/auth/decorators/current-tenant.decorator';
 import { CurrentUser } from '../../core/auth/decorators/current-user.decorator';
@@ -37,6 +37,13 @@ class CreateHrSupplierDto {
   @IsArray()
   @IsString({ each: true })
   spaceIds?: string[];
+
+  // Nombre minimum d'heures par jour pour un staff de l'agence ; null = aucun minimum.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(24)
+  minHoursPerDay?: number | null;
 }
 
 class UpdateHrSupplierDto extends PartialType(CreateHrSupplierDto) {}
