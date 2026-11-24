@@ -118,6 +118,14 @@
                 </div>
               </div>
             </div>
+
+            <div class="hsd-section">
+              <div class="hsd-section__label">{{ t('hrSupplierMinHoursLabel') }}</div>
+              <input
+                id="hsd-min-hours" v-model="form.minHoursPerDay" type="number" min="0" max="24" step="0.5"
+                class="hsd-input" :placeholder="t('hrSupplierMinHoursPlaceholder')"
+              />
+            </div>
           </div>
 
           <!-- ── Error : rendue ici, hors zone scrollable, toujours visible juste au-dessus
@@ -181,7 +189,7 @@ const loading = ref(false)
 const error = ref('')
 const fileInput = ref(null)
 const imagePreview = ref('')
-const form = reactive({ id: '', name: '', email: '', phone: '', contactName: '', picture: '', spaceIds: [], departments: [] })
+const form = reactive({ id: '', name: '', email: '', phone: '', contactName: '', picture: '', spaceIds: [], departments: [], minHoursPerDay: '' })
 
 function reset() {
   const s = props.initial
@@ -193,6 +201,7 @@ function reset() {
   form.picture = s?.picture || ''
   form.spaceIds = [...(s?.spaceIds || [])]
   form.departments = [...(s?.departments || [])]
+  form.minHoursPerDay = s?.minHoursPerDay ?? ''
   imagePreview.value = s?.picture || ''
   error.value = ''
   loading.value = false
@@ -257,6 +266,8 @@ async function submit() {
       picture: form.picture,
       spaceIds: [...form.spaceIds],
       departments: [...form.departments],
+      // Champ vide = aucun minimum (null) ; sinon nombre d'heures.
+      minHoursPerDay: form.minHoursPerDay === '' || form.minHoursPerDay === null ? null : Number(form.minHoursPerDay),
     }
     // Le fournisseur créé/mis à jour est renvoyé avec l'événement (2026-08-01) : permet à un
     // appelant qui ouvre ce tiroir en imbriqué (ex. HrRoleFormDrawer, création d'agence à la
