@@ -1328,6 +1328,18 @@
                   <tr v-for="item in supplier.items" :key="item.itemKey">
                     <td :data-label="t('srColItem')">
                       <strong>{{ item.itemName }}</strong>
+                      <!-- Fournisseur non défini : ouvre le drawer du Market Price
+                           (même drawer qu'à l'étape 1) pour le choisir ou le créer. -->
+                      <button
+                        v-if="supplier.supplierUndefined && canEditMarketPrices && stockItemMetaByItem[item.itemKey]?.marketPriceRow"
+                        type="button"
+                        class="sr-supplier-define-btn"
+                        @click.stop="openSupplierEdit(stockItemMetaByItem[item.itemKey].marketPriceRow)"
+                      ><v-icon size="13">mdi-truck-plus-outline</v-icon>{{ t('srSupplierDefine') }}</button>
+                      <span
+                        v-else-if="supplier.supplierUndefined"
+                        class="sr-shop-diag"
+                      >{{ t('srSupplierDefineNoMp') }}</span>
                       <span
                         v-if="item.itemType !== 'MenuItem' && item.usedIn && item.usedIn.length"
                         style="display:block;font-size:0.72rem;color:var(--sr-muted, #64748b);font-weight:500;margin-top:2px;"
@@ -1714,6 +1726,7 @@ import {
   isItemPercentMixed,
   groupRowsByItemKey,
 } from '@/utils/restockShopPercent'
+import { resolveKitchenGroup } from '@/utils/finishedItemKitchenGroup'
 import { collectComponentOrders, groupComponentOrdersByKitchen, buildKitchenShoppingGroups } from '@/utils/componentKitchenOrders'
 import RestockWorkflowTabs from '@/components/space-workspace/restock/components/RestockWorkflowTabs.vue'
 import { withSupplierAmounts } from '@/utils/restockSupplierAmounts'
@@ -3329,7 +3342,7 @@ export default {
         // et le mode ingrédients (sinon le même article se scinde en deux groupes).
         const referenceMpId = reference?.marketPriceId || reference?.marketPrice?.id || null
         const referenceMp = referenceMpId ? this.marketPrices.find((m) => m.id === referenceMpId) : null
-        const supplierId =
+        const mpSupplierId =
           reference?.supplierId ||
           reference?.supplier?.id ||
           reference?.supplier ||
@@ -3338,22 +3351,41 @@ export default {
           '__unknown_supplier__'
         // Catalogue /suppliers complet d'abord (le store analyse n'en a qu'un
         // sous-ensemble), comme resolveIngredientSupplier.
-        const supplier =
-          this.bomSuppliers.find((s) => s.id === supplierId) ||
-          this.suppliers.find((s) => s.id === supplierId)
-        // Pas de nom inventé : fournisseur introuvable = « Fournisseur non défini ».
-        const supplierName =
-          supplier?.name ||
+        const mpSupplier =
+          this.bomSuppliers.find((s) => s.id === mpSupplierId) ||
+          this.suppliers.find((s) => s.id === mpSupplierId)
+        const mpSupplierName =
+          mpSupplier?.name ||
           referenceMp?.supplierRel?.name ||
           referenceMp?.supplier?.name ||
-          this.t('srSupplierUndefined')
+          null
+        // Sans fournisseur, un article fabriqué en cuisine (composant ou Menu Item
+        // « Ready for sale = Yes ») se commande auprès de sa cuisine.
+        const kitchenGroup = mpSupplierName
+          ? null
+          : resolveKitchenGroup(
+              reference,
+              this.isComponentRow(row),
+              this.store.getters['kitchens/kitchens'] || [],
+              { local: this.t('srKitchenLocal'), undefined: this.t('srKitchenUndefined') },
+            )
+        const supplierId = kitchenGroup ? kitchenGroup.supplierId : mpSupplierId
+        const supplier = kitchenGroup ? null : mpSupplier
+        const resolvedName = kitchenGroup ? kitchenGroup.supplierName : mpSupplierName
+        // Pas de nom inventé : fournisseur introuvable = « Fournisseur non défini ».
+        const supplierName = resolvedName || this.t('srSupplierUndefined')
 
         if (!supplierMap.has(supplierId)) {
           supplierMap.set(supplierId, {
             supplierId,
             supplierName,
-            supplierEmail: supplier?.email || supplier?.contactEmail || supplier?.contact?.email || '',
-            supplierPhone: supplier?.phone || supplier?.telephone || supplier?.contactPhone || supplier?.contact?.phone || '',
+            supplierUndefined: !resolvedName,
+            supplierEmail: kitchenGroup
+              ? kitchenGroup.supplierEmail
+              : supplier?.email || supplier?.contactEmail || supplier?.contact?.email || '',
+            supplierPhone: kitchenGroup
+              ? kitchenGroup.supplierPhone
+              : supplier?.phone || supplier?.telephone || supplier?.contactPhone || supplier?.contact?.phone || '',
             itemMap: new Map(),
           })
         }
@@ -3387,6 +3419,7 @@ export default {
         .map((group) => ({
           supplierId: group.supplierId,
           supplierName: group.supplierName,
+          supplierUndefined: group.supplierUndefined,
           supplierEmail: group.supplierEmail,
           supplierPhone: group.supplierPhone,
           items: Array.from(group.itemMap.values()).sort((a, b) =>
@@ -7478,6 +7511,24 @@ export default {
 }
 .sr-supplier-edit-btn:hover {
   color: var(--sr-primary);
+}
+.sr-supplier-define-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--sr-primary);
+  border-radius: 999px;
+  background: none;
+  color: var(--sr-primary);
+  font-size: 0.74rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.sr-supplier-define-btn:hover {
+  background: rgba(255, 49, 49, 0.08);
 }
 
 .sr-search {
