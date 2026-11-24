@@ -166,7 +166,10 @@
                 <v-icon size="20">mdi-menu</v-icon>
               </button>
               <div class="sr-header__text">
-                <h1 class="sr-header__title">{{ t('srTitle') }}</h1>
+                <div class="sr-header__title-row">
+                  <h1 class="sr-header__title">{{ t('srTitle') }}</h1>
+                  <RestockStorageNotice v-if="shoppingGenerated" :items="displayedUnmatchedStorage" />
+                </div>
                 <p class="sr-header__subtitle">
                   <!-- Nom d'espace : masqué en mobile (déjà dans l'app-bar). -->
                   <span class="sr-subtitle-space">{{ spaceLabel }}</span>
@@ -1265,16 +1268,6 @@
 
           <v-expand-transition>
           <div v-show="!collapsed.shopping">
-          <v-alert
-            v-if="shoppingGenerated && displayedUnmatchedStorage.length"
-            type="warning"
-            density="compact"
-            variant="tonal"
-            class="sr-storage-warn"
-          >
-            {{ t('srStorageUnmatchedWarn') }}
-            <strong>{{ displayedUnmatchedStorage.map((e) => e.name || e.itemId).join(', ') }}</strong>
-          </v-alert>
           <div v-if="!shoppingGenerated" class="sr-empty">
             {{ t('srGenerateShoppingHint') }}
           </div>
@@ -1729,6 +1722,7 @@ import {
 import { resolveKitchenGroup } from '@/utils/finishedItemKitchenGroup'
 import { collectComponentOrders, groupComponentOrdersByKitchen, buildKitchenShoppingGroups } from '@/utils/componentKitchenOrders'
 import RestockWorkflowTabs from '@/components/space-workspace/restock/components/RestockWorkflowTabs.vue'
+import RestockStorageNotice from '@/components/space-workspace/restock/components/RestockStorageNotice.vue'
 import { withSupplierAmounts } from '@/utils/restockSupplierAmounts'
 import RestockSuppliersPanel from '@/components/space-workspace/restock/components/RestockSuppliersPanel.vue'
 import RestockItemShopsDrawer from '@/components/space-workspace/restock/drawers/RestockItemShopsDrawer.vue'
@@ -1854,7 +1848,7 @@ const RESTOCK_STATE_IO = {
 export default {
   name: 'SpaceRestockView',
   directives: { valuePulse: vValuePulse },
-  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockPlanDuplicateDialog, RestockCollapseToggle, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, RestockWorkflowTabs, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
+  components: { WorkspaceToolSelect, RestockEventScenarioPicker, AppSearchBar, WorkspacePanelToggle, WorkspaceMobileToolDrawer, WorkspaceAppHeader, RestockPlansPanel, RestockPlanDuplicateDialog, RestockCollapseToggle, RestockStorageSummary, RestockComponentOrdersPanel, RestockSuppliersPanel, RestockWorkflowTabs, RestockStorageNotice, NumberField, MarketPriceEditSupplierDrawer, RestockItemShopsDrawer, RestockGlobalAdjustMenu, RestockStockFilters, RestockFilterToggle, RestockStorageSpotsDrawer, RestockStorageBuffersDrawer },
   setup() {
     const store = useStore()
     const route = useRoute()
@@ -8174,10 +8168,6 @@ export default {
   margin-top: 3px;
   line-height: 1.35;
 }
-.sr-storage-warn {
-  margin-bottom: 12px;
-}
-
 .sr-group-head,
 .sr-supplier-head {
   display: flex;
@@ -9591,6 +9581,7 @@ export default {
 .sr-header__switcher :deep(.wsh-space-name) { color: #fff; }
 .sr-header__switcher :deep(.wsh-space-chevron) { color: rgba(255, 255, 255, .85); }
 .sr-header__text { min-width: 0; }
+.sr-header__title-row { display: flex; align-items: center; gap: 8px; }
 .sr-header__title { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; }
 .sr-header__subtitle { margin: 3px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, .78); }
 /* Sélecteur « Inventaire source » — select natif fondu dans le bandeau rouge
