@@ -3,11 +3,12 @@
     class="staff-role-select"
     :class="{ 'is-missing': !modelValue }"
     :value="modelValue || ''"
-    :disabled="disabled"
+    :disabled="disabled || !roles.length"
+    :title="roles.length ? undefined : t('epsRoleNone')"
     :aria-label="t('epsRoleSelectLabel')"
     @change="$emit('update:modelValue', $event.target.value)"
   >
-    <option value="" disabled>{{ t('epsRoleMissing') }}</option>
+    <option value="" disabled>{{ roles.length ? t('epsRoleMissing') : t('epsRoleNone') }}</option>
     <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.name }}</option>
   </select>
 </template>
