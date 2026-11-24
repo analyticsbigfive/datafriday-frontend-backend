@@ -688,6 +688,8 @@ model HrSupplier {
   picture     String?  @db.Text // parité avec le drawer existant (photo optionnelle)
   departments String[] // départements libres (F&B, Hospitality…) — ex-"sectors", RH-5 2026-07-30
   spaceIds    String[] // espaces desservis (ids Space, non contraint) — parité localStorage
+  // Durée minimale facturée par jour de présence d'un staff de cette agence (heures). null = aucun minimum.
+  minHoursPerDay Float?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

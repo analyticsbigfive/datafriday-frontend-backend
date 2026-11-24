@@ -62,6 +62,7 @@ function supplierFromDb(s) {
     spaceIds: s.spaceIds || [],
     spaces: s.spaceIds || [], // certains écrans legacy lisent `spaces`
     departments: s.departments || [],
+    minHoursPerDay: s.minHoursPerDay ?? null,
   }
 }
 
@@ -74,6 +75,7 @@ function supplierToDb(supplier) {
     picture: supplier.picture || null,
     departments: supplier.departments || [],
     spaceIds: supplier.spaceIds || supplier.spaces || [],
+    minHoursPerDay: supplier.minHoursPerDay ?? null,
   }
 }
 

@@ -43,6 +43,7 @@ export class HrSupplierService {
       picture: s.picture,
       departments: s.departments ?? [],
       spaceIds: s.spaceIds ?? [],
+      minHoursPerDay: s.minHoursPerDay ?? null,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
     };
@@ -100,6 +101,7 @@ export class HrSupplierService {
       picture?: string;
       departments?: string[];
       spaceIds?: string[];
+      minHoursPerDay?: number | null;
     },
     tenantId: string,
   ) {
@@ -115,6 +117,7 @@ export class HrSupplierService {
           picture: input.picture ?? null,
           departments: departments ?? [],
           spaceIds: input.spaceIds ?? [],
+          minHoursPerDay: input.minHoursPerDay ?? null,
         },
       });
       return this.mapSupplier(row);
@@ -142,6 +145,7 @@ export class HrSupplierService {
           ...(input.picture !== undefined && { picture: input.picture }),
           ...(departments !== undefined && { departments }),
           ...(input.spaceIds !== undefined && { spaceIds: input.spaceIds }),
+          ...(input.minHoursPerDay !== undefined && { minHoursPerDay: input.minHoursPerDay }),
         },
       });
       return this.mapSupplier(row);
