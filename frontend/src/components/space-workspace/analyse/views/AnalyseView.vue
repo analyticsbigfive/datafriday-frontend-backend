@@ -954,7 +954,7 @@ import { useShopPerformance } from '@/composables/useShopPerformance'
 import { useAnalyseTimeline } from '@/composables/useAnalyseTimeline'
 import { useAnalyseItemRecords, ITEM_LEVEL_EVENT_CAP } from '@/composables/useAnalyseItemRecords'
 import { computeItemTotals, buildVariations } from '@/utils/analyseVariations'
-import { pickRevenueRecords, resolveKpiSourceState } from '@/utils/analyseRevenueSource'
+import { pickRevenueRecords, pickForecastRevenueRecords, resolveKpiSourceState } from '@/utils/analyseRevenueSource'
 import { useAnalyseCapture } from '@/composables/useAnalyseCapture'
 import { useAnalyseDataset } from '@/composables/useAnalyseDataset'
 import { useAnalyseExport } from '@/composables/useAnalyseExport'
@@ -1370,8 +1370,10 @@ const recordsArgs = () => ({
   itemLevelRecords: itemLevelRecords.value,
   shopLevelRecords: filteredRecords.value,
 })
-const chartRecords = computed(() => pickRevenueRecords(recordsArgs()))
-const kpiRecords = computed(() => pickRevenueRecords(recordsArgs()))
+// Prévision + filtre article : le grain PdV ne porte pas l'article, on lit le grain article.
+const forecastArgs = () => ({ ...recordsArgs(), filters: filters.value, articleRecords: articleRecords.value })
+const chartRecords = computed(() => pickForecastRevenueRecords(forecastArgs()))
+const kpiRecords = computed(() => pickForecastRevenueRecords(forecastArgs()))
 
 // BUG-350-01 — 'loading' | 'ready' | 'empty', relayé à TOUS les consommateurs.
 const kpiSourceState = computed(() =>
@@ -1443,7 +1445,7 @@ const scenarioEventIds = computed(
 // scénario, records de scénario pour les autres (un event passé AVEC scénario existe
 // en double côté shop-level : réel + copie prédictive scalée, cf. `pastPredictive`).
 const articleRecords = computed(() => {
-  if (!isPredictRecords.value) return chartRecords.value
+  if (!isPredictRecords.value) return pickRevenueRecords(recordsArgs())
   const covered = scenarioEventIds.value
   const actualPast = itemLevelRecords.value.filter((r) => !covered.has(r.eventId))
   return [...actualPast, ...predictScenarioRecords.value]
