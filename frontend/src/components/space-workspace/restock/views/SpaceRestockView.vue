@@ -168,6 +168,14 @@
               <div class="sr-header__text">
                 <div class="sr-header__title-row">
                   <h1 class="sr-header__title">{{ t('srTitle') }}</h1>
+                  <button
+                    v-if="canWritePlans"
+                    type="button"
+                    class="sr-header__new-btn"
+                    :title="t('srNewOrder')"
+                    :aria-label="t('srNewOrder')"
+                    @click="startNewOrder"
+                  ><v-icon size="18">mdi-plus</v-icon></button>
                   <RestockStorageNotice v-if="shoppingGenerated" :items="displayedUnmatchedStorage" />
                 </div>
                 <p class="sr-header__subtitle">
@@ -4594,6 +4602,24 @@ export default {
       const resolver = this.planDupDialog.resolver
       this.planDupDialog = { show: false, existing: null, suggestedName: '', resolver: null }
       if (resolver) resolver(decision)
+    },
+    /**
+     * Bouton « + » du bandeau : démarre une NOUVELLE commande pour la sélection courante.
+     * La commande chargée ou en modification est détachée (jamais écrasée) et la prochaine
+     * génération en crée une nouvelle, sans question remplacer / créer : le choix est fait.
+     */
+    startNewOrder() {
+      if (!this.canWritePlans) return
+      clearTimeout(this._planCorrectionsTimer)
+      this.editingPlanId = null
+      this.detachPlan({ silent: true })
+      const base = defaultPlanName(this.selectedEvents, (e) => this.eventLabel(e)) || this.t('srPlanUnnamed')
+      this.planDupDecision = {
+        key: eventSetKey(this.selectedEventIds),
+        name: suggestPlanName(base, this.plans, this.t('srPlanUnnamed')),
+      }
+      this.goToStep(1)
+      this.showSnackbar(this.t('srSnackNewOrder'), 'info')
     },
     /**
      * Arrivée depuis Event Predict sur un écran déjà vivant : mounted() ne rejoue pas, la
@@ -9617,6 +9643,13 @@ export default {
 .sr-header__switcher :deep(.wsh-space-chevron) { color: rgba(255, 255, 255, .85); }
 .sr-header__text { min-width: 0; }
 .sr-header__title-row { display: flex; align-items: center; gap: 8px; }
+.sr-header__new-btn {
+  display: inline-flex; align-items: center; justify-content: center; flex: none;
+  width: 28px; height: 28px; padding: 0; border: 0; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18); color: #fff; cursor: pointer;
+}
+.sr-header__new-btn:hover { background: rgba(255, 255, 255, 0.3); }
+.sr-header__new-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .sr-header__title { margin: 0; font-size: 20px; font-weight: 800; color: #fff; line-height: 1.2; }
 .sr-header__subtitle { margin: 3px 0 0; font-size: 12.5px; color: rgba(255, 255, 255, .78); }
 /* Sélecteur « Inventaire source » — select natif fondu dans le bandeau rouge
