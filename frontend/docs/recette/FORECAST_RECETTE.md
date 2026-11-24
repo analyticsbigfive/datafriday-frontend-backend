@@ -104,8 +104,23 @@ ajoutées »), « Appliquer les modifications », lire le rapport de comparaison
       Transformation +10 % : Transactions +10 %, Panier moyen inchangé, Transformation +10 % en
       relatif. Panier +10 % : Panier moyen +10 %, Transactions inchangées.
 - [ ] Panier moyen = CA / Transactions, pour le principal comme pour le comparé.
-- [ ] Un event passé affiché avec un scénario : ses transactions suivent l'échelle du scénario (pas
-      de tickets réels mélangés à un CA scénarisé).
+- [ ] Un event passé affiché avec un scénario, **case « Events passés : scénario Event Predict »
+      cochée** : ses transactions suivent l'échelle du scénario (pas de tickets réels mélangés à un
+      CA scénarisé). Case décochée (défaut), il garde ses transactions réelles.
+
+## 8 bis. Events passés : réel ou scénario (case du bandeau rouge)
+
+- [ ] Prérequis : un event **passé** avec ventes réelles ET un scénario Event Predict sauvegardé
+      (actif ou par défaut). Ouvrir l'outil Prévision avec cet event dans les events affichés.
+- [ ] **Défaut** : la case « Events passés : scénario Event Predict » (EN « Past events: Event
+      Predict scenario ») est visible dans le bandeau rouge, **décochée**. L'event passé affiche son
+      **CA réel** (barre, KPI, répartition par article) ; les events futurs gardent leur prédiction.
+- [ ] **Cocher la case** : l'event passé bascule sur son **scénario** (CA ajusté, lignes article du
+      scénario). Les events futurs ne changent pas.
+- [ ] Décocher : retour au réel. Recharger la page : le choix est **mémorisé**.
+- [ ] **Case invisible** : filtrer pour ne garder que des events futurs, ou des events passés sans
+      scénario : la case n'apparaît pas. Elle n'apparaît jamais dans l'outil Analyse.
+- [ ] Mobile 360 px : le libellé passe à la ligne sans être coupé, sans scroll horizontal.
 
 ## 9. Changement d'outil
 
