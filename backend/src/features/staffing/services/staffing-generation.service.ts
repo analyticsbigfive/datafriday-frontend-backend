@@ -164,6 +164,9 @@ export class StaffingGenerationService {
         .map((l) => l.id);
 
       const creations: any[] = [];
+      // Lignes ALGO retouchées, générées avant que le rôle existe (roleId null) : on leur rattache
+      // le rôle maintenant disponible, sans toucher à leurs retouches (horaires, nom, case cochée).
+      const adoptions: any[] = [];
       let predictedCost = 0;
 
       for (const { key, field } of ALGO_COUNT_FIELDS) {
@@ -180,6 +183,24 @@ export class StaffingGenerationService {
           globalWarnings.push({
             code: 'ROLE_A_CONFIGURER',
             message: `Aucun rôle RH ne porte l'algoKey ${key} — rôle à configurer dans Settings RH.`,
+          });
+        }
+        if (role) {
+          const orphans = kept.filter((l) => l.source === 'ALGO' && l.algoKey === key && !l.roleId);
+          orphans.forEach((l, idx) => {
+            const data: any = { roleId: role.id };
+            // Taux à 0 = jamais renseigné : on applique le taux du rôle. Un taux saisi est conservé.
+            if (!l.hourlyRate) {
+              const assignment = this.staffingContextService.pickAssignment(role, idx, hr, ctx.spaceId);
+              data.hourlyRate = assignment.rateOverride ?? defaultRate;
+              if (!l.supplierId && !l.personId) {
+                data.supplierType = assignment.supplierType;
+                data.supplierId = assignment.supplierId;
+                data.personId = assignment.personId;
+                data.personLabel = assignment.personLabel;
+              }
+            }
+            adoptions.push(this.prisma.eventStaffLine.update({ where: { id: l.id }, data }));
           });
         }
         const keptCount = kept.filter((l) => l.source === 'ALGO' && l.algoKey === key).length;
@@ -297,6 +318,7 @@ export class StaffingGenerationService {
       await this.prisma.$transaction([
         this.prisma.eventStaffLine.deleteMany({ where: { id: { in: deletableIds } } }),
         ...(creations.length ? [this.prisma.eventStaffLine.createMany({ data: creations })] : []),
+        ...adoptions,
         // Coût prédit figé dans ElementPerformance.staffCost (champ existant, §5).
         this.prisma.elementPerformance.upsert({
           where: { elementId_configId: { elementId: el.id, configId: ctx.configId } },
