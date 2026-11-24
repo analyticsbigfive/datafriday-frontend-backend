@@ -64,6 +64,18 @@
       <!-- Miroir de l'état vide : une erreur de (re)génération doit aussi être
            visible quand des lignes existent déjà (BUG-258-01). -->
       <p v-if="generateError" class="eps-error">{{ generateError }}</p>
+      <!-- Lignes sans rôle : taux et coût à 0. Sans ce bandeau, le seul signal était un badge
+           orange et un avertissement de génération facilement manqués. -->
+      <v-alert
+        v-if="rolelessCount"
+        type="warning"
+        variant="tonal"
+        density="comfortable"
+        class="eps-empty-alert"
+      >
+        <strong>{{ rolelessCount }}</strong> {{ t('epsNoRoleBanner') }}
+        <div v-if="needsRole" class="mt-2"><StaffCreateRoleCta @saved="loadRoles" /></div>
+      </v-alert>
 
       <!-- Une carte par PDV, calquée sur ep-shop-card (EventPredictMenusSection) -->
       <div v-for="el in elements" :key="el.elementId" class="ep-shop-card">
@@ -129,7 +141,10 @@
               :disabled="saving"
               @update:model-value="onRoleChange(line, $event)"
             />
-            <span v-else class="ep-role-badge" :class="{ 'role-warn': !line.roleId }">
+            <span
+              v-else class="ep-role-badge" :class="{ 'role-warn': !line.roleId }"
+              :title="line.roleId ? undefined : t('epsNoRoleLineHint')"
+            >
               {{ line.roleName || line.algoKey || t('epsRoleMissing') }}
             </span>
             <span v-if="line.source === 'MANUAL'" class="eps-manual-tag">{{ t('epsManual') }}</span>
@@ -563,7 +578,14 @@ async function loadRoles() {
   }
   rolesLoaded.value = true
 }
-watch(() => settings.value?.spaceId, loadRoles, { immediate: true })
+// Attend l'espace : sans lui l'API renvoie TOUS les rôles, liste complète affichée un instant
+// puis vidée quand le filtre par espace arrive.
+watch(() => settings.value?.spaceId, (id) => { if (id) loadRoles() }, { immediate: true })
+
+// Lignes actives sans rôle (taux et coût à 0).
+const rolelessCount = computed(
+  () => elements.value.reduce((n, el) => n + el.lines.filter((l) => l.enabled && !l.roleId).length, 0),
+)
 
 // Aucun rôle ne sert l'espace (liste vide ou avertissement de la génération) : proposer d'en créer un.
 const needsRole = computed(
