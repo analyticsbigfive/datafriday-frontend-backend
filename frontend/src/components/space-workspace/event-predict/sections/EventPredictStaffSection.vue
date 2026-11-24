@@ -73,8 +73,15 @@
         density="comfortable"
         class="eps-empty-alert"
       >
-        <strong>{{ rolelessCount }}</strong> {{ t('epsNoRoleBanner') }}
-        <div v-if="needsRole" class="mt-2"><StaffCreateRoleCta @saved="loadRoles" /></div>
+        <strong>{{ rolelessCount }}</strong>
+        {{ canRegenerateRoles ? t('epsNoRoleBannerStale') : t('epsNoRoleBanner') }}
+        <div v-if="canRegenerateRoles" class="mt-2">
+          <button class="eps-generate-btn eps-generate-btn--ghost" :disabled="saving" @click="onGenerate">
+            <v-icon size="15" class="mr-1">mdi-refresh</v-icon>
+            {{ t('epsRegenerate') }}
+          </button>
+        </div>
+        <div v-else-if="needsRole" class="mt-2"><StaffCreateRoleCta @saved="loadRoles" /></div>
       </v-alert>
 
       <!-- Une carte par PDV, calquée sur ep-shop-card (EventPredictMenusSection) -->
@@ -585,6 +592,12 @@ watch(() => settings.value?.spaceId, (id) => { if (id) loadRoles() }, { immediat
 // Lignes actives sans rôle (taux et coût à 0).
 const rolelessCount = computed(
   () => elements.value.reduce((n, el) => n + el.lines.filter((l) => l.enabled && !l.roleId).length, 0),
+)
+
+// Des rôles servent l'espace mais des lignes générées avant leur création restent sans rôle :
+// une régénération les leur affecte (les lignes retouchées à la main sont conservées).
+const canRegenerateRoles = computed(
+  () => rolesLoaded.value && roles.value.length > 0 && rolelessCount.value > 0,
 )
 
 // Aucun rôle ne sert l'espace (liste vide ou avertissement de la génération) : proposer d'en créer un.
