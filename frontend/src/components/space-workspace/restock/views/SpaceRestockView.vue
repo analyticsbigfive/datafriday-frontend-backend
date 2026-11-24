@@ -1719,6 +1719,7 @@ import {
   isItemPercentMixed,
   groupRowsByItemKey,
 } from '@/utils/restockShopPercent'
+import { predictArrivalAction } from '@/utils/restockPredictArrival'
 import { resolveKitchenGroup } from '@/utils/finishedItemKitchenGroup'
 import { collectComponentOrders, groupComponentOrdersByKitchen, buildKitchenShoppingGroups } from '@/utils/componentKitchenOrders'
 import RestockWorkflowTabs from '@/components/space-workspace/restock/components/RestockWorkflowTabs.vue'
@@ -3948,6 +3949,8 @@ export default {
       const step = this.reachableStep(SLUG_STEPS[q?.step])
       if (step && step !== this.currentStep) this.goToStep(step)
       if (q?.tab === 'storage') this.stockTab = 'storage'
+      // Écran déjà vivant (keepAlive) : nouvelle arrivée depuis Event Predict pour un match.
+      if (q?.from === 'predict' && q?.event && this.entryPlanHandled) this.onPredictArrivalAlive(q)
     },
     restockViewMode() {
       this.restockPage = 1
@@ -4229,8 +4232,13 @@ export default {
       // Miroir localStorage (cas où l'état vient de l'API).
       localDb.setRestockState(spaceId, saved)
       this.restoringState = true
-      if (saved.loadedPlanId) this.entryPlanHandled = true
-      else if (saved.editingPlanId) {
+      // Arrivée via ?event= (Event Predict) : la commande de la dernière session appartient à un
+      // autre match. Ne pas la restaurer (loadedPlanId / editingPlanId), sinon « Mettre à jour »
+      // réécrit cette commande avec le match ouvert. La question remplacer / créer est posée
+      // par openLatestPlanOnEntry (?from=predict).
+      const restorePlan = !opts.keepNavSelection
+      if (restorePlan && saved.loadedPlanId) this.entryPlanHandled = true
+      else if (restorePlan && saved.editingPlanId) {
         this.editingPlanId = saved.editingPlanId
         this.entryPlanHandled = true
       }
@@ -4284,7 +4292,7 @@ export default {
           // F5 avec un plan chargé : on le recharge (404 → effacé + snackbar,
           // géré dans loadPlan). Après la levée du guard, sinon la restauration
           // du plan serait elle-même re-persistée en boucle.
-          if (saved.loadedPlanId) {
+          if (restorePlan && saved.loadedPlanId) {
             this.entryPlanHandled = true
             this.loadPlan(saved.loadedPlanId)
           }
@@ -4586,6 +4594,33 @@ export default {
       const resolver = this.planDupDialog.resolver
       this.planDupDialog = { show: false, existing: null, suggestedName: '', resolver: null }
       if (resolver) resolver(decision)
+    },
+    /**
+     * Arrivée depuis Event Predict sur un écran déjà vivant : mounted() ne rejoue pas, la
+     * commande chargée ou en modification est celle de la visite précédente (autre match).
+     * On la détache avant tout, pour qu'« Mettre à jour » n'écrive jamais dessus, puis on
+     * pose la question remplacer / créer pour le match ouvert.
+     */
+    async onPredictArrivalAlive(q) {
+      const { from, ...rest } = q
+      this.router.replace({ query: rest }).catch(() => {})
+      const action = predictArrivalAction({
+        eventId: q.event,
+        selectedEventIds: this.selectedEventIds,
+        listedIds: new Set(this.predictedEvents.map((e) => e.id)),
+      })
+      if (action === 'ignore') return
+      if (action === 'switch') {
+        this.editingPlanId = null
+        this.planDupDecision = null
+        this.detachPlan({ silent: true })
+        this.selectedEventIds = [q.event]
+        this.objectiveSource = 'forecast'
+        this.ensureDefaultScenario(q.event)
+        if (q.date) this.plannedEventDate = q.date
+        this.goToStep(1)
+      }
+      await this.checkDuplicateOnPredictArrival()
     },
     /**
      * Ouverture de Commandes hors Event Predict (menu, lien direct) : charge la dernière
