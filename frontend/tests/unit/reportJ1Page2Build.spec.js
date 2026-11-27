@@ -39,6 +39,12 @@ describe('kpi-bar / widget-bar', () => {
     expect(w.data.items).toHaveLength(5)
     expect(w.data.items[3].value).toMatch(/\/min$/)
   })
+  it('options.items ne garde que les pastilles choisies', () => {
+    const k = buildSlotData({ kind: 'kpi-bar', options: { items: 'revenue,percap' } }, base)
+    expect(k.data.items.map((i) => i.key)).toEqual(['revenue', 'percap'])
+    const w = buildSlotData({ kind: 'widget-bar', options: { items: 'margin' } }, base)
+    expect(w.data.items.map((i) => i.key)).toEqual(['margin'])
+  })
   it('valeurs absentes: tiret, pas de plantage', () => {
     const w = buildSlotData({ kind: 'widget-bar' }, { ...none, rendementRaw: {} })
     expect(w.status).toBe('ok')

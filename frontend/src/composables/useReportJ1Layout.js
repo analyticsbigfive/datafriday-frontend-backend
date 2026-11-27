@@ -1,20 +1,19 @@
 /**
  * useReportJ1Layout : chargement et sauvegarde de la mise en page de la page 2 du rapport J+1
- * (une par espace, partagée). Verrou optimiste : `save` envoie la version lue ; sur 409 le
+ * (une par espace, partagée ; 1 à 4 pages, voir utils/reportJ1Pages). Verrou optimiste : `save` envoie la version lue ; sur 409 le
  * layout est rechargé et le résultat porte `conflict: true` (l'appelant notifie).
  */
 import { ref } from 'vue'
 import { getJ1Page2Layout, putJ1Page2Layout } from '@/api/endpoints/report-layout.api'
-import { EMPTY_LAYOUT } from '@/utils/reportJ1Grid'
+import { normalizeLayout } from '@/utils/reportJ1Pages'
 
 function normalize(payload) {
-  const layout = payload?.layout && Array.isArray(payload.layout.slots) ? payload.layout : { ...EMPTY_LAYOUT, slots: [] }
-  return { layout, version: Number(payload?.version) || 0 }
+  return { layout: normalizeLayout(payload?.layout), version: Number(payload?.version) || 0 }
 }
 
 /** @param {import('vue').Ref<string|null>} spaceId */
 export function useReportJ1Layout(spaceId) {
-  const layout = ref({ ...EMPTY_LAYOUT, slots: [] })
+  const layout = ref(normalizeLayout(null))
   const version = ref(0)
   const loading = ref(false)
   const saving = ref(false)

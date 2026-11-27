@@ -4,7 +4,8 @@
       :space-name="spaceName"
       :kpis="comparisonMainKpiStrip ? [] : headerKpis"
       show-home
-      @kpi-click="onOpenChart"
+      :pick="headerKpiPick"
+      @kpi-click="onHeaderKpiClick"
     >
       <template #kpi-actions>
         <ReportJ1AddButton kind="kpi-bar" :label="t('rj1KindKpiBar')" />
@@ -416,10 +417,15 @@
           v-for="kpi in mobileKpiStrip"
           :key="kpi.label"
           class="av-mkpi"
-          :class="{ 'av-mkpi--clickable': kpi.kind }"
+          :class="{
+            'av-mkpi--clickable': kpi.kind,
+            'rj1-pick': headerKpiPick && kpiInBar(kpi.kind) && !headerKpiPick.includes(kpi.kind),
+            'rj1-pick rj1-pick--on': headerKpiPick && kpiInBar(kpi.kind) && headerKpiPick.includes(kpi.kind),
+          }"
           :style="{ '--kpi-color': kpi.color }"
           role="button"
-          @click="kpi.kind && onOpenChart(kpi.kind)"
+          :aria-pressed="headerKpiPick && kpiInBar(kpi.kind) ? headerKpiPick.includes(kpi.kind) : undefined"
+          @click="kpi.kind && onHeaderKpiClick(kpi.kind)"
         >
           <div class="av-mkpi__label">{{ kpi.label }}</div>
           <div class="av-mkpi__value">
@@ -938,6 +944,8 @@ import ForecastPastScenarioToggle from '@/components/space-workspace/analyse/for
 import { useForecastPastScenario } from '@/composables/useForecastPastScenario'
 import ReportJ1PlacementDrawer from '@/components/space-workspace/analyse/report-j1/ReportJ1PlacementDrawer.vue'
 import { provideReportJ1Placement } from '@/composables/useReportJ1Placement'
+import { provideReportJ1ChipSelection } from '@/composables/useReportJ1ChipSelection'
+import { KPI_BAR_KEYS } from '@/utils/reportJ1Chips'
 import ComparisonDrawerHead from '@/components/space-workspace/analyse/comparison/ComparisonDrawerHead.vue'
 import { useComparisonRuntime } from '@/composables/useComparisonRuntime'
 import { useMainReportSnapshot } from '@/composables/useMainReportSnapshot'
@@ -2026,6 +2034,15 @@ const reportJ1 = provideReportJ1Placement({
   spaceId: computed(() => route.params.spaceId || null),
   notify: notifyComparison,
 })
+// Choix des pastilles des barres KPI avant l'ajout au rapport J+1 (barre du haut, barre de widgets).
+const reportJ1Chips = provideReportJ1ChipSelection({ placement: reportJ1, notify: notifyComparison })
+const headerKpiPick = computed(() => (reportJ1Chips.isActive('kpi-bar') ? reportJ1Chips.picked.value : null))
+// MARGE et TX/MIN (bande mobile fusionnée) ne font pas partie de la barre du haut.
+const kpiInBar = (kind) => !!kind && KPI_BAR_KEYS.includes(kind)
+function onHeaderKpiClick(kind) {
+  if (reportJ1Chips.isActive('kpi-bar')) reportJ1Chips.toggle('kpi-bar', kind)
+  else onOpenChart(kind)
+}
 const {
   exporting: comparisonExporting,
   exportCsv: onComparisonExportCsv,
