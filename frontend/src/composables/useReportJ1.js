@@ -25,6 +25,7 @@ import { ref, nextTick, getCurrentInstance } from 'vue'
 import defaultStore from '@/store'
 import { getJ1Page2Layout } from '@/api/endpoints/report-layout.api'
 import { loadPage2 } from '@/composables/useReportJ1Page2Data'
+import { normalizeLayout, allSlots, splitResultsByPage } from '@/utils/reportJ1Pages'
 import { useI18n } from '@/i18n/useI18n'
 import {
   classifyMenuRevenueBucket,
@@ -240,24 +241,27 @@ export function useReportJ1({ space, reportEvent, metrics, articleRecords, menuI
   const app = getCurrentInstance()?.appContext?.app || null
 
   /**
-   * Page 2 (sélection Analyse) : layout de l'espace puis données par groupe de filtres.
-   * Tout échec renvoie null : le PDF page 1 reste généré, l'utilisateur est prévenu.
+   * Pages de sélection Analyse (page 2 à 5) : layout de l'espace puis données par groupe de filtres.
+   * Tout échec renvoie null : la page 1 reste générée, l'utilisateur est prévenu.
    */
   async function loadPage2Data(ev) {
     try {
       const spaceId = space.value?.id
       if (!spaceId || !app) return null
       const payload = await getJ1Page2Layout(spaceId)
-      const layout = payload?.layout
-      if (!layout || !Array.isArray(layout.slots) || !layout.slots.length) return null
-      return await loadPage2({
+      const layout = normalizeLayout(payload?.layout)
+      const slots = allSlots(layout)
+      if (!slots.length) return null
+      // Un seul chargement pour toutes les pages : les slots aux mêmes filtres partagent leur groupe.
+      const results = await loadPage2({
         app,
-        layout,
+        layout: { slots },
         event: ev,
         spaceId,
         canView: !!defaultStore.getters['auth/can']?.('stats.financial.view'),
         translate: t,
       })
+      return splitResultsByPage(layout, results)
     } catch (e) {
       // eslint-disable-next-line no-console
       console.error('[useReportJ1] page 2 indisponible', e)

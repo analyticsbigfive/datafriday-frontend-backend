@@ -8,7 +8,13 @@
         class="rj1-slot"
         :style="slotStyle(slot)"
       >
-        <div class="rj1-slot__label">{{ slotLabel(slot) }}</div>
+        <ReportJ1SlotTitle
+          :title="slotLabel(slot)"
+          :value="slot.label || ''"
+          :saving="saving"
+          @rename="(label) => emit('rename', slot.id, label)"
+        />
+        <div v-if="slotChips(slot)" class="rj1-slot__filters">{{ slotChips(slot) }}</div>
         <div v-if="slotFilters(slot)" class="rj1-slot__filters">{{ slotFilters(slot) }}</div>
         <button
           type="button"
@@ -63,14 +69,17 @@
 </template>
 
 <script setup>
-// Apercu A4 portrait de la page 2 du rapport J+1 : grille 2 x 3, clic sur une case libre =
+// Apercu A4 portrait d'une page de selection du rapport J+1 : grille 2 x 3, clic sur une case libre =
 // coin haut gauche de l'element a placer. Aucun etat metier : tout vient des props.
 import { ref, computed } from 'vue'
 import { useI18n } from '@/i18n/useI18n'
 import { sizeOf, labelKeyOf } from '@/utils/reportJ1Page2Catalog'
 import { describeFilters } from '@/utils/reportJ1FilterSnapshot'
+import { describeChips } from '@/utils/reportJ1Chips'
+import ReportJ1SlotTitle from './ReportJ1SlotTitle.vue'
 
 const props = defineProps({
+  // Page affichée : { slots }.
   layout: { type: Object, required: true },
   // Etat de chaque case pour l'element a placer (cellStates).
   cells: { type: Array, required: true },
@@ -78,7 +87,7 @@ const props = defineProps({
   pendingLabel: { type: String, default: '' },
   saving: { type: Boolean, default: false },
 })
-const emit = defineEmits(['place', 'remove'])
+const emit = defineEmits(['place', 'remove', 'rename'])
 
 const { t } = useI18n()
 const hover = ref(null)
@@ -97,6 +106,9 @@ const previewStyle = computed(() => area(hover.value.col, hover.value.row, props
 
 function slotLabel(slot) {
   return slot.label || t(labelKeyOf(slot.kind, slot.variant))
+}
+function slotChips(slot) {
+  return describeChips(slot.kind, slot.options?.items, t)
 }
 function slotFilters(slot) {
   return describeFilters(slot.filters, t)
@@ -165,12 +177,6 @@ function reasonText(reason) {
   border-radius: 6px;
   border: 1px solid rgba(var(--v-theme-primary), 0.45);
   background: rgba(var(--v-theme-primary), 0.08);
-}
-.rj1-slot__label {
-  font-size: var(--fs-sm, 0.75rem);
-  font-weight: var(--fw-semibold, 600);
-  line-height: 1.3;
-  overflow-wrap: anywhere;
 }
 .rj1-slot__filters {
   font-size: var(--fs-xs, 0.6875rem);

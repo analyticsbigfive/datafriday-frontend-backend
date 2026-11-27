@@ -4,27 +4,27 @@
        CA / TPE, CA / collaborateur, Marge, TX/MIN, Valorisation stock. CA et Percap
        restent dans la bande KPI du header. -->
   <v-row class="mb-4 fmg-row" dense>
-    <v-col cols="12" sm="6" class="fmg-col">
+    <v-col cols="12" sm="6" class="fmg-col" :class="pickClass('revenue-per-tpe')">
       <KpiCard
         :config="cardByKey.revenuePerTpe"
         :loading="rendement.revenuePerTpe.loading"
         :value="rendement.revenuePerTpe.value"
         :warning="rendement.revenuePerTpe.warning || ''"
         :delta="deltas?.tpe || null"
-        @click="$emit('open-chart', 'revenue-per-tpe')"
+        @click="onCard('revenue-per-tpe')"
       />
     </v-col>
-    <v-col cols="12" sm="6" class="fmg-col">
+    <v-col cols="12" sm="6" class="fmg-col" :class="pickClass('revenue-per-collaborator')">
       <KpiCard
         :config="cardByKey.revenuePerCollaborator"
         :loading="rendement.revenuePerCollaborator.loading"
         :value="rendement.revenuePerCollaborator.value"
         :warning="rendement.revenuePerCollaborator.warning || ''"
         :delta="deltas?.collaborator || null"
-        @click="$emit('open-chart', 'revenue-per-collaborator')"
+        @click="onCard('revenue-per-collaborator')"
       />
     </v-col>
-    <v-col cols="12" sm="6" class="fmg-col">
+    <v-col cols="12" sm="6" class="fmg-col" :class="pickClass('margin')">
       <KpiCard
         :config="cardByKey.margin"
         :loading="isLoading"
@@ -32,10 +32,10 @@
         :subtext="marginSubtext"
         :variation="v('margin')"
         :delta="deltas?.margin || null"
-        @click="$emit('open-chart', 'margin')"
+        @click="onCard('margin')"
       />
     </v-col>
-    <v-col cols="12" sm="6" class="fmg-col">
+    <v-col cols="12" sm="6" class="fmg-col" :class="pickClass('transaction-rate')">
       <KpiCard
         :config="cardByKey.transactionRate"
         :loading="isLoading"
@@ -43,17 +43,17 @@
         :subtext="transactionRateSubtext"
         :variation="v('transferRate')"
         :delta="deltas?.transactionRate || null"
-        @click="$emit('open-chart', 'transaction-rate')"
+        @click="onCard('transaction-rate')"
       />
     </v-col>
-    <v-col cols="12" sm="6" class="fmg-col">
+    <v-col cols="12" sm="6" class="fmg-col" :class="pickClass('stock-value')">
       <KpiCard
         :config="cardByKey.stockValue"
         :loading="rendement.stockValue.loading"
         :value="rendement.stockValue.value"
         :warning="rendement.stockValue.warning || ''"
         :delta="deltas?.stock || null"
-        @click="$emit('open-chart', 'stock-value')"
+        @click="onCard('stock-value')"
       />
     </v-col>
   </v-row>
@@ -73,6 +73,7 @@ import { KPI_CARDS } from '@/constants/analyseColors'
 import { formatCurrencyDetailed } from '@/composables/useFormatters'
 import { useNumberFormat } from '@/composables/useNumberFormat'
 import { useI18n } from '@/i18n/useI18n'
+import { injectReportJ1ChipSelection } from '@/composables/useReportJ1ChipSelection'
 import ReportJ1AddButton from '@/components/space-workspace/analyse/report-j1/ReportJ1AddButton.vue'
 
 const props = defineProps({
@@ -92,7 +93,17 @@ const props = defineProps({
   // (décision 4) ; absent ou clé manquante = comportement historique.
   deltas: { type: Object, default: null },
 })
-defineEmits(['open-chart'])
+const emit = defineEmits(['open-chart'])
+
+// Mode choix des pastilles du rapport J+1 (« + » de la barre de widgets) : un clic choisit
+// la carte au lieu d'ouvrir son graphe ; les cartes non choisies vibrent.
+const chips = injectReportJ1ChipSelection()
+const picking = computed(() => !!chips && chips.isActive('widget-bar'))
+const pickClass = (key) => (picking.value ? ['rj1-pick', { 'rj1-pick--on': chips.isPicked('widget-bar', key) }] : null)
+function onCard(key) {
+  if (picking.value) chips.toggle('widget-bar', key)
+  else emit('open-chart', key)
+}
 
 const isLoading = computed(() => props.sourceState === 'loading')
 
