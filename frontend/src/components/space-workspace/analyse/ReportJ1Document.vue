@@ -127,8 +127,15 @@
       <div class="rj1-footer">{{ t('rj1GeneratedAt') }} {{ generatedAtLabel }} — DataFriday</div>
     </div>
 
-    <!-- ── Page 2 : sélection Analyse (absente si aucun élément placé) ── -->
-    <ReportJ1Page2 v-if="data.page2" :items="data.page2" :space="data.space" :event="data.event" />
+    <!-- ── Pages 2 à 5 : sélection Analyse (une par page non vide, aucune si rien n'est placé) ── -->
+    <ReportJ1Page2
+      v-for="p in data.page2 || []"
+      :key="p.number"
+      :items="p.items"
+      :page-number="p.number"
+      :space="data.space"
+      :event="data.event"
+    />
   </div>
 </template>
 

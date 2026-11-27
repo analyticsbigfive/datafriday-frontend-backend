@@ -1,0 +1,27 @@
+/* Mode « choisir les pastilles » du rapport J+1 : une pastille non choisie vibre, une pastille
+   choisie reste fixe avec un contour. Classes posées par les barres KPI d'Analyse. */
+@keyframes rj1-wiggle {
+  0%, 100% { transform: rotate(0deg); }
+  20% { transform: rotate(-1.6deg) translateX(-1px); }
+  40% { transform: rotate(1.6deg) translateX(1px); }
+  60% { transform: rotate(-1.2deg) translateX(-1px); }
+  80% { transform: rotate(1.2deg) translateX(1px); }
+}
+
+.rj1-pick {
+  cursor: pointer;
+  animation: rj1-wiggle 0.45s ease-in-out infinite;
+  transform-origin: 50% 60%;
+}
+
+.rj1-pick--on {
+  animation: none;
+  outline: 2px solid rgb(var(--v-theme-primary));
+  outline-offset: 1px;
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rj1-pick { animation: none; outline: 2px dashed rgba(var(--v-theme-primary), 0.7); outline-offset: 1px; }
+  .rj1-pick--on { outline: 2px solid rgb(var(--v-theme-primary)); }
+}

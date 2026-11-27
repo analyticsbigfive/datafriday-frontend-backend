@@ -15,6 +15,7 @@ import {
 } from '@/utils/articleDimensionBreakdown'
 import { groupBasketsByCombo } from '@/utils/transactionBaskets'
 import { computeTopShops, computeTopEvents, computeTopItems } from '@/utils/reportJ1PerfTables'
+import { pickChips } from '@/utils/reportJ1Chips'
 import { formatCurrency, formatCurrencyDetailed, formatNumber } from '@/composables/useFormatters'
 import { currentIntlLocale } from '@/composables/useNumberFormat'
 import { SHOP_COLORS, SHOP_TYPE_COLORS, SHOP_AREA_COLORS } from '@/constants/analyseColors'
@@ -39,34 +40,34 @@ function decimal(value, digits) {
 }
 const hasValue = (v) => v != null && !Number.isNaN(Number(v))
 
-function kpiBar(ctx) {
+function kpiBar(slot, ctx) {
   const t = ctx.t
   const c = chipsFromMetrics(ctx.metrics)
   const att = c.attendees
   const items = [
-    { label: t('anHeaderKpiRevenue'), value: formatCurrency(c.revenue), color: '#10B981' },
-    { label: t('anHeaderKpiAvgPerEvent'), value: formatCurrency(c.avgRevenuePerEvent), color: '#F97316' },
-    { label: t('anHeaderKpiCost'), value: formatCurrencyDetailed(c.cost), color: '#ff3131' },
-    { label: t('anHeaderKpiTransactions'), value: formatNumber(c.transactions), color: '#3B82F6' },
-    { label: t('anHeaderKpiBasket'), value: formatCurrencyDetailed(c.avgTransaction), color: '#A855F7' },
-    { label: t('anHeaderKpiAttendees'), value: formatNumber(att), color: '#0EA5E9' },
-    { label: t('anHeaderKpiTransformation'), value: att ? `${decimal(c.transferRate, 1)}%` : NO_VALUE, color: '#14B8A6' },
-    { label: t('anHeaderKpiPerCap'), value: formatCurrencyDetailed(c.perCapita), color: '#EC4899' },
+    { key: 'revenue', label: t('anHeaderKpiRevenue'), value: formatCurrency(c.revenue), color: '#10B981' },
+    { key: 'avg-revenue', label: t('anHeaderKpiAvgPerEvent'), value: formatCurrency(c.avgRevenuePerEvent), color: '#F97316' },
+    { key: 'cost', label: t('anHeaderKpiCost'), value: formatCurrencyDetailed(c.cost), color: '#ff3131' },
+    { key: 'transactions', label: t('anHeaderKpiTransactions'), value: formatNumber(c.transactions), color: '#3B82F6' },
+    { key: 'avg-trans', label: t('anHeaderKpiBasket'), value: formatCurrencyDetailed(c.avgTransaction), color: '#A855F7' },
+    { key: 'attendees', label: t('anHeaderKpiAttendees'), value: formatNumber(att), color: '#0EA5E9' },
+    { key: 'transformation', label: t('anHeaderKpiTransformation'), value: att ? `${decimal(c.transferRate, 1)}%` : NO_VALUE, color: '#14B8A6' },
+    { key: 'percap', label: t('anHeaderKpiPerCap'), value: formatCurrencyDetailed(c.perCapita), color: '#EC4899' },
   ]
-  return ok({ items })
+  return ok({ items: pickChips('kpi-bar', items, slot?.options?.items) })
 }
 
-function widgetBar(ctx) {
+function widgetBar(slot, ctx) {
   const t = ctx.t
   const w = widgetsFromMetrics(ctx.metrics, ctx.rendementRaw)
   const items = [
-    { label: t('anKpiCardRevenuePerTpe'), value: hasValue(w.revenuePerTpe) ? formatCurrency(w.revenuePerTpe) : NO_VALUE, color: '#0EA5E9' },
-    { label: t('anKpiCardRevenuePerCollaborator'), value: hasValue(w.revenuePerCollaborator) ? formatCurrency(w.revenuePerCollaborator) : NO_VALUE, color: '#EC4899' },
-    { label: t('anKpiCardMargin'), value: hasValue(w.margin) ? `${decimal(w.margin, 1)}%` : NO_VALUE, color: '#3B82F6' },
-    { label: t('anKpiCardTransactionRate'), value: hasValue(w.transactionRate) ? `${decimal(w.transactionRate, 2)}/min` : NO_VALUE, color: '#A855F7' },
-    { label: t('anKpiCardStockValue'), value: hasValue(w.stockValue) ? formatCurrency(w.stockValue) : NO_VALUE, color: '#10B981' },
+    { key: 'revenue-per-tpe', label: t('anKpiCardRevenuePerTpe'), value: hasValue(w.revenuePerTpe) ? formatCurrency(w.revenuePerTpe) : NO_VALUE, color: '#0EA5E9' },
+    { key: 'revenue-per-collaborator', label: t('anKpiCardRevenuePerCollaborator'), value: hasValue(w.revenuePerCollaborator) ? formatCurrency(w.revenuePerCollaborator) : NO_VALUE, color: '#EC4899' },
+    { key: 'margin', label: t('anKpiCardMargin'), value: hasValue(w.margin) ? `${decimal(w.margin, 1)}%` : NO_VALUE, color: '#3B82F6' },
+    { key: 'transaction-rate', label: t('anKpiCardTransactionRate'), value: hasValue(w.transactionRate) ? `${decimal(w.transactionRate, 2)}/min` : NO_VALUE, color: '#A855F7' },
+    { key: 'stock-value', label: t('anKpiCardStockValue'), value: hasValue(w.stockValue) ? formatCurrency(w.stockValue) : NO_VALUE, color: '#10B981' },
   ]
-  return ok({ items })
+  return ok({ items: pickChips('widget-bar', items, slot?.options?.items) })
 }
 
 // { keys, labels, values, colors } -> entrées de donut, parts nulles retirées.
@@ -232,8 +233,8 @@ export function buildSlotData(slot, ctx) {
   const c = { t: (k) => k, ...ctx }
   try {
     switch (slot?.kind) {
-      case 'kpi-bar': return kpiBar(c)
-      case 'widget-bar': return widgetBar(c)
+      case 'kpi-bar': return kpiBar(slot, c)
+      case 'widget-bar': return widgetBar(slot, c)
       case 'donut': return donut(slot, c)
       case 'perf-table': return perfTable(slot, c)
       case 'revenue-bars': return revenueBars(c)
