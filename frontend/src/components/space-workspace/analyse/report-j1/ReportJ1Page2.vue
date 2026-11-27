@@ -1,5 +1,5 @@
 <template>
-  <!-- Page 2 du Rapport J+1 : sélection Analyse placée sur une grille 2 x 3. Capturée par la
+  <!-- Page de sélection (2 à 5) du Rapport J+1 : sélection Analyse placée sur une grille 2 x 3. Capturée par la
        boucle de useReportJ1.renderPdf (classe rj1-page). Tout est dimensionné par constantes. -->
   <div class="rj1-page rj1p2">
     <div class="rj1p2-brand">
@@ -9,6 +9,7 @@
     </div>
     <div class="rj1p2-title">
       <span class="rj1p2-title__text">{{ t('rj1Page2Title') }}</span>
+      <span v-if="pageNumber > 2" class="rj1p2-title__event">{{ t('rj1PageTab').replace('{n}', String(pageNumber)) }}</span>
       <span class="rj1p2-title__event">{{ eventName }}</span>
     </div>
 
@@ -52,6 +53,8 @@ import logo from '@/assets/datafriday.png'
 const props = defineProps({
   /** Résultat de loadPage2 : [{ slot, status, data }]. */
   items: { type: Array, required: true },
+  /** Numéro de la page dans le rapport (2 à 5). */
+  pageNumber: { type: Number, default: 2 },
   space: { type: Object, default: null },
   event: { type: Object, default: null },
 })

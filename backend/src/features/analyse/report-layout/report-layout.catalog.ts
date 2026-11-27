@@ -5,6 +5,8 @@ export type ReportLayoutKind = (typeof REPORT_LAYOUT_KINDS)[number];
 export const GRID_COLS = 2;
 export const GRID_ROWS = 3;
 export const MAX_SLOTS = 6;
+/** Pages de sélection : la page 2 du rapport + 3 pages supplémentaires. */
+export const MAX_PAGES = 4;
 export const MAX_LAYOUT_BYTES = 64 * 1024;
 
 export const SLOT_SIZES: Record<string, { w: number; h: number }> = {
@@ -34,3 +36,9 @@ export const ARRAY_FILTER_KEYS = [
 ] as const;
 export const TIME_RANGE_KEY = 'selectedTimeRange';
 export const CONFIGURATION_KEY = 'selectedConfigurationId';
+
+/** Pastilles choisissables dans les barres KPI (miroir de frontend/src/utils/reportJ1Chips.js). */
+export const CHIP_KEYS: Record<string, readonly string[]> = {
+  'kpi-bar': ['revenue', 'avg-revenue', 'cost', 'transactions', 'avg-trans', 'attendees', 'transformation', 'percap'],
+  'widget-bar': ['revenue-per-tpe', 'revenue-per-collaborator', 'margin', 'transaction-rate', 'stock-value'],
+};

@@ -11,6 +11,45 @@ const slot = (over: Record<string, any> = {}) => ({
 const doc = (...slots: any[]) => ({ version: 1, slots });
 const bad = (l: unknown) => expect(() => validateJ1Page2Layout(l)).toThrow(BadRequestException);
 
+const docV2 = (...pages: any[][]) => ({ version: 2, pages: pages.map((slots) => ({ slots })) });
+
+describe('options.items des barres KPI', () => {
+  const bar = (kind: string, items: unknown) => doc(slot({ kind, variant: undefined, options: { items }, filters: {} }));
+  it('accepte des pastilles connues', () => {
+    expect(() => validateJ1Page2Layout(bar('kpi-bar', 'revenue,percap'))).not.toThrow();
+    expect(() => validateJ1Page2Layout(bar('widget-bar', 'margin'))).not.toThrow();
+  });
+  it('refuse une pastille inconnue, un mauvais type ou un autre kind', () => {
+    bad(bar('kpi-bar', 'revenue,nope'));
+    bad(bar('widget-bar', 'revenue'));
+    bad(bar('kpi-bar', 12));
+    bad(doc(slot({ options: { items: 'revenue' } })));
+  });
+});
+
+describe('validateJ1Page2Layout v2 (pages)', () => {
+  it('accepte 1 à 4 pages, même position sur des pages différentes', () => {
+    expect(() => validateJ1Page2Layout(docV2([]))).not.toThrow();
+    expect(() => validateJ1Page2Layout(docV2([slot()], [slot({ id: 's2' })], [], [slot({ id: 's3' })]))).not.toThrow();
+  });
+
+  it('refuse 0 ou 5 pages, une page non objet, des slots absents', () => {
+    bad({ version: 2, pages: [] });
+    bad(docV2([], [], [], [], []));
+    bad({ version: 2, pages: [null] });
+    bad({ version: 2, pages: [{}] });
+  });
+
+  it('refuse un chevauchement dans une page et un id en double entre pages', () => {
+    bad(docV2([slot(), slot({ id: 's2' })]));
+    bad(docV2([slot()], [slot()]));
+  });
+
+  it('limite à 6 éléments par page', () => {
+    bad(docV2(Array.from({ length: 7 }, (_, i) => slot({ id: `s${i}` }))));
+  });
+});
+
 describe('validateJ1Page2Layout', () => {
   it('accepte un layout vide et un layout valide', () => {
     expect(() => validateJ1Page2Layout(doc())).not.toThrow();

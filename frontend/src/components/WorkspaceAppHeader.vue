@@ -39,9 +39,14 @@
         v-for="kpi in kpis"
         :key="kpi.label"
         class="wsh-kpi-cell"
-        :class="{ 'wsh-kpi-cell--clickable': kpi.kind }"
+        :class="{
+          'wsh-kpi-cell--clickable': kpi.kind,
+          'rj1-pick': pick && kpi.kind && !pick.includes(kpi.kind),
+          'rj1-pick rj1-pick--on': pick && kpi.kind && pick.includes(kpi.kind),
+        }"
         :style="kpiVars(kpi.color)"
         role="button"
+        :aria-pressed="pick && kpi.kind ? pick.includes(kpi.kind) : undefined"
         :tabindex="kpi.kind ? 0 : -1"
         @click="kpi.kind && $emit('kpi-click', kpi.kind)"
         @keydown.enter="kpi.kind && $emit('kpi-click', kpi.kind)"
@@ -112,6 +117,9 @@ const props = defineProps({
   // Affiche le sélecteur d'espace dans le header. Off pour les vues qui le
   // portent ailleurs (ex. Logistic : dans le bandeau rouge).
   showSpaceSwitcher: { type: Boolean, default: true },
+  // Mode choix des pastilles du rapport J+1 : null = inactif, sinon les `kind` déjà choisis
+  // (les autres vibrent). Un clic reste émis par `kpi-click` : l'appelant décide quoi en faire.
+  pick: { type: Array, default: null },
 })
 
 defineEmits(['kpi-click'])
